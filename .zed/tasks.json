@@ -1,0 +1,56 @@
+[
+  {
+    "label": "Compile Runtime (Debug)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/debug\" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/debug\" --config Debug --target Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Debug)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/debug\" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/debug\" --config Debug --target run_Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Compile Runtime (Dist)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/dist\" -DCMAKE_BUILD_TYPE=Dist -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/dist\" --config Dist --target Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Dist)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/dist\" -DCMAKE_BUILD_TYPE=Dist -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/dist\" --config Dist --target run_Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Compile Runtime (RelWithDebInfo)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" --config RelWithDebInfo --target Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (RelWithDebInfo)",
+    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" --config RelWithDebInfo --target run_Runtime --parallel",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  }
+]

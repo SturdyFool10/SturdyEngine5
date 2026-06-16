@@ -1,0 +1,47 @@
+# Build directories
+build/
+out/
+
+# CMake generated files and directories
+**/CMakeFiles/
+**/CMakeCache.txt
+**/CMakeConfigureLog.yaml
+**/cmake_install.cmake
+**/install_manifest.txt
+**/CTestTestfile.cmake
+**/CPackConfig.cmake
+**/CPackSourceConfig.cmake
+**/Makefile
+**/build.ninja
+**/.ninja_deps
+**/.ninja_log
+**/Testing/
+
+# CMake FetchContent and external dependency build trees
+**/_deps/
+**/*-build/
+**/*-subbuild/
+**/*-populate-prefix/
+
+# Compiler and linker outputs
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.d
+*.gcda
+*.gcno
+*.gcov
+
+# Runtime dumps and logs
+*.log
+*.dmp
+*.core
+core
