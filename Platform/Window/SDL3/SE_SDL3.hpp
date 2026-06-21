@@ -3,6 +3,8 @@
 #include "../Window.hpp"
 
 #include <atomic>
+#include <deque>
+#include <optional>
 
 struct SDL_Window;
 
@@ -15,12 +17,16 @@ public:
     [[nodiscard]] static WindowExpected<std::unique_ptr<SDL3Window>> construct(ConstructorKey key, const WindowConfig& config) noexcept;
 
     [[nodiscard]] WindowBackendKind backend_kind() const noexcept override;
+    [[nodiscard]] WindowingSystem type() const noexcept override;
     [[nodiscard]] void* native_backend_handle() const noexcept override;
     [[nodiscard]] NativeWindowHandle native_window_handle() const noexcept override;
 
     WindowResult pump_events() noexcept override;
+    [[nodiscard]] std::optional<WindowEvent> poll_event() noexcept override;
     [[nodiscard]] bool close_requested() const noexcept override;
     void request_close() noexcept override;
+    [[nodiscard]] bool resized() const noexcept override;
+    [[nodiscard]] std::optional<WindowResize> consume_resize() noexcept override;
 
     WindowResult show() noexcept override;
     WindowResult hide() noexcept override;
@@ -48,6 +54,8 @@ public:
     WindowResult set_cursor_visible(bool visible) noexcept override;
     WindowResult set_cursor_grabbed(bool grabbed) noexcept override;
     WindowResult set_relative_mouse_mode(bool enabled) noexcept override;
+    WindowResult set_mouse_locked(bool locked) noexcept override;
+    [[nodiscard]] bool mouse_locked() const noexcept override;
 
     [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect effect) noexcept override;
     WindowResult set_effect(WindowEffect effect) noexcept override;
@@ -59,7 +67,12 @@ private:
     SDL3Window(ConstructorKey key, SDL_Window* window) noexcept;
 
     SDL_Window* window_ = nullptr;
+    std::deque<WindowEvent> events_;
+    std::optional<WindowResize> pending_resize_;
+    WindowExtent last_size_ = {};
+    WindowExtent last_framebuffer_size_ = {};
     std::atomic_bool close_requested_ = false;
+    bool mouse_locked_ = false;
 };
 
 } // namespace SFT::Platform::Windowing::SDL3

@@ -6,10 +6,13 @@
 
 #include <SDL3/SDL.h>
 
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <new>
 #include <unordered_map>
+
+import Sturdy.Foundation;
 
 namespace SFT::Platform::Windowing::SDL3 {
 namespace {
@@ -22,9 +25,9 @@ WindowError sdl_error(WindowErrorCode code, const char* fallback) noexcept
 
 [[nodiscard]] bool valid_extent(WindowExtent extent) noexcept
 {
-    return extent.width > 0 && extent.height > 0
-        && extent.width <= static_cast<std::uint32_t>(std::numeric_limits<int>::max())
-        && extent.height <= static_cast<std::uint32_t>(std::numeric_limits<int>::max());
+    return extent.x > 0 && extent.y > 0
+        && extent.x <= static_cast<u32>(std::numeric_limits<i32>::max())
+        && extent.y <= static_cast<u32>(std::numeric_limits<i32>::max());
 }
 
 [[nodiscard]] SDL_WindowFlags window_flags(const WindowConfig& config) noexcept
@@ -64,7 +67,7 @@ WindowResult sdl_bool_result(bool result, WindowErrorCode code, const char* fall
     }
 
     const WindowError error = sdl_error(code, fallback);
-    Detail::window_error("SDL3 operation failed: fallback='{}' message='{}' code={}", fallback, error.message, static_cast<int>(error.code));
+    Detail::window_error("SDL3 operation failed: fallback='{}' message='{}' code={}", fallback, error.message, static_cast<i32>(error.code));
     return std::unexpected(error);
 }
 
@@ -80,9 +83,9 @@ std::unordered_map<SDL_WindowID, SDL3Window*>& sdl_window_registry() noexcept
     return registry;
 }
 
-int& sdl_window_count() noexcept
+i32& sdl_window_count() noexcept
 {
-    static int count = 0;
+    static i32 count = 0;
     return count;
 }
 
@@ -117,6 +120,18 @@ SDL3Window::SDL3Window(ConstructorKey key, SDL_Window* window) noexcept
     : Window(key)
     , window_(window)
 {
+    if (window_) {
+        i32 width = 0;
+        i32 height = 0;
+        if (SDL_GetWindowSize(window_, &width, &height)) {
+            last_size_ = WindowExtent {static_cast<u32>(width), static_cast<u32>(height)};
+        }
+        if (SDL_GetWindowSizeInPixels(window_, &width, &height)) {
+            last_framebuffer_size_ = WindowExtent {static_cast<u32>(width), static_cast<u32>(height)};
+        } else {
+            last_framebuffer_size_ = last_size_;
+        }
+    }
 }
 
 SDL3Window::~SDL3Window() noexcept
@@ -130,7 +145,7 @@ SDL3Window::~SDL3Window() noexcept
         SDL_DestroyWindow(window_);
         window_ = nullptr;
 
-        int& count = sdl_window_count();
+        i32& count = sdl_window_count();
         if (count > 0) {
             --count;
         }
@@ -142,7 +157,7 @@ SDL3Window::~SDL3Window() noexcept
             Detail::window_debug("SDL3 window destroyed while other windows remain: remaining_count={}", count);
         }
     } else {
-        Detail::window_trace("SDL3 window destroy skipped null native pointer: wrapper={}", static_cast<void*>(this));
+        Detail::window_trace("SDL3 window destroy skipped null native poi32er: wrapper={}", static_cast<void*>(this));
     }
 }
 
@@ -153,8 +168,8 @@ WindowExpected<std::unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey
     Detail::window_info(
         "SDL3 window create requested: title='{}' size={}x{} position=({}, {}) default_position={} visible={} resizable={} decorated={} high_dpi={} mode={} graphics_api={}",
         config.title ? config.title : "<null>",
-        config.extent.width,
-        config.extent.height,
+        config.extent.x,
+        config.extent.y,
         config.position.x,
         config.position.y,
         config.use_default_position,
@@ -162,15 +177,15 @@ WindowExpected<std::unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey
         config.resizable,
         config.decorated,
         config.high_dpi,
-        static_cast<int>(config.mode),
-        static_cast<int>(config.graphics_api));
+        static_cast<i32>(config.mode),
+        static_cast<i32>(config.graphics_api));
 
     if (!config.title || !valid_extent(config.extent)) {
         Detail::window_error(
             "SDL3 window create rejected invalid config: title_ptr={} size={}x{}",
             static_cast<const void*>(config.title),
-            config.extent.width,
-            config.extent.height);
+            config.extent.x,
+            config.extent.y);
         return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Invalid SDL3 window configuration."});
     }
 
@@ -185,8 +200,8 @@ WindowExpected<std::unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey
     Detail::window_debug("SDL3 window flags resolved: flags={}", static_cast<unsigned long long>(flags));
     SDL_Window* window = SDL_CreateWindow(
         config.title,
-        static_cast<int>(config.extent.width),
-        static_cast<int>(config.extent.height),
+        static_cast<i32>(config.extent.x),
+        static_cast<i32>(config.extent.y),
         flags);
 
     if (!window) {
@@ -194,8 +209,8 @@ WindowExpected<std::unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey
         Detail::window_error(
             "SDL3_CreateWindow failed: title='{}' size={}x{} flags={} message='{}'",
             config.title,
-            config.extent.width,
-            config.extent.height,
+            config.extent.x,
+            config.extent.y,
             static_cast<unsigned long long>(flags),
             error.message);
         return std::unexpected(error);
@@ -242,6 +257,11 @@ WindowBackendKind SDL3Window::backend_kind() const noexcept
     return WindowBackendKind::SDL3;
 }
 
+WindowingSystem SDL3Window::type() const noexcept
+{
+    return WindowingSystem::SDL3;
+}
+
 void* SDL3Window::native_backend_handle() const noexcept
 {
     const std::lock_guard lock(sdl_window_mutex());
@@ -261,7 +281,7 @@ NativeWindowHandle SDL3Window::native_window_handle() const noexcept
         "SDL3 native window handle queried: wrapper={} native_ptr={} system={} display={} window={}",
         static_cast<const void*>(this),
         static_cast<void*>(window_),
-        static_cast<int>(handle.system),
+        static_cast<i32>(handle.system),
         handle.display,
         handle.window);
     return handle;
@@ -277,8 +297,9 @@ WindowResult SDL3Window::pump_events() noexcept
 
     SDL_Event event;
     const SDL_WindowID window_id = *maybe_window_id;
-    int event_count = 0;
-    int close_event_count = 0;
+    i32 event_count = 0;
+    i32 close_event_count = 0;
+    i32 queued_event_count = 0;
 
     while (SDL_PollEvent(&event)) {
         ++event_count;
@@ -286,6 +307,7 @@ WindowResult SDL3Window::pump_events() noexcept
             for (auto& [registered_id, registered_window] : sdl_window_registry()) {
                 if (registered_window) {
                     registered_window->close_requested_.store(true);
+                    registered_window->events_.push_back(WindowEvent {WindowEventKind::CloseRequested});
                     Detail::window_warn("SDL3 global quit routed to window: target_wrapper={} target_id={}", static_cast<void*>(registered_window), registered_id);
                 }
             }
@@ -294,23 +316,129 @@ WindowResult SDL3Window::pump_events() noexcept
         } else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
             if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) {
                 found->second->close_requested_.store(true);
+                found->second->events_.push_back(WindowEvent {WindowEventKind::CloseRequested});
                 ++close_event_count;
+                ++queued_event_count;
                 Detail::window_warn("SDL3 close requested event routed: pump_wrapper={} target_wrapper={} target_id={}", static_cast<void*>(this), static_cast<void*>(found->second), event.window.windowID);
             } else {
                 Detail::window_warn("SDL3 close requested event had no registered window: pump_wrapper={} target_id={}", static_cast<void*>(this), event.window.windowID);
+            }
+        } else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+            if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) {
+                SDL3Window* target = found->second;
+                const WindowExtent previous_size = target->last_size_;
+                const WindowExtent previous_framebuffer = target->last_framebuffer_size_;
+                WindowEvent window_event {event.type == SDL_EVENT_WINDOW_RESIZED ? WindowEventKind::Resized : WindowEventKind::FramebufferResized};
+
+                if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                    target->last_size_ = WindowExtent {static_cast<u32>(event.window.data1), static_cast<u32>(event.window.data2)};
+                } else {
+                    target->last_framebuffer_size_ = WindowExtent {static_cast<u32>(event.window.data1), static_cast<u32>(event.window.data2)};
+                }
+
+                window_event.resize = WindowResize {
+                    previous_size,
+                    target->last_size_,
+                    target->last_framebuffer_size_,
+                    previous_framebuffer.x != target->last_framebuffer_size_.x || previous_framebuffer.y != target->last_framebuffer_size_.y,
+                };
+                target->pending_resize_ = window_event.resize;
+                target->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
+            if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {WindowEventKind::Moved};
+                window_event.position = WindowPosition {event.window.data1, event.window.data2};
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED || event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_MOUSE_ENTER || event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
+            if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEventKind kind = WindowEventKind::FocusGained;
+                if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                    kind = WindowEventKind::FocusLost;
+                } else if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER) {
+                    kind = WindowEventKind::MouseEntered;
+                } else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
+                    kind = WindowEventKind::MouseLeft;
+                }
+                found->second->events_.push_back(WindowEvent {kind});
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
+            if (auto found = sdl_window_registry().find(event.key.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {event.type == SDL_EVENT_KEY_DOWN ? WindowEventKind::KeyPressed : WindowEventKind::KeyReleased};
+                window_event.keyboard = WindowKeyboardEvent {
+                    static_cast<i32>(event.key.key),
+                    static_cast<i32>(event.key.scancode),
+                    static_cast<u32>(event.key.mod),
+                    event.key.repeat,
+                };
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_TEXT_INPUT) {
+            if (auto found = sdl_window_registry().find(event.text.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {WindowEventKind::TextInput};
+                if (event.text.text) {
+                    std::strncpy(window_event.text.utf8, event.text.text, sizeof(window_event.text.utf8) - 1);
+                }
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            if (auto found = sdl_window_registry().find(event.motion.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {WindowEventKind::MouseMoved};
+                window_event.mouse_move = WindowMouseMoveEvent {
+                    event.motion.x,
+                    event.motion.y,
+                    event.motion.xrel,
+                    event.motion.yrel,
+                    static_cast<u32>(event.motion.state),
+                };
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            if (auto found = sdl_window_registry().find(event.button.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? WindowEventKind::MouseButtonPressed : WindowEventKind::MouseButtonReleased};
+                window_event.mouse_button = WindowMouseButtonEvent {event.button.button, event.button.clicks, event.button.x, event.button.y};
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
+            }
+        } else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+            if (auto found = sdl_window_registry().find(event.wheel.windowID); found != sdl_window_registry().end() && found->second) {
+                WindowEvent window_event {WindowEventKind::MouseWheel};
+                window_event.mouse_wheel = WindowMouseWheelEvent {event.wheel.x, event.wheel.y, event.wheel.mouse_x, event.wheel.mouse_y};
+                found->second->events_.push_back(window_event);
+                ++queued_event_count;
             }
         }
     }
 
     Detail::window_trace(
-        "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} close_events={} close_requested={}",
+        "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} queued_events={} close_events={} close_requested={}",
         static_cast<void*>(this),
         static_cast<void*>(window_),
         window_id,
         event_count,
+        queued_event_count,
         close_event_count,
         close_requested_.load());
     return {};
+}
+
+std::optional<WindowEvent> SDL3Window::poll_event() noexcept
+{
+    const std::lock_guard lock(sdl_window_mutex());
+    if (events_.empty()) {
+        return std::nullopt;
+    }
+
+    WindowEvent event = events_.front();
+    events_.pop_front();
+    return event;
 }
 
 bool SDL3Window::close_requested() const noexcept
@@ -323,7 +451,22 @@ void SDL3Window::request_close() noexcept
     const std::lock_guard lock(sdl_window_mutex());
     close_requested_.store(true);
     const SDL_WindowID id = window_ ? SDL_GetWindowID(window_) : 0;
+    events_.push_back(WindowEvent {WindowEventKind::CloseRequested});
     Detail::window_warn("SDL3 close requested by engine: wrapper={} native_ptr={} id={}", static_cast<void*>(this), static_cast<void*>(window_), id);
+}
+
+bool SDL3Window::resized() const noexcept
+{
+    const std::lock_guard lock(sdl_window_mutex());
+    return pending_resize_.has_value();
+}
+
+std::optional<WindowResize> SDL3Window::consume_resize() noexcept
+{
+    const std::lock_guard lock(sdl_window_mutex());
+    std::optional<WindowResize> resize = pending_resize_;
+    pending_resize_.reset();
+    return resize;
 }
 
 WindowResult SDL3Window::show() noexcept
@@ -417,8 +560,8 @@ WindowExpected<WindowPosition> SDL3Window::position() const noexcept
     if (auto live = require_live_window(window_, "position"); !live) {
         return std::unexpected(live.error());
     }
-    int x = 0;
-    int y = 0;
+    i32 x = 0;
+    i32 y = 0;
 
     if (!SDL_GetWindowPosition(window_, &x, &y)) {
         const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window position failed.");
@@ -446,8 +589,8 @@ WindowExpected<WindowExtent> SDL3Window::size() const noexcept
     if (auto live = require_live_window(window_, "size"); !live) {
         return std::unexpected(live.error());
     }
-    int width = 0;
-    int height = 0;
+    i32 width = 0;
+    i32 height = 0;
 
     if (!SDL_GetWindowSize(window_, &width, &height)) {
         const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window size failed.");
@@ -456,7 +599,7 @@ WindowExpected<WindowExtent> SDL3Window::size() const noexcept
     }
 
     Detail::window_trace("SDL3 get size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), width, height);
-    return WindowExtent {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+    return WindowExtent {static_cast<u32>(width), static_cast<u32>(height)};
 }
 
 WindowResult SDL3Window::set_size(WindowExtent extent) noexcept
@@ -466,13 +609,13 @@ WindowResult SDL3Window::set_size(WindowExtent extent) noexcept
         return live;
     }
     if (!valid_extent(extent)) {
-        Detail::window_error("SDL3 set size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
-        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Window size must be positive and fit in an int."});
+        Detail::window_error("SDL3 set size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Window size must be positive and fit in an i32."});
     }
 
-    Detail::window_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
+    Detail::window_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
     return sdl_bool_result(
-        SDL_SetWindowSize(window_, static_cast<int>(extent.width), static_cast<int>(extent.height)),
+        SDL_SetWindowSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
         WindowErrorCode::OperationFailed,
         "SDL3 set window size failed.");
 }
@@ -483,8 +626,8 @@ WindowExpected<WindowExtent> SDL3Window::framebuffer_size() const noexcept
     if (auto live = require_live_window(window_, "framebuffer_size"); !live) {
         return std::unexpected(live.error());
     }
-    int width = 0;
-    int height = 0;
+    i32 width = 0;
+    i32 height = 0;
 
     if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) {
         const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get framebuffer size failed.");
@@ -493,7 +636,7 @@ WindowExpected<WindowExtent> SDL3Window::framebuffer_size() const noexcept
     }
 
     Detail::window_trace("SDL3 get framebuffer size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), width, height);
-    return WindowExtent {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+    return WindowExtent {static_cast<u32>(width), static_cast<u32>(height)};
 }
 
 WindowResult SDL3Window::set_minimum_size(WindowExtent extent) noexcept
@@ -503,13 +646,13 @@ WindowResult SDL3Window::set_minimum_size(WindowExtent extent) noexcept
         return live;
     }
     if (!valid_extent(extent)) {
-        Detail::window_error("SDL3 set minimum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
-        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Minimum size must be positive and fit in an int."});
+        Detail::window_error("SDL3 set minimum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Minimum size must be positive and fit in an i32."});
     }
 
-    Detail::window_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
+    Detail::window_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
     return sdl_bool_result(
-        SDL_SetWindowMinimumSize(window_, static_cast<int>(extent.width), static_cast<int>(extent.height)),
+        SDL_SetWindowMinimumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
         WindowErrorCode::OperationFailed,
         "SDL3 set minimum size failed.");
 }
@@ -521,13 +664,13 @@ WindowResult SDL3Window::set_maximum_size(WindowExtent extent) noexcept
         return live;
     }
     if (!valid_extent(extent)) {
-        Detail::window_error("SDL3 set maximum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
-        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Maximum size must be positive and fit in an int."});
+        Detail::window_error("SDL3 set maximum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        return std::unexpected(WindowError {WindowErrorCode::InvalidArgument, "Maximum size must be positive and fit in an i32."});
     }
 
-    Detail::window_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.width, extent.height);
+    Detail::window_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
     return sdl_bool_result(
-        SDL_SetWindowMaximumSize(window_, static_cast<int>(extent.width), static_cast<int>(extent.height)),
+        SDL_SetWindowMaximumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
         WindowErrorCode::OperationFailed,
         "SDL3 set maximum size failed.");
 }
@@ -558,7 +701,7 @@ WindowResult SDL3Window::set_fullscreen(WindowMode mode) noexcept
     if (auto live = require_live_window(window_, "set_fullscreen"); !live) {
         return live;
     }
-    Detail::window_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), static_cast<int>(mode));
+    Detail::window_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
     return sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed), WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
 }
 
@@ -623,11 +766,40 @@ WindowResult SDL3Window::set_relative_mouse_mode(bool enabled) noexcept
     return sdl_bool_result(SDL_SetWindowRelativeMouseMode(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set relative mouse mode failed.");
 }
 
+WindowResult SDL3Window::set_mouse_locked(bool locked) noexcept
+{
+    const std::lock_guard lock(sdl_window_mutex());
+    if (auto live = require_live_window(window_, "set_mouse_locked"); !live) {
+        return live;
+    }
+
+    Detail::window_debug("SDL3 set mouse locked: wrapper={} native_ptr={} id={} locked={}", static_cast<void*>(this), static_cast<void*>(window_), SDL_GetWindowID(window_), locked);
+    if (auto result = sdl_bool_result(SDL_SetWindowMouseGrab(window_, locked), WindowErrorCode::OperationFailed, "SDL3 set mouse grab failed."); !result) {
+        return result;
+    }
+    if (auto result = sdl_bool_result(SDL_SetWindowRelativeMouseMode(window_, locked), WindowErrorCode::OperationFailed, "SDL3 set relative mouse mode failed."); !result) {
+        return result;
+    }
+    if (auto result = sdl_bool_result(locked ? SDL_HideCursor() : SDL_ShowCursor(), WindowErrorCode::OperationFailed, "SDL3 set cursor visibility failed."); !result) {
+        return result;
+    }
+
+    mouse_locked_ = locked;
+    events_.push_back(WindowEvent {locked ? WindowEventKind::MouseLocked : WindowEventKind::MouseUnlocked});
+    return {};
+}
+
+bool SDL3Window::mouse_locked() const noexcept
+{
+    const std::lock_guard lock(sdl_window_mutex());
+    return mouse_locked_;
+}
+
 WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept
 {
     const std::lock_guard lock(sdl_window_mutex());
     if (!window_) {
-        Detail::window_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void*>(this), static_cast<int>(effect.kind));
+        Detail::window_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void*>(this), static_cast<i32>(effect.kind));
         return WindowEffectResult::failed("SDL3 window has already been destroyed.");
     }
     Detail::window_info(
@@ -635,10 +807,10 @@ WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcep
         static_cast<void*>(this),
         static_cast<void*>(window_),
         SDL_GetWindowID(window_),
-        static_cast<int>(effect.kind),
+        static_cast<i32>(effect.kind),
         effect.enabled,
         effect.color_argb,
-        static_cast<int>(effect.linux_blur_protocol));
+        static_cast<i32>(effect.linux_blur_protocol));
     return enable_native_window_effect(native_window_handle(), effect);
 }
 

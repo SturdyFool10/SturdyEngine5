@@ -3,8 +3,10 @@
 #include <concepts>
 #include <cstdint>
 #include <expected>
+#include <glm/vec2.hpp>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -12,6 +14,12 @@
 namespace SFT::Platform::Windowing {
 
 enum class WindowBackendKind {
+    SDL3,
+    GLFW,
+};
+
+enum class WindowingSystem {
+    Unknown,
     SDL3,
     GLFW,
 };
@@ -65,14 +73,78 @@ using WindowResult = std::expected<void, WindowError>;
 template <typename Value>
 using WindowExpected = std::expected<Value, WindowError>;
 
-struct WindowExtent {
-    std::uint32_t width = 1280;
-    std::uint32_t height = 720;
+using WindowExtent = glm::u32vec2;
+using WindowPosition = glm::i32vec2;
+
+struct WindowResize {
+    WindowExtent previous = {};
+    WindowExtent current = {};
+    WindowExtent framebuffer = {};
+    bool framebuffer_changed = false;
 };
 
-struct WindowPosition {
-    std::int32_t x = 0;
-    std::int32_t y = 0;
+enum class WindowEventKind {
+    CloseRequested,
+    Moved,
+    Resized,
+    FramebufferResized,
+    FocusGained,
+    FocusLost,
+    MouseEntered,
+    MouseLeft,
+    KeyPressed,
+    KeyReleased,
+    TextInput,
+    MouseMoved,
+    MouseButtonPressed,
+    MouseButtonReleased,
+    MouseWheel,
+    MouseLocked,
+    MouseUnlocked,
+};
+
+struct WindowKeyboardEvent {
+    std::int32_t key = 0;
+    std::int32_t scancode = 0;
+    std::uint32_t modifiers = 0;
+    bool repeat = false;
+};
+
+struct WindowTextInputEvent {
+    char utf8[32] = {};
+};
+
+struct WindowMouseMoveEvent {
+    float x = 0.0F;
+    float y = 0.0F;
+    float delta_x = 0.0F;
+    float delta_y = 0.0F;
+    std::uint32_t buttons = 0;
+};
+
+struct WindowMouseButtonEvent {
+    std::uint8_t button = 0;
+    std::uint8_t clicks = 1;
+    float x = 0.0F;
+    float y = 0.0F;
+};
+
+struct WindowMouseWheelEvent {
+    float x = 0.0F;
+    float y = 0.0F;
+    float mouse_x = 0.0F;
+    float mouse_y = 0.0F;
+};
+
+struct WindowEvent {
+    WindowEventKind kind = WindowEventKind::CloseRequested;
+    WindowPosition position = {};
+    WindowResize resize = {};
+    WindowKeyboardEvent keyboard = {};
+    WindowTextInputEvent text = {};
+    WindowMouseMoveEvent mouse_move = {};
+    WindowMouseButtonEvent mouse_button = {};
+    WindowMouseWheelEvent mouse_wheel = {};
 };
 
 enum class WindowMode {
@@ -228,8 +300,8 @@ struct WindowEffectResult {
 
 struct WindowConfig {
     const char* title = "Sturdy Engine";
-    WindowExtent extent = {};
-    WindowPosition position = {};
+    WindowExtent extent = {1280, 720};
+    WindowPosition position = {0, 0};
     bool use_default_position = true;
     bool visible = true;
     bool resizable = true;
@@ -275,12 +347,16 @@ public:
     }
 
     [[nodiscard]] virtual WindowBackendKind backend_kind() const noexcept = 0;
+    [[nodiscard]] virtual WindowingSystem type() const noexcept = 0;
     [[nodiscard]] virtual void* native_backend_handle() const noexcept = 0;
     [[nodiscard]] virtual NativeWindowHandle native_window_handle() const noexcept = 0;
 
     virtual WindowResult pump_events() noexcept = 0;
+    [[nodiscard]] virtual std::optional<WindowEvent> poll_event() noexcept = 0;
     [[nodiscard]] virtual bool close_requested() const noexcept = 0;
     virtual void request_close() noexcept = 0;
+    [[nodiscard]] virtual bool resized() const noexcept = 0;
+    [[nodiscard]] virtual std::optional<WindowResize> consume_resize() noexcept = 0;
 
     virtual WindowResult show() noexcept = 0;
     virtual WindowResult hide() noexcept = 0;
@@ -308,6 +384,18 @@ public:
     virtual WindowResult set_cursor_visible(bool visible) noexcept = 0;
     virtual WindowResult set_cursor_grabbed(bool grabbed) noexcept = 0;
     virtual WindowResult set_relative_mouse_mode(bool enabled) noexcept = 0;
+    virtual WindowResult set_mouse_locked(bool locked) noexcept = 0;
+    [[nodiscard]] virtual bool mouse_locked() const noexcept = 0;
+
+    WindowResult lock_mouse_to_window() noexcept
+    {
+        return set_mouse_locked(true);
+    }
+
+    WindowResult unlock_mouse() noexcept
+    {
+        return set_mouse_locked(false);
+    }
 
     [[nodiscard]] WindowEffectResult enableWindowEffect(WindowEffect effect) noexcept
     {

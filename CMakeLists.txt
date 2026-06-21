@@ -1,4 +1,27 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.28)
+
+if(NOT CMAKE_GENERATOR MATCHES "^Ninja")
+    message(FATAL_ERROR
+        "SturdyEngine5 uses C++ module file sets and requires the Ninja generator for "
+        "module dependency scanning plus compile_commands.json export. Configure with "
+        "`cmake --preset ninja-relwithdebinfo`, `cmake --preset ninja-debug`, or "
+        "`cmake --preset ninja-dist`."
+    )
+endif()
+
+if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
+    find_program(STURDY_CLANG_C_COMPILER NAMES clang)
+    if(STURDY_CLANG_C_COMPILER)
+        set(CMAKE_C_COMPILER "${STURDY_CLANG_C_COMPILER}" CACHE FILEPATH "C compiler" FORCE)
+    endif()
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX})
+    find_program(STURDY_CLANG_CXX_COMPILER NAMES clang++)
+    if(STURDY_CLANG_CXX_COMPILER)
+        set(CMAKE_CXX_COMPILER "${STURDY_CLANG_CXX_COMPILER}" CACHE FILEPATH "C++ compiler" FORCE)
+    endif()
+endif()
 
 project(SturdyEngine5
     VERSION 0.1.0

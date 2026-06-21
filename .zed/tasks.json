@@ -1,7 +1,34 @@
 [
   {
+    "label": "view project as debug",
+    "command": "cmake --preset ninja-debug && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/debug#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "view project as dist",
+    "command": "cmake --preset ninja-dist && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/dist#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "view project as relwithdebinfo",
+    "command": "cmake --preset ninja-relwithdebinfo && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/relwithdebinfo#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
     "label": "Compile Runtime (Debug)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/debug\" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/debug\" --config Debug --target Runtime --parallel",
+    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -10,7 +37,7 @@
   },
   {
     "label": "Run Runtime (Debug)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/debug\" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/debug\" --config Debug --target run_Runtime --parallel",
+    "command": "cmake --preset ninja-debug && cmake --build --preset run-runtime-debug --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -19,7 +46,7 @@
   },
   {
     "label": "Compile Runtime (Dist)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/dist\" -DCMAKE_BUILD_TYPE=Dist -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/dist\" --config Dist --target Runtime --parallel",
+    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -28,7 +55,7 @@
   },
   {
     "label": "Run Runtime (Dist)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/dist\" -DCMAKE_BUILD_TYPE=Dist -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/dist\" --config Dist --target run_Runtime --parallel",
+    "command": "cmake --preset ninja-dist && cmake --build --preset run-runtime-dist --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -37,7 +64,7 @@
   },
   {
     "label": "Compile Runtime (RelWithDebInfo)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" --config RelWithDebInfo --target Runtime --parallel",
+    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -46,7 +73,7 @@
   },
   {
     "label": "Run Runtime (RelWithDebInfo)",
-    "command": "cmake -S \"$ZED_WORKTREE_ROOT\" -B \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && cmake --build \"$ZED_WORKTREE_ROOT/build/relwithdebinfo\" --config RelWithDebInfo --target run_Runtime --parallel",
+    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset run-runtime-relwithdebinfo --parallel",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",

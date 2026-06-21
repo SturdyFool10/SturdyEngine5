@@ -1,0 +1,79 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "ninja-debug",
+      "displayName": "Ninja Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ninja/debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "ninja-relwithdebinfo",
+      "displayName": "Ninja RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ninja/relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "ninja-dist",
+      "displayName": "Ninja Dist",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ninja/dist",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Dist",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "runtime-debug",
+      "displayName": "Runtime Debug",
+      "configurePreset": "ninja-debug",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-relwithdebinfo",
+      "displayName": "Runtime RelWithDebInfo",
+      "configurePreset": "ninja-relwithdebinfo",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-dist",
+      "displayName": "Runtime Dist",
+      "configurePreset": "ninja-dist",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "run-runtime-debug",
+      "displayName": "Run Runtime Debug",
+      "configurePreset": "ninja-debug",
+      "targets": ["run_Runtime"]
+    },
+    {
+      "name": "run-runtime-relwithdebinfo",
+      "displayName": "Run Runtime RelWithDebInfo",
+      "configurePreset": "ninja-relwithdebinfo",
+      "targets": ["run_Runtime"]
+    },
+    {
+      "name": "run-runtime-dist",
+      "displayName": "Run Runtime Dist",
+      "configurePreset": "ninja-dist",
+      "targets": ["run_Runtime"]
+    }
+  ]
+}

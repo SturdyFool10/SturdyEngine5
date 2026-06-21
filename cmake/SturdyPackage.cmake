@@ -5,6 +5,7 @@ function(sturdy_add_package package_name)
     set(one_value_args)
     set(multi_value_args
         SOURCES
+        MODULES
         PUBLIC_DEPS
         PRIVATE_DEPS
         DEBUG_PUBLIC_DEPS
@@ -47,7 +48,12 @@ function(sturdy_add_package package_name)
         "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hxx"
     )
+    file(GLOB_RECURSE _all_modules CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/*.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/*.cppm"
+    )
     list(APPEND _all_sources ${_root_sources} ${STURDY_PACKAGE_SOURCES})
+    list(APPEND _all_modules ${STURDY_PACKAGE_MODULES})
 
     set(_compile_sources)
     foreach(_source IN LISTS _all_sources)
@@ -56,7 +62,7 @@ function(sturdy_add_package package_name)
         endif()
     endforeach()
 
-    if(_compile_sources)
+    if(_compile_sources OR _all_modules)
         if(STURDY_PACKAGE_EXECUTABLE)
             add_executable("${package_name}" ${_all_sources})
         elseif(STURDY_BUILD_SHARED_LIBS)
@@ -67,12 +73,22 @@ function(sturdy_add_package package_name)
 
         set_target_properties("${package_name}" PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+            CXX_SCAN_FOR_MODULES ON
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
 
+        if(_all_modules)
+            target_sources("${package_name}"
+                PUBLIC
+                    FILE_SET sturdy_cxx_modules TYPE CXX_MODULES FILES
+                        ${_all_modules}
+            )
+        endif()
+
         target_include_directories("${package_name}"
             PUBLIC
+                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
                 "$<INSTALL_INTERFACE:include>"
             PRIVATE
@@ -83,6 +99,7 @@ function(sturdy_add_package package_name)
         add_library("${package_name}" INTERFACE)
         target_include_directories("${package_name}"
             INTERFACE
+                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
                 "$<INSTALL_INTERFACE:include>"
         )

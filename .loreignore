@@ -1,5 +1,11 @@
-# Version-control metadata
+# Lore metadata
 .lore/
+
+# Git metadata
+.git/
+
+# Agent coordination metadata
+agent_collaboration.md
 
 # Build directories
 build/
@@ -47,4 +53,3 @@ out/
 *.log
 *.dmp
 *.core
-core

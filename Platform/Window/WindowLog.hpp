@@ -1,6 +1,6 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
+#include "Foundation/Log.hpp"
 
 #include <utility>
 
@@ -9,10 +9,7 @@ namespace SFT::Platform::Windowing::Detail {
 template <typename... Args>
 void window_log(spdlog::level::level_enum level, spdlog::format_string_t<Args...> format, Args&&... args) noexcept
 {
-    try {
-        spdlog::log(level, format, std::forward<Args>(args)...);
-    } catch (...) {
-    }
+    Foundation::log(level, format, std::forward<Args>(args)...);
 }
 
 template <typename... Args>
