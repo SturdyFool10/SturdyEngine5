@@ -20,7 +20,7 @@ namespace SFT::Engine {
         config.graphics_api = WindowGraphicsApi::Vulkan;
 
         // SDL3 is the default windowing backend (broad platform reach + robust Vulkan surface
-        // creation). GLFW remains available — this is the one line that selects the backend.
+        // creation). GLFW remains available - this is the one line that selects the backend.
         auto window = Window::create<SDL3::SDL3Window>(config);
         if (!window) {
             Foundation::log_error("Failed to create window: " + window.error().message);
@@ -28,10 +28,12 @@ namespace SFT::Engine {
         }
         window_ = std::move(*window);
 
-        if (auto result = engine_.initialize(*window_); !result) {
-            Foundation::log_error("Failed to initialize engine: " + result.error().message);
+        auto surface = engine_.initialize(*window_);
+        if (!surface) {
+            Foundation::log_error("Failed to initialize engine: " + surface.error().message);
             return false;
         }
+        surface_ = *surface;
 
         return true;
     }
@@ -39,7 +41,7 @@ namespace SFT::Engine {
     void Application::run() {
         using namespace Platform::Windowing;
 
-        if (!window_) {
+        if (!window_ || !surface_) {
             return;
         }
 
@@ -60,7 +62,7 @@ namespace SFT::Engine {
 
             // Forward the latest framebuffer size to the renderer (handles resize + DPI changes).
             if (auto resize = window_->consume_resize()) {
-                engine_.on_resize(Core::Extent2D{resize->framebuffer.x, resize->framebuffer.y});
+                engine_.on_resize(*surface_, Core::Extent2D{resize->framebuffer.x, resize->framebuffer.y});
             }
 
             if (close_requested) {
@@ -80,7 +82,7 @@ namespace SFT::Engine {
                 continue;
             }
 
-            if (auto result = engine_.render(Core::FrameInput{delta_seconds, frame_index}); !result) {
+            if (auto result = engine_.render(*surface_, Core::FrameInput{delta_seconds, frame_index}); !result) {
                 Foundation::log_error("Render error: " + result.error().message);
                 break;
             }

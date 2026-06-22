@@ -12,6 +12,7 @@ function(sturdy_add_package package_name)
         DEBUG_PRIVATE_DEPS
         PUBLIC_DEFINES
         PRIVATE_DEFINES
+        EXCLUDE_SOURCE_DIRS
     )
     cmake_parse_arguments(STURDY_PACKAGE
         "${options}"
@@ -24,7 +25,7 @@ function(sturdy_add_package package_name)
         message(FATAL_ERROR "Unknown sturdy_add_package arguments for ${package_name}: ${STURDY_PACKAGE_UNPARSED_ARGUMENTS}")
     endif()
 
-    file(GLOB _root_sources CONFIGURE_DEPENDS
+    file(GLOB_RECURSE _auto_sources CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
@@ -34,26 +35,51 @@ function(sturdy_add_package package_name)
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hxx"
     )
-    file(GLOB_RECURSE _all_sources CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cxx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.hh"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.hxx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hh"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hxx"
-    )
-    file(GLOB_RECURSE _all_modules CONFIGURE_DEPENDS
+    file(GLOB_RECURSE _auto_modules CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cppm"
     )
-    list(APPEND _all_sources ${_root_sources} ${STURDY_PACKAGE_SOURCES})
-    list(APPEND _all_modules ${STURDY_PACKAGE_MODULES})
+
+    foreach(_source_list _auto_sources _auto_modules)
+        set(_filtered_sources)
+        foreach(_source IN LISTS ${_source_list})
+            file(RELATIVE_PATH _source_relative "${CMAKE_CURRENT_SOURCE_DIR}" "${_source}")
+            file(TO_CMAKE_PATH "${_source_relative}" _source_relative)
+
+            set(_excluded FALSE)
+            foreach(_exclude_dir IN LISTS STURDY_PACKAGE_EXCLUDE_SOURCE_DIRS)
+                if(IS_ABSOLUTE "${_exclude_dir}")
+                    file(RELATIVE_PATH _exclude_relative "${CMAKE_CURRENT_SOURCE_DIR}" "${_exclude_dir}")
+                else()
+                    set(_exclude_relative "${_exclude_dir}")
+                endif()
+
+                file(TO_CMAKE_PATH "${_exclude_relative}" _exclude_relative)
+                string(REGEX REPLACE "^\\./" "" _exclude_relative "${_exclude_relative}")
+                string(REGEX REPLACE "/$" "" _exclude_relative "${_exclude_relative}")
+                if(_exclude_relative STREQUAL "")
+                    continue()
+                endif()
+
+                set(_exclude_prefix "${_exclude_relative}/")
+                string(FIND "${_source_relative}" "${_exclude_prefix}" _exclude_prefix_index)
+                if(_source_relative STREQUAL _exclude_relative OR _exclude_prefix_index EQUAL 0)
+                    set(_excluded TRUE)
+                    break()
+                endif()
+            endforeach()
+
+            if(NOT _excluded)
+                list(APPEND _filtered_sources "${_source}")
+            endif()
+        endforeach()
+        set(${_source_list} ${_filtered_sources})
+    endforeach()
+
+    set(_all_sources ${_auto_sources} ${STURDY_PACKAGE_SOURCES})
+    set(_all_modules ${_auto_modules} ${STURDY_PACKAGE_MODULES})
+    list(REMOVE_DUPLICATES _all_sources)
+    list(REMOVE_DUPLICATES _all_modules)
 
     set(_compile_sources)
     foreach(_source IN LISTS _all_sources)

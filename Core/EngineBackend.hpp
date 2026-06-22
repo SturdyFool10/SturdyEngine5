@@ -10,7 +10,7 @@ namespace SFT::Core {
 
     // The renderer abstraction seam. Every graphics API (Vulkan today; Metal, WebGPU later) is a
     // subclass. The glue (Engine) speaks only this interface and the API-agnostic types in
-    // Renderer.hpp / RenderSurface.hpp — no Vulkan ever leaks upward. The backend owns ALL
+    // Renderer.hpp / RenderSurface.hpp - no Vulkan ever leaks upward. The backend owns ALL
     // graphics state: device, swapchain, frame pacing, the render graph, and its own threading.
     class EngineBackend {
       protected:
@@ -31,23 +31,24 @@ namespace SFT::Core {
         EngineBackend &operator=(EngineBackend &&) = delete;
 
         // --- Renderer interface (API-agnostic) -----------------------------------------
-        // Bring up the window-independent API core: instance/device/queues/allocator. No
-        // surface exists yet at this point, so this takes no parameters. Capabilities become
-        // valid once this returns.
-        virtual RendererResult initialize() = 0;
-        // Bind the renderer to a concrete window surface and build the swapchain. Called after
-        // initialize(), once the platform window/surface is available. Separate from
-        // initialize() because device bring-up does not depend on (and precedes) the surface.
-        virtual RendererResult bind_surface(const RendererInit &init) = 0;
+        // Bring up backend-global graphics state: instance/device/queues/allocator. A backend may
+        // use the initial surface provider/system to enable the right window-system extensions.
+        virtual RendererResult initialize(const RendererCreateInfo &init) = 0;
+        // Create/destroy one backend-owned present surface. Each surface owns its own API surface,
+        // swapchain and swapchain-dependent resources; the window remains owned by Platform.
+        virtual RendererExpected<RenderSurfaceHandle> create_surface(const RenderSurfaceCreateInfo &init) = 0;
+        virtual RendererResult destroy_surface(RenderSurfaceHandle surface) = 0;
+        // Resize only recreates swapchain-dependent resources. Recreate is for a changed/lost
+        // native window surface and may rebuild the API surface itself while keeping the handle.
+        virtual RendererResult resize_surface(RenderSurfaceHandle surface, Extent2D extent) = 0;
+        virtual RendererResult recreate_surface(RenderSurfaceHandle surface, const RenderSurfaceCreateInfo &init) = 0;
         // What this backend can actually do (queried after initialize()).
         [[nodiscard]] virtual RendererCapabilities capabilities() const = 0;
-        // Render and present one frame. The backend owns acquire/record/submit/present and
+        // Render and present one frame to the selected surface. The backend owns acquire/record/submit/present and
         // (eventually) its own worker threads and render-graph passes.
-        virtual RendererResult render_frame(const FrameInput &frame) = 0;
-        // The framebuffer changed size (or the swapchain went out of date). A zero extent
-        // (minimized) is valid and pauses presentation.
-        virtual RendererResult on_resize(Extent2D extent) = 0;
+        virtual RendererResult render_frame(RenderSurfaceHandle surface, const FrameInput &frame) = 0;
         // Block until the device is idle (safe teardown / pre-resize).
+        virtual void wait_idle(RenderSurfaceHandle surface) noexcept = 0;
         virtual void wait_idle() noexcept = 0;
         // --------------------------------------------------------------------------------
 

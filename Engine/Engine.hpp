@@ -5,6 +5,7 @@
 #include "Platform/Window/Window.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace SFT::Engine {
 
@@ -25,21 +26,28 @@ namespace SFT::Engine {
         Engine(const Engine &) = delete;
         Engine &operator=(const Engine &) = delete;
 
-        // Bring the renderer up against the given window. Reads the window's native handle +
-        // framebuffer size and hands them to the backend. Call once after the window exists.
-        Core::RendererResult initialize(Platform::Windowing::Window &window, const EngineConfig &config = {});
+        // Bring the renderer up using the first window's surface profile, then create and return
+        // the first backend-owned render surface. Additional windows can call create_surface().
+        Core::RendererExpected<Core::RenderSurfaceHandle> initialize(Platform::Windowing::Window &window, const EngineConfig &config = {});
 
-        void on_resize(Core::Extent2D extent);
-        Core::RendererResult render(const Core::FrameInput &frame);
+        Core::RendererExpected<Core::RenderSurfaceHandle> create_surface(Platform::Windowing::Window &window, u32 desired_frames_in_flight = 0);
+        Core::RendererResult destroy_surface(Core::RenderSurfaceHandle surface);
+        Core::RendererResult recreate_surface(Core::RenderSurfaceHandle surface, Platform::Windowing::Window &window, u32 desired_frames_in_flight = 0);
+
+        void on_resize(Core::RenderSurfaceHandle surface, Core::Extent2D extent);
+        Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
 
+        void wait_idle(Core::RenderSurfaceHandle surface) noexcept;
         void wait_idle() noexcept;
 
       private:
         std::unique_ptr<Core::EngineBackend> renderer_backend_;
-        Platform::Windowing::Window *window_ = nullptr; // non-owning; owned by Application
+        std::vector<Core::RenderSurfaceHandle> surfaces_;
         Core::RendererCapabilities capabilities_{};
+        EngineConfig config_{};
+        bool initialized_ = false;
     };
 
 } // namespace SFT::Engine

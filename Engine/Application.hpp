@@ -4,6 +4,7 @@
 #include "Platform/Window/Window.hpp"
 
 #include <memory>
+#include <optional>
 
 namespace SFT::Engine {
 
@@ -20,6 +21,7 @@ namespace SFT::Engine {
 
       private:
         std::unique_ptr<Platform::Windowing::Window> window_;
+        std::optional<Core::RenderSurfaceHandle> surface_;
         Engine engine_;
     };
 

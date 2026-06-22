@@ -48,19 +48,26 @@ namespace SFT::Core {
         u32 max_frames_in_flight = 2;
     };
 
-    // What the engine asks for. The backend grants what it can and reports the truth via
-    // RendererCapabilities (requesting raytracing does not guarantee it).
+    // What the engine asks for globally. The backend grants what it can and reports the truth via
+    // RendererCapabilities (requesting raytracing does not guarantee it). desired_frames_in_flight
+    // is also used as the default for new surfaces unless a surface overrides it.
     struct RendererFeatureRequest {
         b8 raytracing = false;
         b8 prefer_async_compute = false;
         u32 desired_frames_in_flight = 2;
     };
 
-    struct RendererInit {
-        RenderSurfaceDescriptor surface{};
-        Extent2D framebuffer_extent{};
+    struct RendererCreateInfo {
         RendererFeatureRequest features{};
         const char *app_name = "SturdyEngine";
+        SurfaceProvider initial_surface_provider = SurfaceProvider::Unknown;
+        SurfaceSystem initial_surface_system = SurfaceSystem::Unknown;
+    };
+
+    struct RenderSurfaceCreateInfo {
+        RenderSurfaceDescriptor descriptor{};
+        Extent2D framebuffer_extent{};
+        u32 desired_frames_in_flight = 2;
     };
 
     // Per-frame input handed from the glue to the backend. Grows into camera/scene/render-list
