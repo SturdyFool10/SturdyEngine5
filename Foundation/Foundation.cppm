@@ -1,13 +1,25 @@
 module;
 
+#include "Foundation/Concepts.hpp"
 #include "Foundation/Constants.hpp"
 #include "Foundation/Log.hpp"
 #include "Foundation/Math.hpp"
+#include "Foundation/Memory.hpp"
+#include "Foundation/NumericConcepts.hpp"
 #include "Foundation/Types.hpp"
 #include "Foundation/Wide.hpp"
 #include "Foundation/WideTraits.hpp"
 
 export module Sturdy.Foundation;
+
+namespace SFT::Foundation::Detail {
+
+    [[maybe_unused]] const bool memory_initialized = []() noexcept {
+        Memory::initialize();
+        return true;
+    }();
+
+} // namespace SFT::Foundation::Detail
 
 namespace SFT::Foundation {
     export using ::SFT::Foundation::b8;
@@ -29,6 +41,34 @@ namespace SFT::Foundation {
     export using ::SFT::Foundation::u64;
     export using ::SFT::Foundation::u8;
     export using ::SFT::Foundation::usize;
+
+    // Public concepts (Concepts.hpp / NumericConcepts.hpp).
+    export using ::SFT::Foundation::AssignableFrom;
+    export using ::SFT::Foundation::Boolean;
+    export using ::SFT::Foundation::ConstructibleFrom;
+    export using ::SFT::Foundation::CopyConstructible;
+    export using ::SFT::Foundation::Copyable;
+    export using ::SFT::Foundation::DefaultConstructible;
+    export using ::SFT::Foundation::Destructible;
+    export using ::SFT::Foundation::Enum;
+    export using ::SFT::Foundation::EqualityComparable;
+    export using ::SFT::Foundation::EqualityComparableWith;
+    export using ::SFT::Foundation::Float;
+    export using ::SFT::Foundation::Hashable;
+    export using ::SFT::Foundation::Integer;
+    export using ::SFT::Foundation::Movable;
+    export using ::SFT::Foundation::MoveConstructible;
+    export using ::SFT::Foundation::Number;
+    export using ::SFT::Foundation::Object;
+    export using ::SFT::Foundation::Regular;
+    export using ::SFT::Foundation::Semiregular;
+    export using ::SFT::Foundation::Swappable;
+    export using ::SFT::Foundation::SwappableWith;
+    export using ::SFT::Foundation::ThreeWayComparable;
+    export using ::SFT::Foundation::ThreeWayComparableWith;
+    export using ::SFT::Foundation::TotallyOrdered;
+    export using ::SFT::Foundation::TotallyOrderedWith;
+    export using ::SFT::Foundation::UnsignedInteger;
 
     // Wide numeric types (Wide.hpp).
     export using ::SFT::Foundation::f128;
@@ -126,6 +166,28 @@ namespace SFT::Foundation {
     export using ::SFT::Foundation::zero;
 } // namespace SFT::Foundation
 
+namespace SFT::Foundation::Literals {
+    // Wide numeric literals (Wide.hpp). Opt in per scope with `using namespace
+    // SFT::Foundation::Literals;` to write u128/i128/u256/i256/f128/f256 values inline.
+    export using ::SFT::Foundation::Literals::operator""_f128;
+    export using ::SFT::Foundation::Literals::operator""_f256;
+    export using ::SFT::Foundation::Literals::operator""_i128;
+    export using ::SFT::Foundation::Literals::operator""_i256;
+    export using ::SFT::Foundation::Literals::operator""_u128;
+    export using ::SFT::Foundation::Literals::operator""_u256;
+
+    //literals for normal numbers
+    export using ::SFT::Foundation::Literals::operator""_f64;
+    export using ::SFT::Foundation::Literals::operator""_i64;
+    export using ::SFT::Foundation::Literals::operator""_u64;
+    export using ::SFT::Foundation::Literals::operator""_f32;
+    export using ::SFT::Foundation::Literals::operator""_i32;
+    export using ::SFT::Foundation::Literals::operator""_u32;
+    export using ::SFT::Foundation::Literals::operator""_f16;
+    export using ::SFT::Foundation::Literals::operator""_i16;
+    export using ::SFT::Foundation::Literals::operator""_u16;
+} // namespace SFT::Foundation::Literals
+
 namespace SFT {
     export using ::SFT::b8;
     export using ::SFT::byte;
@@ -149,3 +211,33 @@ namespace SFT {
     export using ::SFT::u128;
     export using ::SFT::u256;
 } // namespace SFT
+
+namespace SFT::Foundation::Memory {
+    // Thin mimalloc wrapper (Memory.hpp). Foundation initializes mimalloc as the module is loaded;
+    // these exports expose the explicit allocator hooks for subsystems that want them.
+    export using ::SFT::Foundation::Memory::ByteFormatOptions;
+    export using ::SFT::Foundation::Memory::ByteUnit;
+    export using ::SFT::Foundation::Memory::HeapUsage;
+    export using ::SFT::Foundation::Memory::allocate;
+    export using ::SFT::Foundation::Memory::allocate_aligned;
+    export using ::SFT::Foundation::Memory::allocate_zeroed;
+    export using ::SFT::Foundation::Memory::allocate_zeroed_aligned;
+    export using ::SFT::Foundation::Memory::collect;
+    export using ::SFT::Foundation::Memory::bytes_as;
+    export using ::SFT::Foundation::Memory::deallocate;
+    export using ::SFT::Foundation::Memory::format_bytes;
+    export using ::SFT::Foundation::Memory::format_heap_bytes;
+    export using ::SFT::Foundation::Memory::good_size;
+    export using ::SFT::Foundation::Memory::heap_bytes;
+    export using ::SFT::Foundation::Memory::heap_usage;
+    export using ::SFT::Foundation::Memory::initialize;
+    export using ::SFT::Foundation::Memory::is_initialized;
+    export using ::SFT::Foundation::Memory::log_stats;
+    export using ::SFT::Foundation::Memory::merge_thread_stats;
+    export using ::SFT::Foundation::Memory::mimalloc_version;
+    export using ::SFT::Foundation::Memory::peak_heap_bytes;
+    export using ::SFT::Foundation::Memory::reallocate;
+    export using ::SFT::Foundation::Memory::reallocate_aligned;
+    export using ::SFT::Foundation::Memory::reset_stats;
+    export using ::SFT::Foundation::Memory::usable_size;
+} // namespace SFT::Foundation::Memory

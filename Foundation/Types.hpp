@@ -99,6 +99,37 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
+    namespace Literals {
+        // One _<type> suffix per Sturdy number, e.g. 200_u8, -3_i16, 0xFF_u32, 1'000_u64, 16_usize,
+        // 5_f32, 3.14_f64. Opt in per scope with `using namespace SFT::Foundation::Literals;`. The
+        // compiler still parses the numeric token (bases, ' separators), so these only stamp the
+        // Sturdy type onto the value. The 128/256-bit types carry the same spelling — see Wide.hpp.
+        [[nodiscard]] constexpr i8 operator""_i8(unsigned long long v) noexcept { return static_cast<i8>(v); }
+        [[nodiscard]] constexpr i16 operator""_i16(unsigned long long v) noexcept { return static_cast<i16>(v); }
+        [[nodiscard]] constexpr i32 operator""_i32(unsigned long long v) noexcept { return static_cast<i32>(v); }
+        [[nodiscard]] constexpr i64 operator""_i64(unsigned long long v) noexcept { return static_cast<i64>(v); }
+        [[nodiscard]] constexpr u8 operator""_u8(unsigned long long v) noexcept { return static_cast<u8>(v); }
+        [[nodiscard]] constexpr u16 operator""_u16(unsigned long long v) noexcept { return static_cast<u16>(v); }
+        [[nodiscard]] constexpr u32 operator""_u32(unsigned long long v) noexcept { return static_cast<u32>(v); }
+        [[nodiscard]] constexpr u64 operator""_u64(unsigned long long v) noexcept { return static_cast<u64>(v); }
+        [[nodiscard]] constexpr usize operator""_usize(unsigned long long v) noexcept { return static_cast<usize>(v); }
+        [[nodiscard]] constexpr isize operator""_isize(unsigned long long v) noexcept { return static_cast<isize>(v); }
+        // Floats take both forms so the integer (5_f64) and floating (2.5_f64) spellings both work.
+        [[nodiscard]] constexpr f32 operator""_f32(long double v) noexcept { return static_cast<f32>(v); }
+        [[nodiscard]] constexpr f32 operator""_f32(unsigned long long v) noexcept { return static_cast<f32>(v); }
+        [[nodiscard]] constexpr f64 operator""_f64(long double v) noexcept { return static_cast<f64>(v); }
+        [[nodiscard]] constexpr f64 operator""_f64(unsigned long long v) noexcept { return static_cast<f64>(v); }
+    } // namespace Literals
+
+    namespace Detail {
+        [[nodiscard]] consteval bool scalar_literal_smoke_test() noexcept {
+            using namespace SFT::Foundation::Literals;
+            return 200_u8 == static_cast<u8>(200) && 5_i32 == 5 && 0xFF_u32 == 255u && 1'000_u64 == 1000u &&
+                   16_usize == usize{16} && static_cast<f64>(2.5_f64) == 2.5 && static_cast<f32>(5_f32) == 5.0f;
+        }
+        static_assert(scalar_literal_smoke_test());
+    } // namespace Detail
+
 } // namespace SFT::Foundation
 
 namespace SFT {

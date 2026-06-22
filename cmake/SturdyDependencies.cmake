@@ -9,6 +9,7 @@ set(STURDY_VOLK_TAG "1.4.350" CACHE STRING "volk git tag to fetch.")
 set(STURDY_SDL3_TAG "release-3.4.10" CACHE STRING "SDL3 git tag to fetch.")
 set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
 set(STURDY_SPDLOG_TAG "v1.17.0" CACHE STRING "spdlog git tag to fetch.")
+set(STURDY_MIMALLOC_TAG "v2.1.7" CACHE STRING "mimalloc git tag to fetch.")
 set(STURDY_HARFBUZZ_TAG "14.2.1" CACHE STRING "HarfBuzz git tag to fetch.")
 # Slang is built from source so we get a static library with SPIRV-Tools baked in.
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
@@ -30,6 +31,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_sdl3()
         sturdy_fetch_glfw()
         sturdy_fetch_spdlog()
+        sturdy_fetch_mimalloc()
         sturdy_fetch_harfbuzz()
         sturdy_fetch_slang()
     else()
@@ -39,6 +41,7 @@ function(sturdy_configure_dependencies)
         find_package(SDL3 CONFIG REQUIRED)
         find_package(glfw3 CONFIG REQUIRED)
         find_package(spdlog CONFIG REQUIRED)
+        find_package(mimalloc CONFIG REQUIRED)
         find_package(harfbuzz CONFIG REQUIRED)
         sturdy_find_slang()
     endif()
@@ -252,6 +255,20 @@ function(sturdy_fetch_spdlog)
     FetchContent_MakeAvailable(spdlog)
 endfunction()
 
+function(sturdy_fetch_mimalloc)
+    set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(mimalloc
+        GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+        GIT_TAG ${STURDY_MIMALLOC_TAG}
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(mimalloc)
+endfunction()
+
 function(sturdy_fetch_harfbuzz)
     set(HB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
@@ -301,6 +318,13 @@ function(sturdy_normalize_dependency_targets)
         spdlog::spdlog
         spdlog
         spdlog::spdlog_header_only
+    )
+
+    sturdy_alias_existing_target(Sturdy::mimalloc
+        mimalloc-static
+        mimalloc
+        mimalloc::mimalloc-static
+        mimalloc::mimalloc
     )
 
     sturdy_alias_existing_target(Sturdy::HarfBuzz

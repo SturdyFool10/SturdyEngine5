@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Foundation/Wide.hpp"
+#include "Wide.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -26,13 +26,13 @@ namespace SFT::Foundation {
     [[nodiscard]] inline std::string to_string(u128 v) {
         if (v == 0)
             return "0";
-        char buf[40];
-        int i = sizeof(buf);
+
+        std::string digits;
         while (v != 0) {
-            buf[--i] = static_cast<char>('0' + static_cast<int>(v % 10));
+            digits.push_back(static_cast<char>('0' + static_cast<int>(v % 10)));
             v /= 10;
         }
-        return std::string(buf + i, buf + sizeof(buf));
+        return std::string(digits.rbegin(), digits.rend());
     }
     [[nodiscard]] inline std::string to_string(i128 v) {
         const u128 mag = v < 0 ? (~static_cast<u128>(v) + 1) : static_cast<u128>(v); // handles INT128_MIN
@@ -56,7 +56,7 @@ namespace SFT::Foundation {
     namespace Detail {
         // 10^|e| in the wide-float type T (exact base, products rounded to T's precision).
         template <class T>
-        [[nodiscard]] T wide_pow10(int e) noexcept {
+        [[nodiscard]] constexpr T wide_pow10(int e) noexcept {
             int n = e < 0 ? -e : e;
             T r(1.0), b(10.0);
             while (n != 0) {
@@ -237,10 +237,10 @@ struct std::numeric_limits<SFT::Foundation::f128> {
     static constexpr SFT::Foundation::f128 lowest() noexcept { return -max(); }
     static constexpr SFT::Foundation::f128 epsilon() noexcept { return SFT::Foundation::f128(0x1p-104); }
     static constexpr SFT::Foundation::f128 round_error() noexcept { return SFT::Foundation::f128(0.5); }
-    static SFT::Foundation::f128 infinity() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::infinity()); }
-    static SFT::Foundation::f128 quiet_NaN() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::quiet_NaN()); }
-    static SFT::Foundation::f128 signaling_NaN() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::signaling_NaN()); }
-    static SFT::Foundation::f128 denorm_min() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::denorm_min()); }
+    static constexpr SFT::Foundation::f128 infinity() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::infinity()); }
+    static constexpr SFT::Foundation::f128 quiet_NaN() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::quiet_NaN()); }
+    static constexpr SFT::Foundation::f128 signaling_NaN() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::signaling_NaN()); }
+    static constexpr SFT::Foundation::f128 denorm_min() noexcept { return SFT::Foundation::f128(std::numeric_limits<double>::denorm_min()); }
 };
 
 template <>
@@ -275,10 +275,10 @@ struct std::numeric_limits<SFT::Foundation::f256> {
     static constexpr SFT::Foundation::f256 lowest() noexcept { return -max(); }
     static constexpr SFT::Foundation::f256 epsilon() noexcept { return SFT::Foundation::f256(0x1p-209); }
     static constexpr SFT::Foundation::f256 round_error() noexcept { return SFT::Foundation::f256(0.5); }
-    static SFT::Foundation::f256 infinity() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::infinity()); }
-    static SFT::Foundation::f256 quiet_NaN() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::quiet_NaN()); }
-    static SFT::Foundation::f256 signaling_NaN() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::signaling_NaN()); }
-    static SFT::Foundation::f256 denorm_min() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::denorm_min()); }
+    static constexpr SFT::Foundation::f256 infinity() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::infinity()); }
+    static constexpr SFT::Foundation::f256 quiet_NaN() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::quiet_NaN()); }
+    static constexpr SFT::Foundation::f256 signaling_NaN() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::signaling_NaN()); }
+    static constexpr SFT::Foundation::f256 denorm_min() noexcept { return SFT::Foundation::f256(std::numeric_limits<double>::denorm_min()); }
 };
 
 // --- std::hash -----------------------------------------------------------------------------
