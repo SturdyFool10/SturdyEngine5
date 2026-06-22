@@ -6,7 +6,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "view project as dist",
@@ -15,7 +15,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "view project as relwithdebinfo",
@@ -24,7 +24,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Compile Runtime (Debug)",
@@ -33,7 +33,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Run Runtime (Debug)",
@@ -42,7 +42,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Compile Runtime (Dist)",
@@ -51,7 +51,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Run Runtime (Dist)",
@@ -60,7 +60,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Compile Runtime (RelWithDebInfo)",
@@ -69,7 +69,7 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
   },
   {
     "label": "Run Runtime (RelWithDebInfo)",
@@ -78,6 +78,15 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  }
+    "allow_concurrent_runs": false,
+  },
+  {
+    "label": "Format All C++",
+    "command": "find . \\( -path ./.git -o -path ./.lore -o -path ./build \\) -prune -o -type f \\( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.hxx' -o -name '*.ipp' -o -name '*.ixx' -o -name '*.cppm' -o -name '*.ccm' -o -name '*.cxxm' \\) -print0 | xargs -0 --no-run-if-empty clang-format -i --style=file",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+  },
 ]

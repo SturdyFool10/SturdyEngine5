@@ -20,9 +20,9 @@ namespace SFT::Core {
     // This struct never mentions Vulkan, SDL, or Platform types so Core stays free of Platform.
     struct RenderSurfaceDescriptor {
         SurfaceSystem system = SurfaceSystem::Unknown;
-        void* display = nullptr;     // native display/connection (X11 Display*, wl_display*, HINSTANCE)
-        void* window = nullptr;      // native window (X11 Window, wl_surface*, HWND, NSWindow*)
-        void* sdl_window = nullptr;  // SDL_Window* when the host window is SDL3-backed, else null
+        void *display = nullptr;    // native display/connection (X11 Display*, wl_display*, HINSTANCE)
+        void *window = nullptr;     // native window (X11 Window, wl_surface*, HWND, NSWindow*)
+        void *sdl_window = nullptr; // SDL_Window* when the host window is SDL3-backed, else null
     };
 
     struct Extent2D {

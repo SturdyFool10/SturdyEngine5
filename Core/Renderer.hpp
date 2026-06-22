@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Foundation/Types.hpp"
 #include "Core/RenderSurface.hpp"
+#include "Foundation/Types.hpp"
 
 #include <expected>
 #include <string>
@@ -29,9 +29,8 @@ namespace SFT::Core {
     template <typename Value>
     using RendererExpected = std::expected<Value, RendererError>;
 
-    [[nodiscard]] inline std::unexpected<RendererError> renderer_error(RendererErrorCode code, std::string message)
-    {
-        return std::unexpected(RendererError {code, std::move(message)});
+    [[nodiscard]] inline std::unexpected<RendererError> renderer_error(RendererErrorCode code, std::string message) {
+        return std::unexpected(RendererError{code, std::move(message)});
     }
 
     // What a backend can actually do. The backend fills this in at initialize() time and the
@@ -58,10 +57,10 @@ namespace SFT::Core {
     };
 
     struct RendererInit {
-        RenderSurfaceDescriptor surface {};
-        Extent2D framebuffer_extent {};
-        RendererFeatureRequest features {};
-        const char* app_name = "SturdyEngine";
+        RenderSurfaceDescriptor surface{};
+        Extent2D framebuffer_extent{};
+        RendererFeatureRequest features{};
+        const char *app_name = "SturdyEngine";
     };
 
     // Per-frame input handed from the glue to the backend. Grows into camera/scene/render-list

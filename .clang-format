@@ -1,0 +1,29 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Opening braces stay on the same line as the declaration/control statement/namespace.
+BreakBeforeBraces: Attach
+
+# Namespaces and case labels add an indentation level.
+NamespaceIndentation: All
+IndentCaseLabels: true
+IndentCaseBlocks: true
+
+# No line-length-based wrapping.
+ColumnLimit: 0
+
+# clang-format does not support a numeric argument-count threshold. When calls or
+# declarations are wrapped, keep arguments/parameters on separate lines instead of bin-packing.
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# clang-format does not support outdenting break as a switch-only close bracket;
+# with case indentation enabled, break remains inside the case body.
+...

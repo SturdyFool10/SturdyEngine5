@@ -1,6 +1,16 @@
 CompileFlags:
-  CompilationDatabase: build/ninja/relwithdebinfo
+  CompilationDatabase: build/ninja/dist
+  Compiler: clang++
+  Remove:
+    - -std=*
   Add:
+    - -xc++
     - -std=c++23
 Diagnostics:
   UnusedIncludes: None
+---
+If:
+  PathMatch: .*\.cppm
+Diagnostics:
+  Suppress:
+    - "*"

@@ -6,6 +6,11 @@ export module Sturdy.Platform;
 
 export import Sturdy.Foundation;
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused"
+#endif
+
 export namespace SFT::Platform::Windowing {
     using ::SFT::Platform::Windowing::LinuxBlurProtocol;
     using ::SFT::Platform::Windowing::NativeWindowHandle;
@@ -25,6 +30,7 @@ export namespace SFT::Platform::Windowing {
     using ::SFT::Platform::Windowing::WindowExpected;
     using ::SFT::Platform::Windowing::WindowExtent;
     using ::SFT::Platform::Windowing::WindowGraphicsApi;
+    using ::SFT::Platform::Windowing::WindowingSystem;
     using ::SFT::Platform::Windowing::WindowKeyboardEvent;
     using ::SFT::Platform::Windowing::WindowMode;
     using ::SFT::Platform::Windowing::WindowMouseButtonEvent;
@@ -34,5 +40,8 @@ export namespace SFT::Platform::Windowing {
     using ::SFT::Platform::Windowing::WindowResize;
     using ::SFT::Platform::Windowing::WindowResult;
     using ::SFT::Platform::Windowing::WindowTextInputEvent;
-    using ::SFT::Platform::Windowing::WindowingSystem;
-}
+} // namespace SFT::Platform::Windowing
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif

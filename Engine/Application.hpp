@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Platform/Window/Window.hpp"
 #include "Engine/Engine.hpp"
+#include "Platform/Window/Window.hpp"
 
 #include <memory>
 
@@ -11,14 +11,14 @@ namespace SFT::Engine {
     // resizes and frame timing into the engine. This is the boundary where the platform/OS lives;
     // everything below Engine is platform- and API-agnostic.
     class Application {
-    public:
+      public:
         Application();
         ~Application();
 
         bool initialize();
         void run();
 
-    private:
+      private:
         std::unique_ptr<Platform::Windowing::Window> window_;
         Engine engine_;
     };

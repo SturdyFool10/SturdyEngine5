@@ -11,11 +11,10 @@ namespace SFT::Engine {
     Application::Application() = default;
     Application::~Application() = default;
 
-    bool Application::initialize()
-    {
+    bool Application::initialize() {
         using namespace Platform::Windowing;
 
-        WindowConfig config {};
+        WindowConfig config{};
         config.title = "Sturdy Engine 5";
         config.extent = {1280, 720};
         config.graphics_api = WindowGraphicsApi::Vulkan;
@@ -37,8 +36,7 @@ namespace SFT::Engine {
         return true;
     }
 
-    void Application::run()
-    {
+    void Application::run() {
         using namespace Platform::Windowing;
 
         if (!window_) {
@@ -62,7 +60,7 @@ namespace SFT::Engine {
 
             // Forward the latest framebuffer size to the renderer (handles resize + DPI changes).
             if (auto resize = window_->consume_resize()) {
-                engine_.on_resize(Core::Extent2D {resize->framebuffer.x, resize->framebuffer.y});
+                engine_.on_resize(Core::Extent2D{resize->framebuffer.x, resize->framebuffer.y});
             }
 
             if (close_requested) {
@@ -74,7 +72,7 @@ namespace SFT::Engine {
             last = now;
 
             // Skip rendering while minimized (zero-area framebuffer).
-            Core::Extent2D framebuffer {};
+            Core::Extent2D framebuffer{};
             if (auto size = window_->framebuffer_size()) {
                 framebuffer = {size->x, size->y};
             }
@@ -82,7 +80,7 @@ namespace SFT::Engine {
                 continue;
             }
 
-            if (auto result = engine_.render(Core::FrameInput {delta_seconds, frame_index}); !result) {
+            if (auto result = engine_.render(Core::FrameInput{delta_seconds, frame_index}); !result) {
                 Foundation::log_error("Render error: " + result.error().message);
                 break;
             }
