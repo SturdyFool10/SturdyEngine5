@@ -10,6 +10,8 @@
 // need to call Memory::initialize() before using the engine. The explicit initialize() hook remains
 // available and idempotent for tests or non-module consumers that want to force initialization.
 
+using std::string;
+
 namespace SFT::Foundation::Memory {
 
     enum class ByteUnit {
@@ -59,8 +61,8 @@ namespace SFT::Foundation::Memory {
 
     // Converts using decimal byte units, not binary IEC units (MB, not MiB).
     [[nodiscard]] f64 bytes_as(usize bytes, ByteUnit unit) noexcept;
-    [[nodiscard]] std::string format_bytes(usize bytes, ByteFormatOptions options = {});
-    [[nodiscard]] std::string format_heap_bytes(ByteFormatOptions options = {});
+    [[nodiscard]] string format_bytes(usize bytes, ByteFormatOptions options = {});
+    [[nodiscard]] string format_heap_bytes(ByteFormatOptions options = {});
 
     void collect(bool force = false) noexcept;
     void reset_stats() noexcept;

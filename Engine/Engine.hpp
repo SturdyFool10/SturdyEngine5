@@ -7,6 +7,9 @@
 #include <memory>
 #include <vector>
 
+using std::unique_ptr;
+using std::vector;
+
 namespace SFT::Engine {
 
     struct EngineConfig {
@@ -43,8 +46,8 @@ namespace SFT::Engine {
         void wait_idle() noexcept;
 
       private:
-        std::unique_ptr<Core::EngineBackend> renderer_backend_;
-        std::vector<Core::RenderSurfaceHandle> surfaces_;
+        unique_ptr<Core::EngineBackend> renderer_backend_;
+        vector<Core::RenderSurfaceHandle> surfaces_;
         Core::RendererCapabilities capabilities_{};
         EngineConfig config_{};
         bool initialized_ = false;

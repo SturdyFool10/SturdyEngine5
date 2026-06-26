@@ -2,6 +2,7 @@ module;
 
 #include "Foundation/Concepts.hpp"
 #include "Foundation/Constants.hpp"
+#include "Foundation/Embed.hpp"
 #include "Foundation/Log.hpp"
 #include "Foundation/Math.hpp"
 #include "Foundation/Memory.hpp"
@@ -176,14 +177,13 @@ namespace SFT::Foundation::Literals {
     export using ::SFT::Foundation::Literals::operator""_u128;
     export using ::SFT::Foundation::Literals::operator""_u256;
 
-    //literals for normal numbers
+    // literals for normal numbers
     export using ::SFT::Foundation::Literals::operator""_f64;
     export using ::SFT::Foundation::Literals::operator""_i64;
     export using ::SFT::Foundation::Literals::operator""_u64;
     export using ::SFT::Foundation::Literals::operator""_f32;
     export using ::SFT::Foundation::Literals::operator""_i32;
     export using ::SFT::Foundation::Literals::operator""_u32;
-    export using ::SFT::Foundation::Literals::operator""_f16;
     export using ::SFT::Foundation::Literals::operator""_i16;
     export using ::SFT::Foundation::Literals::operator""_u16;
 } // namespace SFT::Foundation::Literals

@@ -22,6 +22,15 @@
 // A 128-bit add is ~1 extra instruction; multiply/divide and the 256-bit/float types cost more.
 // SIMD only helps when a consumer processes *batches* of these (throughput), never a single value.
 
+using std::fma;
+using std::integral;
+using std::is_constant_evaluated;
+using std::is_signed_v;
+using std::pair;
+using std::partial_ordering;
+using std::same_as;
+using std::strong_ordering;
+
 namespace SFT::Foundation {
 
 #if !defined(__SIZEOF_INT128__)
@@ -61,12 +70,12 @@ namespace SFT::Foundation {
             return static_cast<f64>(hi) * 0x1p128 + static_cast<f64>(lo); // 2^128 is exact in f64
         }
 
-        friend constexpr std::strong_ordering operator<=>(const u256 &a, const u256 &b) noexcept {
+        friend constexpr strong_ordering operator<=>(const u256 &a, const u256 &b) noexcept {
             if (a.hi != b.hi)
-                return a.hi < b.hi ? std::strong_ordering::less : std::strong_ordering::greater;
+                return a.hi < b.hi ? strong_ordering::less : strong_ordering::greater;
             if (a.lo != b.lo)
-                return a.lo < b.lo ? std::strong_ordering::less : std::strong_ordering::greater;
-            return std::strong_ordering::equal;
+                return a.lo < b.lo ? strong_ordering::less : strong_ordering::greater;
+            return strong_ordering::equal;
         }
         friend constexpr bool operator==(const u256 &a, const u256 &b) noexcept { return a.hi == b.hi && a.lo == b.lo; }
 
@@ -165,7 +174,7 @@ namespace SFT::Foundation {
         //   * dividend < divisor            -> trivial;
         //   * otherwise                     -> shift-subtract, bounded to the dividend's actual
         //     bit length (not a flat 256), so small operands cost proportionally little.
-        static constexpr std::pair<u256, u256> divmod(u256 n, u256 d) noexcept {
+        static constexpr pair<u256, u256> divmod(u256 n, u256 d) noexcept {
             if (!static_cast<bool>(d))
                 return {u256{}, u256{}}; // division by zero -> {0,0} (caller's contract)
             if (n < d)
@@ -243,9 +252,9 @@ namespace SFT::Foundation {
         constexpr i256 operator~() const noexcept { return from_bits(~bits); }
 
         friend constexpr bool operator==(const i256 &a, const i256 &b) noexcept { return a.bits == b.bits; }
-        friend constexpr std::strong_ordering operator<=>(const i256 &a, const i256 &b) noexcept {
+        friend constexpr strong_ordering operator<=>(const i256 &a, const i256 &b) noexcept {
             if (a.is_negative() != b.is_negative()) {
-                return a.is_negative() ? std::strong_ordering::less : std::strong_ordering::greater;
+                return a.is_negative() ? strong_ordering::less : strong_ordering::greater;
             }
             return a.bits <=> b.bits; // same sign: unsigned bit order agrees with signed order
         }
@@ -312,7 +321,7 @@ namespace SFT::Foundation {
         // __int128) plus the program-defined 256-bit integers. Floats reach the floats via their own ctors.
         template <class T>
         concept WideFloatConvertibleInteger =
-            std::integral<T> || std::same_as<T, i128> || std::same_as<T, u128> || std::same_as<T, i256> || std::same_as<T, u256>;
+            integral<T> || same_as<T, i128> || same_as<T, u128> || same_as<T, i256> || same_as<T, u256>;
 
         // Accumulate an integer magnitude into an expansion float in exact 2^32 limbs: each limb and the
         // 2^32 / 2^128 radices are exact in f64, so the result carries the full integer up to F's own width.
@@ -331,12 +340,12 @@ namespace SFT::Foundation {
         }
         template <class F, class T>
         [[nodiscard]] constexpr F integer_to_expansion_float(const T &value) noexcept {
-            if constexpr (std::same_as<T, u256>) {
+            if constexpr (same_as<T, u256>) {
                 return u256_to_expansion_float<F>(value);
-            } else if constexpr (std::same_as<T, i256>) {
+            } else if constexpr (same_as<T, i256>) {
                 const F magnitude = u256_to_expansion_float<F>(static_cast<u256>(value.is_negative() ? -value : value));
                 return value.is_negative() ? -magnitude : magnitude;
-            } else if constexpr (std::is_signed_v<T> || std::same_as<T, i128>) {
+            } else if constexpr (is_signed_v<T> || same_as<T, i128>) {
                 const bool negative = value < T(0);
                 const u128 bits = negative ? (static_cast<u128>(0) - static_cast<u128>(value)) : static_cast<u128>(value);
                 const F magnitude = u128_to_expansion_float<F>(bits);
@@ -374,9 +383,9 @@ namespace SFT::Foundation {
         }
         [[nodiscard]] constexpr TwoF64 two_prod(f64 a, f64 b) noexcept {
             const f64 p = a * b;
-            if (std::is_constant_evaluated())
+            if (is_constant_evaluated())
                 return two_prod_constexpr(a, b, p);
-            return {p, std::fma(a, b, -p)};
+            return {p, fma(a, b, -p)};
         }
 
     } // namespace Detail
@@ -448,7 +457,7 @@ namespace SFT::Foundation {
         }
 
         friend constexpr bool operator==(f128 a, f128 b) noexcept { return a.hi == b.hi && a.lo == b.lo; }
-        friend constexpr std::partial_ordering operator<=>(f128 a, f128 b) noexcept {
+        friend constexpr partial_ordering operator<=>(f128 a, f128 b) noexcept {
             if (a.hi != b.hi)
                 return a.hi <=> b.hi;
             return a.lo <=> b.lo;
@@ -634,12 +643,12 @@ namespace SFT::Foundation {
         friend constexpr bool operator==(const f256 &a, const f256 &b) noexcept {
             return a.x[0] == b.x[0] && a.x[1] == b.x[1] && a.x[2] == b.x[2] && a.x[3] == b.x[3];
         }
-        friend constexpr std::partial_ordering operator<=>(const f256 &a, const f256 &b) noexcept {
+        friend constexpr partial_ordering operator<=>(const f256 &a, const f256 &b) noexcept {
             for (int i = 0; i < 4; ++i) {
                 if (a.x[i] != b.x[i])
                     return a.x[i] <=> b.x[i];
             }
-            return std::partial_ordering::equivalent;
+            return partial_ordering::equivalent;
         }
     };
 

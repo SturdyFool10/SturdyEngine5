@@ -14,6 +14,17 @@
 
 import Sturdy.Foundation;
 
+using std::bad_alloc;
+using std::lock_guard;
+using std::nullopt;
+using std::numeric_limits;
+using std::optional;
+using std::recursive_mutex;
+using std::strncpy;
+using std::unexpected;
+using std::unique_ptr;
+using std::unordered_map;
+
 namespace SFT::Platform::Windowing::SDL3 {
     namespace {
 
@@ -23,7 +34,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
         [[nodiscard]] bool valid_extent(WindowExtent extent) noexcept {
-            return extent.x > 0 && extent.y > 0 && extent.x <= static_cast<u32>(std::numeric_limits<i32>::max()) && extent.y <= static_cast<u32>(std::numeric_limits<i32>::max());
+            return extent.x > 0 && extent.y > 0 && extent.x <= static_cast<u32>(numeric_limits<i32>::max()) && extent.y <= static_cast<u32>(numeric_limits<i32>::max());
         }
 
         [[nodiscard]] SDL_WindowFlags window_flags(const WindowConfig &config) noexcept {
@@ -62,16 +73,16 @@ namespace SFT::Platform::Windowing::SDL3 {
 
             const WindowError error = sdl_error(code, fallback);
             Detail::window_error("SDL3 operation failed: fallback='{}' message='{}' code={}", fallback, error.message, static_cast<i32>(error.code));
-            return std::unexpected(error);
+            return unexpected(error);
         }
 
-        std::recursive_mutex &sdl_window_mutex() noexcept {
-            static std::recursive_mutex mutex;
+        recursive_mutex &sdl_window_mutex() noexcept {
+            static recursive_mutex mutex;
             return mutex;
         }
 
-        std::unordered_map<SDL_WindowID, SDL3Window *> &sdl_window_registry() noexcept {
-            static std::unordered_map<SDL_WindowID, SDL3Window *> registry;
+        unordered_map<SDL_WindowID, SDL3Window *> &sdl_window_registry() noexcept {
+            static unordered_map<SDL_WindowID, SDL3Window *> registry;
             return registry;
         }
 
@@ -90,13 +101,13 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
 
             Detail::window_error("SDL3 operation rejected destroyed window: operation='{}'", operation);
-            return std::unexpected(destroyed_window_error());
+            return unexpected(destroyed_window_error());
         }
 
         WindowExpected<SDL_WindowID> live_window_id(SDL_Window *window, const char *operation) noexcept {
             if (!window) {
                 Detail::window_error("SDL3 operation rejected destroyed window id query: operation='{}'", operation);
-                return std::unexpected(destroyed_window_error());
+                return unexpected(destroyed_window_error());
             }
 
             return SDL_GetWindowID(window);
@@ -121,7 +132,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     SDL3Window::~SDL3Window() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
 
         if (window_) {
             const SDL_WindowID id = SDL_GetWindowID(window_);
@@ -146,8 +157,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
-    WindowExpected<std::unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+    WindowExpected<unique_ptr<SDL3Window>> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
+        const lock_guard lock(sdl_window_mutex());
 
         Detail::window_info(
             "SDL3 window create requested: title='{}' size={}x{} position=({}, {}) default_position={} visible={} resizable={} decorated={} high_dpi={} mode={} graphics_api={}",
@@ -170,13 +181,13 @@ namespace SFT::Platform::Windowing::SDL3 {
                 static_cast<const void *>(config.title),
                 config.extent.x,
                 config.extent.y);
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Invalid SDL3 window configuration."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Invalid SDL3 window configuration."});
         }
 
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
             Detail::window_error("SDL3 video subsystem init failed: message='{}'", error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
         Detail::window_debug("SDL3 video subsystem initialized or already active.");
 
@@ -197,7 +208,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                 config.extent.y,
                 static_cast<unsigned long long>(flags),
                 error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
         Detail::window_info("SDL3 native window created: ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));
 
@@ -212,7 +223,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                     config.position.y,
                     error.message);
                 SDL_DestroyWindow(window);
-                return std::unexpected(error);
+                return unexpected(error);
             }
         }
 
@@ -220,19 +231,19 @@ namespace SFT::Platform::Windowing::SDL3 {
         try {
             raw_wrapper = new SDL3Window(key, window);
             sdl_window_registry().emplace(SDL_GetWindowID(window), raw_wrapper);
-            auto wrapper = std::unique_ptr<SDL3Window>(raw_wrapper);
+            auto wrapper = unique_ptr<SDL3Window>(raw_wrapper);
             raw_wrapper = nullptr;
             ++sdl_window_count();
             Detail::window_info("SDL3 window wrapper constructed: wrapper={} native_ptr={} id={}", static_cast<void *>(wrapper.get()), static_cast<void *>(window), SDL_GetWindowID(window));
             return wrapper;
-        } catch (const std::bad_alloc &) {
+        } catch (const bad_alloc &) {
             Detail::window_error("SDL3 window wrapper allocation failed: native_ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));
             if (raw_wrapper) {
                 delete raw_wrapper;
             } else {
                 SDL_DestroyWindow(window);
             }
-            return std::unexpected(WindowError{WindowErrorCode::OutOfMemory, "Out of memory while creating SDL3 window wrapper."});
+            return unexpected(WindowError{WindowErrorCode::OutOfMemory, "Out of memory while creating SDL3 window wrapper."});
         }
     }
 
@@ -245,12 +256,12 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     void *SDL3Window::native_backend_handle() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         return window_;
     }
 
     NativeWindowHandle SDL3Window::native_window_handle() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (!window_) {
             Detail::window_error("SDL3 native window handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
             return {};
@@ -268,10 +279,10 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::pump_events() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         const auto maybe_window_id = live_window_id(window_, "pump_events");
         if (!maybe_window_id) {
-            return std::unexpected(maybe_window_id.error());
+            return unexpected(maybe_window_id.error());
         }
 
         SDL_Event event;
@@ -361,7 +372,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                 if (auto found = sdl_window_registry().find(event.text.windowID); found != sdl_window_registry().end() && found->second) {
                     WindowEvent window_event{WindowEventKind::TextInput};
                     if (event.text.text) {
-                        std::strncpy(window_event.text.utf8, event.text.text, sizeof(window_event.text.utf8) - 1);
+                        strncpy(window_event.text.utf8, event.text.text, sizeof(window_event.text.utf8) - 1);
                     }
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
@@ -408,10 +419,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
-    std::optional<WindowEvent> SDL3Window::poll_event() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+    optional<WindowEvent> SDL3Window::poll_event() noexcept {
+        const lock_guard lock(sdl_window_mutex());
         if (events_.empty()) {
-            return std::nullopt;
+            return nullopt;
         }
 
         WindowEvent event = events_.front();
@@ -424,7 +435,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     void SDL3Window::request_close() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         close_requested_.store(true);
         const SDL_WindowID id = window_ ? SDL_GetWindowID(window_) : 0;
         events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
@@ -432,19 +443,19 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     bool SDL3Window::resized() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         return pending_resize_.has_value();
     }
 
-    std::optional<WindowResize> SDL3Window::consume_resize() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
-        std::optional<WindowResize> resize = pending_resize_;
+    optional<WindowResize> SDL3Window::consume_resize() noexcept {
+        const lock_guard lock(sdl_window_mutex());
+        optional<WindowResize> resize = pending_resize_;
         pending_resize_.reset();
         return resize;
     }
 
     WindowResult SDL3Window::show() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "show"); !live) {
             return live;
         }
@@ -453,7 +464,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::hide() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "hide"); !live) {
             return live;
         }
@@ -462,7 +473,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::focus() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "focus"); !live) {
             return live;
         }
@@ -471,7 +482,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::raise() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "raise"); !live) {
             return live;
         }
@@ -480,7 +491,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::maximize() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "maximize"); !live) {
             return live;
         }
@@ -489,7 +500,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::minimize() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "minimize"); !live) {
             return live;
         }
@@ -498,7 +509,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::restore() noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "restore"); !live) {
             return live;
         }
@@ -507,13 +518,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_title(const char *title) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_title"); !live) {
             return live;
         }
         if (!title) {
             Detail::window_error("SDL3 set title rejected null title: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window title cannot be null."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window title cannot be null."});
         }
 
         Detail::window_info("SDL3 set title: wrapper={} native_ptr={} id={} title='{}'", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), title);
@@ -521,9 +532,9 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowExpected<WindowPosition> SDL3Window::position() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "position"); !live) {
-            return std::unexpected(live.error());
+            return unexpected(live.error());
         }
         i32 x = 0;
         i32 y = 0;
@@ -531,7 +542,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (!SDL_GetWindowPosition(window_, &x, &y)) {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window position failed.");
             Detail::window_error("SDL3 get position failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
 
         Detail::window_trace("SDL3 get position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), x, y);
@@ -539,7 +550,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_position(WindowPosition position) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_position"); !live) {
             return live;
         }
@@ -548,9 +559,9 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowExpected<WindowExtent> SDL3Window::size() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "size"); !live) {
-            return std::unexpected(live.error());
+            return unexpected(live.error());
         }
         i32 width = 0;
         i32 height = 0;
@@ -558,7 +569,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (!SDL_GetWindowSize(window_, &width, &height)) {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window size failed.");
             Detail::window_error("SDL3 get size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
 
         Detail::window_trace("SDL3 get size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
@@ -566,13 +577,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_size(WindowExtent extent) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_size"); !live) {
             return live;
         }
         if (!valid_extent(extent)) {
             Detail::window_error("SDL3 set size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window size must be positive and fit in an i32."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window size must be positive and fit in an i32."});
         }
 
         Detail::window_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
@@ -583,9 +594,9 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowExpected<WindowExtent> SDL3Window::framebuffer_size() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "framebuffer_size"); !live) {
-            return std::unexpected(live.error());
+            return unexpected(live.error());
         }
         i32 width = 0;
         i32 height = 0;
@@ -593,7 +604,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get framebuffer size failed.");
             Detail::window_error("SDL3 get framebuffer size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
 
         Detail::window_trace("SDL3 get framebuffer size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
@@ -601,13 +612,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_minimum_size(WindowExtent extent) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_minimum_size"); !live) {
             return live;
         }
         if (!valid_extent(extent)) {
             Detail::window_error("SDL3 set minimum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Minimum size must be positive and fit in an i32."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Minimum size must be positive and fit in an i32."});
         }
 
         Detail::window_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
@@ -618,13 +629,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_maximum_size(WindowExtent extent) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_maximum_size"); !live) {
             return live;
         }
         if (!valid_extent(extent)) {
             Detail::window_error("SDL3 set maximum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Maximum size must be positive and fit in an i32."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Maximum size must be positive and fit in an i32."});
         }
 
         Detail::window_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
@@ -635,7 +646,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_resizable(bool enabled) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_resizable"); !live) {
             return live;
         }
@@ -644,7 +655,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_decorated(bool enabled) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_decorated"); !live) {
             return live;
         }
@@ -653,7 +664,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_fullscreen(WindowMode mode) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_fullscreen"); !live) {
             return live;
         }
@@ -661,29 +672,29 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed), WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
     }
 
-    WindowResult SDL3Window::set_opacity(float opacity) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+    WindowResult SDL3Window::set_opacity(f32 opacity) noexcept {
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_opacity"); !live) {
             return live;
         }
         if (opacity < 0.0F || opacity > 1.0F) {
             Detail::window_error("SDL3 set opacity rejected invalid opacity: wrapper={} native_ptr={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), opacity);
-            return std::unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window opacity must be between 0.0 and 1.0."});
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window opacity must be between 0.0 and 1.0."});
         }
         Detail::window_debug("SDL3 set opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), opacity);
         return sdl_bool_result(SDL_SetWindowOpacity(window_, opacity), WindowErrorCode::OperationFailed, "SDL3 set opacity failed.");
     }
 
-    WindowExpected<float> SDL3Window::opacity() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+    WindowExpected<f32> SDL3Window::opacity() const noexcept {
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "opacity"); !live) {
-            return std::unexpected(live.error());
+            return unexpected(live.error());
         }
-        const float result = SDL_GetWindowOpacity(window_);
+        const f32 result = SDL_GetWindowOpacity(window_);
         if (result < 0.0F) {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get opacity failed.");
             Detail::window_error("SDL3 get opacity failed: wrapper={} native_ptr={} id={} result={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result, error.message);
-            return std::unexpected(error);
+            return unexpected(error);
         }
 
         Detail::window_trace("SDL3 get opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result);
@@ -691,7 +702,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_cursor_visible(bool visible) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_cursor_visible"); !live) {
             return live;
         }
@@ -700,7 +711,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_cursor_grabbed(bool grabbed) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_cursor_grabbed"); !live) {
             return live;
         }
@@ -709,7 +720,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_relative_mouse_mode(bool enabled) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_relative_mouse_mode"); !live) {
             return live;
         }
@@ -718,7 +729,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowResult SDL3Window::set_mouse_locked(bool locked) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (auto live = require_live_window(window_, "set_mouse_locked"); !live) {
             return live;
         }
@@ -740,12 +751,12 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     bool SDL3Window::mouse_locked() const noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         return mouse_locked_;
     }
 
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
-        const std::lock_guard lock(sdl_window_mutex());
+        const lock_guard lock(sdl_window_mutex());
         if (!window_) {
             Detail::window_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void *>(this), static_cast<i32>(effect.kind));
             return WindowEffectResult::failed("SDL3 window has already been destroyed.");

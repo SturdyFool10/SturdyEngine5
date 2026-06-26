@@ -6,6 +6,9 @@
 import Sturdy.Foundation;
 import Sturdy.Platform.SDL3;
 
+using std::chrono::duration;
+using std::chrono::high_resolution_clock;
+
 namespace SFT::Engine {
 
     Application::Application() = default;
@@ -45,7 +48,7 @@ namespace SFT::Engine {
             return;
         }
 
-        auto last = std::chrono::high_resolution_clock::now();
+        auto last = high_resolution_clock::now();
         u64 frame_index = 0;
 
         while (!window_->close_requested()) {
@@ -69,8 +72,8 @@ namespace SFT::Engine {
                 break;
             }
 
-            const auto now = std::chrono::high_resolution_clock::now();
-            const f64 delta_seconds = std::chrono::duration<f64>(now - last).count();
+            const auto now = high_resolution_clock::now();
+            const f64 delta_seconds = duration<f64>(now - last).count();
             last = now;
 
             // Skip rendering while minimized (zero-area framebuffer).

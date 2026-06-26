@@ -6,6 +6,11 @@
 #include <memory>
 #include <utility>
 
+using std::derived_from;
+using std::forward;
+using std::shared_ptr;
+using std::unique_ptr;
+
 namespace SFT::Core {
 
     // The renderer abstraction seam. Every graphics API (Vulkan today; Metal, WebGPU later) is a
@@ -53,26 +58,26 @@ namespace SFT::Core {
         // --------------------------------------------------------------------------------
 
         template <typename Backend, typename... Args>
-            requires std::derived_from<Backend, EngineBackend> && requires(Args &&...args) {
-                new Backend(ConstructorKey{}, std::forward<Args>(args)...);
+            requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
+                new Backend(ConstructorKey{}, forward<Args>(args)...);
             }
         [[nodiscard]]
-        static std::unique_ptr<Backend> create(Args &&...args) {
-            return std::unique_ptr<Backend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
+        static unique_ptr<Backend> create(Args &&...args) {
+            return unique_ptr<Backend>(new Backend(ConstructorKey{}, forward<Args>(args)...));
         }
 
         template <typename Backend, typename... Args>
-            requires std::derived_from<Backend, EngineBackend> && requires(Args &&...args) {
-                new Backend(ConstructorKey{}, std::forward<Args>(args)...);
+            requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
+                new Backend(ConstructorKey{}, forward<Args>(args)...);
             }
         [[nodiscard]]
-        static std::shared_ptr<Backend> create_shared(Args &&...args) {
-            return std::shared_ptr<Backend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
+        static shared_ptr<Backend> create_shared(Args &&...args) {
+            return shared_ptr<Backend>(new Backend(ConstructorKey{}, forward<Args>(args)...));
         }
     };
 
     // Constructs the Vulkan backend without dragging volk/Vulkan headers into the caller. This
     // is the API-selection switch point: a future build picks Vulkan/Metal/WebGPU here.
-    [[nodiscard]] std::unique_ptr<EngineBackend> create_vulkan_backend();
+    [[nodiscard]] unique_ptr<EngineBackend> create_vulkan_backend();
 
 } // namespace SFT::Core

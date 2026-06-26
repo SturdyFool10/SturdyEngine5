@@ -15,7 +15,7 @@
 //
 // The contract has two halves:
 //   * Built-in scalars forward straight to <cmath>. These wrappers are intentionally thin and inline
-//     to the same operations a direct std::sqrt/std::sin/std::log call would use.
+//     to the same operations a direct ::sqrt/::sin/::log call would use.
 //   * Wide types (i128/u128/i256/u256/f128/f256) get explicit overloads so generic engine code can
 //     opt into extra precision without silently falling back to f64.
 //
@@ -24,18 +24,60 @@
 // full-width behavior over libm-level platform-specific tricks; for built-ins, the platform libm remains
 // the fastest path.
 
+using std::acos;
+using std::asin;
+using std::atan;
+using std::atan2;
+using std::bit_cast;
+using std::cbrt;
+using std::ceil;
+using std::copysign;
+using std::cos;
+using std::cosh;
+using std::exp;
+using std::fabs;
+using std::floating_point;
+using std::floor;
+using std::fma;
+using std::fmod;
+using std::hypot;
+using std::integral;
+using std::is_constant_evaluated;
+using std::is_unsigned_v;
+using std::isfinite;
+using std::isinf;
+using std::isnan;
+using std::ldexp;
+using std::lerp;
+using std::log;
+using std::log10;
+using std::log2;
+using std::numeric_limits;
+using std::pow;
+using std::remainder;
+using std::remove_cvref_t;
+using std::round;
+using std::same_as;
+using std::signbit;
+using std::sin;
+using std::sinh;
+using std::sqrt;
+using std::tan;
+using std::tanh;
+using std::trunc;
+
 namespace SFT::Foundation {
 
     namespace Detail {
 
         template <class T>
-        concept WideNumber = std::same_as<std::remove_cvref_t<T>, u256> || std::same_as<std::remove_cvref_t<T>, i256> || WideFloat<T>;
+        concept WideNumber = same_as<remove_cvref_t<T>, u256> || same_as<remove_cvref_t<T>, i256> || WideFloat<T>;
 
         template <WideFloat T>
-        inline constexpr int series_iterations = std::same_as<std::remove_cvref_t<T>, f128> ? 64 : 128;
+        inline constexpr int series_iterations = same_as<remove_cvref_t<T>, f128> ? 64 : 128;
 
         template <WideFloat T>
-        inline constexpr int refinement_iterations = std::same_as<std::remove_cvref_t<T>, f128> ? 3 : 5;
+        inline constexpr int refinement_iterations = same_as<remove_cvref_t<T>, f128> ? 3 : 5;
 
         inline constexpr u64 f64_sign_mask = 0x8000000000000000ULL;
         inline constexpr u64 f64_exponent_mask = 0x7ff0000000000000ULL;
@@ -43,8 +85,8 @@ namespace SFT::Foundation {
         inline constexpr u64 f64_magnitude_mask = 0x7fffffffffffffffULL;
         inline constexpr u64 f64_exponent_bias_bits = 0x3ff0000000000000ULL;
 
-        [[nodiscard]] constexpr u64 f64_bits(f64 x) noexcept { return std::bit_cast<u64>(x); }
-        [[nodiscard]] constexpr f64 f64_from_bits(u64 bits) noexcept { return std::bit_cast<f64>(bits); }
+        [[nodiscard]] constexpr u64 f64_bits(f64 x) noexcept { return bit_cast<u64>(x); }
+        [[nodiscard]] constexpr f64 f64_from_bits(u64 bits) noexcept { return bit_cast<f64>(bits); }
         [[nodiscard]] constexpr f64 quiet_nan_f64() noexcept { return f64_from_bits(0x7ff8000000000000ULL); }
         [[nodiscard]] constexpr f64 infinity_f64() noexcept { return f64_from_bits(f64_exponent_mask); }
         [[nodiscard]] constexpr f64 abs_f64(f64 x) noexcept { return f64_from_bits(f64_bits(x) & f64_magnitude_mask); }
@@ -72,8 +114,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 ldexp_f64(f64 x, int exp) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::ldexp(x, exp);
+            if (!is_constant_evaluated())
+                return ::ldexp(x, exp);
             if (x == 0.0 || !f64_isfinite(x) || exp == 0)
                 return x;
 
@@ -139,8 +181,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 sqrt_f64(f64 x) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::sqrt(x);
+            if (!is_constant_evaluated())
+                return ::sqrt(x);
             if (f64_isnan(x) || x == 0.0)
                 return x;
             if (x < 0.0)
@@ -155,8 +197,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 cbrt_f64(f64 x) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::cbrt(x);
+            if (!is_constant_evaluated())
+                return ::cbrt(x);
             if (f64_isnan(x) || x == 0.0 || f64_isinf(x))
                 return x;
 
@@ -176,8 +218,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 log_f64(f64 x) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::log(x);
+            if (!is_constant_evaluated())
+                return ::log(x);
             if (f64_isnan(x) || x < 0.0)
                 return quiet_nan_f64();
             if (x == 0.0)
@@ -215,8 +257,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 atan_f64(f64 x) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::atan(x);
+            if (!is_constant_evaluated())
+                return ::atan(x);
             if (f64_isnan(x))
                 return x;
             if (f64_isinf(x))
@@ -237,8 +279,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 asin_f64(f64 x) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::asin(x);
+            if (!is_constant_evaluated())
+                return ::asin(x);
             if (f64_isnan(x))
                 return x;
             if (x < -1.0 || x > 1.0)
@@ -251,8 +293,8 @@ namespace SFT::Foundation {
         }
 
         [[nodiscard]] constexpr f64 remainder_f64(f64 x, f64 y) noexcept {
-            if (!std::is_constant_evaluated())
-                return std::remainder(x, y);
+            if (!is_constant_evaluated())
+                return ::remainder(x, y);
             if (y == 0.0 || f64_isnan(x) || f64_isnan(y) || f64_isinf(x))
                 return quiet_nan_f64();
             if (f64_isinf(y))
@@ -278,13 +320,13 @@ namespace SFT::Foundation {
     } // namespace Detail
 
     // --- classification -----------------------------------------------------------------------
-    template <std::integral T>
+    template <integral T>
     [[nodiscard]] constexpr bool isnan(T) noexcept {
         return false;
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline bool isnan(T x) noexcept {
-        return std::isnan(x);
+        return ::isnan(x);
     }
     [[nodiscard]] constexpr bool isnan(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool isnan(i256) noexcept { return false; }
@@ -293,26 +335,26 @@ namespace SFT::Foundation {
         return Detail::f64_isnan(x.x[0]) || Detail::f64_isnan(x.x[1]) || Detail::f64_isnan(x.x[2]) || Detail::f64_isnan(x.x[3]);
     }
 
-    template <std::integral T>
+    template <integral T>
     [[nodiscard]] constexpr bool isinf(T) noexcept {
         return false;
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline bool isinf(T x) noexcept {
-        return std::isinf(x);
+        return ::isinf(x);
     }
     [[nodiscard]] constexpr bool isinf(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool isinf(i256) noexcept { return false; }
     [[nodiscard]] constexpr bool isinf(f128 x) noexcept { return Detail::f64_isinf(x.hi); }
     [[nodiscard]] constexpr bool isinf(const f256 &x) noexcept { return Detail::f64_isinf(x.x[0]); }
 
-    template <std::integral T>
+    template <integral T>
     [[nodiscard]] constexpr bool isfinite(T) noexcept {
         return true;
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline bool isfinite(T x) noexcept {
-        return std::isfinite(x);
+        return ::isfinite(x);
     }
     [[nodiscard]] constexpr bool isfinite(u256) noexcept { return true; }
     [[nodiscard]] constexpr bool isfinite(i256) noexcept { return true; }
@@ -321,16 +363,16 @@ namespace SFT::Foundation {
         return Detail::f64_isfinite(x.x[0]) && Detail::f64_isfinite(x.x[1]) && Detail::f64_isfinite(x.x[2]) && Detail::f64_isfinite(x.x[3]);
     }
 
-    template <std::integral T>
+    template <integral T>
     [[nodiscard]] constexpr bool signbit(T x) noexcept {
-        if constexpr (std::is_unsigned_v<T>)
+        if constexpr (is_unsigned_v<T>)
             return false;
         else
             return x < 0;
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline bool signbit(T x) noexcept {
-        return std::signbit(x);
+        return ::signbit(x);
     }
     [[nodiscard]] constexpr bool signbit(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool signbit(i256 x) noexcept { return x.is_negative(); }
@@ -354,13 +396,13 @@ namespace SFT::Foundation {
     }
 
     // --- abs / sign / copy sign ---------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T abs(T x) noexcept {
-        return std::fabs(x);
+        return ::fabs(x);
     }
-    template <std::integral T>
+    template <integral T>
     [[nodiscard]] constexpr T abs(T x) noexcept {
-        if constexpr (std::is_unsigned_v<T>) {
+        if constexpr (is_unsigned_v<T>) {
             return x;
         } else {
             return x < 0 ? -x : x;
@@ -375,16 +417,16 @@ namespace SFT::Foundation {
 
     template <class T>
     [[nodiscard]] constexpr T sign(const T &x) noexcept {
-        if constexpr (std::is_unsigned_v<T>) {
+        if constexpr (is_unsigned_v<T>) {
             return x == T(0) ? T(0) : T(1);
         } else {
             return x < T(0) ? T(-1) : (T(0) < x ? T(1) : T(0));
         }
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T copysign(T magnitude, T sign_source) noexcept {
-        return std::copysign(magnitude, sign_source);
+        return ::copysign(magnitude, sign_source);
     }
     [[nodiscard]] constexpr f128 copysign(f128 magnitude, f128 sign_source) noexcept {
         return signbit(sign_source) ? -abs(magnitude) : abs(magnitude);
@@ -394,9 +436,9 @@ namespace SFT::Foundation {
     }
 
     // --- scaling ------------------------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T ldexp(T x, int exp) noexcept {
-        return std::ldexp(x, exp);
+        return ::ldexp(x, exp);
     }
     [[nodiscard]] constexpr f128 ldexp(f128 x, int exp) noexcept { return f128(Detail::ldexp_f64(x.hi, exp), Detail::ldexp_f64(x.lo, exp)); }
     [[nodiscard]] constexpr f256 ldexp(const f256 &x, int exp) noexcept {
@@ -408,9 +450,9 @@ namespace SFT::Foundation {
     }
 
     // --- sqrt / cbrt --------------------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T sqrt(T x) noexcept {
-        return std::sqrt(x);
+        return ::sqrt(x);
     }
     [[nodiscard]] constexpr f128 sqrt(f128 a) noexcept {
         if (isnan(a))
@@ -449,9 +491,9 @@ namespace SFT::Foundation {
         return a * y;
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T cbrt(T x) noexcept {
-        return std::cbrt(x);
+        return ::cbrt(x);
     }
     [[nodiscard]] constexpr f128 cbrt(f128 a) noexcept {
         if (a == f128(0.0) || !isfinite(a))
@@ -471,29 +513,29 @@ namespace SFT::Foundation {
     }
 
     // --- fma (full-precision a*b + c) ---------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T fma(T a, T b, T c) noexcept {
-        return std::fma(a, b, c);
+        return ::fma(a, b, c);
     }
     [[nodiscard]] constexpr f128 fma(f128 a, f128 b, f128 c) noexcept { return a * b + c; }
     [[nodiscard]] constexpr f256 fma(const f256 &a, const f256 &b, const f256 &c) noexcept { return a * b + c; }
 
     // --- floor / ceil / trunc / round ---------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T floor(T x) noexcept {
-        return std::floor(x);
+        return ::floor(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T ceil(T x) noexcept {
-        return std::ceil(x);
+        return ::ceil(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T trunc(T x) noexcept {
-        return std::trunc(x);
+        return ::trunc(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T round(T x) noexcept {
-        return std::round(x);
+        return ::round(x);
     }
 
     [[nodiscard]] constexpr f128 floor(f128 a) noexcept {
@@ -522,7 +564,7 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f256 ceil(const f256 &a) noexcept { return -floor(-a); }
     [[nodiscard]] constexpr f128 trunc(f128 a) noexcept { return a.hi < 0.0 ? ceil(a) : floor(a); }
     [[nodiscard]] constexpr f256 trunc(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a) : floor(a); }
-    // round half away from zero, matching std::round.
+    // round half away from zero, matching ::round.
     [[nodiscard]] constexpr f128 round(f128 a) noexcept { return a.hi < 0.0 ? ceil(a - f128(0.5)) : floor(a + f128(0.5)); }
     [[nodiscard]] constexpr f256 round(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a - f256(0.5)) : floor(a + f256(0.5)); }
 
@@ -583,8 +625,8 @@ namespace SFT::Foundation {
         [[nodiscard]] constexpr T reduce_half_pi(T x, int &quadrant) noexcept {
             const T kf = round(x * two_over_pi<T>());
             const f64 kd = static_cast<f64>(kf);
-            if (!f64_isfinite(kd) || kd < static_cast<f64>(std::numeric_limits<i64>::min()) ||
-                kd > static_cast<f64>(std::numeric_limits<i64>::max())) {
+            if (!f64_isfinite(kd) || kd < static_cast<f64>(numeric_limits<i64>::min()) ||
+                kd > static_cast<f64>(numeric_limits<i64>::max())) {
                 quadrant = 0;
                 return T(remainder_f64(static_cast<f64>(x), half_pi<f64>()));
             }
@@ -619,8 +661,8 @@ namespace SFT::Foundation {
             if (!(rounded == x))
                 return false;
             const f64 xd = static_cast<f64>(x);
-            if (!f64_isfinite(xd) || xd < static_cast<f64>(std::numeric_limits<i64>::min()) ||
-                xd > static_cast<f64>(std::numeric_limits<i64>::max()))
+            if (!f64_isfinite(xd) || xd < static_cast<f64>(numeric_limits<i64>::min()) ||
+                xd > static_cast<f64>(numeric_limits<i64>::max()))
                 return false;
             out = static_cast<i64>(x);
             return true;
@@ -629,17 +671,17 @@ namespace SFT::Foundation {
     } // namespace Detail
 
     // --- trigonometry -------------------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T sin(T x) noexcept {
-        return std::sin(x);
+        return ::sin(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T cos(T x) noexcept {
-        return std::cos(x);
+        return ::cos(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T tan(T x) noexcept {
-        return std::tan(x);
+        return ::tan(x);
     }
 
     [[nodiscard]] constexpr f128 sin(f128 x) noexcept {
@@ -711,9 +753,9 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f256 tan(const f256 &x) noexcept { return sin(x) / cos(x); }
 
     // --- exponentials and logarithms ----------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T exp(T x) noexcept {
-        return std::exp(x);
+        return ::exp(x);
     }
     [[nodiscard]] constexpr f128 exp(f128 x) noexcept {
         if (isnan(x))
@@ -723,9 +765,9 @@ namespace SFT::Foundation {
 
         const f128 kf = round(x * log2_e<f128>());
         const f64 kd = static_cast<f64>(kf);
-        if (kd > static_cast<f64>(std::numeric_limits<int>::max()))
+        if (kd > static_cast<f64>(numeric_limits<int>::max()))
             return Detail::infinity<f128>();
-        if (kd < static_cast<f64>(std::numeric_limits<int>::min()))
+        if (kd < static_cast<f64>(numeric_limits<int>::min()))
             return f128(0.0);
         const int k = static_cast<int>(static_cast<i64>(kf));
         const f128 r = x - f128(static_cast<f64>(k)) * Detail::natural_log_two<f128>();
@@ -739,18 +781,18 @@ namespace SFT::Foundation {
 
         const f256 kf = round(x * log2_e<f256>());
         const f64 kd = static_cast<f64>(kf);
-        if (kd > static_cast<f64>(std::numeric_limits<int>::max()))
+        if (kd > static_cast<f64>(numeric_limits<int>::max()))
             return Detail::infinity<f256>();
-        if (kd < static_cast<f64>(std::numeric_limits<int>::min()))
+        if (kd < static_cast<f64>(numeric_limits<int>::min()))
             return f256(0.0);
         const int k = static_cast<int>(static_cast<i64>(kf));
         const f256 r = x - f256(static_cast<f64>(k)) * Detail::natural_log_two<f256>();
         return ldexp(Detail::exp_kernel(r), k);
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T log(T x) noexcept {
-        return std::log(x);
+        return ::log(x);
     }
     [[nodiscard]] constexpr f128 log(f128 x) noexcept {
         if (isnan(x))
@@ -787,23 +829,23 @@ namespace SFT::Foundation {
         return y;
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T log2(T x) noexcept {
-        return std::log2(x);
+        return ::log2(x);
     }
     [[nodiscard]] constexpr f128 log2(f128 x) noexcept { return log(x) * log2_e<f128>(); }
     [[nodiscard]] constexpr f256 log2(const f256 &x) noexcept { return log(x) * log2_e<f256>(); }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T log10(T x) noexcept {
-        return std::log10(x);
+        return ::log10(x);
     }
     [[nodiscard]] constexpr f128 log10(f128 x) noexcept { return log(x) * log10_e<f128>(); }
     [[nodiscard]] constexpr f256 log10(const f256 &x) noexcept { return log(x) * log10_e<f256>(); }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T pow(T base, T exponent) noexcept {
-        return std::pow(base, exponent);
+        return ::pow(base, exponent);
     }
     [[nodiscard]] constexpr f128 pow(f128 base, f128 exponent) noexcept {
         i64 integral = 0;
@@ -823,21 +865,21 @@ namespace SFT::Foundation {
     }
 
     // --- inverse trigonometry -----------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T asin(T x) noexcept {
-        return std::asin(x);
+        return ::asin(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T acos(T x) noexcept {
-        return std::acos(x);
+        return ::acos(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T atan(T x) noexcept {
-        return std::atan(x);
+        return ::atan(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T atan2(T y, T x) noexcept {
-        return std::atan2(y, x);
+        return ::atan2(y, x);
     }
 
     [[nodiscard]] constexpr f128 asin(f128 x) noexcept {
@@ -921,17 +963,17 @@ namespace SFT::Foundation {
     }
 
     // --- hyperbolic ---------------------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T sinh(T x) noexcept {
-        return std::sinh(x);
+        return ::sinh(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T cosh(T x) noexcept {
-        return std::cosh(x);
+        return ::cosh(x);
     }
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T tanh(T x) noexcept {
-        return std::tanh(x);
+        return ::tanh(x);
     }
     [[nodiscard]] constexpr f128 sinh(f128 x) noexcept {
         const f128 ex = exp(x);
@@ -963,9 +1005,9 @@ namespace SFT::Foundation {
     }
 
     // --- common numeric helpers ---------------------------------------------------------------
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T fmod(T x, T y) noexcept {
-        return std::fmod(x, y);
+        return ::fmod(x, y);
     }
     [[nodiscard]] constexpr f128 fmod(f128 x, f128 y) noexcept {
         if (y == f128(0.0))
@@ -978,9 +1020,9 @@ namespace SFT::Foundation {
         return x - trunc(x / y) * y;
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T remainder(T x, T y) noexcept {
-        return std::remainder(x, y);
+        return ::remainder(x, y);
     }
     [[nodiscard]] constexpr f128 remainder(f128 x, f128 y) noexcept {
         if (y == f128(0.0))
@@ -993,28 +1035,28 @@ namespace SFT::Foundation {
         return x - round(x / y) * y;
     }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T hypot(T x, T y) noexcept {
-        return std::hypot(x, y);
+        return ::hypot(x, y);
     }
     [[nodiscard]] constexpr f128 hypot(f128 x, f128 y) noexcept { return sqrt(x * x + y * y); }
     [[nodiscard]] constexpr f256 hypot(const f256 &x, const f256 &y) noexcept { return sqrt(x * x + y * y); }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T lerp(T a, T b, T t) noexcept {
-        return std::lerp(a, b, t);
+        return ::lerp(a, b, t);
     }
     [[nodiscard]] constexpr f128 lerp(f128 a, f128 b, f128 t) noexcept { return a + (b - a) * t; }
     [[nodiscard]] constexpr f256 lerp(const f256 &a, const f256 &b, const f256 &t) noexcept { return a + (b - a) * t; }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T fract(T x) noexcept {
         return x - floor(x);
     }
     [[nodiscard]] constexpr f128 fract(f128 x) noexcept { return x - floor(x); }
     [[nodiscard]] constexpr f256 fract(const f256 &x) noexcept { return x - floor(x); }
 
-    template <std::floating_point T>
+    template <floating_point T>
     [[nodiscard]] inline T saturate(T x) noexcept {
         return x < T(0) ? T(0) : (x > T(1) ? T(1) : x);
     }

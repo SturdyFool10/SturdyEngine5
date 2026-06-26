@@ -8,13 +8,18 @@
 
 struct SDL_Window;
 
+using std::atomic_bool;
+using std::deque;
+using std::optional;
+using std::unique_ptr;
+
 namespace SFT::Platform::Windowing::SDL3 {
 
     class SDL3Window final : public Window {
       public:
         ~SDL3Window() noexcept override;
 
-        [[nodiscard]] static WindowExpected<std::unique_ptr<SDL3Window>> construct(ConstructorKey key, const WindowConfig &config) noexcept;
+        [[nodiscard]] static WindowExpected<unique_ptr<SDL3Window>> construct(ConstructorKey key, const WindowConfig &config) noexcept;
 
         [[nodiscard]] WindowBackendKind backend_kind() const noexcept override;
         [[nodiscard]] WindowingSystem type() const noexcept override;
@@ -22,11 +27,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] NativeWindowHandle native_window_handle() const noexcept override;
 
         WindowResult pump_events() noexcept override;
-        [[nodiscard]] std::optional<WindowEvent> poll_event() noexcept override;
+        [[nodiscard]] optional<WindowEvent> poll_event() noexcept override;
         [[nodiscard]] bool close_requested() const noexcept override;
         void request_close() noexcept override;
         [[nodiscard]] bool resized() const noexcept override;
-        [[nodiscard]] std::optional<WindowResize> consume_resize() noexcept override;
+        [[nodiscard]] optional<WindowResize> consume_resize() noexcept override;
 
         WindowResult show() noexcept override;
         WindowResult hide() noexcept override;
@@ -48,8 +53,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         WindowResult set_resizable(bool enabled) noexcept override;
         WindowResult set_decorated(bool enabled) noexcept override;
         WindowResult set_fullscreen(WindowMode mode) noexcept override;
-        WindowResult set_opacity(float opacity) noexcept override;
-        [[nodiscard]] WindowExpected<float> opacity() const noexcept override;
+        WindowResult set_opacity(f32 opacity) noexcept override;
+        [[nodiscard]] WindowExpected<f32> opacity() const noexcept override;
 
         WindowResult set_cursor_visible(bool visible) noexcept override;
         WindowResult set_cursor_grabbed(bool grabbed) noexcept override;
@@ -67,11 +72,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         SDL3Window(ConstructorKey key, SDL_Window *window) noexcept;
 
         SDL_Window *window_ = nullptr;
-        std::deque<WindowEvent> events_;
-        std::optional<WindowResize> pending_resize_;
+        deque<WindowEvent> events_;
+        optional<WindowResize> pending_resize_;
         WindowExtent last_size_ = {};
         WindowExtent last_framebuffer_size_ = {};
-        std::atomic_bool close_requested_ = false;
+        atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
     };
 

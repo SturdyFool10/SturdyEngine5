@@ -2,6 +2,8 @@
 #include "../Window/WindowLog.hpp"
 #include "../Window/WindowNative.hpp"
 
+#include <cstdint>
+
 #if defined(__linux__)
 #include <SDL3/SDL.h>
 
@@ -10,12 +12,12 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#include <cstdint>
-
 #if defined(Success)
 #undef Success
 #endif
 #endif
+
+using std::uintptr_t;
 
 namespace SFT::Platform::Windowing {
 
@@ -152,7 +154,7 @@ namespace SFT::Platform::Windowing::Detail {
             NativeWindowHandle handle{
                 NativeWindowSystem::X11,
                 glfwGetX11Display(),
-                reinterpret_cast<void *>(static_cast<std::uintptr_t>(glfwGetX11Window(window))),
+                reinterpret_cast<void *>(static_cast<uintptr_t>(glfwGetX11Window(window))),
             };
             Detail::window_debug("GLFW Linux native handle resolved X11: glfw_window={} display={} window={}", static_cast<void *>(window), handle.display, handle.window);
             return handle;
@@ -187,7 +189,7 @@ namespace SFT::Platform::Windowing::Detail {
             NativeWindowHandle handle{
                 NativeWindowSystem::X11,
                 x11_display,
-                reinterpret_cast<void *>(static_cast<std::uintptr_t>(
+                reinterpret_cast<void *>(static_cast<uintptr_t>(
                     SDL_GetNumberProperty(properties, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0))),
             };
             Detail::window_debug("SDL3 Linux native handle resolved X11: sdl_window={} properties={} display={} window={}", static_cast<void *>(window), properties, handle.display, handle.window);

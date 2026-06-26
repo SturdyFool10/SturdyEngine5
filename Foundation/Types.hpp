@@ -6,24 +6,39 @@
 #include <limits>
 #include <type_traits>
 
+using std::byte;
+using std::int16_t;
+using std::int32_t;
+using std::int64_t;
+using std::int8_t;
+using std::is_standard_layout_v;
+using std::is_trivially_copyable_v;
+using std::numeric_limits;
+using std::ptrdiff_t;
+using std::size_t;
+using std::uint16_t;
+using std::uint32_t;
+using std::uint64_t;
+using std::uint8_t;
+
 namespace SFT::Foundation {
 
-    using i8 = std::int8_t;
-    using i16 = std::int16_t;
-    using i32 = std::int32_t;
-    using i64 = std::int64_t;
+    using i8 = int8_t;
+    using i16 = int16_t;
+    using i32 = int32_t;
+    using i64 = int64_t;
 
-    using u8 = std::uint8_t;
-    using u16 = std::uint16_t;
-    using u32 = std::uint32_t;
-    using u64 = std::uint64_t;
+    using u8 = uint8_t;
+    using u16 = uint16_t;
+    using u32 = uint32_t;
+    using u64 = uint64_t;
 
     using f32 = float;
     using f64 = double;
 
-    using byte = std::byte;
-    using usize = std::size_t;
-    using isize = std::ptrdiff_t;
+    using byte = ::byte;
+    using usize = size_t;
+    using isize = ptrdiff_t;
 
     class b8 {
       public:
@@ -60,10 +75,10 @@ namespace SFT::Foundation {
     static_assert(sizeof(byte) == 1);
     static_assert(sizeof(b8) == 1);
 
-    static_assert(std::numeric_limits<f32>::is_iec559, "f32 must be IEEE-754.");
-    static_assert(std::numeric_limits<f64>::is_iec559, "f64 must be IEEE-754.");
-    static_assert(std::is_trivially_copyable_v<b8>);
-    static_assert(std::is_standard_layout_v<b8>);
+    static_assert(numeric_limits<f32>::is_iec559, "f32 must be IEEE-754.");
+    static_assert(numeric_limits<f64>::is_iec559, "f64 must be IEEE-754.");
+    static_assert(is_trivially_copyable_v<b8>);
+    static_assert(is_standard_layout_v<b8>);
 
     inline void assert_type_assumptions() noexcept {
         assert(sizeof(i8) == 1);
@@ -82,10 +97,10 @@ namespace SFT::Foundation {
         assert(sizeof(byte) == 1);
         assert(sizeof(b8) == 1);
 
-        assert(std::numeric_limits<f32>::is_iec559);
-        assert(std::numeric_limits<f64>::is_iec559);
-        assert(std::is_trivially_copyable_v<b8>);
-        assert(std::is_standard_layout_v<b8>);
+        assert(numeric_limits<f32>::is_iec559);
+        assert(numeric_limits<f64>::is_iec559);
+        assert(is_trivially_copyable_v<b8>);
+        assert(is_standard_layout_v<b8>);
     }
 
     namespace Detail {

@@ -4,6 +4,8 @@
 
 #include <vector>
 
+using std::vector;
+
 namespace SFT::Core::Vulkan {
 
     // Vulkan renderer backend - implements the API-agnostic EngineBackend contract.
@@ -47,12 +49,12 @@ namespace SFT::Core::Vulkan {
 
         RendererCreateInfo create_info_{};
         RendererCapabilities capabilities_{};
-        std::vector<SurfaceState> surfaces_;
+        vector<SurfaceState> surfaces_;
         bool initialized_ = false;
 
         // TODO(renderer): own the Vulkan objects here as they are built out, e.g.
         //   GraphicsDevice device_;   // instance, physical/logical device, queues, VMA allocator
-        //   std::vector<SurfaceResources>; // VkSurfaceKHR, swapchain, per-surface frames
+        //   vector<SurfaceResources>; // VkSurfaceKHR, swapchain, per-surface frames
         //   RenderGraph    graph_;         // shared graph/pipeline/cache state
     };
 

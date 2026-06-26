@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Foundation/Embed.hpp"
 #include "Foundation/Types.hpp"
 
 #include <array>
@@ -9,6 +10,15 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+using std::array;
+using std::convertible_to;
+using std::expected;
+using std::shared_ptr;
+using std::string;
+using std::string_view;
+using std::unexpected;
+using std::vector;
 
 namespace SFT::Core::Slang {
 
@@ -29,16 +39,16 @@ namespace SFT::Core::Slang {
 
     struct ShaderError {
         ShaderErrorCode code = ShaderErrorCode::OperationFailed;
-        std::string message;
-        std::string diagnostics;
+        string message;
+        string diagnostics;
     };
 
-    using ShaderResult = std::expected<void, ShaderError>;
+    using ShaderResult = expected<void, ShaderError>;
 
     template <typename Value>
-    using ShaderExpected = std::expected<Value, ShaderError>;
+    using ShaderExpected = expected<Value, ShaderError>;
 
-    [[nodiscard]] std::unexpected<ShaderError> shader_error(ShaderErrorCode code, std::string message, std::string diagnostics = {});
+    [[nodiscard]] unexpected<ShaderError> shader_error(ShaderErrorCode code, string message, string diagnostics = {});
 
     enum class ShaderSourceKind {
         SourceString,
@@ -47,29 +57,29 @@ namespace SFT::Core::Slang {
 
     struct ShaderSource {
         ShaderSourceKind kind = ShaderSourceKind::SourceString;
-        std::string module_name;
-        std::string path;
-        std::string source;
+        string module_name;
+        string path;
+        string source;
 
-        [[nodiscard]] static ShaderSource from_source(std::string module_name, std::string source, std::string path = {});
-        [[nodiscard]] static ShaderSource from_file(std::string path, std::string module_name = {});
+        [[nodiscard]] static ShaderSource from_source(string module_name, string source, string path = {});
+        [[nodiscard]] static ShaderSource from_file(string path, string module_name = {});
     };
 
     template <typename StaticShader>
     concept StaticShaderSource = requires {
-        { StaticShader::module_name } -> std::convertible_to<std::string_view>;
-        { StaticShader::source } -> std::convertible_to<std::string_view>;
+        { StaticShader::module_name } -> convertible_to<string_view>;
+        { StaticShader::source } -> convertible_to<string_view>;
     };
 
     template <StaticShaderSource StaticShader>
     [[nodiscard]] ShaderSource shader_source_from_type() {
         ShaderSource source{};
         source.kind = ShaderSourceKind::SourceString;
-        source.module_name = std::string{std::string_view{StaticShader::module_name}};
-        source.source = std::string{std::string_view{StaticShader::source}};
+        source.module_name = string{string_view{StaticShader::module_name}};
+        source.source = string{string_view{StaticShader::source}};
 
-        if constexpr (requires { { StaticShader::path } -> std::convertible_to<std::string_view>; }) {
-            source.path = std::string{std::string_view{StaticShader::path}};
+        if constexpr (requires { { StaticShader::path } -> convertible_to<string_view>; }) {
+            source.path = string{string_view{StaticShader::path}};
         }
 
         return source;
@@ -104,25 +114,25 @@ namespace SFT::Core::Slang {
     };
 
     struct ShaderMacro {
-        std::string name;
-        std::string value;
+        string name;
+        string value;
     };
 
     struct ShaderTarget {
         ShaderTargetFormat format = ShaderTargetFormat::Spirv;
-        std::string profile = "spirv_1_5";
+        string profile = "spirv_1_5";
     };
 
     struct ShaderEntryPointRequest {
-        std::string name;
+        string name;
         ShaderStage stage = ShaderStage::Unknown;
     };
 
     struct ShaderCompileOptions {
-        std::vector<ShaderTarget> targets = {ShaderTarget{}};
-        std::vector<ShaderEntryPointRequest> entry_points;
-        std::vector<std::string> search_paths;
-        std::vector<ShaderMacro> macros;
+        vector<ShaderTarget> targets = {ShaderTarget{}};
+        vector<ShaderEntryPointRequest> entry_points;
+        vector<string> search_paths;
+        vector<ShaderMacro> macros;
         b8 allow_glsl_syntax = false;
         b8 skip_spirv_validation = false;
         b8 enable_effect_annotations = false;
@@ -257,8 +267,8 @@ namespace SFT::Core::Slang {
     struct ShaderTypeReflection;
 
     struct ShaderFieldReflection {
-        std::string name;
-        std::shared_ptr<ShaderTypeReflection> type;
+        string name;
+        shared_ptr<ShaderTypeReflection> type;
         u64 offset = 0;
         u64 size = 0;
         u64 stride = 0;
@@ -277,8 +287,8 @@ namespace SFT::Core::Slang {
     };
 
     struct ShaderTypeReflection {
-        std::string name;
-        std::string full_name;
+        string name;
+        string full_name;
         ShaderTypeKind kind = ShaderTypeKind::Unknown;
         ShaderScalarType scalar_type = ShaderScalarType::None;
         ShaderResourceShape resource_shape = ShaderResourceShape::Unknown;
@@ -290,13 +300,13 @@ namespace SFT::Core::Slang {
         u64 size = 0;
         u64 stride = 0;
         i32 alignment = 0;
-        std::vector<ShaderFieldReflection> fields;
-        std::vector<ShaderBindingRangeReflection> binding_ranges;
+        vector<ShaderFieldReflection> fields;
+        vector<ShaderBindingRangeReflection> binding_ranges;
     };
 
     struct ShaderParameterReflection {
-        std::string name;
-        std::shared_ptr<ShaderTypeReflection> type;
+        string name;
+        shared_ptr<ShaderTypeReflection> type;
         ShaderParameterCategory category = ShaderParameterCategory::None;
         ShaderStage stage = ShaderStage::Unknown;
         u32 binding = 0;
@@ -304,10 +314,10 @@ namespace SFT::Core::Slang {
         u64 offset = 0;
         u64 size = 0;
         u64 stride = 0;
-        std::string semantic_name;
+        string semantic_name;
         u32 semantic_index = 0;
-        std::vector<ShaderParameterCategory> categories;
-        std::vector<ShaderBindingRangeReflection> binding_ranges;
+        vector<ShaderParameterCategory> categories;
+        vector<ShaderBindingRangeReflection> binding_ranges;
     };
 
     struct ShaderDescriptorRangeReflection {
@@ -319,27 +329,27 @@ namespace SFT::Core::Slang {
 
     struct ShaderDescriptorSetReflection {
         u32 space = 0;
-        std::vector<ShaderDescriptorRangeReflection> ranges;
+        vector<ShaderDescriptorRangeReflection> ranges;
     };
 
     struct ShaderEntryPointReflection {
-        std::string name;
-        std::string name_override;
+        string name;
+        string name_override;
         ShaderStage stage = ShaderStage::Unknown;
-        std::array<u32, 3> compute_thread_group_size = {0, 0, 0};
+        array<u32, 3> compute_thread_group_size = {0, 0, 0};
         u32 compute_wave_size = 0;
         b8 uses_sample_rate_input = false;
         b8 has_default_constant_buffer = false;
-        std::vector<ShaderParameterReflection> parameters;
-        std::vector<ShaderParameterReflection> result_parameters;
+        vector<ShaderParameterReflection> parameters;
+        vector<ShaderParameterReflection> result_parameters;
     };
 
     struct ShaderReflection {
-        std::vector<ShaderParameterReflection> global_parameters;
-        std::vector<ShaderEntryPointReflection> entry_points;
-        std::vector<ShaderDescriptorSetReflection> descriptor_sets;
-        std::vector<std::string> hashed_strings;
-        std::string json;
+        vector<ShaderParameterReflection> global_parameters;
+        vector<ShaderEntryPointReflection> entry_points;
+        vector<ShaderDescriptorSetReflection> descriptor_sets;
+        vector<string> hashed_strings;
+        string json;
         u32 global_constant_buffer_binding = 0;
         u64 global_constant_buffer_size = 0;
         i32 bindless_space_index = -1;
@@ -347,9 +357,9 @@ namespace SFT::Core::Slang {
 
     struct ShaderBytecode {
         ShaderTargetFormat target = ShaderTargetFormat::Spirv;
-        std::string profile;
-        std::string entry_point;
-        std::vector<byte> bytes;
+        string profile;
+        string entry_point;
+        vector<byte> bytes;
     };
 
     struct ShaderCompilerState;
@@ -367,15 +377,15 @@ namespace SFT::Core::Slang {
 
         [[nodiscard]] explicit operator bool() const noexcept;
         [[nodiscard]] const ShaderReflection &reflection() const noexcept;
-        [[nodiscard]] std::string_view module_name() const noexcept;
+        [[nodiscard]] string_view module_name() const noexcept;
         [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(usize entry_point_index, usize target_index = 0) const;
-        [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(std::string_view entry_point_name, usize target_index = 0) const;
+        [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(string_view entry_point_name, usize target_index = 0) const;
 
       private:
         friend class ShaderCompiler;
-        explicit Shader(std::shared_ptr<ShaderState> state) noexcept;
+        explicit Shader(shared_ptr<ShaderState> state) noexcept;
 
-        std::shared_ptr<ShaderState> state_;
+        shared_ptr<ShaderState> state_;
     };
 
     class ShaderCompiler {
@@ -396,7 +406,7 @@ namespace SFT::Core::Slang {
         }
 
       private:
-        std::shared_ptr<ShaderCompilerState> state_;
+        shared_ptr<ShaderCompilerState> state_;
     };
 
 } // namespace SFT::Core::Slang

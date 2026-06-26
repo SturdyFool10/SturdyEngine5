@@ -6,6 +6,9 @@
 #include <memory>
 #include <optional>
 
+using std::optional;
+using std::unique_ptr;
+
 namespace SFT::Engine {
 
     // Process host: owns the window and the engine, runs the main loop, and forwards OS events,
@@ -20,8 +23,8 @@ namespace SFT::Engine {
         void run();
 
       private:
-        std::unique_ptr<Platform::Windowing::Window> window_;
-        std::optional<Core::RenderSurfaceHandle> surface_;
+        unique_ptr<Platform::Windowing::Window> window_;
+        optional<Core::RenderSurfaceHandle> surface_;
         Engine engine_;
     };
 

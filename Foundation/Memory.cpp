@@ -10,6 +10,12 @@
 #include <string_view>
 
 using SFT::Foundation::f64, SFT::Foundation::u32, SFT::Foundation::usize;
+using std::atomic;
+using std::format;
+using std::memory_order_acq_rel;
+using std::memory_order_acquire;
+using std::string;
+using std::string_view;
 
 namespace {
 
@@ -19,24 +25,24 @@ namespace {
 
     struct ByteUnitInfo {
         f64 divisor;
-        std::string_view suffix;
+        string_view suffix;
         bool integral;
     };
 
-    constinit std::atomic<bool> g_initialized{false};
+    constinit atomic<bool> g_initialized{false};
 
     constexpr ByteUnitInfo byte_unit_info(SFT::Foundation::Memory::ByteUnit unit) noexcept {
         using enum SFT::Foundation::Memory::ByteUnit;
 
         switch (unit) {
-        case Bytes:
-            return {1.0, "bytes", true};
-        case Kilobytes:
-            return {bytes_per_kb, "KB", false};
-        case Megabytes:
-            return {bytes_per_mb, "MB", false};
-        case Gigabytes:
-            return {bytes_per_gb, "GB", false};
+            case Bytes:
+                return {1.0, "bytes", true};
+            case Kilobytes:
+                return {bytes_per_kb, "KB", false};
+            case Megabytes:
+                return {bytes_per_mb, "MB", false};
+            case Gigabytes:
+                return {bytes_per_gb, "GB", false};
         }
 
         return {bytes_per_mb, "MB", false};
@@ -47,7 +53,7 @@ namespace {
             return;
         }
 
-        auto line = std::string_view{message};
+        auto line = string_view{message};
         while (!line.empty() and (line.back() == '\n' or line.back() == '\r')) {
             line.remove_suffix(1);
         }
@@ -64,7 +70,7 @@ namespace {
 namespace SFT::Foundation::Memory {
 
     void initialize() noexcept {
-        if (g_initialized.exchange(true, std::memory_order_acq_rel)) {
+        if (g_initialized.exchange(true, memory_order_acq_rel)) {
             return;
         }
 
@@ -72,7 +78,7 @@ namespace SFT::Foundation::Memory {
     }
 
     bool is_initialized() noexcept {
-        return g_initialized.load(std::memory_order_acquire);
+        return g_initialized.load(memory_order_acquire);
     }
 
     u32 mimalloc_version() noexcept {
@@ -126,9 +132,7 @@ namespace SFT::Foundation::Memory {
         mi_stats_merge();
 
         HeapUsage usage{};
-        mi_process_info(nullptr, nullptr, nullptr,
-                        &usage.current_resident_bytes, &usage.peak_resident_bytes,
-                        &usage.current_bytes, &usage.peak_bytes, &usage.page_faults);
+        mi_process_info(nullptr, nullptr, nullptr, &usage.current_resident_bytes, &usage.peak_resident_bytes, &usage.current_bytes, &usage.peak_bytes, &usage.page_faults);
         return usage;
     }
 
@@ -144,24 +148,24 @@ namespace SFT::Foundation::Memory {
         return static_cast<f64>(bytes) / byte_unit_info(unit).divisor;
     }
 
-    std::string format_bytes(usize bytes, ByteFormatOptions options) {
+    string format_bytes(usize bytes, ByteFormatOptions options) {
         const ByteUnitInfo unit = byte_unit_info(options.unit);
-        std::string formatted = unit.integral
-            ? std::format("{}", bytes)
-            : std::format("{:.{}f}", bytes_as(bytes, options.unit), options.decimal_places);
+        string formatted = unit.integral
+                               ? format("{}", bytes)
+                               : format("{:.{}f}", bytes_as(bytes, options.unit), options.decimal_places);
 
         if (options.include_unit) {
-            formatted += std::format("{}{}", options.space_before_unit ? " " : "", unit.suffix);
+            formatted += format("{}{}", options.space_before_unit ? " " : "", unit.suffix);
         }
 
         if (options.include_bytes) {
-            formatted += std::format(" ({} bytes)", bytes);
+            formatted += format(" ({} bytes)", bytes);
         }
 
         return formatted;
     }
 
-    std::string format_heap_bytes(ByteFormatOptions options) {
+    string format_heap_bytes(ByteFormatOptions options) {
         return format_bytes(heap_bytes(), options);
     }
 

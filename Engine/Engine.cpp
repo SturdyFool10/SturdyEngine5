@@ -5,6 +5,9 @@
 
 import Sturdy.Foundation;
 
+using std::remove;
+using std::unexpected;
+
 namespace SFT::Engine {
 
     namespace {
@@ -53,7 +56,7 @@ namespace SFT::Engine {
             if (auto framebuffer = window.framebuffer_size()) {
                 info.framebuffer_extent = {framebuffer->x, framebuffer->y};
             } else {
-                return std::unexpected(Core::RendererError{
+                return unexpected(Core::RendererError{
                     Core::RendererErrorCode::InitializationFailed,
                     "Failed to query framebuffer size: " + framebuffer.error().message,
                 });
@@ -77,20 +80,22 @@ namespace SFT::Engine {
 
         renderer_backend_->wait_idle();
         for (auto surface = surfaces_.rbegin(); surface != surfaces_.rend(); ++surface) {
-            (void)renderer_backend_->destroy_surface(*surface);
+            if (auto result = renderer_backend_->destroy_surface(*surface); !result) {
+                Foundation::log_warn("Failed to destroy render surface: " + result.error().message);
+            }
         }
     }
 
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(Platform::Windowing::Window &window, const EngineConfig &config) {
         if (initialized_) {
-            return std::unexpected(Core::RendererError{Core::RendererErrorCode::OperationFailed, "Engine renderer is already initialized."});
+            return unexpected(Core::RendererError{Core::RendererErrorCode::OperationFailed, "Engine renderer is already initialized."});
         }
 
         config_ = config;
 
         auto surface_info = surface_create_info_from_window(window, config_.features.desired_frames_in_flight);
         if (!surface_info) {
-            return std::unexpected(surface_info.error());
+            return unexpected(surface_info.error());
         }
 
         Core::RendererCreateInfo renderer_info{};
@@ -100,7 +105,7 @@ namespace SFT::Engine {
         renderer_info.initial_surface_system = surface_info->descriptor.system;
 
         if (auto result = renderer_backend_->initialize(renderer_info); !result) {
-            return std::unexpected(result.error());
+            return unexpected(result.error());
         }
 
         initialized_ = true;
@@ -108,7 +113,7 @@ namespace SFT::Engine {
 
         auto surface = renderer_backend_->create_surface(*surface_info);
         if (!surface) {
-            return std::unexpected(surface.error());
+            return unexpected(surface.error());
         }
 
         surfaces_.push_back(*surface);
@@ -117,18 +122,18 @@ namespace SFT::Engine {
 
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::create_surface(Platform::Windowing::Window &window, u32 desired_frames_in_flight) {
         if (!initialized_) {
-            return std::unexpected(Core::RendererError{Core::RendererErrorCode::InitializationFailed, "Engine renderer must be initialized before creating a render surface."});
+            return unexpected(Core::RendererError{Core::RendererErrorCode::InitializationFailed, "Engine renderer must be initialized before creating a render surface."});
         }
 
         const u32 frames_in_flight = desired_frames_in_flight == 0 ? config_.features.desired_frames_in_flight : desired_frames_in_flight;
         auto surface_info = surface_create_info_from_window(window, frames_in_flight);
         if (!surface_info) {
-            return std::unexpected(surface_info.error());
+            return unexpected(surface_info.error());
         }
 
         auto surface = renderer_backend_->create_surface(*surface_info);
         if (!surface) {
-            return std::unexpected(surface.error());
+            return unexpected(surface.error());
         }
 
         surfaces_.push_back(*surface);
@@ -144,7 +149,7 @@ namespace SFT::Engine {
             return result;
         }
 
-        surfaces_.erase(std::remove(surfaces_.begin(), surfaces_.end(), surface), surfaces_.end());
+        surfaces_.erase(remove(surfaces_.begin(), surfaces_.end(), surface), surfaces_.end());
         return {};
     }
 
@@ -156,7 +161,7 @@ namespace SFT::Engine {
         const u32 frames_in_flight = desired_frames_in_flight == 0 ? config_.features.desired_frames_in_flight : desired_frames_in_flight;
         auto surface_info = surface_create_info_from_window(window, frames_in_flight);
         if (!surface_info) {
-            return std::unexpected(surface_info.error());
+            return unexpected(surface_info.error());
         }
 
         return renderer_backend_->recreate_surface(surface, *surface_info);

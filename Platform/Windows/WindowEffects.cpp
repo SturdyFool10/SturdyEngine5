@@ -31,7 +31,7 @@ namespace SFT::Platform::Windowing {
 
         constexpr COLORREF sturdy_dwm_color_default = 0xFFFFFFFF;
 
-        [[nodiscard]] COLORREF colorref_from_argb(std::uint32_t color_argb) noexcept {
+        [[nodiscard]] COLORREF colorref_from_argb(u32 color_argb) noexcept {
             const BYTE red = static_cast<BYTE>((color_argb >> 16U) & 0xFFU);
             const BYTE green = static_cast<BYTE>((color_argb >> 8U) & 0xFFU);
             const BYTE blue = static_cast<BYTE>(color_argb & 0xFFU);

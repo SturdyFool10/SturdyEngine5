@@ -2,6 +2,10 @@
 
 #include <new>
 
+using std::bad_alloc;
+using std::unexpected;
+using std::unique_ptr;
+
 namespace SFT::Core::Vulkan {
 
     namespace {
@@ -51,7 +55,7 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::create_surface(const RenderSurfaceCreateInfo &init) {
         if (!initialized_) {
-            return std::unexpected(RendererError{RendererErrorCode::InitializationFailed, "Vulkan backend must be initialized before creating a surface."});
+            return unexpected(RendererError{RendererErrorCode::InitializationFailed, "Vulkan backend must be initialized before creating a surface."});
         }
 
         try {
@@ -62,8 +66,8 @@ namespace SFT::Core::Vulkan {
             //   2. Verify the chosen graphics/present queues can present to this surface.
             //   3. Create the swapchain and per-surface frame resources when extent is non-zero.
             return handle;
-        } catch (const std::bad_alloc &) {
-            return std::unexpected(RendererError{RendererErrorCode::OutOfMemory, "Out of memory while tracking a Vulkan render surface."});
+        } catch (const bad_alloc &) {
+            return unexpected(RendererError{RendererErrorCode::OutOfMemory, "Out of memory while tracking a Vulkan render surface."});
         }
     }
 
@@ -207,7 +211,7 @@ namespace SFT::Core::Vulkan {
 
 namespace SFT::Core {
 
-    std::unique_ptr<EngineBackend> create_vulkan_backend() {
+    unique_ptr<EngineBackend> create_vulkan_backend() {
         return EngineBackend::create<Vulkan::VulkanBackend>();
     }
 

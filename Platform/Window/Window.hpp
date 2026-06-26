@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Foundation/Types.hpp"
+
 #include <concepts>
 #include <cstdint>
 #include <expected>
@@ -10,6 +12,15 @@
 #include <string>
 #include <string_view>
 #include <utility>
+
+using std::bad_alloc;
+using std::derived_from;
+using std::expected;
+using std::optional;
+using std::string;
+using std::string_view;
+using std::unexpected;
+using std::unique_ptr;
 
 namespace SFT::Platform::Windowing {
 
@@ -35,7 +46,7 @@ namespace SFT::Platform::Windowing {
 
     struct WindowError {
         WindowErrorCode code;
-        std::string message;
+        string message;
 
         WindowError(WindowErrorCode error_code, const char *error_message) noexcept
             : code(error_code), message() {
@@ -51,7 +62,7 @@ namespace SFT::Platform::Windowing {
             }
         }
 
-        WindowError(WindowErrorCode error_code, std::string_view error_message) noexcept
+        WindowError(WindowErrorCode error_code, string_view error_message) noexcept
             : code(error_code), message() {
             try {
                 message = error_message;
@@ -64,10 +75,10 @@ namespace SFT::Platform::Windowing {
         }
     };
 
-    using WindowResult = std::expected<void, WindowError>;
+    using WindowResult = expected<void, WindowError>;
 
     template <typename Value>
-    using WindowExpected = std::expected<Value, WindowError>;
+    using WindowExpected = expected<Value, WindowError>;
 
     using WindowExtent = glm::u32vec2;
     using WindowPosition = glm::i32vec2;
@@ -100,9 +111,9 @@ namespace SFT::Platform::Windowing {
     };
 
     struct WindowKeyboardEvent {
-        std::int32_t key = 0;
-        std::int32_t scancode = 0;
-        std::uint32_t modifiers = 0;
+        i32 key = 0;
+        i32 scancode = 0;
+        u32 modifiers = 0;
         bool repeat = false;
     };
 
@@ -111,25 +122,25 @@ namespace SFT::Platform::Windowing {
     };
 
     struct WindowMouseMoveEvent {
-        float x = 0.0F;
-        float y = 0.0F;
-        float delta_x = 0.0F;
-        float delta_y = 0.0F;
-        std::uint32_t buttons = 0;
+        f32 x = 0.0F;
+        f32 y = 0.0F;
+        f32 delta_x = 0.0F;
+        f32 delta_y = 0.0F;
+        u32 buttons = 0;
     };
 
     struct WindowMouseButtonEvent {
-        std::uint8_t button = 0;
-        std::uint8_t clicks = 1;
-        float x = 0.0F;
-        float y = 0.0F;
+        u8 button = 0;
+        u8 clicks = 1;
+        f32 x = 0.0F;
+        f32 y = 0.0F;
     };
 
     struct WindowMouseWheelEvent {
-        float x = 0.0F;
-        float y = 0.0F;
-        float mouse_x = 0.0F;
-        float mouse_y = 0.0F;
+        f32 x = 0.0F;
+        f32 y = 0.0F;
+        f32 mouse_x = 0.0F;
+        f32 mouse_y = 0.0F;
     };
 
     struct WindowEvent {
@@ -199,7 +210,7 @@ namespace SFT::Platform::Windowing {
     struct WindowEffect {
         WindowEffectKind kind = WindowEffectKind::Blur;
         bool enabled = true;
-        std::uint32_t color_argb = 0;
+        u32 color_argb = 0;
         LinuxBlurProtocol linux_blur_protocol = LinuxBlurProtocol::Automatic;
 
         [[nodiscard]] static constexpr WindowEffect blur(bool enabled = true) noexcept {
@@ -234,15 +245,15 @@ namespace SFT::Platform::Windowing {
             return WindowEffect{WindowEffectKind::DarkMode, enabled, 0, LinuxBlurProtocol::Automatic};
         }
 
-        [[nodiscard]] static constexpr WindowEffect border_color(std::uint32_t color_argb) noexcept {
+        [[nodiscard]] static constexpr WindowEffect border_color(u32 color_argb) noexcept {
             return WindowEffect{WindowEffectKind::BorderColor, true, color_argb, LinuxBlurProtocol::Automatic};
         }
 
-        [[nodiscard]] static constexpr WindowEffect caption_color(std::uint32_t color_argb) noexcept {
+        [[nodiscard]] static constexpr WindowEffect caption_color(u32 color_argb) noexcept {
             return WindowEffect{WindowEffectKind::CaptionColor, true, color_argb, LinuxBlurProtocol::Automatic};
         }
 
-        [[nodiscard]] static constexpr WindowEffect text_color(std::uint32_t color_argb) noexcept {
+        [[nodiscard]] static constexpr WindowEffect text_color(u32 color_argb) noexcept {
             return WindowEffect{WindowEffectKind::TextColor, true, color_argb, LinuxBlurProtocol::Automatic};
         }
     };
@@ -255,17 +266,17 @@ namespace SFT::Platform::Windowing {
 
     struct WindowEffectResult {
         WindowEffectResultKind kind = WindowEffectResultKind::Failed;
-        std::string_view details = {};
+        string_view details = {};
 
-        [[nodiscard]] static constexpr WindowEffectResult success(std::string_view details = {}) noexcept {
+        [[nodiscard]] static constexpr WindowEffectResult success(string_view details = {}) noexcept {
             return WindowEffectResult{WindowEffectResultKind::Success, details};
         }
 
-        [[nodiscard]] static constexpr WindowEffectResult degraded(std::string_view details) noexcept {
+        [[nodiscard]] static constexpr WindowEffectResult degraded(string_view details) noexcept {
             return WindowEffectResult{WindowEffectResultKind::Degraded, details};
         }
 
-        [[nodiscard]] static constexpr WindowEffectResult failed(std::string_view details) noexcept {
+        [[nodiscard]] static constexpr WindowEffectResult failed(string_view details) noexcept {
             return WindowEffectResult{WindowEffectResultKind::Failed, details};
         }
 
@@ -310,17 +321,17 @@ namespace SFT::Platform::Windowing {
         Window &operator=(Window &&) = delete;
 
         template <typename Backend, typename... Args>
-            requires std::derived_from<Backend, Window> && requires(Args &&...args) {
+            requires derived_from<Backend, Window> && requires(Args &&...args) {
                 Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
             }
         [[nodiscard]]
-        static WindowExpected<std::unique_ptr<Backend>> create(Args &&...args) noexcept {
+        static WindowExpected<unique_ptr<Backend>> create(Args &&...args) noexcept {
             try {
                 return Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
-            } catch (const std::bad_alloc &) {
-                return std::unexpected(WindowError{WindowErrorCode::OutOfMemory, "Out of memory while creating window."});
+            } catch (const bad_alloc &) {
+                return unexpected(WindowError{WindowErrorCode::OutOfMemory, "Out of memory while creating window."});
             } catch (...) {
-                return std::unexpected(WindowError{WindowErrorCode::CreationFailed, "Unexpected exception while creating window."});
+                return unexpected(WindowError{WindowErrorCode::CreationFailed, "Unexpected exception while creating window."});
             }
         }
 
@@ -330,11 +341,11 @@ namespace SFT::Platform::Windowing {
         [[nodiscard]] virtual NativeWindowHandle native_window_handle() const noexcept = 0;
 
         virtual WindowResult pump_events() noexcept = 0;
-        [[nodiscard]] virtual std::optional<WindowEvent> poll_event() noexcept = 0;
+        [[nodiscard]] virtual optional<WindowEvent> poll_event() noexcept = 0;
         [[nodiscard]] virtual bool close_requested() const noexcept = 0;
         virtual void request_close() noexcept = 0;
         [[nodiscard]] virtual bool resized() const noexcept = 0;
-        [[nodiscard]] virtual std::optional<WindowResize> consume_resize() noexcept = 0;
+        [[nodiscard]] virtual optional<WindowResize> consume_resize() noexcept = 0;
 
         virtual WindowResult show() noexcept = 0;
         virtual WindowResult hide() noexcept = 0;
@@ -356,8 +367,8 @@ namespace SFT::Platform::Windowing {
         virtual WindowResult set_resizable(bool enabled) noexcept = 0;
         virtual WindowResult set_decorated(bool enabled) noexcept = 0;
         virtual WindowResult set_fullscreen(WindowMode mode) noexcept = 0;
-        virtual WindowResult set_opacity(float opacity) noexcept = 0;
-        [[nodiscard]] virtual WindowExpected<float> opacity() const noexcept = 0;
+        virtual WindowResult set_opacity(f32 opacity) noexcept = 0;
+        [[nodiscard]] virtual WindowExpected<f32> opacity() const noexcept = 0;
 
         virtual WindowResult set_cursor_visible(bool visible) noexcept = 0;
         virtual WindowResult set_cursor_grabbed(bool grabbed) noexcept = 0;

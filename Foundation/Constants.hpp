@@ -15,23 +15,33 @@
 //     auto p128 = SFT::Foundation::pi<SFT::f128>();
 //     auto p256 = SFT::Foundation::pi<SFT::f256>();
 //
-// f128/f256 constants are stored as exact binary64 expansions. Hex float literals are intentional:
-// they preserve the exact component bits and avoid decimal-parser differences across compilers.
+// Each constant is stored as a four-component binary64 expansion (c0..c3). A request selects how
+// many components are used: f32/f64 take c0 (narrowed for f32), f128 takes c0..c1 (double-double),
+// f256 takes c0..c3 (quad-double). Hex float literals are intentional: they preserve the exact
+// component bits and avoid decimal-parser differences across compilers.
+//
+// Precision budget (storage bits -> decimal significant figures, + 3 guard digits for generation):
+//     f128 double-double: 2 x 53 = 106 bits -> 31.9 -> 32 sig figs (generate to 35, then round).
+//     f256 quad-double:   4 x 53 = 212 bits -> 63.8 -> 64 sig figs (generate to 67, then round).
+// The stored components are correctly-rounded expansions at that full width; constants_precision_
+// smoke_test() below locks the guarantee in at compile time by cross-checking the algebraic ones.
+
+using std::same_as;
 
 namespace SFT::Foundation {
 
     namespace Detail {
 
         template <class T>
-        concept ConstantScalar = std::same_as<T, f32> || std::same_as<T, f64> || std::same_as<T, f128> || std::same_as<T, f256>;
+        concept ConstantScalar = same_as<T, f32> || same_as<T, f64> || same_as<T, f128> || same_as<T, f256>;
 
         template <ConstantScalar T>
         [[nodiscard]] constexpr T constant(f64 c0, f64 c1 = 0.0, f64 c2 = 0.0, f64 c3 = 0.0) noexcept {
-            if constexpr (std::same_as<T, f32>) {
+            if constexpr (same_as<T, f32>) {
                 return static_cast<f32>(c0);
-            } else if constexpr (std::same_as<T, f64>) {
+            } else if constexpr (same_as<T, f64>) {
                 return c0;
-            } else if constexpr (std::same_as<T, f128>) {
+            } else if constexpr (same_as<T, f128>) {
                 return f128(c0, c1);
             } else {
                 return f256(c0, c1, c2, c3);
@@ -220,5 +230,107 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr T omega() noexcept {
         return Detail::constant<T>(0x1.22609af8e9657p-1, 0x1.2f57eed531437p-55, -0x1.eb8f48bc898bdp-111, -0x1.1caefe6d811f9p-165);
     }
+
+    namespace Detail {
+
+        [[nodiscard]] constexpr f256 qd_abs(f256 v) noexcept { return v < f256(0.0) ? -v : v; }
+
+        // Relative agreement to 2^-205 (~61.7 decimal digits): far past f64 (15.9) and f128 (31.9).
+        // The reconstructed relationships hold to ~2^-214 (the quad-double arithmetic noise floor,
+        // measured), so this leaves ~9 bits of slack against spurious failure while still flagging
+        // any realistic transcription error in components c0..c2 and the high-order bits of c3. The
+        // lowest ~1-2 bits of a quad-double sit below this self-consistency floor and cannot be
+        // cross-checked here; they are pinned by the out-of-band arbitrary-precision generation.
+        // Evaluation is consteval, so it always takes the deterministic non-FMA two_prod path and
+        // the margin does not vary across compilers. Every reference below is well away from zero.
+        [[nodiscard]] constexpr bool qd_close(f256 a, f256 b) noexcept {
+            const f256 tol(0x1p-205);
+            return qd_abs(a - b) <= tol * qd_abs(b);
+        }
+
+        // Compile-time guard on the stored quad-double components: each algebraically-defined
+        // constant must equal its definition to within quad-double rounding. This catches a
+        // mistyped or transcribed component (the failure mode of hand-edited expansions). Leaf
+        // transcendentals with no closed-form relation here (e, euler_mascheroni, catalan, apery,
+        // feigenbaum_*, khinchin, glaisher_kinkelin, conway, omega) are generated and verified
+        // out-of-band against an arbitrary-precision reference; e is still pinned via inv_e.
+        [[nodiscard]] consteval bool constants_precision_smoke_test() noexcept {
+            const f256 one_(1.0);
+
+            // Multiples and fractions of pi.
+            if (!qd_close(tau<f256>(), pi<f256>() * f256(2.0)))
+                return false;
+            if (!qd_close(three_pi<f256>(), pi<f256>() * f256(3.0)))
+                return false;
+            if (!qd_close(four_pi<f256>(), pi<f256>() * f256(4.0)))
+                return false;
+            if (!qd_close(half_pi<f256>(), pi<f256>() / f256(2.0)))
+                return false;
+            if (!qd_close(third_pi<f256>(), pi<f256>() / f256(3.0)))
+                return false;
+            if (!qd_close(quarter_pi<f256>(), pi<f256>() / f256(4.0)))
+                return false;
+
+            // Reciprocals.
+            if (!qd_close(inv_pi<f256>(), one_ / pi<f256>()))
+                return false;
+            if (!qd_close(inv_tau<f256>(), one_ / tau<f256>()))
+                return false;
+            if (!qd_close(two_over_pi<f256>(), f256(2.0) / pi<f256>()))
+                return false;
+            if (!qd_close(four_over_pi<f256>(), f256(4.0) / pi<f256>()))
+                return false;
+            if (!qd_close(inv_e<f256>(), one_ / e<f256>()))
+                return false;
+
+            // Powers and roots (roots checked by squaring back).
+            if (!qd_close(pi_squared<f256>(), pi<f256>() * pi<f256>()))
+                return false;
+            if (!qd_close(pi_cubed<f256>(), pi<f256>() * pi<f256>() * pi<f256>()))
+                return false;
+            if (!qd_close(sqrt_pi<f256>() * sqrt_pi<f256>(), pi<f256>()))
+                return false;
+            if (!qd_close(sqrt_tau<f256>() * sqrt_tau<f256>(), tau<f256>()))
+                return false;
+            if (!qd_close(sqrt_half_pi<f256>() * sqrt_half_pi<f256>(), half_pi<f256>()))
+                return false;
+            if (!qd_close(inv_sqrt_pi<f256>(), one_ / sqrt_pi<f256>()))
+                return false;
+
+            // Angle conversion factors.
+            if (!qd_close(deg_to_rad<f256>(), pi<f256>() / f256(180.0)))
+                return false;
+            if (!qd_close(rad_to_deg<f256>(), f256(180.0) / pi<f256>()))
+                return false;
+            if (!qd_close(grad_to_rad<f256>(), pi<f256>() / f256(200.0)))
+                return false;
+            if (!qd_close(rad_to_grad<f256>(), f256(200.0) / pi<f256>()))
+                return false;
+
+            // Golden ratio identities: phi^2 = phi + 1, 1/phi = phi - 1.
+            if (!qd_close(phi_squared<f256>(), phi<f256>() * phi<f256>()))
+                return false;
+            if (!qd_close(phi_squared<f256>(), phi<f256>() + one_))
+                return false;
+            if (!qd_close(inv_phi<f256>(), one_ / phi<f256>()))
+                return false;
+            if (!qd_close(inv_phi<f256>(), phi<f256>() - one_))
+                return false;
+
+            // Silver ratio: (silver - 1)^2 = 2. Plastic number: plastic^3 = plastic + 1.
+            const f256 silver_minus_one = silver_ratio<f256>() - one_;
+            if (!qd_close(silver_minus_one * silver_minus_one, f256(2.0)))
+                return false;
+            const f256 rho = plastic<f256>();
+            if (!qd_close(rho * rho * rho, rho + one_))
+                return false;
+
+            return true;
+        }
+
+        static_assert(constants_precision_smoke_test(),
+                      "Constants.hpp: a constant disagrees with its definition beyond quad-double rounding.");
+
+    } // namespace Detail
 
 } // namespace SFT::Foundation

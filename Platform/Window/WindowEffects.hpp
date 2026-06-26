@@ -2,6 +2,9 @@
 
 #include "Window.hpp"
 
+using std::string_view;
+using std::unexpected;
+
 namespace SFT::Platform::Windowing {
 
     [[nodiscard]] OperatingSystem current_operating_system() noexcept;
@@ -13,7 +16,7 @@ namespace SFT::Platform::Windowing {
             return {};
         }
 
-        return std::unexpected(WindowError{WindowErrorCode::OperationFailed, result.details.empty() ? std::string_view{"Window effect failed."} : result.details});
+        return unexpected(WindowError{WindowErrorCode::OperationFailed, result.details.empty() ? string_view{"Window effect failed."} : result.details});
     }
 
     [[nodiscard]] inline WindowResult set_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {

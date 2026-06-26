@@ -7,6 +7,10 @@
 #include <string>
 #include <utility>
 
+using std::expected;
+using std::string;
+using std::unexpected;
+
 namespace SFT::Core {
 
     enum class RendererErrorCode {
@@ -21,16 +25,16 @@ namespace SFT::Core {
     // Mirrors the Platform WindowError convention so error handling looks the same across layers.
     struct RendererError {
         RendererErrorCode code = RendererErrorCode::OperationFailed;
-        std::string message;
+        string message;
     };
 
-    using RendererResult = std::expected<void, RendererError>;
+    using RendererResult = expected<void, RendererError>;
 
     template <typename Value>
-    using RendererExpected = std::expected<Value, RendererError>;
+    using RendererExpected = expected<Value, RendererError>;
 
-    [[nodiscard]] inline std::unexpected<RendererError> renderer_error(RendererErrorCode code, std::string message) {
-        return std::unexpected(RendererError{code, std::move(message)});
+    [[nodiscard]] inline unexpected<RendererError> renderer_error(RendererErrorCode code, string message) {
+        return unexpected(RendererError{code, std::move(message)});
     }
 
     // What a backend can actually do. The backend fills this in at initialize() time and the

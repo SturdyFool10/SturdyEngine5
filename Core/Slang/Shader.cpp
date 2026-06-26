@@ -1,4 +1,4 @@
-#include "Core/Slang/Shader.hpp"
+#include "Shader.hpp"
 
 #include <slang-com-ptr.h>
 #include <slang.h>
@@ -11,11 +11,31 @@
 #include <mutex>
 #include <new>
 
+using std::bad_alloc;
+using std::exception;
+using std::find_if;
+using std::ifstream;
+using std::ios;
+using std::lock_guard;
+using std::make_shared;
+using std::memcpy;
+using std::mutex;
+using std::numeric_limits;
+using std::shared_ptr;
+using std::streamoff;
+using std::string;
+using std::string_view;
+using std::unexpected;
+using std::vector;
+using std::filesystem::path;
+
+using filesystem_path = path;
+
 namespace SFT::Core::Slang {
 
     namespace {
 
-        [[nodiscard]] std::string blob_string(slang::IBlob *blob) {
+        [[nodiscard]] string blob_string(slang::IBlob *blob) {
             if (!blob || !blob->getBufferPointer() || blob->getBufferSize() == 0) {
                 return {};
             }
@@ -25,12 +45,12 @@ namespace SFT::Core::Slang {
             if (size > 0 && data[size - 1] == '\0') {
                 --size;
             }
-            return std::string{data, size};
+            return string{data, size};
         }
 
-        [[nodiscard]] std::string path_stem_or_module_name(const std::string &path) {
-            std::filesystem::path file_path{path};
-            std::string stem = file_path.stem().string();
+        [[nodiscard]] string path_stem_or_module_name(const string &path) {
+            filesystem_path file_path{path};
+            string stem = file_path.stem().string();
             if (!stem.empty()) {
                 return stem;
             }
@@ -38,18 +58,18 @@ namespace SFT::Core::Slang {
             return "runtime_shader";
         }
 
-        [[nodiscard]] ShaderExpected<std::string> read_text_file(const std::string &path) {
-            std::ifstream file(path, std::ios::binary);
+        [[nodiscard]] ShaderExpected<string> read_text_file(const string &path) {
+            ifstream file(path, ios::binary);
             if (!file) {
                 return shader_error(ShaderErrorCode::FileReadFailed, "Failed to open Slang shader file: " + path);
             }
 
-            std::string contents;
-            file.seekg(0, std::ios::end);
-            const std::streamoff size = file.tellg();
+            string contents;
+            file.seekg(0, ios::end);
+            const streamoff size = file.tellg();
             if (size > 0) {
                 contents.resize(static_cast<usize>(size));
-                file.seekg(0, std::ios::beg);
+                file.seekg(0, ios::beg);
                 file.read(contents.data(), size);
             }
 
@@ -442,8 +462,8 @@ namespace SFT::Core::Slang {
         }
 
         [[nodiscard]] u32 normalize_u32(size_t value) noexcept {
-            if (value == SLANG_UNKNOWN_SIZE || value == SLANG_UNBOUNDED_SIZE || value > std::numeric_limits<u32>::max()) {
-                return std::numeric_limits<u32>::max();
+            if (value == SLANG_UNKNOWN_SIZE || value == SLANG_UNBOUNDED_SIZE || value > numeric_limits<u32>::max()) {
+                return numeric_limits<u32>::max();
             }
 
             return static_cast<u32>(value);
@@ -451,35 +471,35 @@ namespace SFT::Core::Slang {
 
         [[nodiscard]] u32 normalize_slang_unsigned(unsigned value) noexcept {
             if (value == static_cast<unsigned>(SLANG_UNKNOWN_SIZE) || value == static_cast<unsigned>(SLANG_UNBOUNDED_SIZE)) {
-                return std::numeric_limits<u32>::max();
+                return numeric_limits<u32>::max();
             }
 
             return value;
         }
 
         [[nodiscard]] u32 normalize_slang_int(SlangInt value) noexcept {
-            if (value < 0 || static_cast<unsigned long long>(value) > std::numeric_limits<u32>::max()) {
-                return std::numeric_limits<u32>::max();
+            if (value < 0 || static_cast<unsigned long long>(value) > numeric_limits<u32>::max()) {
+                return numeric_limits<u32>::max();
             }
 
             return static_cast<u32>(value);
         }
 
-        [[nodiscard]] std::string type_full_name(slang::TypeReflection *type) {
+        [[nodiscard]] string type_full_name(slang::TypeReflection *type) {
             if (!type) {
                 return {};
             }
 
             ::Slang::ComPtr<slang::IBlob> name_blob;
             if (SLANG_SUCCEEDED(type->getFullName(name_blob.writeRef()))) {
-                std::string name = blob_string(name_blob);
+                string name = blob_string(name_blob);
                 if (!name.empty()) {
                     return name;
                 }
             }
 
             const char *name = type->getName();
-            return name ? std::string{name} : std::string{};
+            return name ? string{name} : string{};
         }
 
         [[nodiscard]] ShaderBindingRangeReflection parse_binding_range(slang::TypeLayoutReflection *type_layout, SlangInt range_index) {
@@ -496,9 +516,9 @@ namespace SFT::Core::Slang {
             range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);
 
-            if (range.descriptor_range_count > 0 && range.descriptor_range_count != std::numeric_limits<u32>::max() &&
-                range.descriptor_set != std::numeric_limits<u32>::max() &&
-                range.descriptor_range_index != std::numeric_limits<u32>::max()) {
+            if (range.descriptor_range_count > 0 && range.descriptor_range_count != numeric_limits<u32>::max() &&
+                range.descriptor_set != numeric_limits<u32>::max() &&
+                range.descriptor_range_index != numeric_limits<u32>::max()) {
                 range.binding = normalize_slang_int(type_layout->getDescriptorSetDescriptorRangeIndexOffset(
                     static_cast<SlangInt>(range.descriptor_set),
                     static_cast<SlangInt>(range.descriptor_range_index)));
@@ -511,8 +531,8 @@ namespace SFT::Core::Slang {
             return range;
         }
 
-        [[nodiscard]] std::shared_ptr<ShaderTypeReflection> parse_type_layout(slang::TypeLayoutReflection *type_layout, u32 depth = 0) {
-            auto type = std::make_shared<ShaderTypeReflection>();
+        [[nodiscard]] shared_ptr<ShaderTypeReflection> parse_type_layout(slang::TypeLayoutReflection *type_layout, u32 depth = 0) {
+            auto type = make_shared<ShaderTypeReflection>();
             if (!type_layout) {
                 return type;
             }
@@ -596,7 +616,7 @@ namespace SFT::Core::Slang {
             return parameter;
         }
 
-        void append_fields_as_parameters(std::vector<ShaderParameterReflection> &out, slang::VariableLayoutReflection *layout) {
+        void append_fields_as_parameters(vector<ShaderParameterReflection> &out, slang::VariableLayoutReflection *layout) {
             if (!layout || !layout->getTypeLayout()) {
                 return;
             }
@@ -719,10 +739,10 @@ namespace SFT::Core::Slang {
             return reflection;
         }
 
-        [[nodiscard]] ShaderExpected<std::vector<::Slang::ComPtr<slang::IEntryPoint>>> resolve_entry_points(
+        [[nodiscard]] ShaderExpected<vector<::Slang::ComPtr<slang::IEntryPoint>>> resolve_entry_points(
             slang::IModule *module,
             const ShaderCompileOptions &options) {
-            std::vector<::Slang::ComPtr<slang::IEntryPoint>> entry_points;
+            vector<::Slang::ComPtr<slang::IEntryPoint>> entry_points;
 
             if (options.entry_points.empty()) {
                 const SlangInt32 count = module->getDefinedEntryPointCount();
@@ -767,15 +787,15 @@ namespace SFT::Core::Slang {
             return entry_points;
         }
 
-        [[nodiscard]] ShaderExpected<std::vector<slang::TargetDesc>> build_target_descs(
+        [[nodiscard]] ShaderExpected<vector<slang::TargetDesc>> build_target_descs(
             slang::IGlobalSession *global_session,
-            const std::vector<ShaderTarget> &targets,
+            const vector<ShaderTarget> &targets,
             const ShaderCompileOptions &options) {
             if (targets.empty()) {
                 return shader_error(ShaderErrorCode::InvalidArgument, "At least one Slang shader target is required.");
             }
 
-            std::vector<slang::TargetDesc> target_descs;
+            vector<slang::TargetDesc> target_descs;
             target_descs.reserve(targets.size());
             for (const ShaderTarget &target : targets) {
                 const char *profile = target.profile.empty() ? default_profile(target.format) : target.profile.c_str();
@@ -801,24 +821,24 @@ namespace SFT::Core::Slang {
     } // namespace
 
     struct ShaderCompilerState {
-        std::mutex mutex;
+        mutex mutex;
         ::Slang::ComPtr<slang::IGlobalSession> global_session;
     };
 
     struct ShaderState {
-        std::string module_name;
-        std::vector<ShaderTarget> targets;
+        string module_name;
+        vector<ShaderTarget> targets;
         ShaderReflection reflection;
         ::Slang::ComPtr<slang::ISession> session;
         ::Slang::ComPtr<slang::IModule> module;
         ::Slang::ComPtr<slang::IComponentType> linked_program;
     };
 
-    std::unexpected<ShaderError> shader_error(ShaderErrorCode code, std::string message, std::string diagnostics) {
-        return std::unexpected(ShaderError{code, std::move(message), std::move(diagnostics)});
+    unexpected<ShaderError> shader_error(ShaderErrorCode code, string message, string diagnostics) {
+        return unexpected(ShaderError{code, std::move(message), std::move(diagnostics)});
     }
 
-    ShaderSource ShaderSource::from_source(std::string module_name, std::string source, std::string path) {
+    ShaderSource ShaderSource::from_source(string module_name, string source, string path) {
         ShaderSource shader_source{};
         shader_source.kind = ShaderSourceKind::SourceString;
         shader_source.module_name = std::move(module_name);
@@ -827,7 +847,7 @@ namespace SFT::Core::Slang {
         return shader_source;
     }
 
-    ShaderSource ShaderSource::from_file(std::string path, std::string module_name) {
+    ShaderSource ShaderSource::from_file(string path, string module_name) {
         ShaderSource shader_source{};
         shader_source.kind = ShaderSourceKind::File;
         shader_source.module_name = std::move(module_name);
@@ -835,7 +855,7 @@ namespace SFT::Core::Slang {
         return shader_source;
     }
 
-    Shader::Shader(std::shared_ptr<ShaderState> state) noexcept
+    Shader::Shader(shared_ptr<ShaderState> state) noexcept
         : state_(std::move(state)) {
     }
 
@@ -850,8 +870,8 @@ namespace SFT::Core::Slang {
         return state_ ? state_->reflection : empty;
     }
 
-    std::string_view Shader::module_name() const noexcept {
-        return state_ ? std::string_view{state_->module_name} : std::string_view{};
+    string_view Shader::module_name() const noexcept {
+        return state_ ? string_view{state_->module_name} : string_view{};
     }
 
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(usize entry_point_index, usize target_index) const {
@@ -885,18 +905,18 @@ namespace SFT::Core::Slang {
         const usize size = code->getBufferSize();
         bytecode.bytes.resize(size);
         if (size > 0) {
-            std::memcpy(bytecode.bytes.data(), code->getBufferPointer(), size);
+            memcpy(bytecode.bytes.data(), code->getBufferPointer(), size);
         }
 
         return bytecode;
     }
 
-    ShaderExpected<ShaderBytecode> Shader::entry_point_code(std::string_view entry_point_name, usize target_index) const {
+    ShaderExpected<ShaderBytecode> Shader::entry_point_code(string_view entry_point_name, usize target_index) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
         }
 
-        const auto found = std::find_if(
+        const auto found = find_if(
             state_->reflection.entry_points.begin(),
             state_->reflection.entry_points.end(),
             [entry_point_name](const ShaderEntryPointReflection &entry_point) {
@@ -904,14 +924,14 @@ namespace SFT::Core::Slang {
             });
 
         if (found == state_->reflection.entry_points.end()) {
-            return shader_error(ShaderErrorCode::EntryPointNotFound, "Slang shader entry point was not reflected: " + std::string{entry_point_name});
+            return shader_error(ShaderErrorCode::EntryPointNotFound, "Slang shader entry point was not reflected: " + string{entry_point_name});
         }
 
         return entry_point_code(static_cast<usize>(found - state_->reflection.entry_points.begin()), target_index);
     }
 
     ShaderCompiler::ShaderCompiler()
-        : state_(std::make_shared<ShaderCompilerState>()) {
+        : state_(make_shared<ShaderCompilerState>()) {
     }
 
     ShaderCompiler::~ShaderCompiler() = default;
@@ -922,7 +942,7 @@ namespace SFT::Core::Slang {
         }
 
         try {
-            std::lock_guard lock(state_->mutex);
+            lock_guard lock(state_->mutex);
 
             if (!state_->global_session.get()) {
                 const SlangResult result = slang::createGlobalSession(state_->global_session.writeRef());
@@ -931,10 +951,10 @@ namespace SFT::Core::Slang {
                 }
             }
 
-            std::string module_name = source.module_name;
-            std::string path = source.path;
-            std::string source_text = source.source;
-            std::vector<std::string> effective_search_paths = options.search_paths;
+            string module_name = source.module_name;
+            string path = source.path;
+            string source_text = source.source;
+            vector<string> effective_search_paths = options.search_paths;
 
             if (source.kind == ShaderSourceKind::File) {
                 if (path.empty()) {
@@ -947,11 +967,11 @@ namespace SFT::Core::Slang {
 
                 auto loaded = read_text_file(path);
                 if (!loaded) {
-                    return std::unexpected(loaded.error());
+                    return unexpected(loaded.error());
                 }
                 source_text = std::move(*loaded);
 
-                const std::filesystem::path parent_path = std::filesystem::path{path}.parent_path();
+                const filesystem_path parent_path = filesystem_path{path}.parent_path();
                 if (!parent_path.empty()) {
                     effective_search_paths.push_back(parent_path.string());
                 }
@@ -968,16 +988,16 @@ namespace SFT::Core::Slang {
 
             auto target_descs = build_target_descs(state_->global_session.get(), options.targets, options);
             if (!target_descs) {
-                return std::unexpected(target_descs.error());
+                return unexpected(target_descs.error());
             }
 
-            std::vector<const char *> search_paths;
+            vector<const char *> search_paths;
             search_paths.reserve(effective_search_paths.size());
-            for (const std::string &search_path : effective_search_paths) {
+            for (const string &search_path : effective_search_paths) {
                 search_paths.push_back(search_path.c_str());
             }
 
-            std::vector<slang::PreprocessorMacroDesc> macros;
+            vector<slang::PreprocessorMacroDesc> macros;
             macros.reserve(options.macros.size());
             for (const ShaderMacro &macro : options.macros) {
                 if (!macro.name.empty()) {
@@ -996,7 +1016,7 @@ namespace SFT::Core::Slang {
             session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
             session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
 
-            auto shader_state = std::make_shared<ShaderState>();
+            auto shader_state = make_shared<ShaderState>();
             shader_state->module_name = module_name;
             shader_state->targets = options.targets;
             for (ShaderTarget &target : shader_state->targets) {
@@ -1022,10 +1042,10 @@ namespace SFT::Core::Slang {
 
             auto entry_points = resolve_entry_points(shader_state->module.get(), options);
             if (!entry_points) {
-                return std::unexpected(entry_points.error());
+                return unexpected(entry_points.error());
             }
 
-            std::vector<slang::IComponentType *> components;
+            vector<slang::IComponentType *> components;
             components.reserve(entry_points->size() + 1);
             components.push_back(shader_state->module.get());
             for (const ::Slang::ComPtr<slang::IEntryPoint> &entry_point : *entry_points) {
@@ -1051,15 +1071,15 @@ namespace SFT::Core::Slang {
 
             auto reflection = parse_reflection(shader_state->linked_program.get(), 0);
             if (!reflection) {
-                return std::unexpected(reflection.error());
+                return unexpected(reflection.error());
             }
             shader_state->reflection = std::move(*reflection);
 
             return Shader{std::move(shader_state)};
-        } catch (const std::bad_alloc &) {
+        } catch (const bad_alloc &) {
             return shader_error(ShaderErrorCode::OutOfMemory, "Out of memory while compiling Slang shader.");
-        } catch (const std::exception &exception) {
-            return shader_error(ShaderErrorCode::OperationFailed, std::string{"Unexpected exception while compiling Slang shader: "} + exception.what());
+        } catch (const exception &exception) {
+            return shader_error(ShaderErrorCode::OperationFailed, string{"Unexpected exception while compiling Slang shader: "} + exception.what());
         } catch (...) {
             return shader_error(ShaderErrorCode::OperationFailed, "Unexpected exception while compiling Slang shader.");
         }
