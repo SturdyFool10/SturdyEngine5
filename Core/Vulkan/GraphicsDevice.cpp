@@ -1,1 +1,0 @@
-namespace SFT::Core::Vulkan {}

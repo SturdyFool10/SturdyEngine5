@@ -1,9 +1,9 @@
 include_guard(GLOBAL)
 
 function(sturdy_add_package package_name)
-    set(options EXECUTABLE)
-    set(one_value_args)
-    set(multi_value_args
+  set(options EXECUTABLE)
+  set(one_value_args)
+  set(multi_value_args
         SOURCES
         MODULES
         PUBLIC_DEPS
@@ -14,18 +14,21 @@ function(sturdy_add_package package_name)
         PRIVATE_DEFINES
         EXCLUDE_SOURCE_DIRS
     )
-    cmake_parse_arguments(STURDY_PACKAGE
+  cmake_parse_arguments(STURDY_PACKAGE
         "${options}"
         "${one_value_args}"
         "${multi_value_args}"
         ${ARGN}
     )
 
-    if(STURDY_PACKAGE_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "Unknown sturdy_add_package arguments for ${package_name}: ${STURDY_PACKAGE_UNPARSED_ARGUMENTS}")
-    endif()
+  if(STURDY_PACKAGE_UNPARSED_ARGUMENTS)
+    message(FATAL_ERROR
+      "Unknown sturdy_add_package arguments for ${package_name}: "
+      "${STURDY_PACKAGE_UNPARSED_ARGUMENTS}"
+    )
+  endif()
 
-    file(GLOB_RECURSE _auto_sources CONFIGURE_DEPENDS
+  file(GLOB_RECURSE _auto_sources CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
@@ -35,84 +38,113 @@ function(sturdy_add_package package_name)
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hxx"
     )
-    file(GLOB_RECURSE _auto_modules CONFIGURE_DEPENDS
+  file(GLOB_RECURSE _auto_modules CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cppm"
     )
 
-    foreach(_source_list _auto_sources _auto_modules)
-        set(_filtered_sources)
-        foreach(_source IN LISTS ${_source_list})
-            file(RELATIVE_PATH _source_relative "${CMAKE_CURRENT_SOURCE_DIR}" "${_source}")
-            file(TO_CMAKE_PATH "${_source_relative}" _source_relative)
+  foreach(_source_list _auto_sources _auto_modules)
+    set(_filtered_sources)
+    foreach(_source IN LISTS ${_source_list})
+      file(RELATIVE_PATH _source_relative
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${_source}"
+      )
+      file(TO_CMAKE_PATH "${_source_relative}" _source_relative)
 
-            set(_excluded FALSE)
-            foreach(_exclude_dir IN LISTS STURDY_PACKAGE_EXCLUDE_SOURCE_DIRS)
-                if(IS_ABSOLUTE "${_exclude_dir}")
-                    file(RELATIVE_PATH _exclude_relative "${CMAKE_CURRENT_SOURCE_DIR}" "${_exclude_dir}")
-                else()
-                    set(_exclude_relative "${_exclude_dir}")
-                endif()
-
-                file(TO_CMAKE_PATH "${_exclude_relative}" _exclude_relative)
-                string(REGEX REPLACE "^\\./" "" _exclude_relative "${_exclude_relative}")
-                string(REGEX REPLACE "/$" "" _exclude_relative "${_exclude_relative}")
-                if(_exclude_relative STREQUAL "")
-                    continue()
-                endif()
-
-                set(_exclude_prefix "${_exclude_relative}/")
-                string(FIND "${_source_relative}" "${_exclude_prefix}" _exclude_prefix_index)
-                if(_source_relative STREQUAL _exclude_relative OR _exclude_prefix_index EQUAL 0)
-                    set(_excluded TRUE)
-                    break()
-                endif()
-            endforeach()
-
-            if(NOT _excluded)
-                list(APPEND _filtered_sources "${_source}")
-            endif()
-        endforeach()
-        set(${_source_list} ${_filtered_sources})
-    endforeach()
-
-    set(_all_sources ${_auto_sources} ${STURDY_PACKAGE_SOURCES})
-    set(_all_modules ${_auto_modules} ${STURDY_PACKAGE_MODULES})
-    list(REMOVE_DUPLICATES _all_sources)
-    list(REMOVE_DUPLICATES _all_modules)
-
-    set(_compile_sources)
-    foreach(_source IN LISTS _all_sources)
-        if(_source MATCHES "\\.(c|cc|cpp|cxx)$")
-            list(APPEND _compile_sources "${_source}")
-        endif()
-    endforeach()
-
-    if(_compile_sources OR _all_modules)
-        if(STURDY_PACKAGE_EXECUTABLE)
-            add_executable("${package_name}" ${_all_sources})
-        elseif(STURDY_BUILD_SHARED_LIBS)
-            add_library("${package_name}" SHARED ${_all_sources})
+      set(_excluded FALSE)
+      foreach(_exclude_dir IN LISTS STURDY_PACKAGE_EXCLUDE_SOURCE_DIRS)
+        if(IS_ABSOLUTE "${_exclude_dir}")
+          file(RELATIVE_PATH _exclude_relative
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+            "${_exclude_dir}"
+          )
         else()
-            add_library("${package_name}" STATIC ${_all_sources})
+          set(_exclude_relative "${_exclude_dir}")
         endif()
 
-        set_target_properties("${package_name}" PROPERTIES
+        file(TO_CMAKE_PATH "${_exclude_relative}" _exclude_relative)
+        string(REGEX REPLACE "^\\./" "" _exclude_relative
+          "${_exclude_relative}"
+        )
+        string(REGEX REPLACE "/$" "" _exclude_relative
+          "${_exclude_relative}"
+        )
+        if(_exclude_relative STREQUAL "")
+          continue()
+        endif()
+
+        set(_exclude_prefix "${_exclude_relative}/")
+        string(FIND "${_source_relative}" "${_exclude_prefix}"
+          _exclude_prefix_index
+        )
+        if(_source_relative STREQUAL _exclude_relative OR
+            _exclude_prefix_index EQUAL 0)
+          set(_excluded TRUE)
+          break()
+        endif()
+      endforeach()
+
+      if(NOT _excluded)
+        list(APPEND _filtered_sources "${_source}")
+      endif()
+    endforeach()
+    set(${_source_list} ${_filtered_sources})
+  endforeach()
+
+  set(_auto_module_interfaces)
+  set(_auto_module_implementations)
+  foreach(_module IN LISTS _auto_modules)
+    file(READ "${_module}" _module_contents LIMIT 4096)
+    if(_module_contents MATCHES
+        "(^|[\r\n])[ \t]*export[ \t]+module[ \t]+")
+      list(APPEND _auto_module_interfaces "${_module}")
+    else()
+      list(APPEND _auto_module_implementations "${_module}")
+    endif()
+  endforeach()
+
+  set(_all_sources
+    ${_auto_sources}
+    ${_auto_module_implementations}
+    ${STURDY_PACKAGE_SOURCES}
+  )
+  set(_all_modules ${_auto_module_interfaces} ${STURDY_PACKAGE_MODULES})
+  list(REMOVE_DUPLICATES _all_sources)
+  list(REMOVE_DUPLICATES _all_modules)
+
+  set(_compile_sources)
+  foreach(_source IN LISTS _all_sources)
+    if(_source MATCHES "\\.(c|cc|cpp|cxx|cppm|ixx)$")
+      list(APPEND _compile_sources "${_source}")
+    endif()
+  endforeach()
+
+  if(_compile_sources OR _all_modules)
+    if(STURDY_PACKAGE_EXECUTABLE)
+      add_executable("${package_name}" ${_all_sources})
+    elseif(STURDY_BUILD_SHARED_LIBS)
+      add_library("${package_name}" SHARED ${_all_sources})
+    else()
+      add_library("${package_name}" STATIC ${_all_sources})
+    endif()
+
+    set_target_properties("${package_name}" PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             CXX_SCAN_FOR_MODULES ON
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
 
-        if(_all_modules)
-            target_sources("${package_name}"
+    if(_all_modules)
+      target_sources("${package_name}"
                 PUBLIC
                     FILE_SET sturdy_cxx_modules TYPE CXX_MODULES FILES
                         ${_all_modules}
             )
-        endif()
+    endif()
 
-        target_include_directories("${package_name}"
+    target_include_directories("${package_name}"
             PUBLIC
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
@@ -121,22 +153,25 @@ function(sturdy_add_package package_name)
                 "${CMAKE_CURRENT_SOURCE_DIR}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/Source"
         )
-    else()
-        add_library("${package_name}" INTERFACE)
-        target_include_directories("${package_name}"
+  else()
+    add_library("${package_name}" INTERFACE)
+    target_include_directories("${package_name}"
             INTERFACE
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
                 "$<INSTALL_INTERFACE:include>"
         )
-        message(STATUS "${package_name}: no compile sources found; creating an INTERFACE target for now.")
-    endif()
+    message(STATUS
+      "${package_name}: no compile sources found; "
+      "creating an INTERFACE target for now."
+    )
+  endif()
 
-    if(NOT (STURDY_PACKAGE_EXECUTABLE AND _compile_sources))
-        add_library("Sturdy::${package_name}" ALIAS "${package_name}")
-    endif()
+  if(NOT (STURDY_PACKAGE_EXECUTABLE AND _compile_sources))
+    add_library("Sturdy::${package_name}" ALIAS "${package_name}")
+  endif()
 
-    sturdy_configure_package_target("${package_name}"
+  sturdy_configure_package_target("${package_name}"
         PUBLIC_DEPS ${STURDY_PACKAGE_PUBLIC_DEPS}
         PRIVATE_DEPS ${STURDY_PACKAGE_PRIVATE_DEPS}
         DEBUG_PUBLIC_DEPS ${STURDY_PACKAGE_DEBUG_PUBLIC_DEPS}
@@ -145,29 +180,34 @@ function(sturdy_add_package package_name)
         PRIVATE_DEFINES ${STURDY_PACKAGE_PRIVATE_DEFINES}
     )
 
-    if(STURDY_PACKAGE_EXECUTABLE AND _compile_sources)
-        set(_sturdy_debuggable_path "${CMAKE_BINARY_DIR}/bin/${package_name}.exe")
+  if(STURDY_PACKAGE_EXECUTABLE AND _compile_sources)
+    set(_sturdy_debuggable_path
+      "${CMAKE_BINARY_DIR}/bin/${package_name}.exe"
+    )
 
-        add_custom_command(TARGET "${package_name}" POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/bin"
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:${package_name}>" "${_sturdy_debuggable_path}"
+    add_custom_command(TARGET "${package_name}" POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E make_directory
+              "${CMAKE_BINARY_DIR}/bin"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "$<TARGET_FILE:${package_name}>"
+              "${_sturdy_debuggable_path}"
             VERBATIM
         )
 
-        add_custom_target("run_${package_name}"
+    add_custom_target("run_${package_name}"
             COMMAND "$<TARGET_FILE:${package_name}>"
             DEPENDS "${package_name}"
             WORKING_DIRECTORY "$<TARGET_FILE_DIR:${package_name}>"
             USES_TERMINAL
             VERBATIM
         )
-    endif()
+  endif()
 endfunction()
 
 function(sturdy_configure_package_target target_name)
-    set(options)
-    set(one_value_args)
-    set(multi_value_args
+  set(options)
+  set(one_value_args)
+  set(multi_value_args
         PUBLIC_DEPS
         PRIVATE_DEPS
         DEBUG_PUBLIC_DEPS
@@ -175,40 +215,46 @@ function(sturdy_configure_package_target target_name)
         PUBLIC_DEFINES
         PRIVATE_DEFINES
     )
-    cmake_parse_arguments(STURDY_TARGET
+  cmake_parse_arguments(STURDY_TARGET
         "${options}"
         "${one_value_args}"
         "${multi_value_args}"
         ${ARGN}
     )
 
-    get_target_property(_target_type "${target_name}" TYPE)
-    if(_target_type STREQUAL "INTERFACE_LIBRARY")
-        set(_public_scope INTERFACE)
-        set(_private_scope INTERFACE)
-    else()
-        set(_public_scope PUBLIC)
-        set(_private_scope PRIVATE)
+  get_target_property(_target_type "${target_name}" TYPE)
+  if(_target_type STREQUAL "INTERFACE_LIBRARY")
+    set(_public_scope INTERFACE)
+    set(_private_scope INTERFACE)
+  else()
+    set(_public_scope PUBLIC)
+    set(_private_scope PRIVATE)
 
-        sturdy_enable_warnings("${target_name}")
-    endif()
+    sturdy_enable_warnings("${target_name}")
+  endif()
 
-    target_link_libraries("${target_name}"
+  target_link_libraries("${target_name}"
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEPS}
         ${_private_scope}
             ${STURDY_TARGET_PRIVATE_DEPS}
     )
 
-    foreach(_debug_dep IN LISTS STURDY_TARGET_DEBUG_PUBLIC_DEPS)
-        target_link_libraries("${target_name}" ${_public_scope} "$<$<CONFIG:Debug>:${_debug_dep}>")
-    endforeach()
+  foreach(_debug_dep IN LISTS STURDY_TARGET_DEBUG_PUBLIC_DEPS)
+    target_link_libraries("${target_name}"
+      ${_public_scope}
+        "$<$<CONFIG:Debug>:${_debug_dep}>"
+    )
+  endforeach()
 
-    foreach(_debug_dep IN LISTS STURDY_TARGET_DEBUG_PRIVATE_DEPS)
-        target_link_libraries("${target_name}" ${_private_scope} "$<$<CONFIG:Debug>:${_debug_dep}>")
-    endforeach()
+  foreach(_debug_dep IN LISTS STURDY_TARGET_DEBUG_PRIVATE_DEPS)
+    target_link_libraries("${target_name}"
+      ${_private_scope}
+        "$<$<CONFIG:Debug>:${_debug_dep}>"
+    )
+  endforeach()
 
-    target_compile_definitions("${target_name}"
+  target_compile_definitions("${target_name}"
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEFINES}
         ${_private_scope}
@@ -217,15 +263,15 @@ function(sturdy_configure_package_target target_name)
 endfunction()
 
 function(sturdy_enable_warnings target_name)
-    if(MSVC)
-        target_compile_options("${target_name}" PRIVATE /W4)
-        if(STURDY_WARNINGS_AS_ERRORS)
-            target_compile_options("${target_name}" PRIVATE /WX)
-        endif()
-    else()
-        target_compile_options("${target_name}" PRIVATE -Wall -Wextra -Wpedantic)
-        if(STURDY_WARNINGS_AS_ERRORS)
-            target_compile_options("${target_name}" PRIVATE -Werror)
-        endif()
+  if(MSVC)
+    target_compile_options("${target_name}" PRIVATE /W4)
+    if(STURDY_WARNINGS_AS_ERRORS)
+      target_compile_options("${target_name}" PRIVATE /WX)
     endif()
+  else()
+    target_compile_options("${target_name}" PRIVATE -Wall -Wextra -Wpedantic)
+    if(STURDY_WARNINGS_AS_ERRORS)
+      target_compile_options("${target_name}" PRIVATE -Werror)
+    endif()
+  endif()
 endfunction()

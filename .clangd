@@ -1,5 +1,5 @@
 CompileFlags:
-  CompilationDatabase: build/ninja/dist
+  CompilationDatabase: build/ninja/debug
   Compiler: clang++
   Remove:
     - -std=*
