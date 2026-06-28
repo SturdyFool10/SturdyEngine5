@@ -1,9 +1,14 @@
 module;
 
+#include <vector>
+
 export module Sturdy.Core:Renderer;
 
 import Sturdy.Foundation;
-import :RenderSurface;
+import Sturdy.Platform;
+
+using std::vector;
+using SFT::Platform::Windowing::Window;
 
 export namespace SFT::Core {
 
@@ -28,16 +33,14 @@ export namespace SFT::Core {
     struct RendererCreateInfo {
         RendererFeatureRequest features{};
         const char *app_name = "SturdyEngine";
-        // Required at instance-creation time (Vulkan needs WSI extension names before any surface
-        // handle exists).
-        SurfaceProvider initial_surface_provider = SurfaceProvider::Unknown;
-        SurfaceSystem initial_surface_system = SurfaceSystem::Unknown;
-    };
-
-    struct RenderSurfaceCreateInfo {
-        RenderSurfaceDescriptor descriptor{};
-        Extent2D framebuffer_extent{};
-        u32 desired_frames_in_flight = 2;
+        // Non-owning pointer to the primary window the backend presents into. Must outlive the
+        // renderer backend (owned by the application/engine layer). The backend uses it to create,
+        // own, resize, and destroy its surfaces internally.
+        Window *window = nullptr;
+        // WSI instance extension strings from the windowing backend (e.g. VK_KHR_surface +
+        // VK_KHR_xlib_surface). Pointers must stay valid for the duration of initialize().
+        // SDL3 and GLFW return pointers into their own static storage, so this is safe.
+        vector<const char *> wsi_extensions;
     };
 
     // Per-frame payload from the engine to the backend. Grows into camera/scene/render-list

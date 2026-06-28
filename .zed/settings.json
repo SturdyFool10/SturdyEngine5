@@ -1,0 +1,15 @@
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "arguments": [
+          "--experimental-modules-support",
+          "--background-index",
+          "--header-insertion=never",
+          "--completion-style=detailed",
+          "--clang-tidy"
+        ]
+      }
+    }
+  }
+}

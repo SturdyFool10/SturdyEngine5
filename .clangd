@@ -1,16 +1,45 @@
+# clangd configuration for SturdyEngine5 (C++23 modules).
+#
+# The compilation database is discovered automatically: CMake mirrors the active
+# build's compile_commands.json to the repo root on every configure, so clangd
+# always reads whichever preset was configured last. No build path is hardcoded.
+#
+# Flags that are NOT settable here (they are clangd command-line options, not
+# per-TU compile flags) live in the editor config — see .zed/settings.json:
+#   --experimental-modules-support   clangd builds its own module BMIs
+#   --header-insertion=never         never auto-#include in a modules-first tree
+
 CompileFlags:
-  CompilationDatabase: build/ninja/debug
-  Compiler: clang++
+  # clangd builds and manages its own module BMIs. Strip the build system's BMI
+  # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
+  # interchangeable with clangd's and make it crash on load, or (b) writes its
+  # own BMIs back into the CMake build tree. With --experimental-modules-support
+  # clangd resolves imports by scanning sources itself; without it, this simply
+  # degrades to plain diagnostics instead of a hard crash.
   Remove:
-    - -std=*
-  Add:
-    - -xc++
-    - -std=c++23
-Diagnostics:
-  UnusedIncludes: None
+    - -fmodule-output=*
+    - -fmodule-file=*
+
 ---
+# C++23 fallback for C++ sources that have no compile_commands.json entry — chiefly
+# the platform dirs CMake excludes on the current OS (Platform/MacOS, Platform/Windows
+# on Linux, etc.). Without a command clangd parses them as default-standard C++, so
+# `module`/`import`/`std::expected` all look like syntax errors. Scoped to C++ source
+# extensions so it is never appended to C sources (e.g. SDL's .c files under _deps),
+# where clang rejects -std=c++23.
 If:
-  PathMatch: .*\.cppm
+  PathMatch: '.*\.(cppm|cpp|cxx|cc|ixx)$'
+CompileFlags:
+  Add:
+    - -std=c++23
+
+---
+# Vendored third-party trees (FetchContent's _deps): never background-index or
+# diagnose them. They are still usable as headers via the -I flags; this only
+# stops clangd from crawling thousands of dependency TUs into its index.
+If:
+  PathMatch: .*/_deps/.*
+Index:
+  Background: Skip
 Diagnostics:
-  Suppress:
-    - "*"
+  Suppress: "*"

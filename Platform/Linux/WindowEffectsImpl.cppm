@@ -1,7 +1,7 @@
 module;
 
-#include <expected>
 #include <cstdint>
+#include <expected>
 
 #if defined(__linux__)
 #include <SDL3/SDL.h>

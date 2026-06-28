@@ -6,6 +6,7 @@ module;
 #include <expected>
 #include <memory>
 #include <optional>
+#include <vector>
 
 export module Sturdy.Platform.GLFW:Window;
 
@@ -15,6 +16,7 @@ using std::deque;
 using std::expected;
 using std::optional;
 using std::unique_ptr;
+using std::vector;
 
 export namespace SFT::Platform::Windowing::GLFW {
 
@@ -80,6 +82,9 @@ export namespace SFT::Platform::Windowing::GLFW {
         [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect effect) noexcept override;
         expected<void, WindowError> set_effect(WindowEffect effect) noexcept override;
         expected<void, WindowError> set_blur_enabled(bool enabled) noexcept override;
+
+        [[nodiscard]] expected<vector<const char *>, WindowError>
+        required_vulkan_instance_extensions() const noexcept override;
 
       private:
         friend class ::SFT::Platform::Windowing::Window;

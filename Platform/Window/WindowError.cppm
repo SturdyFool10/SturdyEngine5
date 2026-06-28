@@ -26,13 +26,19 @@ export namespace SFT::Platform::Windowing {
         WindowError(WindowErrorCode error_code, const char *error_message) noexcept
             : code(error_code) {
             if (error_message) {
-                try { message = error_message; } catch (...) {}
+                try {
+                    message = error_message;
+                } catch (...) {
+                }
             }
         }
 
         WindowError(WindowErrorCode error_code, string_view error_message) noexcept
             : code(error_code) {
-            try { message = error_message; } catch (...) {}
+            try {
+                message = error_message;
+            } catch (...) {
+            }
         }
     };
 

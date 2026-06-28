@@ -1,6 +1,7 @@
 module;
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
 
 #include <cstring>
 #include <expected>
@@ -10,6 +11,7 @@ module;
 #include <new>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 export module Sturdy.Platform.SDL3:Impl;
 
@@ -28,6 +30,7 @@ using std::strncpy;
 using std::unexpected;
 using std::unique_ptr;
 using std::unordered_map;
+using std::vector;
 
 namespace SFT::Platform::Windowing::SDL3 {
     namespace {
@@ -797,6 +800,22 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     expected<void, WindowError> SDL3Window::set_blur_enabled(bool enabled) noexcept {
         return set_effect(WindowEffect::blur(enabled));
+    }
+
+    expected<vector<const char *>, WindowError>
+    SDL3Window::required_vulkan_instance_extensions() const noexcept {
+        u32 count = 0;
+        const char *const *extensions = SDL_Vulkan_GetInstanceExtensions(&count);
+        if (!extensions) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed,
+                                        "SDL_Vulkan_GetInstanceExtensions failed."));
+        }
+        try {
+            return vector<const char *>{extensions, extensions + count};
+        } catch (...) {
+            return unexpected(WindowError{WindowErrorCode::OutOfMemory,
+                                          "Out of memory querying Vulkan WSI extensions."});
+        }
     }
 
 } // namespace SFT::Platform::Windowing::SDL3

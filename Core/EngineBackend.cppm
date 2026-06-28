@@ -21,10 +21,11 @@ export namespace SFT::Core {
     // from this. The Engine layer speaks only this interface and the API-agnostic types in
     // Renderer.cppm / RenderSurface.cppm — no Vulkan symbols ever leak upward.
     //
-    // The backend owns ALL GPU state: instance, device, queues, allocator, swapchains, frame-pacing
-    // sync objects, the render graph, and its own worker threads. The Engine does not drive
-    // individual acquire/record/submit/present steps — it hands work to render_frame() and lets the
-    // backend schedule it according to what its API supports.
+    // The backend owns ALL GPU state: instance, device, queues, allocator, surfaces, swapchains,
+    // frame-pacing sync objects, the render graph, and its own worker threads. The Engine does not
+    // construct or destroy surfaces, and it does not drive individual acquire/record/submit/present
+    // steps — it hands work to render_frame() and lets the backend schedule it according to what its
+    // API supports.
     class EngineBackend {
       protected:
         struct ConstructorKey {
@@ -48,28 +49,15 @@ export namespace SFT::Core {
         EngineBackend(EngineBackend &&) = delete;
         EngineBackend &operator=(EngineBackend &&) = delete;
 
-        // Bring up backend-global GPU state: instance, physical device, logical device,
-        // queues, and allocator. The surface provider/system in `init` is required here
-        // because some APIs (Vulkan) need WSI extension names at instance creation time,
-        // before any surface handle exists.
-        virtual RendererResult initialize(const RendererCreateInfo &init) = 0;
+        // Bring up backend-global GPU state and construct the initial backend-owned present surface
+        // for RendererCreateInfo::window. The returned handle is an opaque address for render calls
+        // and resize-needed notifications only; surface construction/destruction stay backend-private.
+        virtual RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) = 0;
 
-        // Create one backend-owned present surface for a window. The backend allocates all
-        // per-surface GPU resources (API surface handle, swapchain, per-frame sync objects)
-        // and returns a stable generational handle. The window itself remains owned by Platform.
-        virtual RendererExpected<RenderSurfaceHandle> create_surface(const RenderSurfaceCreateInfo &init) = 0;
-
-        // Drain all in-flight GPU work for this surface, then release every GPU resource it owns.
-        // After this returns the handle is invalid — do not pass it to any other method.
-        // If the native window handle changed (surface loss, display migration), call
-        // destroy_surface + create_surface rather than attempting to reuse the handle.
-        virtual RendererResult destroy_surface(RenderSurfaceHandle surface) = 0;
-
-        // Called whenever a surface's framebuffer extent changes, including resize-to-zero
-        // (minimized window). The backend stores the new extent, marks the swapchain dirty,
-        // and rebuilds lazily at the start of the next render_frame call. Passing zero extent
-        // is valid — the backend simply skips presentation until the extent is non-zero again.
-        virtual void on_resize(RenderSurfaceHandle surface, Extent2D new_extent) noexcept = 0;
+        // Notify the backend that a surface needs resize handling. The backend owns the surface and
+        // is responsible for querying the latest framebuffer extent, marking/rebuilding swapchains,
+        // and handling resize-to-zero (minimized) without external surface mutation.
+        virtual void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept = 0;
 
         // What this backend can actually do, populated during initialize().
         [[nodiscard]] virtual RendererCapabilities capabilities() const noexcept = 0;
@@ -78,7 +66,7 @@ export namespace SFT::Core {
         // The backend owns all scheduling decisions — which resources to record into,
         // how many frames to keep in flight, when to rebuild a dirty swapchain, and whether
         // to use async compute or multi-threaded recording. Returns an error only when the
-        // surface is permanently lost and a new surface must be created by the caller.
+        // backend cannot recover from surface/device loss internally.
         virtual RendererResult render_frame(RenderSurfaceHandle surface, const FrameInput &frame) = 0;
 
         // Block until all in-flight GPU work is complete. Called automatically by the destructor;

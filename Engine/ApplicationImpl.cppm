@@ -1,7 +1,6 @@
 module;
 
 #include <chrono>
-#include <string>
 #include <utility>
 
 export module Sturdy.Engine:ApplicationImpl;
@@ -70,9 +69,9 @@ namespace SFT::Engine {
                 }
             }
 
-            // Forward the latest framebuffer size to the renderer (handles resize + DPI changes).
-            if (auto resize = window_->consume_resize()) {
-                engine_.on_resize(*surface_, Core::Extent2D{resize->framebuffer.x, resize->framebuffer.y});
+            // Notify the renderer that surface-sized resources may need rebuilding.
+            if (window_->consume_resize()) {
+                engine_.on_surface_resize_needed(*surface_);
             }
 
             if (close_requested) {

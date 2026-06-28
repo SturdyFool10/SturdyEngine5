@@ -2,13 +2,13 @@ module;
 
 #include <GLFW/glfw3.h>
 
-#include <cstring>
 #include <expected>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
+#include <vector>
 
 export module Sturdy.Platform.GLFW:Impl;
 
@@ -25,6 +25,7 @@ using std::optional;
 using std::recursive_mutex;
 using std::unexpected;
 using std::unique_ptr;
+using std::vector;
 
 namespace SFT::Platform::Windowing::GLFW {
     namespace {
@@ -96,7 +97,7 @@ namespace SFT::Platform::Windowing::GLFW {
         }
 
         expected<void, WindowError> require_live_window(GLFWwindow *window,
-                                         const char *operation) noexcept {
+                                                        const char *operation) noexcept {
             if (window) [[likely]] {
                 return {};
             }
@@ -1087,4 +1088,22 @@ namespace SFT::Platform::Windowing::GLFW {
     expected<void, WindowError> GLFWWindow::set_blur_enabled(bool enabled) noexcept {
         return set_effect(WindowEffect::blur(enabled));
     }
+
+    expected<vector<const char *>, WindowError>
+    GLFWWindow::required_vulkan_instance_extensions() const noexcept {
+        u32 count = 0;
+        const char **extensions = glfwGetRequiredInstanceExtensions(&count);
+        if (!extensions) {
+            return unexpected(glfw_error(WindowErrorCode::OperationFailed,
+                                         "glfwGetRequiredInstanceExtensions failed; "
+                                         "Vulkan may not be supported by GLFW on this system."));
+        }
+        try {
+            return vector<const char *>{extensions, extensions + count};
+        } catch (...) {
+            return unexpected(WindowError{WindowErrorCode::OutOfMemory,
+                                          "Out of memory querying Vulkan WSI extensions."});
+        }
+    }
+
 } // namespace SFT::Platform::Windowing::GLFW

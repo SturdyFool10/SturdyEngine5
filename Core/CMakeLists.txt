@@ -1,6 +1,7 @@
 sturdy_add_package(Core
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::Platform
         Sturdy::VMA
         Sturdy::Volk
         Sturdy::GLM

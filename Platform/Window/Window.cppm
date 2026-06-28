@@ -6,6 +6,7 @@ module;
 #include <new>
 #include <optional>
 #include <utility>
+#include <vector>
 
 export module Sturdy.Platform:Window;
 
@@ -23,6 +24,7 @@ using std::expected;
 using std::optional;
 using std::unexpected;
 using std::unique_ptr;
+using std::vector;
 
 export namespace SFT::Platform::Windowing {
 
@@ -122,6 +124,14 @@ export namespace SFT::Platform::Windowing {
         [[nodiscard]] virtual WindowEffectResult enable_window_effect(WindowEffect effect) noexcept = 0;
         virtual expected<void, WindowError> set_effect(WindowEffect effect) noexcept = 0;
         virtual expected<void, WindowError> set_blur_enabled(bool enabled) noexcept = 0;
+
+        // Returns the Vulkan instance extension strings this windowing backend requires.
+        // Must be called after window creation and before the renderer backend is initialized,
+        // because extensions are baked into the VkInstance at creation time. Both SDL3 and
+        // GLFW return pointers into their own static storage, so the returned pointers are
+        // valid for the lifetime of the backend.
+        [[nodiscard]] virtual expected<vector<const char *>, WindowError>
+        required_vulkan_instance_extensions() const noexcept = 0;
     };
 
 } // namespace SFT::Platform::Windowing
