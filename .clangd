@@ -1,8 +1,9 @@
 # clangd configuration for SturdyEngine5 (C++23 modules).
 #
-# The compilation database is discovered automatically: CMake mirrors the active
-# build's compile_commands.json to the repo root on every configure, so clangd
-# always reads whichever preset was configured last. No build path is hardcoded.
+# Managed by .zed/view_as_profile.cmake. Use a .zed View As task to switch
+# this file between OS/profile compile databases. The active view is:
+#   OS: Linux
+#   Profile: Dist
 #
 # Flags that are NOT settable here (they are clangd command-line options, not
 # per-TU compile flags) live in the editor config — see .zed/settings.json:
@@ -10,6 +11,9 @@
 #   --header-insertion=never         never auto-#include in a modules-first tree
 
 CompileFlags:
+  # Compilation database for the active OS/profile view (relative to repo root).
+  # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.
+  CompilationDatabase: build/view/linux/dist
   # clangd builds and manages its own module BMIs. Strip the build system's BMI
   # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
   # interchangeable with clangd's and make it crash on load, or (b) writes its
@@ -21,12 +25,9 @@ CompileFlags:
     - -fmodule-file=*
 
 ---
-# C++23 fallback for C++ sources that have no compile_commands.json entry — chiefly
-# the platform dirs CMake excludes on the current OS (Platform/MacOS, Platform/Windows
-# on Linux, etc.). Without a command clangd parses them as default-standard C++, so
-# `module`/`import`/`std::expected` all look like syntax errors. Scoped to C++ source
-# extensions so it is never appended to C sources (e.g. SDL's .c files under _deps),
-# where clang rejects -std=c++23.
+# C++23 fallback for C++ sources that have no compile_commands.json entry.
+# Scoped to C++ source extensions so it is never appended to C sources
+# (e.g. SDL's .c files under _deps), where clang rejects -std=c++23.
 If:
   PathMatch: '.*\.(cppm|cpp|cxx|cc|ixx)$'
 CompileFlags:

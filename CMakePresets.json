@@ -36,6 +36,123 @@
         "CMAKE_BUILD_TYPE": "Dist",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    },
+    {
+      "name": "view-linux-debug",
+      "displayName": "View As Linux Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/linux/debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Linux"
+      }
+    },
+    {
+      "name": "view-linux-relwithdebinfo",
+      "displayName": "View As Linux RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/linux/relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Linux"
+      }
+    },
+    {
+      "name": "view-linux-dist",
+      "displayName": "View As Linux Dist",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/linux/dist",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Dist",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Linux"
+      }
+    },
+    {
+      "name": "view-windows-debug",
+      "displayName": "View As Windows Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/win/debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Windows"
+      }
+    },
+    {
+      "name": "view-windows-relwithdebinfo",
+      "displayName": "View As Windows RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/win/relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Windows"
+      }
+    },
+    {
+      "name": "view-windows-dist",
+      "displayName": "View As Windows Dist",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/win/dist",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Dist",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "Windows"
+      }
+    },
+    {
+      "name": "view-macos-debug",
+      "displayName": "View As MacOS Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/macos/debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "MacOS"
+      }
+    },
+    {
+      "name": "view-macos-relwithdebinfo",
+      "displayName": "View As MacOS RelWithDebInfo",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/macos/relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "MacOS"
+      }
+    },
+    {
+      "name": "view-macos-dist",
+      "displayName": "View As MacOS Dist",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/view/macos/dist",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Dist",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STURDY_VIEW_OS": "MacOS"
+      }
     }
   ],
   "buildPresets": [

@@ -35,7 +35,7 @@ export namespace SFT::Core::Vulkan {
         RendererResult render_frame(RenderSurfaceHandle surface, const FrameInput &frame) override;
         void wait_idle() noexcept override;
         // end EngineBackend Compliance Functions
-        RendererResult initVulkan(const RendererCreateInfo &init);
+        RendererExpected<RenderSurfaceHandle> initVulkan(const RendererCreateInfo &init);
         RendererResult createVulkanInstance(const RendererCreateInfo &init);
         RendererResult findPhysicalDevice(const RendererCreateInfo &init);
         RendererResult discoverGraphicsQueue(const RendererCreateInfo &init);

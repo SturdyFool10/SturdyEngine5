@@ -1,30 +1,147 @@
 [
   {
-    "label": "view project as debug",
-    "command": "cmake --preset ninja-debug && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/debug#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "label": "View As: Linux Debug",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Linux",
+      "-DSTURDY_VIEW_PROFILE=Debug",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
-    "label": "view project as dist",
-    "command": "cmake --preset ninja-dist && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/dist#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "label": "View As: Linux RelWithDebInfo",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Linux",
+      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
-    "label": "view project as relwithdebinfo",
-    "command": "cmake --preset ninja-relwithdebinfo && perl -0pi -e 's#CompilationDatabase: .*#CompilationDatabase: build/ninja/relwithdebinfo#' \"$ZED_WORKTREE_ROOT/.clangd\"",
+    "label": "View As: Linux Dist",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Linux",
+      "-DSTURDY_VIEW_PROFILE=Dist",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: Windows Debug",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Windows",
+      "-DSTURDY_VIEW_PROFILE=Debug",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: Windows RelWithDebInfo",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Windows",
+      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: Windows Dist",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=Windows",
+      "-DSTURDY_VIEW_PROFILE=Dist",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: MacOS Debug",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=MacOS",
+      "-DSTURDY_VIEW_PROFILE=Debug",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: MacOS RelWithDebInfo",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=MacOS",
+      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "View As: MacOS Dist",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_VIEW_OS=MacOS",
+      "-DSTURDY_VIEW_PROFILE=Dist",
+      "-P",
+      ".zed/view_as_profile.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "on_success",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
     "label": "Compile Runtime (Debug)",
@@ -33,16 +150,25 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
   },
   {
-    "label": "Run Runtime (Debug)",
-    "command": "cmake --preset ninja-debug && cmake --build --preset run-runtime-debug --parallel",
+    "label": "Run Runtime (Debug, Linux)",
+    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel && ./build/ninja/debug/bin/Runtime",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Debug, Windows .exe)",
+    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel && ./build/ninja/debug/bin/Runtime.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
   },
   {
     "label": "Compile Runtime (Dist)",
@@ -51,16 +177,25 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
   },
   {
-    "label": "Run Runtime (Dist)",
-    "command": "cmake --preset ninja-dist && cmake --build --preset run-runtime-dist --parallel",
+    "label": "Run Runtime (Dist, Linux)",
+    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel && ./build/ninja/dist/bin/Runtime",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Dist, Windows .exe)",
+    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel && ./build/ninja/dist/bin/Runtime.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
   },
   {
     "label": "Compile Runtime (RelWithDebInfo)",
@@ -69,16 +204,25 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
   },
   {
-    "label": "Run Runtime (RelWithDebInfo)",
-    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset run-runtime-relwithdebinfo --parallel",
+    "label": "Run Runtime (RelWithDebInfo, Linux)",
+    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel && ./build/ninja/relwithdebinfo/bin/Runtime",
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (RelWithDebInfo, Windows .exe)",
+    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel && ./build/ninja/relwithdebinfo/bin/Runtime.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
   },
   {
     "label": "Format All C++",
@@ -87,6 +231,6 @@
     "reveal": "always",
     "hide": "never",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-  },
+    "allow_concurrent_runs": false
+  }
 ]

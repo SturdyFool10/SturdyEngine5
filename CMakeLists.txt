@@ -4,8 +4,7 @@ if(NOT CMAKE_GENERATOR MATCHES "^Ninja")
     message(FATAL_ERROR
         "SturdyEngine5 uses C++ module file sets and requires the Ninja generator for "
         "module dependency scanning plus compile_commands.json export. Configure with "
-        "`cmake --preset ninja-relwithdebinfo`, `cmake --preset ninja-debug`, or "
-        "`cmake --preset ninja-dist`."
+        "one of the presets in CMakePresets.json."
     )
 endif()
 
@@ -68,25 +67,3 @@ add_subdirectory(Platform)
 add_subdirectory(Core)
 add_subdirectory(Engine)
 add_subdirectory(Runtime)
-
-# Mirror the active build's compile_commands.json to the source root so clangd
-# (and any other tooling) discovers it by walking up from a source file, with no
-# preset-specific path baked into .clangd. The link repoints on every configure,
-# so the most recently configured preset is the one the editor sees. Symlink
-# where possible, copy where symlinks are not permitted (e.g. some Windows
-# setups); never fatal, since this is an editor convenience, not a build input.
-if(CMAKE_EXPORT_COMPILE_COMMANDS AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
-    file(CREATE_LINK
-        "${CMAKE_BINARY_DIR}/compile_commands.json"
-        "${CMAKE_SOURCE_DIR}/compile_commands.json"
-        RESULT _sturdy_compile_commands_link
-        SYMBOLIC COPY_ON_ERROR
-    )
-    if(NOT _sturdy_compile_commands_link EQUAL 0)
-        message(STATUS
-            "Could not mirror compile_commands.json to the source root "
-            "(${_sturdy_compile_commands_link}); point your editor at "
-            "${CMAKE_BINARY_DIR}/compile_commands.json directly."
-        )
-    endif()
-endif()

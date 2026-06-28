@@ -112,15 +112,27 @@ namespace SFT::Core::Vulkan {
                                             "Vulkan backend requires a window to create its primary surface."});
         }
 
-        if (auto result = this->initVulkan(init); !result.has_value()) [[unlikely]] {
-            this->window_ = init.window;
-            return renderer_error(result.error().code,
-                                  format("Initializing Vulkan has failed: {}", result.error().message));
-        }
-
+        // Mark initialized before initVulkan so it can create the backend-owned primary surface
+        // during bring-up (the surface is needed to query present support). Reset on failure.
         initialized_ = true;
 
-        auto surface_info = surface_create_info_from_window(*window_, init.features.desired_frames_in_flight);
+        auto primary_surface = this->initVulkan(init);
+        if (!primary_surface.has_value()) [[unlikely]] {
+            initialized_ = false;
+            return renderer_error(primary_surface.error().code,
+                                  format("Initializing Vulkan has failed: {}", primary_surface.error().message));
+        }
+
+        return *primary_surface;
+    }
+
+    RendererExpected<RenderSurfaceHandle> VulkanBackend::initVulkan(const RendererCreateInfo &init) {
+        if (auto result = this->createVulkanInstance(init); !result.has_value()) [[unlikely]] {
+            return renderer_error(result.error().code,
+                                  format("Failed to create Vulkan instance: {}", result.error().message));
+        }
+
+        auto surface_info = surface_create_info_from_window(*this->window_, init.features.desired_frames_in_flight);
         if (!surface_info) [[unlikely]] {
             return unexpected(surface_info.error());
         }
@@ -130,14 +142,7 @@ namespace SFT::Core::Vulkan {
             return unexpected(surface.error());
         }
 
-        return *surface;
-    }
 
-    RendererResult VulkanBackend::initVulkan(const RendererCreateInfo &init) {
-        if (auto result = this->createVulkanInstance(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create Vulkan instance: {}", result.error().message));
-        }
 
         if (auto result = this->findPhysicalDevice(init); !result.has_value()) [[unlikely]] {
             return renderer_error(result.error().code,
@@ -149,7 +154,7 @@ namespace SFT::Core::Vulkan {
                                   format("Failed to discover a valid graphics queue: {}", result.error().message));
         }
 
-        return {};
+        return surface;
     }
 
     RendererResult VulkanBackend::createVulkanInstance(const RendererCreateInfo &init) {
