@@ -5,6 +5,11 @@ module;
 #include <memory>
 #include <new>
 #include "volk.h"
+// SDL3 and GLFW surface helpers — included after volk so VkInstance/VkSurfaceKHR are already
+// defined. GLFW gates glfwCreateWindowSurface behind #if defined(VK_VERSION_1_0) which volk sets;
+// we don't define GLFW_INCLUDE_VULKAN to avoid a double-include of vulkan.h.
+#include <SDL3/SDL_vulkan.h>
+#include <GLFW/glfw3.h>
 
 export module Sturdy.Core:VulkanBackendImpl;
 
@@ -64,6 +69,35 @@ namespace SFT::Core::Vulkan {
             return current == 0 ? 1u : current;
         }
 
+        [[nodiscard]] const char *surface_provider_name(SurfaceProvider provider) noexcept {
+            switch (provider) {
+                case SurfaceProvider::SDL3:   return "SDL3";
+                case SurfaceProvider::GLFW:   return "GLFW";
+                case SurfaceProvider::Native: return "Native";
+                default:                      return "Unknown";
+            }
+        }
+
+        [[nodiscard]] const char *surface_system_name(SurfaceSystem system) noexcept {
+            switch (system) {
+                case SurfaceSystem::Win32:   return "Win32";
+                case SurfaceSystem::X11:     return "X11";
+                case SurfaceSystem::Wayland: return "Wayland";
+                case SurfaceSystem::Cocoa:   return "Cocoa";
+                default:                     return "Unknown";
+            }
+        }
+
+        [[nodiscard]] const char *physical_device_type_name(VkPhysicalDeviceType type) noexcept {
+            switch (type) {
+                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   return "Discrete";
+                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "Integrated";
+                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    return "Virtual";
+                case VK_PHYSICAL_DEVICE_TYPE_CPU:            return "CPU";
+                default:                                     return "Other";
+            }
+        }
+
         [[nodiscard]] SurfaceSystem to_surface_system(NativeWindowSystem system) noexcept {
             switch (system) {
                 case NativeWindowSystem::Win32:
@@ -100,7 +134,10 @@ namespace SFT::Core::Vulkan {
         // reverse creation order (surfaces → swapchains → device → allocator → instance).
         wait_idle();
         destroy_all_surfaces();
-        // TODO(renderer): destroy the device and instance.
+        if (vulkan_instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(vulkan_instance, nullptr);
+        }
+        volkFinalize();
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initialize(const RendererCreateInfo &init) {
@@ -216,11 +253,63 @@ namespace SFT::Core::Vulkan {
         return {}; //this is the success case
     }
 
+    f64 scorePhysicalDevice(const VkPhysicalDevice& device) {
+        VkPhysicalDeviceProperties2 props{};
+        vkGetPhysicalDeviceProperties2(device, &props);
+        f64 score = 0;
+        score += (props.properties.limits.maxFramebufferWidth / 1000.0) * (props.properties.limits.maxFramebufferHeight / 1000.0); //the total max size of a framebuffer scaled
+        score += props.properties.limits.maxPushConstantsSize / 16.0;
+        switch(props.properties.deviceType) {
+
+            case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+                score *= 0.1;
+            break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                score *= 0.3;
+            break;
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                score *= 1.0;
+            break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                score *= 0.2;
+            break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                score *= 0.2;
+            case VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM:
+                score *= 0.0;
+                break;
+        }
+        return score;
+    }
+
     RendererResult VulkanBackend::findPhysicalDevice(const RendererCreateInfo &init) {
-        (void)init;
-        // TODO(renderer): enumerate physical devices (vkEnumeratePhysicalDevices), score them by
-        // required device extensions (VK_KHR_swapchain, dynamic rendering, synchronization2),
-        // queue-family support, and limits, then select the best and record it for device creation.
+        //enumerate all physical devices
+        u32 deviceCount = 0;
+        vkEnumeratePhysicalDevices(this->vulkan_instance, &deviceCount, nullptr); //get the count
+        std::vector<VkPhysicalDevice> physicalDevices(deviceCount); //we have the number of devices, so we can initialize an empty vector with the space required to store all of them
+        vkEnumeratePhysicalDevices(this->vulkan_instance, &deviceCount, physicalDevices.data());
+        if (!deviceCount) [[unlikely]] { //if 0 then...
+            return renderer_error(RendererErrorCode::InitializationFailed, "This system does not have any valid Vulkan devices");
+        }
+
+        f64 max_score = std::numeric_limits<f64>::min(); //start low
+        VkPhysicalDevice chosenDevice = nullptr;
+
+        for (auto &device : physicalDevices) {
+            f64 score = scorePhysicalDevice(device);
+            VkPhysicalDeviceProperties2 props{};
+            vkGetPhysicalDeviceProperties2(device, &props);
+            Foundation::log_info("Found device: {}, ID: {}, Score: {}, type: {}", props.properties.deviceName, props.properties.deviceID, score, physical_device_type_name(props.properties.deviceType));
+            if (score > max_score) { //if this device's score is higher, set score and store the new high-scorer as our new device
+                max_score = score;
+                chosenDevice = device;
+            }
+        }
+        VkPhysicalDeviceProperties2 props{};
+        vkGetPhysicalDeviceProperties2(chosenDevice, &props);
+        this->physical_device = chosenDevice;
+
+        Foundation::log_info("We have picked a GPU: {}", props.properties.deviceName);
         return {};
     }
 
@@ -283,19 +372,49 @@ namespace SFT::Core::Vulkan {
                                             "Vulkan surface creation requires a live window."});
         }
 
+        RenderSurfaceHandle handle;
         try {
-            RenderSurfaceHandle handle = allocate_surface_slot(init);
-
-            // TODO(renderer): allocate per-surface GPU resources:
-            //   1. VkSurfaceKHR via init.descriptor.provider_window (SDL_Vulkan_CreateSurface,
-            //      glfwCreateWindowSurface) or native WSI handles for a headless path.
-            //   2. Verify the chosen queues can present to this surface.
-            //   3. Create the swapchain and per-frame sync objects when extent is non-zero.
-            return handle;
+            handle = allocate_surface_slot(init);
         } catch (const bad_alloc &) {
             return unexpected(RendererError{RendererErrorCode::OutOfMemory,
                                             "Out of memory while allocating a Vulkan render surface slot."});
         }
+
+        VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
+        switch (init.descriptor.provider) {
+            case SurfaceProvider::SDL3: {
+                auto *sdl_window = static_cast<SDL_Window *>(init.descriptor.provider_window);
+                if (!SDL_Vulkan_CreateSurface(sdl_window, vulkan_instance, nullptr, &vk_surface)) {
+                    release_surface_state(surfaces_[static_cast<usize>(handle.index)]);
+                    return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                                                    format("SDL_Vulkan_CreateSurface failed: {}", SDL_GetError())});
+                }
+                break;
+            }
+            case SurfaceProvider::GLFW: {
+                auto *glfw_window = static_cast<GLFWwindow *>(init.descriptor.provider_window);
+                if (glfwCreateWindowSurface(vulkan_instance, glfw_window, nullptr, &vk_surface) != VK_SUCCESS) {
+                    release_surface_state(surfaces_[static_cast<usize>(handle.index)]);
+                    return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                                                    "glfwCreateWindowSurface failed."});
+                }
+                break;
+            }
+            default:
+                release_surface_state(surfaces_[static_cast<usize>(handle.index)]);
+                return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                                                "Unsupported surface provider; only SDL3 and GLFW are implemented."});
+        }
+
+        surfaces_[static_cast<usize>(handle.index)].vk_surface = vk_surface;
+        Foundation::log_info("Vulkan surface created: provider={} system={} extent={}x{}",
+            surface_provider_name(init.descriptor.provider),
+            surface_system_name(init.descriptor.system),
+            init.framebuffer_extent.width,
+            init.framebuffer_extent.height);
+        // TODO(renderer): verify the chosen queue family can present to this surface, then
+        // create the swapchain and per-frame sync objects once the logical device exists.
+        return handle;
     }
 
     void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface) noexcept {
@@ -359,7 +478,13 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::release_surface_state(SurfaceState &state) noexcept {
-        // TODO(renderer): destroy swapchain, per-frame sync objects, and VkSurfaceKHR.
+        // TODO(renderer): destroy swapchain and per-frame sync objects before the surface.
+        if (state.vk_surface != VK_NULL_HANDLE) {
+            Foundation::log_info("Vulkan surface destroyed: provider={} system={}",
+                surface_provider_name(state.descriptor.provider),
+                surface_system_name(state.descriptor.system));
+            vkDestroySurfaceKHR(vulkan_instance, state.vk_surface, nullptr);
+        }
         const u32 prev_generation = state.generation;
         state = SurfaceState{};
         state.generation = prev_generation;

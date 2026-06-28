@@ -40,6 +40,16 @@ namespace SFT::Platform::Windowing::SDL3 {
             return WindowError{code, message && message[0] != '\0' ? message : fallback};
         }
 
+        [[nodiscard]] const char *graphics_api_name(WindowGraphicsApi api) noexcept {
+            switch (api) {
+                case WindowGraphicsApi::Vulkan:   return "Vulkan";
+                case WindowGraphicsApi::OpenGL:   return "OpenGL";
+                case WindowGraphicsApi::Metal:    return "Metal";
+                case WindowGraphicsApi::Direct3D: return "Direct3D";
+                default:                          return "None";
+            }
+        }
+
         [[nodiscard]] bool valid_extent(WindowExtent extent) noexcept {
             return extent.x > 0 && extent.y > 0 && extent.x <= static_cast<u32>(numeric_limits<i32>::max()) && extent.y <= static_cast<u32>(numeric_limits<i32>::max());
         }
@@ -144,7 +154,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (window_) [[likely]] {
             const SDL_WindowID id = SDL_GetWindowID(window_);
             sdl_window_registry().erase(id);
-            Detail::window_info("SDL3 window destroy: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), id);
+            Detail::window_info("Closing window via SDL3");
             SDL_DestroyWindow(window_);
             window_ = nullptr;
 
@@ -154,33 +164,19 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
 
             if (count == 0) {
-                Detail::window_info("SDL3 quit video subsystem after last window destroyed.");
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
-            } else {
-                Detail::window_debug("SDL3 window destroyed while other windows remain: remaining_count={}", count);
             }
-        } else [[unlikely]] {
-            Detail::window_trace("SDL3 window destroy skipped null native poi32er: wrapper={}", static_cast<void *>(this));
         }
     }
 
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         const lock_guard lock(sdl_window_mutex());
 
-        Detail::window_info(
-            "SDL3 window create requested: title='{}' size={}x{} position=({}, {}) default_position={} visible={} resizable={} decorated={} high_dpi={} mode={} graphics_api={}",
+        Detail::window_info("Opening window '{}' ({}x{}) via SDL3 [{}]",
             config.title ? config.title : "<null>",
             config.extent.x,
             config.extent.y,
-            config.position.x,
-            config.position.y,
-            config.use_default_position,
-            config.visible,
-            config.resizable,
-            config.decorated,
-            config.high_dpi,
-            static_cast<i32>(config.mode),
-            static_cast<i32>(config.graphics_api));
+            graphics_api_name(config.graphics_api));
 
         if (!config.title || !valid_extent(config.extent)) [[unlikely]] {
             Detail::window_error(
@@ -196,10 +192,8 @@ namespace SFT::Platform::Windowing::SDL3 {
             Detail::window_error("SDL3 video subsystem init failed: message='{}'", error.message);
             return unexpected(error);
         }
-        Detail::window_debug("SDL3 video subsystem initialized or already active.");
 
         const SDL_WindowFlags flags = window_flags(config);
-        Detail::window_debug("SDL3 window flags resolved: flags={}", static_cast<unsigned long long>(flags));
         SDL_Window *window = SDL_CreateWindow(
             config.title,
             static_cast<i32>(config.extent.x),
@@ -217,10 +211,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                 error.message);
             return unexpected(error);
         }
-        Detail::window_info("SDL3 native window created: ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));
-
         if (!config.use_default_position) [[unlikely]] {
-            Detail::window_debug("SDL3 setting initial window position: ptr={} x={} y={}", static_cast<void *>(window), config.position.x, config.position.y);
             if (!SDL_SetWindowPosition(window, config.position.x, config.position.y)) [[unlikely]] {
                 const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 window positioning failed.");
                 Detail::window_error(
@@ -241,7 +232,6 @@ namespace SFT::Platform::Windowing::SDL3 {
             auto wrapper = unique_ptr<SDL3Window>(raw_wrapper);
             raw_wrapper = nullptr;
             ++sdl_window_count();
-            Detail::window_info("SDL3 window wrapper constructed: wrapper={} native_ptr={} id={}", static_cast<void *>(wrapper.get()), static_cast<void *>(window), SDL_GetWindowID(window));
             return wrapper;
         } catch (const bad_alloc &) {
             Detail::window_error("SDL3 window wrapper allocation failed: native_ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));

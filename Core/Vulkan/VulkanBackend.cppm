@@ -55,6 +55,7 @@ export namespace SFT::Core::Vulkan {
             Window *window = nullptr;
             RenderSurfaceDescriptor descriptor{};
             Extent2D extent{};
+            VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
             u32 frames_in_flight = 2;
             u32 generation = 0;
             bool active = false;
@@ -87,7 +88,8 @@ export namespace SFT::Core::Vulkan {
         //   GraphicsDevice   device_;    // instance, physical/logical device, queues, VMA allocator
         //   vector<SurfaceResources>;    // VkSurfaceKHR, swapchain, per-frame sync per surface
         //   RenderGraph      graph_;     // pipeline cache, descriptor pool, shared render state
-        VkInstance vulkan_instance;
+        VkInstance vulkan_instance = VK_NULL_HANDLE;
+        VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     };
 
 } // namespace SFT::Core::Vulkan
