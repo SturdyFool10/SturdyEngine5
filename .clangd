@@ -3,7 +3,7 @@
 # Managed by .zed/view_as_profile.cmake. Use a .zed View As task to switch
 # this file between OS/profile compile databases. The active view is:
 #   OS: Linux
-#   Profile: Dist
+#   Profile: RelWithDebInfo
 #
 # Flags that are NOT settable here (they are clangd command-line options, not
 # per-TU compile flags) live in the editor config — see .zed/settings.json:
@@ -13,7 +13,7 @@
 CompileFlags:
   # Compilation database for the active OS/profile view (relative to repo root).
   # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.
-  CompilationDatabase: build/view/linux/dist
+  CompilationDatabase: build/view/linux/relwithdebinfo
   # clangd builds and manages its own module BMIs. Strip the build system's BMI
   # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
   # interchangeable with clangd's and make it crash on load, or (b) writes its
