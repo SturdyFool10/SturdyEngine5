@@ -174,13 +174,15 @@
   },
   {
     "label": "Run Runtime (Debug, Windows .exe)",
-    "command": "cmake",
+    "command": "powershell",
     "args": [
-      "-DSTURDY_RUNTIME_PROFILE=debug",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      ".zed/cmake_runtime.ps1",
+      "-Profile",
+      "debug"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
@@ -219,13 +221,15 @@
   },
   {
     "label": "Run Runtime (Dist, Windows .exe)",
-    "command": "cmake",
+    "command": "powershell",
     "args": [
-      "-DSTURDY_RUNTIME_PROFILE=dist",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      ".zed/cmake_runtime.ps1",
+      "-Profile",
+      "dist"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
@@ -264,13 +268,15 @@
   },
   {
     "label": "Run Runtime (RelWithDebInfo, Windows .exe)",
-    "command": "cmake",
+    "command": "powershell",
     "args": [
-      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      ".zed/cmake_runtime.ps1",
+      "-Profile",
+      "relwithdebinfo"
     ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
