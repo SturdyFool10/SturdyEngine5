@@ -50,14 +50,18 @@ namespace SFT::Platform::Windowing {
             return RGB(red, green, blue);
         }
 
+        [[nodiscard]] const void *log_hwnd(HWND hwnd) noexcept {
+            return static_cast<const void *>(hwnd);
+        }
+
         WindowEffectResult set_dwm_attribute(HWND hwnd, DWORD attribute, const void *value, DWORD value_size, const char *label) noexcept {
             const HRESULT result = DwmSetWindowAttribute(hwnd, attribute, value, value_size);
             if (FAILED(result)) [[unlikely]] {
-                Detail::window_error("Windows DWM attribute failed: hwnd={} attribute={} label='{}' hresult={}", hwnd, attribute, label, static_cast<long>(result));
+                Detail::window_error("Windows DWM attribute failed: hwnd={} attribute={} label='{}' hresult={}", log_hwnd(hwnd), attribute, label, static_cast<long>(result));
                 return WindowEffectResult::failed("DwmSetWindowAttribute failed.");
             }
 
-            Detail::window_info("Windows DWM attribute set: hwnd={} attribute={} label='{}'", hwnd, attribute, label);
+            Detail::window_info("Windows DWM attribute set: hwnd={} attribute={} label='{}'", log_hwnd(hwnd), attribute, label);
             return WindowEffectResult::success("Windows DWM attribute applied.");
         }
 
@@ -68,17 +72,17 @@ namespace SFT::Platform::Windowing {
 
             const HRESULT result = DwmEnableBlurBehindWindow(hwnd, &blur);
             if (FAILED(result)) [[unlikely]] {
-                Detail::window_error("Windows DWM legacy blur failed: hwnd={} enabled={} hresult={}", hwnd, enabled, static_cast<long>(result));
+                Detail::window_error("Windows DWM legacy blur failed: hwnd={} enabled={} hresult={}", log_hwnd(hwnd), enabled, static_cast<long>(result));
                 return WindowEffectResult::failed("DwmEnableBlurBehindWindow failed.");
             }
 
-            Detail::window_info("Windows DWM legacy blur set: hwnd={} enabled={}", hwnd, enabled);
+            Detail::window_info("Windows DWM legacy blur set: hwnd={} enabled={}", log_hwnd(hwnd), enabled);
             return WindowEffectResult::success("Windows legacy DWM blur applied.");
         }
 
         WindowEffectResult set_system_backdrop(HWND hwnd, int enabled_backdrop, bool enabled, const char *label) noexcept {
             const int backdrop = enabled ? enabled_backdrop : sturdy_dwmsbt_none;
-            Detail::window_debug("Windows DWM backdrop request: hwnd={} label='{}' enabled={} backdrop={}", hwnd, label, enabled, backdrop);
+            Detail::window_debug("Windows DWM backdrop request: hwnd={} label='{}' enabled={} backdrop={}", log_hwnd(hwnd), label, enabled, backdrop);
             WindowEffectResult result = set_dwm_attribute(hwnd, sturdy_dwmwa_system_backdrop_type, &backdrop, sizeof(backdrop), label);
             if (result.succeeded()) [[likely]] {
                 return WindowEffectResult::success("Windows system backdrop applied.");
@@ -90,7 +94,7 @@ namespace SFT::Platform::Windowing {
 
             WindowEffectResult fallback = set_legacy_blur(hwnd, true);
             if (fallback.succeeded()) [[likely]] {
-                Detail::window_warn("Windows DWM backdrop degraded to legacy blur: hwnd={} label='{}'", hwnd, label);
+                Detail::window_warn("Windows DWM backdrop degraded to legacy blur: hwnd={} label='{}'", log_hwnd(hwnd), label);
                 return WindowEffectResult::degraded("Requested Windows backdrop was unavailable; legacy blur was enabled instead.");
             }
 
@@ -146,7 +150,7 @@ namespace SFT::Platform::Windowing {
         HWND hwnd = static_cast<HWND>(handle.window);
         Detail::window_info(
             "Windows native effect requested: hwnd={} kind={} enabled={} color_argb=0x{:08X}",
-            hwnd,
+            log_hwnd(hwnd),
             static_cast<int>(effect.kind),
             effect.enabled,
             effect.color_argb);

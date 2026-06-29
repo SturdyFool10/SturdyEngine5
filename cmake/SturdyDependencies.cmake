@@ -143,6 +143,7 @@ function(sturdy_fetch_slang)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_GFX OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "" FORCE)
 
     FetchContent_Declare(slang
         GIT_REPOSITORY https://github.com/shader-slang/slang.git
@@ -204,7 +205,7 @@ endfunction()
 
 function(sturdy_fetch_volk)
     set(VOLK_INSTALL OFF CACHE BOOL "" FORCE)
-    set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
+    set(VOLK_PULL_IN_VULKAN ON CACHE BOOL "" FORCE)
     FetchContent_Declare(volk
         GIT_REPOSITORY https://github.com/zeux/volk.git
         GIT_TAG ${STURDY_VOLK_TAG}
@@ -221,6 +222,9 @@ function(sturdy_fetch_sdl3)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+        set(LIBC_HAS_ITOA "" CACHE INTERNAL "Have symbol itoa" FORCE)
+    endif()
     FetchContent_Declare(SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG ${STURDY_SDL3_TAG}

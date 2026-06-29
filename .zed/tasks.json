@@ -145,7 +145,12 @@
   },
   {
     "label": "Compile Runtime (Debug)",
-    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=debug",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -154,7 +159,13 @@
   },
   {
     "label": "Run Runtime (Debug, Linux)",
-    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel && ./build/ninja/debug/bin/Runtime",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=debug",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -163,7 +174,14 @@
   },
   {
     "label": "Run Runtime (Debug, Windows .exe)",
-    "command": "cmake --preset ninja-debug && cmake --build --preset runtime-debug --parallel && ./build/ninja/debug/bin/Runtime.exe",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=debug",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -172,7 +190,12 @@
   },
   {
     "label": "Compile Runtime (Dist)",
-    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=dist",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -181,7 +204,13 @@
   },
   {
     "label": "Run Runtime (Dist, Linux)",
-    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel && ./build/ninja/dist/bin/Runtime",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=dist",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -190,7 +219,14 @@
   },
   {
     "label": "Run Runtime (Dist, Windows .exe)",
-    "command": "cmake --preset ninja-dist && cmake --build --preset runtime-dist --parallel && ./build/ninja/dist/bin/Runtime.exe",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=dist",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -199,7 +235,12 @@
   },
   {
     "label": "Compile Runtime (RelWithDebInfo)",
-    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -208,7 +249,13 @@
   },
   {
     "label": "Run Runtime (RelWithDebInfo, Linux)",
-    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel && ./build/ninja/relwithdebinfo/bin/Runtime",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -217,7 +264,14 @@
   },
   {
     "label": "Run Runtime (RelWithDebInfo, Windows .exe)",
-    "command": "cmake --preset ninja-relwithdebinfo && cmake --build --preset runtime-relwithdebinfo --parallel && ./build/ninja/relwithdebinfo/bin/Runtime.exe",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-DSTURDY_RUNTIME_WINDOWS_EXE=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -226,7 +280,11 @@
   },
   {
     "label": "Format All C++",
-    "command": "find . \\( -path ./.git -o -path ./.lore -o -path ./build \\) -prune -o -type f \\( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.hxx' -o -name '*.ipp' -o -name '*.ixx' -o -name '*.cppm' -o -name '*.ccm' -o -name '*.cxxm' \\) -print0 | xargs -0 --no-run-if-empty clang-format -i --style=file",
+    "command": "cmake",
+    "args": [
+      "-P",
+      ".zed/format_cpp.cmake"
+    ],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
