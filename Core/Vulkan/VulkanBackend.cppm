@@ -8,6 +8,7 @@ import :EngineBackend;
 import :RendererError;
 import :Renderer;
 import :RenderSurface;
+import :VulkanDevice;
 import :VulkanSurface;
 import :VulkanPhysicalDevice;
 import Sturdy.Foundation;
@@ -73,6 +74,7 @@ export namespace SFT::Core::Vulkan {
         //   RenderGraph      graph_;     // pipeline cache, descriptor pool, shared render state
         VkInstance vulkan_instance = VK_NULL_HANDLE;
         VulkanPhysicalDevice physical_device_;
+        VulkanDevice logical_device;
     };
 
 } // namespace SFT::Core::Vulkan

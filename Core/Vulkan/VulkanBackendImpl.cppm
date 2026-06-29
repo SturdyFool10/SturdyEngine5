@@ -1,4 +1,7 @@
 module;
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+#endif
 #include <expected>
 #include <format>
 #include <limits>
@@ -15,6 +18,7 @@ module;
 export module Sturdy.Core:VulkanBackendImpl;
 
 import :VulkanBackend;
+import :VulkanDevice;
 import :VulkanSurface;
 import :VulkanPhysicalDevice;
 import :VulkanHelpers;
@@ -154,7 +158,7 @@ namespace SFT::Core::Vulkan {
         }
 
         #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+        #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
         VkApplicationInfo appInfo{
             .sType      = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pApplicationName = "SturdyEngine Application",
@@ -240,6 +244,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererResult VulkanBackend::discoverGraphicsQueue(const RendererCreateInfo &init) {
+        (void)init;
         if (auto res = this->physical_device_.findGraphicsQueue(this->surfaces_[0].vk_handle()); !res.has_value()) [[unlikely]] {
             return renderer_error(RendererErrorCode::InitializationFailed, "Your GPU is apparently not Vulkan Compliant!! the Vulkan spec guarantees one graphics queue and we found zero");
         }
@@ -249,9 +254,70 @@ namespace SFT::Core::Vulkan {
 
     RendererResult VulkanBackend::createDevice(const RendererCreateInfo &init) {
         (void)init;
-        // TODO(renderer): create VkDevice with the queue families discovered in
-        // discoverGraphicsQueue, enabling required device extensions (swapchain, etc.)
-        // and Vulkan 1.4 features. Store the logical device and retrieve queue handles.
+
+        // Query which features the physical device actually supports.
+        VkPhysicalDeviceVulkan14Features supportedFeatures14
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = nullptr };
+        VkPhysicalDeviceVulkan13Features supportedFeatures13
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &supportedFeatures14 };
+        VkPhysicalDeviceVulkan12Features supportedFeatures12
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &supportedFeatures13 };
+        VkPhysicalDeviceFeatures2 supportedFeatures
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &supportedFeatures12 };
+        vkGetPhysicalDeviceFeatures2(this->physical_device_.vk_handle(), &supportedFeatures);
+
+        if (not supportedFeatures13.dynamicRendering
+         or not supportedFeatures13.synchronization2
+         or not supportedFeatures12.timelineSemaphore) [[unlikely]] {
+            return renderer_error(RendererErrorCode::InitializationFailed,
+                "Required Vulkan features missing: dynamicRendering, synchronization2, and timelineSemaphore are all required.");
+        }
+
+        // Build the enable chain — only request what we verified above.
+        VkPhysicalDeviceVulkan14Features features14
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = nullptr };
+        VkPhysicalDeviceVulkan13Features features13{
+            .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .pNext            = &features14,
+            .synchronization2 = VK_TRUE,
+            .dynamicRendering = VK_TRUE,
+        };
+        VkPhysicalDeviceVulkan12Features features12{
+            .sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .pNext             = &features13,
+            .timelineSemaphore = VK_TRUE,
+        };
+        VkPhysicalDeviceFeatures2 features
+            { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features12 };
+
+        // Discover queue families. Graphics was already verified by discoverGraphicsQueue;
+        // present may share the same index — VulkanDevice::create() deduplicates automatically.
+        VkSurfaceKHR surface       = this->surfaces_[0].vk_handle();
+        auto         gfx_family     = this->physical_device_.findGraphicsQueue(surface);
+        auto         present_family = this->physical_device_.find_present_queue_family(surface);
+
+        // Extensions: swapchain (required for presentation) + calibrated timestamps
+        // (Vulkan 1.4 core, needed for anchoring GPU timer to wall clock).
+        vector<const char*> extensions{
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
+        };
+
+        VulkanDevice::DeviceCreateDesc desc{
+            .graphics_queue_family = gfx_family,
+            .present_queue_family  = present_family,
+            .extensions            = extensions,
+            .features_pnext        = &features,
+        };
+
+        auto device_result = VulkanDevice::create(this->physical_device_.vk_handle(), desc);
+        if (!device_result.has_value()) [[unlikely]] {
+            return renderer_error(device_result.error().code,
+                format("VulkanDevice::create failed: {}", device_result.error().message));
+        }
+
+        this->logical_device = std::move(*device_result);
+        Foundation::log_info("Logical device created on: {}", this->physical_device_.name());
         return {};
     }
 

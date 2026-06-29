@@ -1,4 +1,7 @@
 module;
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+#endif
 #include "volk.h"
 #include <optional>
 #include <string_view>
@@ -49,6 +52,32 @@ class VulkanPhysicalDevice {
     [[nodiscard]] const vector<VkQueueFamilyProperties> &queue_families() const noexcept { return queue_families_; }
     [[nodiscard]] string_view name() const noexcept { return properties_.deviceName; }
     [[nodiscard]] const char *type_name() const noexcept { return physical_device_type_name(properties_.deviceType); }
+
+    // Nanoseconds per GPU timestamp tick — multiply raw tick deltas by this value.
+    [[nodiscard]] f32 timestamp_period() const noexcept {
+        return properties_.limits.timestampPeriod;
+    }
+
+    // Number of valid high bits in timestamp values written by queue family i.
+    // 0 means the queue family does not support timestamps.
+    [[nodiscard]] u32 timestamp_valid_bits(u32 queue_family_index) const noexcept {
+        if (queue_family_index >= static_cast<u32>(queue_families_.size())) return 0;
+        return queue_families_[queue_family_index].timestampValidBits;
+    }
+
+    // Returns the time domains available for calibrated timestamp queries on this device.
+    // Requires VK_KHR_calibrated_timestamps / Vulkan 1.4 core.
+    [[nodiscard]] RendererExpected<vector<VkTimeDomainKHR>> calibrateable_time_domains() const noexcept {
+        u32 count = 0;
+        if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(device_, &count, nullptr) != VK_SUCCESS)
+            return renderer_error(RendererErrorCode::OperationFailed,
+                "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (count) failed.");
+        vector<VkTimeDomainKHR> domains(count);
+        if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(device_, &count, domains.data()) != VK_SUCCESS)
+            return renderer_error(RendererErrorCode::OperationFailed,
+                "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (populate) failed.");
+        return domains;
+    }
 
     // Heuristic score used during device selection. Higher is better.
     [[nodiscard]] f64 score() const noexcept {
