@@ -262,6 +262,7 @@ function(sturdy_configure_package_target target_name)
   target_compile_definitions("${target_name}"
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEFINES}
+            "$<$<CONFIG:Debug>:DEBUG>"
         ${_private_scope}
             ${STURDY_TARGET_PRIVATE_DEFINES}
     )

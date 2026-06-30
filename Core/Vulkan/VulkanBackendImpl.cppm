@@ -3,6 +3,7 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-extension"
@@ -16,6 +17,7 @@ module;
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#include <algorithm>
 #include <chrono>
 #include <expected>
 #include <format>
@@ -113,12 +115,19 @@ namespace SFT::Core::Vulkan {
         // Drops a trailing ".slang" so shader module keys are addressed by bare source name, e.g.
         // "Shaders/triangle" rather than "Shaders/triangle.slang". Used both when filing modules and
         // when looking them up, so callers may pass the path with or without the extension.
+        //
+        // Also normalizes '\\' to '/': discovery keys come from fs::path::string(), which uses the
+        // platform's native separator ('\\' on Windows), while call sites like createPipeline() use
+        // hardcoded forward slashes. Without normalizing, the two disagree and the map lookup misses
+        // on Windows even though the shader compiled successfully.
         [[nodiscard]] string strip_slang_extension(string_view path) {
             constexpr string_view extension = ".slang";
             if (path.size() >= extension.size() && path.substr(path.size() - extension.size()) == extension) {
                 path.remove_suffix(extension.size());
             }
-            return string{path};
+            string result{path};
+            std::ranges::replace(result, '\\', '/');
+            return result;
         }
 
     } // namespace

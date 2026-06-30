@@ -952,6 +952,19 @@ namespace SFT::Core::Slang {
                         nullptr,
                     },
                 },
+                // Without this, Slang's SPIR-V backend renames every entry point to "main" (matching
+                // GLSL/HLSL convention), so a VkPipelineShaderStageCreateInfo::pName built from the
+                // reflected entry point name (e.g. "vertexMain") fails to resolve at pipeline creation.
+                slang::CompilerOptionEntry{
+                    slang::CompilerOptionName::VulkanUseEntryPointName,
+                    slang::CompilerOptionValue{
+                        slang::CompilerOptionValueKind::Int,
+                        1,
+                        0,
+                        nullptr,
+                        nullptr,
+                    },
+                },
             };
 
             slang::SessionDesc session_desc{};
