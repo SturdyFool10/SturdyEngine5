@@ -285,6 +285,19 @@
     "allow_concurrent_runs": false
   },
   {
+    "label": "Build All (Native, All Profiles)",
+    "command": "cmake",
+    "args": [
+      "-P",
+      ".zed/build_all.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
     "label": "Format All C++",
     "command": "cmake",
     "args": [

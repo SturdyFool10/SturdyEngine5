@@ -8,14 +8,16 @@ import :EngineBackend;
 import :RendererError;
 import :Renderer;
 import :RenderSurface;
+import :VulkanAllocator;
 import :VulkanDevice;
+import :VulkanQueue;
 import :VulkanSurface;
 import :VulkanPhysicalDevice;
 import Sturdy.Foundation;
 import Sturdy.Platform;
 
-using std::vector;
 using SFT::Platform::Windowing::Window;
+using std::vector;
 
 export namespace SFT::Core::Vulkan {
 
@@ -39,6 +41,9 @@ export namespace SFT::Core::Vulkan {
         RendererResult discoverGraphicsQueue(const RendererCreateInfo &init);
         RendererResult createDevice(const RendererCreateInfo &init);
         RendererResult initializeVMA(const RendererCreateInfo &init);
+        RendererResult createSwapchain(const RendererCreateInfo &init);
+        RendererResult createShaders(const RendererCreateInfo &init);
+        RendererResult createGraphicsPipeline(const RendererCreateInfo &init);
 
       private:
         friend class ::SFT::Core::EngineBackend;
@@ -73,8 +78,10 @@ export namespace SFT::Core::Vulkan {
         //   vector<SurfaceResources>;    // swapchain, per-frame sync per surface
         //   RenderGraph      graph_;     // pipeline cache, descriptor pool, shared render state
         VkInstance vulkan_instance = VK_NULL_HANDLE;
-        VulkanPhysicalDevice physical_device_;
-        VulkanDevice logical_device;
+        VulkanPhysicalDevice physicalDevice;
+        VulkanDevice logicalDevice;
+        VulkanQueue gfxQueue;
+        VulkanAllocator vmaAllocator;
     };
 
 } // namespace SFT::Core::Vulkan

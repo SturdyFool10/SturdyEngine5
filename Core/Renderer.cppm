@@ -7,8 +7,8 @@ export module Sturdy.Core:Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
 
-using std::vector;
 using SFT::Platform::Windowing::Window;
+using std::vector;
 
 export namespace SFT::Core {
 

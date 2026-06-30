@@ -42,11 +42,16 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         [[nodiscard]] const char *graphics_api_name(WindowGraphicsApi api) noexcept {
             switch (api) {
-                case WindowGraphicsApi::Vulkan:   return "Vulkan";
-                case WindowGraphicsApi::OpenGL:   return "OpenGL";
-                case WindowGraphicsApi::Metal:    return "Metal";
-                case WindowGraphicsApi::Direct3D: return "Direct3D";
-                default:                          return "None";
+                case WindowGraphicsApi::Vulkan:
+                    return "Vulkan";
+                case WindowGraphicsApi::OpenGL:
+                    return "OpenGL";
+                case WindowGraphicsApi::Metal:
+                    return "Metal";
+                case WindowGraphicsApi::Direct3D:
+                    return "Direct3D";
+                default:
+                    return "None";
             }
         }
 
@@ -173,10 +178,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         const lock_guard lock(sdl_window_mutex());
 
         Detail::window_info("Opening window '{}' ({}x{}) via SDL3 [{}]",
-            config.title ? config.title : "<null>",
-            config.extent.x,
-            config.extent.y,
-            graphics_api_name(config.graphics_api));
+                            config.title ? config.title : "<null>",
+                            config.extent.x,
+                            config.extent.y,
+                            graphics_api_name(config.graphics_api));
 
         if (!config.title || !valid_extent(config.extent)) [[unlikely]] {
             Detail::window_error(

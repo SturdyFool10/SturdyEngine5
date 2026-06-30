@@ -9,201 +9,219 @@ export module Sturdy.Core:VulkanImage;
 import :RendererError;
 import Sturdy.Foundation;
 
+using SFT::Core::renderer_error;
+using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
-using SFT::Core::RendererErrorCode;
-using SFT::Core::renderer_error;
 
 export namespace SFT::Core::Vulkan {
 
-// ─── VulkanImageView ─────────────────────────────────────────────────────────
+    // ─── VulkanImageView ─────────────────────────────────────────────────────────
 
-class VulkanImageView {
-  public:
-    VulkanImageView() = default;
-    ~VulkanImageView() { destroy(); }
+    class VulkanImageView {
+      public:
+        VulkanImageView() = default;
+        ~VulkanImageView() { destroy(); }
 
-    VulkanImageView(const VulkanImageView&)            = delete;
-    VulkanImageView& operator=(const VulkanImageView&) = delete;
+        VulkanImageView(const VulkanImageView &) = delete;
+        VulkanImageView &operator=(const VulkanImageView &) = delete;
 
-    VulkanImageView(VulkanImageView&& o) noexcept
-        : device_(o.device_), view_(o.view_), format_(o.format_), view_type_(o.view_type_) {
-        o.device_ = VK_NULL_HANDLE;
-        o.view_   = VK_NULL_HANDLE;
-    }
-    VulkanImageView& operator=(VulkanImageView&& o) noexcept {
-        if (this != &o) { destroy();
-            device_ = o.device_; view_ = o.view_; format_ = o.format_; view_type_ = o.view_type_;
-            o.device_ = VK_NULL_HANDLE; o.view_ = VK_NULL_HANDLE; }
-        return *this;
-    }
+        VulkanImageView(VulkanImageView &&o) noexcept
+            : device_(o.device_), view_(o.view_), format_(o.format_), view_type_(o.view_type_) {
+            o.device_ = VK_NULL_HANDLE;
+            o.view_ = VK_NULL_HANDLE;
+        }
+        VulkanImageView &operator=(VulkanImageView &&o) noexcept {
+            if (this != &o) {
+                destroy();
+                device_ = o.device_;
+                view_ = o.view_;
+                format_ = o.format_;
+                view_type_ = o.view_type_;
+                o.device_ = VK_NULL_HANDLE;
+                o.view_ = VK_NULL_HANDLE;
+            }
+            return *this;
+        }
 
-    [[nodiscard]] static RendererExpected<VulkanImageView> create(
-        VkDevice device, const VkImageViewCreateInfo& info
-    ) noexcept {
-        VkImageView view = VK_NULL_HANDLE;
-        if (vkCreateImageView(device, &info, nullptr, &view) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImageView failed.");
-        VulkanImageView out;
-        out.device_    = device;
-        out.view_      = view;
-        out.format_    = info.format;
-        out.view_type_ = info.viewType;
-        return out;
-    }
+        [[nodiscard]] static RendererExpected<VulkanImageView> create(
+            VkDevice device,
+            const VkImageViewCreateInfo &info) noexcept {
+            VkImageView view = VK_NULL_HANDLE;
+            if (vkCreateImageView(device, &info, nullptr, &view) != VK_SUCCESS)
+                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImageView failed.");
+            VulkanImageView out;
+            out.device_ = device;
+            out.view_ = view;
+            out.format_ = info.format;
+            out.view_type_ = info.viewType;
+            return out;
+        }
 
-    [[nodiscard]] VkImageView     vk_handle()  const noexcept { return view_; }
-    [[nodiscard]] bool            is_valid()   const noexcept { return view_ != VK_NULL_HANDLE; }
-    [[nodiscard]] VkFormat        format()     const noexcept { return format_; }
-    [[nodiscard]] VkImageViewType view_type()  const noexcept { return view_type_; }
+        [[nodiscard]] VkImageView vk_handle() const noexcept { return view_; }
+        [[nodiscard]] bool is_valid() const noexcept { return view_ != VK_NULL_HANDLE; }
+        [[nodiscard]] VkFormat format() const noexcept { return format_; }
+        [[nodiscard]] VkImageViewType view_type() const noexcept { return view_type_; }
 
-    void destroy() noexcept {
-        if (view_ == VK_NULL_HANDLE) return;
-        vkDestroyImageView(device_, view_, nullptr);
-        view_   = VK_NULL_HANDLE;
-        device_ = VK_NULL_HANDLE;
-    }
+        void destroy() noexcept {
+            if (view_ == VK_NULL_HANDLE)
+                return;
+            vkDestroyImageView(device_, view_, nullptr);
+            view_ = VK_NULL_HANDLE;
+            device_ = VK_NULL_HANDLE;
+        }
 
-  private:
-    VkDevice        device_    = VK_NULL_HANDLE;
-    VkImageView     view_      = VK_NULL_HANDLE;
-    VkFormat        format_    = VK_FORMAT_UNDEFINED;
-    VkImageViewType view_type_ = VK_IMAGE_VIEW_TYPE_2D;
-};
+      private:
+        VkDevice device_ = VK_NULL_HANDLE;
+        VkImageView view_ = VK_NULL_HANDLE;
+        VkFormat format_ = VK_FORMAT_UNDEFINED;
+        VkImageViewType view_type_ = VK_IMAGE_VIEW_TYPE_2D;
+    };
 
-// ─── VulkanImage ─────────────────────────────────────────────────────────────
+    // ─── VulkanImage ─────────────────────────────────────────────────────────────
 
-// Owns a VkImage. Memory is not managed here — use VulkanDevice::bind_image_memory
-// or VMA once initialized.
-class VulkanImage {
-  public:
-    VulkanImage() = default;
-    ~VulkanImage() { destroy(); }
+    // Owns a VkImage. Memory is not managed here — use VulkanDevice::bind_image_memory
+    // or VMA once initialized.
+    class VulkanImage {
+      public:
+        VulkanImage() = default;
+        ~VulkanImage() { destroy(); }
 
-    VulkanImage(const VulkanImage&)            = delete;
-    VulkanImage& operator=(const VulkanImage&) = delete;
+        VulkanImage(const VulkanImage &) = delete;
+        VulkanImage &operator=(const VulkanImage &) = delete;
 
-    VulkanImage(VulkanImage&& o) noexcept
-        : device_(o.device_), image_(o.image_), format_(o.format_),
-          extent_(o.extent_), mip_levels_(o.mip_levels_),
-          array_layers_(o.array_layers_), image_type_(o.image_type_),
-          usage_(o.usage_) {
-        o.device_ = VK_NULL_HANDLE;
-        o.image_  = VK_NULL_HANDLE;
-    }
-    VulkanImage& operator=(VulkanImage&& o) noexcept {
-        if (this != &o) { destroy();
-            device_       = o.device_;       image_       = o.image_;
-            format_       = o.format_;       extent_      = o.extent_;
-            mip_levels_   = o.mip_levels_;   array_layers_ = o.array_layers_;
-            image_type_   = o.image_type_;   usage_       = o.usage_;
-            o.device_ = VK_NULL_HANDLE; o.image_ = VK_NULL_HANDLE; }
-        return *this;
-    }
+        VulkanImage(VulkanImage &&o) noexcept
+            : device_(o.device_), image_(o.image_), format_(o.format_),
+              extent_(o.extent_), mip_levels_(o.mip_levels_),
+              array_layers_(o.array_layers_), image_type_(o.image_type_),
+              usage_(o.usage_) {
+            o.device_ = VK_NULL_HANDLE;
+            o.image_ = VK_NULL_HANDLE;
+        }
+        VulkanImage &operator=(VulkanImage &&o) noexcept {
+            if (this != &o) {
+                destroy();
+                device_ = o.device_;
+                image_ = o.image_;
+                format_ = o.format_;
+                extent_ = o.extent_;
+                mip_levels_ = o.mip_levels_;
+                array_layers_ = o.array_layers_;
+                image_type_ = o.image_type_;
+                usage_ = o.usage_;
+                o.device_ = VK_NULL_HANDLE;
+                o.image_ = VK_NULL_HANDLE;
+            }
+            return *this;
+        }
 
-    [[nodiscard]] static RendererExpected<VulkanImage> create(
-        VkDevice device, const VkImageCreateInfo& info
-    ) noexcept {
-        VkImage image = VK_NULL_HANDLE;
-        if (vkCreateImage(device, &info, nullptr, &image) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImage failed.");
-        VulkanImage out;
-        out.device_       = device;
-        out.image_        = image;
-        out.format_       = info.format;
-        out.extent_       = info.extent;
-        out.mip_levels_   = info.mipLevels;
-        out.array_layers_ = info.arrayLayers;
-        out.image_type_   = info.imageType;
-        out.usage_        = info.usage;
-        return out;
-    }
+        [[nodiscard]] static RendererExpected<VulkanImage> create(
+            VkDevice device,
+            const VkImageCreateInfo &info) noexcept {
+            VkImage image = VK_NULL_HANDLE;
+            if (vkCreateImage(device, &info, nullptr, &image) != VK_SUCCESS)
+                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImage failed.");
+            VulkanImage out;
+            out.device_ = device;
+            out.image_ = image;
+            out.format_ = info.format;
+            out.extent_ = info.extent;
+            out.mip_levels_ = info.mipLevels;
+            out.array_layers_ = info.arrayLayers;
+            out.image_type_ = info.imageType;
+            out.usage_ = info.usage;
+            return out;
+        }
 
-    [[nodiscard]] VkImage            vk_handle()     const noexcept { return image_; }
-    [[nodiscard]] bool               is_valid()      const noexcept { return image_ != VK_NULL_HANDLE; }
-    [[nodiscard]] VkFormat           format()        const noexcept { return format_; }
-    [[nodiscard]] VkExtent3D         extent()        const noexcept { return extent_; }
-    [[nodiscard]] u32                mip_levels()    const noexcept { return mip_levels_; }
-    [[nodiscard]] u32                array_layers()  const noexcept { return array_layers_; }
-    [[nodiscard]] VkImageType        image_type()    const noexcept { return image_type_; }
-    [[nodiscard]] VkImageUsageFlags  usage()         const noexcept { return usage_; }
+        [[nodiscard]] VkImage vk_handle() const noexcept { return image_; }
+        [[nodiscard]] bool is_valid() const noexcept { return image_ != VK_NULL_HANDLE; }
+        [[nodiscard]] VkFormat format() const noexcept { return format_; }
+        [[nodiscard]] VkExtent3D extent() const noexcept { return extent_; }
+        [[nodiscard]] u32 mip_levels() const noexcept { return mip_levels_; }
+        [[nodiscard]] u32 array_layers() const noexcept { return array_layers_; }
+        [[nodiscard]] VkImageType image_type() const noexcept { return image_type_; }
+        [[nodiscard]] VkImageUsageFlags usage() const noexcept { return usage_; }
 
-    [[nodiscard]] VkMemoryRequirements memory_requirements() const noexcept {
-        VkMemoryRequirements req{};
-        vkGetImageMemoryRequirements(device_, image_, &req);
-        return req;
-    }
+        [[nodiscard]] VkMemoryRequirements memory_requirements() const noexcept {
+            VkMemoryRequirements req{};
+            vkGetImageMemoryRequirements(device_, image_, &req);
+            return req;
+        }
 
-    [[nodiscard]] VkMemoryRequirements2 memory_requirements2() const noexcept {
-        VkImageMemoryRequirementsInfo2 query{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
-            .pNext = nullptr,
-            .image = image_,
-        };
-        VkMemoryRequirements2 req{ .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2, .pNext = nullptr };
-        vkGetImageMemoryRequirements2(device_, &query, &req);
-        return req;
-    }
+        [[nodiscard]] VkMemoryRequirements2 memory_requirements2() const noexcept {
+            VkImageMemoryRequirementsInfo2 query{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
+                .pNext = nullptr,
+                .image = image_,
+            };
+            VkMemoryRequirements2 req{.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2, .pNext = nullptr};
+            vkGetImageMemoryRequirements2(device_, &query, &req);
+            return req;
+        }
 
-    [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
-                                             VkDeviceSize offset = 0) noexcept {
-        if (vkBindImageMemory(device_, image_, memory, offset) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed, "vkBindImageMemory failed.");
-        return {};
-    }
+        [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
+                                                 VkDeviceSize offset = 0) noexcept {
+            if (vkBindImageMemory(device_, image_, memory, offset) != VK_SUCCESS)
+                return renderer_error(RendererErrorCode::OperationFailed, "vkBindImageMemory failed.");
+            return {};
+        }
 
-    [[nodiscard]] VkSubresourceLayout subresource_layout(
-        const VkImageSubresource& subresource
-    ) const noexcept {
-        VkSubresourceLayout layout{};
-        vkGetImageSubresourceLayout(device_, image_, &subresource, &layout);
-        return layout;
-    }
+        [[nodiscard]] VkSubresourceLayout subresource_layout(
+            const VkImageSubresource &subresource) const noexcept {
+            VkSubresourceLayout layout{};
+            vkGetImageSubresourceLayout(device_, image_, &subresource, &layout);
+            return layout;
+        }
 
-    // Convenience: create a view for this image with common defaults.
-    [[nodiscard]] RendererExpected<VulkanImageView> create_view(
-        VkImageAspectFlags aspect, VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
-        u32 base_mip = 0, u32 mip_count = VK_REMAINING_MIP_LEVELS,
-        u32 base_layer = 0, u32 layer_count = VK_REMAINING_ARRAY_LAYERS
-    ) const noexcept {
-        VkImageViewCreateInfo info{
-            .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext    = nullptr,
-            .flags    = 0,
-            .image    = image_,
-            .viewType = view_type,
-            .format   = format_,
-            .components = {
-                VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-                VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-            },
-            .subresourceRange = {
-                .aspectMask     = aspect,
-                .baseMipLevel   = base_mip,
-                .levelCount     = mip_count,
-                .baseArrayLayer = base_layer,
-                .layerCount     = layer_count,
-            },
-        };
-        return VulkanImageView::create(device_, info);
-    }
+        // Convenience: create a view for this image with common defaults.
+        [[nodiscard]] RendererExpected<VulkanImageView> create_view(
+            VkImageAspectFlags aspect,
+            VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
+            u32 base_mip = 0,
+            u32 mip_count = VK_REMAINING_MIP_LEVELS,
+            u32 base_layer = 0,
+            u32 layer_count = VK_REMAINING_ARRAY_LAYERS) const noexcept {
+            VkImageViewCreateInfo info{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .image = image_,
+                .viewType = view_type,
+                .format = format_,
+                .components = {
+                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                    VK_COMPONENT_SWIZZLE_IDENTITY,
+                },
+                .subresourceRange = {
+                    .aspectMask = aspect,
+                    .baseMipLevel = base_mip,
+                    .levelCount = mip_count,
+                    .baseArrayLayer = base_layer,
+                    .layerCount = layer_count,
+                },
+            };
+            return VulkanImageView::create(device_, info);
+        }
 
-    void destroy() noexcept {
-        if (image_ == VK_NULL_HANDLE) return;
-        vkDestroyImage(device_, image_, nullptr);
-        image_  = VK_NULL_HANDLE;
-        device_ = VK_NULL_HANDLE;
-    }
+        void destroy() noexcept {
+            if (image_ == VK_NULL_HANDLE)
+                return;
+            vkDestroyImage(device_, image_, nullptr);
+            image_ = VK_NULL_HANDLE;
+            device_ = VK_NULL_HANDLE;
+        }
 
-  private:
-    VkDevice          device_       = VK_NULL_HANDLE;
-    VkImage           image_        = VK_NULL_HANDLE;
-    VkFormat          format_       = VK_FORMAT_UNDEFINED;
-    VkExtent3D        extent_       = {};
-    u32               mip_levels_   = 1;
-    u32               array_layers_ = 1;
-    VkImageType       image_type_   = VK_IMAGE_TYPE_2D;
-    VkImageUsageFlags usage_        = 0;
-};
+      private:
+        VkDevice device_ = VK_NULL_HANDLE;
+        VkImage image_ = VK_NULL_HANDLE;
+        VkFormat format_ = VK_FORMAT_UNDEFINED;
+        VkExtent3D extent_ = {};
+        u32 mip_levels_ = 1;
+        u32 array_layers_ = 1;
+        VkImageType image_type_ = VK_IMAGE_TYPE_2D;
+        VkImageUsageFlags usage_ = 0;
+    };
 
 } // namespace SFT::Core::Vulkan
