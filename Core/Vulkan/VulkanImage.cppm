@@ -3,6 +3,19 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-extension"
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+#pragma clang diagnostic ignored "-Wunused-private-field"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#endif
+#include <vk_mem_alloc.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 export module Sturdy.Core:VulkanImage;
 
@@ -80,8 +93,7 @@ export namespace SFT::Core::Vulkan {
 
     // ─── VulkanImage ─────────────────────────────────────────────────────────────
 
-    // Owns a VkImage. Memory is not managed here — use VulkanDevice::bind_image_memory
-    // or VMA once initialized.
+    // Owns a VkImage. When created through VMA, the matching VmaAllocation is owned here too.
     class VulkanImage {
       public:
         VulkanImage() = default;
@@ -91,18 +103,22 @@ export namespace SFT::Core::Vulkan {
         VulkanImage &operator=(const VulkanImage &) = delete;
 
         VulkanImage(VulkanImage &&o) noexcept
-            : device_(o.device_), image_(o.image_), format_(o.format_),
-              extent_(o.extent_), mip_levels_(o.mip_levels_),
+            : device_(o.device_), allocator_(o.allocator_), image_(o.image_), allocation_(o.allocation_),
+              format_(o.format_), extent_(o.extent_), mip_levels_(o.mip_levels_),
               array_layers_(o.array_layers_), image_type_(o.image_type_),
               usage_(o.usage_) {
             o.device_ = VK_NULL_HANDLE;
+            o.allocator_ = VK_NULL_HANDLE;
             o.image_ = VK_NULL_HANDLE;
+            o.allocation_ = VK_NULL_HANDLE;
         }
         VulkanImage &operator=(VulkanImage &&o) noexcept {
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
+                allocator_ = o.allocator_;
                 image_ = o.image_;
+                allocation_ = o.allocation_;
                 format_ = o.format_;
                 extent_ = o.extent_;
                 mip_levels_ = o.mip_levels_;
@@ -110,7 +126,9 @@ export namespace SFT::Core::Vulkan {
                 image_type_ = o.image_type_;
                 usage_ = o.usage_;
                 o.device_ = VK_NULL_HANDLE;
+                o.allocator_ = VK_NULL_HANDLE;
                 o.image_ = VK_NULL_HANDLE;
+                o.allocation_ = VK_NULL_HANDLE;
             }
             return *this;
         }
@@ -133,8 +151,33 @@ export namespace SFT::Core::Vulkan {
             return out;
         }
 
+        [[nodiscard]] static RendererExpected<VulkanImage> create(
+            VkDevice device,
+            VmaAllocator allocator,
+            const VkImageCreateInfo &image_info,
+            const VmaAllocationCreateInfo &allocation_info) noexcept {
+            VkImage image = VK_NULL_HANDLE;
+            VmaAllocation allocation = VK_NULL_HANDLE;
+            if (vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr) != VK_SUCCESS)
+                return renderer_error(RendererErrorCode::OperationFailed, "vmaCreateImage failed.");
+            VulkanImage out;
+            out.device_ = device;
+            out.allocator_ = allocator;
+            out.image_ = image;
+            out.allocation_ = allocation;
+            out.format_ = image_info.format;
+            out.extent_ = image_info.extent;
+            out.mip_levels_ = image_info.mipLevels;
+            out.array_layers_ = image_info.arrayLayers;
+            out.image_type_ = image_info.imageType;
+            out.usage_ = image_info.usage;
+            return out;
+        }
+
         [[nodiscard]] VkImage vk_handle() const noexcept { return image_; }
+        [[nodiscard]] VmaAllocation allocation() const noexcept { return allocation_; }
         [[nodiscard]] bool is_valid() const noexcept { return image_ != VK_NULL_HANDLE; }
+        [[nodiscard]] bool owns_allocation() const noexcept { return allocation_ != VK_NULL_HANDLE; }
         [[nodiscard]] VkFormat format() const noexcept { return format_; }
         [[nodiscard]] VkExtent3D extent() const noexcept { return extent_; }
         [[nodiscard]] u32 mip_levels() const noexcept { return mip_levels_; }
@@ -208,14 +251,30 @@ export namespace SFT::Core::Vulkan {
         void destroy() noexcept {
             if (image_ == VK_NULL_HANDLE)
                 return;
-            vkDestroyImage(device_, image_, nullptr);
+
+            if (allocation_ != VK_NULL_HANDLE) {
+                vmaDestroyImage(allocator_, image_, allocation_);
+                allocation_ = VK_NULL_HANDLE;
+                allocator_ = VK_NULL_HANDLE;
+            } else {
+                vkDestroyImage(device_, image_, nullptr);
+            }
+
             image_ = VK_NULL_HANDLE;
             device_ = VK_NULL_HANDLE;
+            format_ = VK_FORMAT_UNDEFINED;
+            extent_ = {};
+            mip_levels_ = 1;
+            array_layers_ = 1;
+            image_type_ = VK_IMAGE_TYPE_2D;
+            usage_ = 0;
         }
 
       private:
         VkDevice device_ = VK_NULL_HANDLE;
+        VmaAllocator allocator_ = VK_NULL_HANDLE;
         VkImage image_ = VK_NULL_HANDLE;
+        VmaAllocation allocation_ = VK_NULL_HANDLE;
         VkFormat format_ = VK_FORMAT_UNDEFINED;
         VkExtent3D extent_ = {};
         u32 mip_levels_ = 1;

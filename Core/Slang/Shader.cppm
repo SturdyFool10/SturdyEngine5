@@ -65,6 +65,12 @@ export namespace SFT::Core::Slang {
             return compile(shader_source_from_type<StaticShader>(), options);
         }
 
+        // Reflection only: parse the source into a module and read its layout, without composing
+        // entry points, linking, or generating any target code. Much lighter than compile() — use
+        // it to inventory shaders (bindings, entry points, parameters) up front, then compile() the
+        // ones a backend actually needs.
+        [[nodiscard]] ShaderExpected<ShaderReflection> reflect(const ShaderSource &source, const ShaderCompileOptions &options = {});
+
       private:
         shared_ptr<ShaderCompilerState> state_;
     };

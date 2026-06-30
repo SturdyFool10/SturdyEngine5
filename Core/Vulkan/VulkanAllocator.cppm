@@ -3,12 +3,25 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-extension"
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+#pragma clang diagnostic ignored "-Wunused-private-field"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#endif
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 export module Sturdy.Core:VulkanAllocator;
 
 import :RendererError;
+import :VulkanImage;
 import Sturdy.Foundation;
 
 using SFT::Core::renderer_error;
@@ -74,6 +87,13 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] VmaAllocator vk_handle() const noexcept { return allocator_; }
         [[nodiscard]] bool is_valid() const noexcept { return allocator_ != VK_NULL_HANDLE; }
+
+        [[nodiscard]] RendererExpected<VulkanImage> create_image(
+            VkDevice device,
+            const VkImageCreateInfo &image_info,
+            const VmaAllocationCreateInfo &allocation_info) const noexcept {
+            return VulkanImage::create(device, allocator_, image_info, allocation_info);
+        }
 
         void destroy() noexcept {
             if (allocator_ == VK_NULL_HANDLE)

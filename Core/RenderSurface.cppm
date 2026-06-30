@@ -1,6 +1,7 @@
 export module Sturdy.Core:RenderSurface;
 
 import Sturdy.Foundation;
+import Sturdy.Platform;
 
 export namespace SFT::Core {
 
@@ -41,16 +42,14 @@ export namespace SFT::Core {
         [[nodiscard]] constexpr bool is_zero() const noexcept { return width == 0 || height == 0; }
     };
 
-    inline constexpr u32 invalid_render_surface_index = static_cast<u32>(~u32{0});
-
     // Stable handle used by the engine/glue to address one backend-owned surface/swapchain.
-    // The generation prevents stale handles from accidentally referring to a recycled slot.
+    // Backed directly by the owning window's WindowId, since the backend stores all per-window
+    // GPU resources (surface, swapchain, sync objects, ...) in a map keyed by that ID.
     struct RenderSurfaceHandle {
-        u32 index = invalid_render_surface_index;
-        u32 generation = 0;
+        Platform::Windowing::WindowId window_id = Platform::Windowing::invalid_window_id;
 
         [[nodiscard]] constexpr bool is_valid() const noexcept {
-            return index != invalid_render_surface_index && generation != 0;
+            return window_id != Platform::Windowing::invalid_window_id;
         }
 
         friend constexpr bool operator==(RenderSurfaceHandle, RenderSurfaceHandle) noexcept = default;

@@ -5,6 +5,8 @@ module;
 export module Sturdy.Core:VulkanSwapchain;
 
 import :RendererError;
+import :VulkanImage;
+import :VulkanSync;
 import Sturdy.Foundation;
 
 using SFT::Core::renderer_error;
@@ -27,6 +29,9 @@ export namespace SFT::Core::Vulkan {
 
         VulkanSwapchain(VulkanSwapchain &&o) noexcept
             : device_(o.device_), swapchain_(o.swapchain_), images_(std::move(o.images_)),
+              image_views_(std::move(o.image_views_)), depth_image_(std::move(o.depth_image_)),
+              depth_image_view_(std::move(o.depth_image_view_)),
+              render_finished_semaphores_(std::move(o.render_finished_semaphores_)),
               format_(o.format_), color_space_(o.color_space_),
               extent_(o.extent_), present_mode_(o.present_mode_) {
             o.device_ = VK_NULL_HANDLE;
@@ -39,6 +44,10 @@ export namespace SFT::Core::Vulkan {
                 device_ = o.device_;
                 swapchain_ = o.swapchain_;
                 images_ = std::move(o.images_);
+                image_views_ = std::move(o.image_views_);
+                depth_image_ = std::move(o.depth_image_);
+                depth_image_view_ = std::move(o.depth_image_view_);
+                render_finished_semaphores_ = std::move(o.render_finished_semaphores_);
                 format_ = o.format_;
                 color_space_ = o.color_space_;
                 extent_ = o.extent_;
@@ -88,6 +97,35 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] const vector<VkImage> &images() const noexcept { return images_; }
         [[nodiscard]] VkImage image(u32 i) const noexcept { return images_[i]; }
 
+        // Populated separately from create(), once per swapchain build — one view per
+        // swapchain image, in the same order as images(). Replacing the views (e.g. after a
+        // swapchain rebuild) destroys whatever views were set previously.
+        void set_image_views(vector<VulkanImageView> views) noexcept { image_views_ = std::move(views); }
+        [[nodiscard]] const vector<VulkanImageView> &image_views() const noexcept { return image_views_; }
+        [[nodiscard]] VkImageView image_view(u32 i) const noexcept { return image_views_[i].vk_handle(); }
+
+        void set_depth_attachment(VulkanImage image, VulkanImageView view) noexcept {
+            depth_image_view_ = std::move(view);
+            depth_image_ = std::move(image);
+        }
+        [[nodiscard]] const VulkanImage &depth_image() const noexcept { return depth_image_; }
+        [[nodiscard]] const VulkanImageView &depth_image_view() const noexcept { return depth_image_view_; }
+        [[nodiscard]] VkImageView depth_image_view_handle() const noexcept { return depth_image_view_.vk_handle(); }
+
+        // One binary semaphore per swapchain image, signaled when that image's rendering work
+        // is done and it's safe to present. Keyed by swapchain image index (the index returned
+        // by acquire_next_image), not by frame-in-flight index — reusing a single semaphore
+        // across frames risks a present/wait-twice hazard if images are acquired out of order.
+        void set_render_finished_semaphores(vector<VulkanSemaphore> semaphores) noexcept {
+            render_finished_semaphores_ = std::move(semaphores);
+        }
+        [[nodiscard]] const vector<VulkanSemaphore> &render_finished_semaphores() const noexcept {
+            return render_finished_semaphores_;
+        }
+        [[nodiscard]] VkSemaphore render_finished_semaphore(u32 image_index) const noexcept {
+            return render_finished_semaphores_[image_index].vk_handle();
+        }
+
         // VK_SUBOPTIMAL_KHR is treated as success — caller should rebuild the swapchain after the frame.
         [[nodiscard]] RendererExpected<u32> acquire_next_image(
             VkSemaphore signal_semaphore,
@@ -110,20 +148,33 @@ export namespace SFT::Core::Vulkan {
         }
 
         void destroy() noexcept {
-            if (swapchain_ == VK_NULL_HANDLE)
-                return;
-            vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+            // Views reference images, so tear them down before their images/swapchain.
+            image_views_.clear();
+            depth_image_view_.destroy();
+            depth_image_.destroy();
+            render_finished_semaphores_.clear();
+
+            if (swapchain_ != VK_NULL_HANDLE) {
+                vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+            }
+
             swapchain_ = VK_NULL_HANDLE;
             device_ = VK_NULL_HANDLE;
             images_.clear();
             format_ = VK_FORMAT_UNDEFINED;
+            color_space_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
             extent_ = {};
+            present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
         }
 
       private:
         VkDevice device_ = VK_NULL_HANDLE;
         VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
         vector<VkImage> images_;
+        vector<VulkanImageView> image_views_;
+        VulkanImage depth_image_;
+        VulkanImageView depth_image_view_;
+        vector<VulkanSemaphore> render_finished_semaphores_;
         VkFormat format_ = VK_FORMAT_UNDEFINED;
         VkColorSpaceKHR color_space_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         VkExtent2D extent_ = {};

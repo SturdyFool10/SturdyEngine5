@@ -40,6 +40,13 @@ export namespace SFT::Core::Slang {
         Dispatch,
     };
 
+    enum class ShaderOptimizationLevel {
+        None,    // Don't optimize at all.
+        Default, // Balance code quality and compilation time.
+        High,    // Optimize aggressively.
+        Maximal, // Include optimizations that may take a very long time / severe space-speed tradeoffs.
+    };
+
     struct ShaderMacro {
         string name;
         string value;
@@ -60,6 +67,7 @@ export namespace SFT::Core::Slang {
         vector<ShaderEntryPointRequest> entry_points;
         vector<string> search_paths;
         vector<ShaderMacro> macros;
+        ShaderOptimizationLevel optimization = ShaderOptimizationLevel::Default;
         b8 allow_glsl_syntax = false;
         b8 skip_spirv_validation = false;
         b8 enable_effect_annotations = false;

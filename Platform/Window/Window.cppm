@@ -1,5 +1,6 @@
 module;
 
+#include <atomic>
 #include <concepts>
 #include <expected>
 #include <memory>
@@ -39,6 +40,25 @@ export namespace SFT::Platform::Windowing {
         GLFW,
     };
 
+    // Stable per-window identity, assigned once at construction and never reused — engine
+    // backends key all per-window GPU resources (surface, swapchain, sync objects, ...) by
+    // this ID rather than by pointer or by a recyclable slot index.
+    enum class WindowId : usize {};
+
+    inline constexpr WindowId invalid_window_id = static_cast<WindowId>(static_cast<usize>(~usize{0}));
+
+    namespace Detail {
+
+        // Monotonically increasing across the lifetime of the process; ids are never reused
+        // even after a window is destroyed. The function-local static gives one shared counter
+        // across every translation unit that imports this partition.
+        [[nodiscard]] inline WindowId allocate_window_id() noexcept {
+            static std::atomic<usize> next_id{0};
+            return static_cast<WindowId>(next_id.fetch_add(1, std::memory_order_relaxed));
+        }
+
+    } // namespace Detail
+
     class Window {
       protected:
         struct ConstructorKey {
@@ -47,7 +67,8 @@ export namespace SFT::Platform::Windowing {
             constexpr ConstructorKey() = default;
         };
 
-        explicit constexpr Window(ConstructorKey) noexcept {}
+        explicit Window(ConstructorKey) noexcept
+            : id_(Detail::allocate_window_id()) {}
 
       public:
         virtual ~Window() noexcept = default;
@@ -56,6 +77,9 @@ export namespace SFT::Platform::Windowing {
         Window &operator=(const Window &) = delete;
         Window(Window &&) = delete;
         Window &operator=(Window &&) = delete;
+
+        // Stable identity used to key this window's resources in the engine backend.
+        [[nodiscard]] WindowId id() const noexcept { return id_; }
 
         template <typename Backend, typename... Args>
             requires derived_from<Backend, Window> && requires(Args &&...args) {
@@ -70,6 +94,25 @@ export namespace SFT::Platform::Windowing {
             } catch (...) {
                 return unexpected(WindowError{WindowErrorCode::CreationFailed, "Unexpected exception while creating window."});
             }
+        }
+
+        // Some changes (graphics API, GL/GLX pixel format, GPU-exclusive fullscreen, a Wayland
+        // surface role change, ...) cannot be applied to a live native window on any backend —
+        // the only way to change them is to destroy the window and create a new one. This
+        // guarantees that ordering: `existing` is destroyed (releasing its native handle and,
+        // for the last window on a backend, deinitializing the windowing library) before the
+        // replacement is constructed, so the two never coexist and platform-singleton state
+        // (GLFW/SDL's global init) transitions cleanly even when recreating the only window.
+        // The resulting window has a new WindowId — callers must destroy and recreate whatever
+        // backend resources were keyed by the old window's ID (see Engine::recreate_window()).
+        template <typename Backend, typename... Args>
+            requires derived_from<Backend, Window> && requires(Args &&...args) {
+                Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
+            }
+        [[nodiscard]]
+        static expected<unique_ptr<Backend>, WindowError> recreate(unique_ptr<Window> existing, Args &&...args) noexcept {
+            existing.reset();
+            return create<Backend>(std::forward<Args>(args)...);
         }
 
         [[nodiscard]] virtual WindowBackendKind backend_kind() const noexcept = 0;
@@ -132,6 +175,9 @@ export namespace SFT::Platform::Windowing {
         // valid for the lifetime of the backend.
         [[nodiscard]] virtual expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept = 0;
+
+      private:
+        WindowId id_;
     };
 
 } // namespace SFT::Platform::Windowing

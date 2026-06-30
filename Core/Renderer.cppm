@@ -1,13 +1,16 @@
 module;
 
+#include <span>
 #include <vector>
 
 export module Sturdy.Core:Renderer;
 
 import Sturdy.Foundation;
 import Sturdy.Platform;
+import :ShaderDiscovery;
 
 using SFT::Platform::Windowing::Window;
+using std::span;
 using std::vector;
 
 export namespace SFT::Core {
@@ -41,6 +44,10 @@ export namespace SFT::Core {
         // VK_KHR_xlib_surface). Pointers must stay valid for the duration of initialize().
         // SDL3 and GLFW return pointers into their own static storage, so this is safe.
         vector<const char *> wsi_extensions;
+        // Every shader discovered + reflected before the backend came up. The backend owns turning
+        // these into its native format (Vulkan: SPIR-V modules per entry point) during initialize().
+        // Non-owning: the backing storage (the engine's shader list) must outlive initialize().
+        span<const Slang::UnCompiledShader> uncompiled_shaders;
     };
 
     // Per-frame payload from the engine to the backend. Grows into camera/scene/render-list

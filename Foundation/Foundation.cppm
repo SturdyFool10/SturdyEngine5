@@ -8,6 +8,7 @@ export import :Math;
 export import :Memory;
 export import :NumericConcepts;
 export import :Types;
+export import :Utils;
 export import :Wide;
 export import :WideTraits;
 

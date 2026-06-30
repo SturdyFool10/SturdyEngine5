@@ -8,3 +8,4 @@ export import :Renderer;
 export import :EngineBackend;
 export import :VulkanBackend;
 export import :Shader;
+export import :ShaderDiscovery;

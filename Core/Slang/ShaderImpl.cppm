@@ -4,6 +4,7 @@ module;
 #include <slang.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <expected>
 #include <filesystem>
@@ -129,6 +130,21 @@ namespace SFT::Core::Slang {
             }
 
             return "";
+        }
+
+        [[nodiscard]] SlangOptimizationLevel to_slang_optimization_level(ShaderOptimizationLevel level) noexcept {
+            switch (level) {
+                case ShaderOptimizationLevel::None:
+                    return SLANG_OPTIMIZATION_LEVEL_NONE;
+                case ShaderOptimizationLevel::Default:
+                    return SLANG_OPTIMIZATION_LEVEL_DEFAULT;
+                case ShaderOptimizationLevel::High:
+                    return SLANG_OPTIMIZATION_LEVEL_HIGH;
+                case ShaderOptimizationLevel::Maximal:
+                    return SLANG_OPTIMIZATION_LEVEL_MAXIMAL;
+            }
+
+            return SLANG_OPTIMIZATION_LEVEL_DEFAULT;
         }
 
         [[nodiscard]] SlangStage to_slang_stage(ShaderStage stage) noexcept {
@@ -527,7 +543,14 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = normalize_slang_int(type_layout->getBindingRangeFirstDescriptorRangeIndex(range_index));
             range.descriptor_range_count = normalize_slang_int(type_layout->getBindingRangeDescriptorRangeCount(range_index));
             range.count = normalize_slang_int(type_layout->getBindingRangeBindingCount(range_index));
-            range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
+            // Only image/texel-buffer ranges carry an image format. Slang's
+            // getBindingRangeImageFormat unconditionally dereferences the range's leaf variable,
+            // which is null for non-resource ranges (e.g. varying input/output) — so querying it
+            // for those would segfault inside Slang. Guard by binding type.
+            if (range.type == ShaderBindingType::Texture || range.type == ShaderBindingType::MutableTexture ||
+                range.type == ShaderBindingType::TypedBuffer || range.type == ShaderBindingType::MutableTypedBuffer) {
+                range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
+            }
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);
 
             if (range.descriptor_range_count > 0 && range.descriptor_range_count != numeric_limits<u32>::max() &&
@@ -852,6 +875,127 @@ namespace SFT::Core::Slang {
         return unexpected(ShaderError{code, std::move(message), std::move(diagnostics)});
     }
 
+    namespace {
+
+        // Front-end only: create a session and load the source as a Slang module. This is the work
+        // shared by compile() and reflect() — it stops before entry-point composition and linking,
+        // which are the parts that make a program able to emit target code. The caller must hold the
+        // compiler mutex and pass a live global session.
+        [[nodiscard]] ShaderExpected<shared_ptr<ShaderState>> load_shader_module(
+            slang::IGlobalSession *global_session,
+            const ShaderSource &source,
+            const ShaderCompileOptions &options) {
+            string module_name = source.module_name;
+            string path = source.path;
+            string source_text = source.source;
+            vector<string> effective_search_paths = options.search_paths;
+
+            if (source.kind == ShaderSourceKind::File) {
+                if (path.empty()) {
+                    return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader file path cannot be empty.");
+                }
+
+                if (module_name.empty()) {
+                    module_name = path_stem_or_module_name(path);
+                }
+
+                auto loaded = read_text_file(path);
+                if (!loaded) {
+                    return unexpected(loaded.error());
+                }
+                source_text = std::move(*loaded);
+
+                const filesystem_path parent_path = filesystem_path{path}.parent_path();
+                if (!parent_path.empty()) {
+                    effective_search_paths.push_back(parent_path.string());
+                }
+            } else if (module_name.empty()) {
+                module_name = "runtime_shader";
+            }
+
+            if (source_text.empty()) {
+                return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader source cannot be empty.");
+            }
+            if (path.empty()) {
+                path = module_name + ".slang";
+            }
+
+            auto target_descs = build_target_descs(global_session, options.targets, options);
+            if (!target_descs) {
+                return unexpected(target_descs.error());
+            }
+
+            vector<const char *> search_paths;
+            search_paths.reserve(effective_search_paths.size());
+            for (const string &search_path : effective_search_paths) {
+                search_paths.push_back(search_path.c_str());
+            }
+
+            vector<slang::PreprocessorMacroDesc> macros;
+            macros.reserve(options.macros.size());
+            for (const ShaderMacro &macro : options.macros) {
+                if (!macro.name.empty()) {
+                    macros.push_back(slang::PreprocessorMacroDesc{macro.name.c_str(), macro.value.c_str()});
+                }
+            }
+
+            // Session-wide compiler options. Optimization level is applied here so it covers every
+            // target/entry point produced from this session.
+            const slang::CompilerOptionEntry compiler_options[] = {
+                slang::CompilerOptionEntry{
+                    slang::CompilerOptionName::Optimization,
+                    slang::CompilerOptionValue{
+                        slang::CompilerOptionValueKind::Int,
+                        static_cast<std::int32_t>(to_slang_optimization_level(options.optimization)),
+                        0,
+                        nullptr,
+                        nullptr,
+                    },
+                },
+            };
+
+            slang::SessionDesc session_desc{};
+            session_desc.targets = target_descs->data();
+            session_desc.targetCount = static_cast<SlangInt>(target_descs->size());
+            session_desc.searchPaths = search_paths.empty() ? nullptr : search_paths.data();
+            session_desc.searchPathCount = static_cast<SlangInt>(search_paths.size());
+            session_desc.preprocessorMacros = macros.empty() ? nullptr : macros.data();
+            session_desc.preprocessorMacroCount = static_cast<SlangInt>(macros.size());
+            session_desc.compilerOptionEntries = const_cast<slang::CompilerOptionEntry *>(compiler_options);
+            session_desc.compilerOptionEntryCount = static_cast<std::uint32_t>(sizeof(compiler_options) / sizeof(compiler_options[0]));
+            session_desc.allowGLSLSyntax = static_cast<bool>(options.allow_glsl_syntax);
+            session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
+            session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
+
+            auto shader_state = make_shared<ShaderState>();
+            shader_state->module_name = module_name;
+            shader_state->targets = options.targets;
+            for (ShaderTarget &target : shader_state->targets) {
+                if (target.profile.empty()) {
+                    target.profile = default_profile(target.format);
+                }
+            }
+
+            SlangResult result = global_session->createSession(session_desc, shader_state->session.writeRef());
+            if (SLANG_FAILED(result) || !shader_state->session.get()) {
+                return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang session.");
+            }
+
+            ::Slang::ComPtr<slang::IBlob> diagnostics;
+            shader_state->module = shader_state->session->loadModuleFromSourceString(
+                module_name.c_str(),
+                path.c_str(),
+                source_text.c_str(),
+                diagnostics.writeRef());
+            if (!shader_state->module.get()) {
+                return shader_error(ShaderErrorCode::CompilationFailed, "Failed to load Slang shader module: " + module_name, blob_string(diagnostics));
+            }
+
+            return shader_state;
+        }
+
+    } // namespace
+
     ShaderSource ShaderSource::from_source(string module_name, string source, string path) {
         ShaderSource shader_source{};
         shader_source.kind = ShaderSourceKind::SourceString;
@@ -950,6 +1094,38 @@ namespace SFT::Core::Slang {
 
     ShaderCompiler::~ShaderCompiler() = default;
 
+    ShaderExpected<ShaderReflection> ShaderCompiler::reflect(const ShaderSource &source, const ShaderCompileOptions &options) {
+        if (!state_) {
+            return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
+        }
+
+        try {
+            lock_guard lock(state_->mutex);
+
+            if (!state_->global_session.get()) {
+                const SlangResult result = slang::createGlobalSession(state_->global_session.writeRef());
+                if (SLANG_FAILED(result) || !state_->global_session.get()) {
+                    return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
+                }
+            }
+
+            // Reflection only — load the module and read its layout. No entry-point composition,
+            // no link, no target codegen. This is the lightweight path used to inventory shaders.
+            auto shader_state = load_shader_module(state_->global_session.get(), source, options);
+            if (!shader_state) {
+                return unexpected(shader_state.error());
+            }
+
+            return parse_reflection((*shader_state)->module.get(), 0);
+        } catch (const bad_alloc &) {
+            return shader_error(ShaderErrorCode::OutOfMemory, "Out of memory while reflecting Slang shader.");
+        } catch (const exception &exception) {
+            return shader_error(ShaderErrorCode::OperationFailed, string{"Unexpected exception while reflecting Slang shader: "} + exception.what());
+        } catch (...) {
+            return shader_error(ShaderErrorCode::OperationFailed, "Unexpected exception while reflecting Slang shader.");
+        }
+    }
+
     ShaderExpected<Shader> ShaderCompiler::compile(const ShaderSource &source, const ShaderCompileOptions &options) {
         if (!state_) {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
@@ -965,94 +1141,14 @@ namespace SFT::Core::Slang {
                 }
             }
 
-            string module_name = source.module_name;
-            string path = source.path;
-            string source_text = source.source;
-            vector<string> effective_search_paths = options.search_paths;
-
-            if (source.kind == ShaderSourceKind::File) {
-                if (path.empty()) {
-                    return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader file path cannot be empty.");
-                }
-
-                if (module_name.empty()) {
-                    module_name = path_stem_or_module_name(path);
-                }
-
-                auto loaded = read_text_file(path);
-                if (!loaded) {
-                    return unexpected(loaded.error());
-                }
-                source_text = std::move(*loaded);
-
-                const filesystem_path parent_path = filesystem_path{path}.parent_path();
-                if (!parent_path.empty()) {
-                    effective_search_paths.push_back(parent_path.string());
-                }
-            } else if (module_name.empty()) {
-                module_name = "runtime_shader";
+            auto loaded_state = load_shader_module(state_->global_session.get(), source, options);
+            if (!loaded_state) {
+                return unexpected(loaded_state.error());
             }
-
-            if (source_text.empty()) {
-                return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader source cannot be empty.");
-            }
-            if (path.empty()) {
-                path = module_name + ".slang";
-            }
-
-            auto target_descs = build_target_descs(state_->global_session.get(), options.targets, options);
-            if (!target_descs) {
-                return unexpected(target_descs.error());
-            }
-
-            vector<const char *> search_paths;
-            search_paths.reserve(effective_search_paths.size());
-            for (const string &search_path : effective_search_paths) {
-                search_paths.push_back(search_path.c_str());
-            }
-
-            vector<slang::PreprocessorMacroDesc> macros;
-            macros.reserve(options.macros.size());
-            for (const ShaderMacro &macro : options.macros) {
-                if (!macro.name.empty()) {
-                    macros.push_back(slang::PreprocessorMacroDesc{macro.name.c_str(), macro.value.c_str()});
-                }
-            }
-
-            slang::SessionDesc session_desc{};
-            session_desc.targets = target_descs->data();
-            session_desc.targetCount = static_cast<SlangInt>(target_descs->size());
-            session_desc.searchPaths = search_paths.empty() ? nullptr : search_paths.data();
-            session_desc.searchPathCount = static_cast<SlangInt>(search_paths.size());
-            session_desc.preprocessorMacros = macros.empty() ? nullptr : macros.data();
-            session_desc.preprocessorMacroCount = static_cast<SlangInt>(macros.size());
-            session_desc.allowGLSLSyntax = static_cast<bool>(options.allow_glsl_syntax);
-            session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
-            session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
-
-            auto shader_state = make_shared<ShaderState>();
-            shader_state->module_name = module_name;
-            shader_state->targets = options.targets;
-            for (ShaderTarget &target : shader_state->targets) {
-                if (target.profile.empty()) {
-                    target.profile = default_profile(target.format);
-                }
-            }
-
-            SlangResult result = state_->global_session->createSession(session_desc, shader_state->session.writeRef());
-            if (SLANG_FAILED(result) || !shader_state->session.get()) {
-                return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang session.");
-            }
+            shared_ptr<ShaderState> shader_state = std::move(*loaded_state);
 
             ::Slang::ComPtr<slang::IBlob> diagnostics;
-            shader_state->module = shader_state->session->loadModuleFromSourceString(
-                module_name.c_str(),
-                path.c_str(),
-                source_text.c_str(),
-                diagnostics.writeRef());
-            if (!shader_state->module.get()) {
-                return shader_error(ShaderErrorCode::CompilationFailed, "Failed to load Slang shader module: " + module_name, blob_string(diagnostics));
-            }
+            SlangResult result = SLANG_OK;
 
             auto entry_points = resolve_entry_points(shader_state->module.get(), options);
             if (!entry_points) {

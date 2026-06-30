@@ -194,10 +194,15 @@ function(sturdy_add_package package_name)
             VERBATIM
         )
 
+    set_target_properties("${package_name}" PROPERTIES
+            VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
+
     add_custom_target("run_${package_name}"
             COMMAND "$<TARGET_FILE:${package_name}>"
             DEPENDS "${package_name}"
-            WORKING_DIRECTORY "$<TARGET_FILE_DIR:${package_name}>"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             USES_TERMINAL
             VERBATIM
         )

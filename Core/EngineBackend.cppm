@@ -7,6 +7,7 @@ module;
 export module Sturdy.Core:EngineBackend;
 
 import Sturdy.Foundation;
+import Sturdy.Platform;
 import :RendererError;
 import :Renderer;
 import :RenderSurface;
@@ -53,6 +54,19 @@ export namespace SFT::Core {
         // for RendererCreateInfo::window. The returned handle is an opaque address for render calls
         // and resize-needed notifications only; surface construction/destruction stay backend-private.
         virtual RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) = 0;
+
+        // Adds another window's surface (and whatever per-window resources the backend needs —
+        // swapchain, sync objects, ...) to an already-initialized backend, sharing the existing
+        // device/queue/allocator. Every window's resources are stored backend-side, keyed by the
+        // window's stable WindowId; this is the entry point for every window after the first.
+        virtual RendererExpected<RenderSurfaceHandle> create_window_surface(
+            Platform::Windowing::Window &window,
+            u32 desired_frames_in_flight = 2) = 0;
+
+        // Destroys one window's backend-owned resources (surface, swapchain, sync objects).
+        // Safe to call for the primary surface returned by initialize() as well as any surface
+        // returned by create_window_surface().
+        virtual void destroy_window_surface(RenderSurfaceHandle surface) noexcept = 0;
 
         // Notify the backend that a surface needs resize handling. The backend owns the surface and
         // is responsible for querying the latest framebuffer extent, marking/rebuilding swapchains,

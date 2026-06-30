@@ -31,6 +31,11 @@ namespace SFT::Engine {
                                                   "Engine renderer is already initialized."});
         }
 
+        // Reflect every shader on disk before the graphics backend exists, so the rest of startup
+        // can see entry points, bindings, and parameter layouts without having generated any
+        // target bytecode yet.
+        shaders_ = Core::Slang::discover_shaders(config.shaders_directory, shader_compiler_);
+
         auto wsi_extensions = window.required_vulkan_instance_extensions();
         if (!wsi_extensions) {
             return unexpected(Core::RendererError{
@@ -44,6 +49,9 @@ namespace SFT::Engine {
         renderer_info.app_name = config.app_name;
         renderer_info.window = &window;
         renderer_info.wsi_extensions = std::move(*wsi_extensions);
+        // Hand the backend the shaders we reflected above; it owns compiling them to its native
+        // format. shaders_ outlives this call, so the non-owning span stays valid.
+        renderer_info.uncompiled_shaders = shaders_;
 
         auto surface = renderer_backend_->initialize(renderer_info);
         if (!surface) {
@@ -53,6 +61,28 @@ namespace SFT::Engine {
         initialized_ = true;
         capabilities_ = renderer_backend_->capabilities();
         return *surface;
+    }
+
+    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::add_window(Platform::Windowing::Window &window,
+                                                                         u32 desired_frames_in_flight) {
+        if (!renderer_backend_ || !initialized_) {
+            return unexpected(Core::RendererError{Core::RendererErrorCode::OperationFailed,
+                                                  "Engine renderer must be initialized before adding another window."});
+        }
+        return renderer_backend_->create_window_surface(window, desired_frames_in_flight);
+    }
+
+    void Engine::remove_window(Core::RenderSurfaceHandle surface) noexcept {
+        if (renderer_backend_) {
+            renderer_backend_->destroy_window_surface(surface);
+        }
+    }
+
+    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::recreate_window(Core::RenderSurfaceHandle old_surface,
+                                                                              Platform::Windowing::Window &new_window,
+                                                                              u32 desired_frames_in_flight) {
+        remove_window(old_surface);
+        return add_window(new_window, desired_frames_in_flight);
     }
 
     void Engine::on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept {

@@ -7,8 +7,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/debug",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -19,8 +17,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/relwithdebinfo",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -31,8 +27,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/dist",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Dist",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -43,8 +37,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/debug",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Linux"
@@ -56,8 +48,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/relwithdebinfo",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Linux"
@@ -69,8 +59,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/dist",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Dist",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Linux"
@@ -82,8 +70,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/debug",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Windows"
@@ -95,8 +81,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/relwithdebinfo",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Windows"
@@ -108,8 +92,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/dist",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Dist",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "Windows"
@@ -121,8 +103,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/debug",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "MacOS"
@@ -134,8 +114,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/relwithdebinfo",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "MacOS"
@@ -147,8 +125,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/dist",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Dist",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "STURDY_VIEW_OS": "MacOS"
