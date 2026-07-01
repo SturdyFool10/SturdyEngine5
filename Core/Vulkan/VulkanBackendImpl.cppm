@@ -1,4 +1,5 @@
 module;
+#include "glm/ext/vector_float2.hpp"
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -29,6 +30,7 @@ module;
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <cmath>
 // SDL3 and GLFW surface helpers — included after volk so VkInstance/VkSurfaceKHR are already
 // defined. GLFW gates glfwCreateWindowSurface behind #if defined(VK_VERSION_1_0) which volk sets;
 // we don't define GLFW_INCLUDE_VULKAN to avoid a double-include of vulkan.h.
@@ -40,6 +42,8 @@ export module Sturdy.Core:VulkanBackendImpl;
 import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanConstants;
+import :VulkanCommandBuffer;
+import :VulkanCommandPool;
 import :VulkanDevice;
 import :VulkanImage;
 import :VulkanQueue;
@@ -63,6 +67,7 @@ using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowBackendKind;
 using SFT::Platform::Windowing::WindowId;
 using std::bad_alloc;
+using std::floor;
 using std::format;
 using std::make_shared;
 using std::numeric_limits;
@@ -156,7 +161,41 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::wait_idle() noexcept {
-        // TODO(renderer): vkDeviceWaitIdle(device_) once the logical device exists.
+        if (logicalDevice.is_valid()) {
+            logicalDevice.wait_idle();
+        }
+    }
+
+    void VulkanBackend::destroyFrameResources() noexcept {
+        for (FrameResources &resources : frameResources_) {
+            resources.destroy();
+        }
+        frameResources_.clear();
+        frameTimelineSemaphore.destroy();
+    }
+
+    void VulkanBackend::destroyVulkanResources() noexcept {
+        wait_idle();
+        destroy_all_surfaces();
+        shader_modules_.clear();
+        destroyFrameResources();
+        graphicsPipeline.destroy();
+        if (pipelinelayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(this->logicalDevice.vk_handle(), pipelinelayout, nullptr);
+            pipelinelayout = VK_NULL_HANDLE;
+        }
+        vmaAllocator.destroy();
+        logicalDevice.destroy();
+        gfxQueue = VulkanQueue{};
+        physicalDevice = VulkanPhysicalDevice{};
+        if (vulkan_instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(vulkan_instance, nullptr);
+            vulkan_instance = VK_NULL_HANDLE;
+        }
+        if (volk_initialized_) {
+            volkFinalize();
+            volk_initialized_ = false;
+        }
     }
 
     void VulkanBackend::destroySwapchain(VulkanSurface &surface) noexcept {
@@ -205,25 +244,7 @@ namespace SFT::Core::Vulkan {
         // explicitly and in this order, since automatic member destruction would otherwise run
         // *after* this body (i.e. after vkDestroyInstance below) and tear the allocator/device
         // down against an already-destroyed instance.
-        wait_idle();
-        destroy_all_surfaces();
-        // Shader modules, sync objects, the graphics pipeline, and its layout hold handles owned by
-        // the logical device, so they must be released before the device is destroyed below.
-        shader_modules_.clear();
-        frameResources_.clear();
-        frameTimelineSemaphore.destroy();
-        graphicsPipeline.destroy();
-        if (pipelinelayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(this->logicalDevice.vk_handle(), pipelinelayout, nullptr);
-            pipelinelayout = VK_NULL_HANDLE;
-        }
-        vmaAllocator.destroy();
-        logicalDevice.destroy();
-        if (vulkan_instance != VK_NULL_HANDLE) {
-            vkDestroyInstance(vulkan_instance, nullptr);
-            vulkan_instance = VK_NULL_HANDLE;
-        }
-        volkFinalize();
+        destroyVulkanResources();
     }
 
     void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface) noexcept {
@@ -238,28 +259,100 @@ namespace SFT::Core::Vulkan {
 
     RendererResult VulkanBackend::render_frame(RenderSurfaceHandle surface, const FrameInput &frame) {
         (void)frame;
+
         VulkanSurface *s = surface_slot(surface);
-        if (!s) {
-            return renderer_error(RendererErrorCode::SurfaceLost, "Invalid Vulkan render surface handle.");
-        }
-
-        if (s->swapchain_dirty()) {
-            s->refresh_extent();
-        }
-
-        if (s->extent().is_zero()) {
-            return {};
-        }
-
-        if (s->swapchain_dirty()) {
-            // TODO(renderer): wait for this surface's in-flight frames, recreate the swapchain
-            // and all swapchain-sized attachments, then clear the flag only on success.
+        s->refresh_extent();
+        if (s->swapchain_dirty() and not s->extent().is_zero()) [[unlikely]] {
+            wait_idle();
+            destroySwapchain(*s);
+            if (auto result = createSwapchain(create_info_, *s); !result.has_value()) [[unlikely]] {
+                return renderer_error(result.error().code,
+                                      format("Failed to recreate swapchain after resize: {}", result.error().message));
+            }
             s->clear_dirty();
         }
 
-        // TODO(renderer): acquire → record (Vulkan 1.4 dynamic rendering) → submit
-        // (synchronization2 / vkQueueSubmit2) → present. On VK_ERROR_OUT_OF_DATE_KHR or
-        // VK_SUBOPTIMAL_KHR, set swapchain_dirty and retry next frame.
+        u32 frameResIndex = FrameIndex++ % MaxFramesInFlight;
+        const u64 signalValue = this->nextSignalValue++;
+        const u64 waitValue = signalValue - MaxFramesInFlight;
+        auto _ = this->frameTimelineSemaphore.wait(waitValue, std::numeric_limits<u64>::max());
+
+        FrameResources& res = this->frameResources_[frameResIndex];
+        auto _poolReset = res.commandPool.reset(0);
+
+        auto& AcquireSem = res.imageAcquiredSemaphore;
+
+        auto acquire_result = s->swapchain().acquire_next_image(AcquireSem.vk_handle());
+        if (!acquire_result.has_value()) [[unlikely]] {
+            s->mark_dirty();
+            return {}; // we cannot render, return early
+        }
+        const u32 imageIndex = *acquire_result;
+
+        //begin the command buffer record
+        auto _buffBeginRes = res.commandBuffer.begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+        //transition the color and depth images, then begin dynamic rendering into them
+        res.commandBuffer.pipeline_barrier2(s->swapchain().undefined_to_attachment_barriers(imageIndex));
+
+        glm::vec2 size = s->window()->framebuffer_size().value();
+        const VkRect2D renderArea{
+            .offset = {.x = 0, .y = 0},
+            .extent = {.width = static_cast<u32>(size.x), .height = static_cast<u32>(size.y)},
+        };
+        const auto attachments = s->swapchain().rendering_attachments(imageIndex);
+
+        res.commandBuffer.begin_rendering(attachments.rendering_info(renderArea));
+        {
+            res.commandBuffer.set_viewport(VkViewport{.x = 0, .y = 0, .width = size.x, .height = size.y});
+            res.commandBuffer.set_scissor(renderArea);
+
+            //the all important drawing
+            res.commandBuffer.bind_pipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, this->graphicsPipeline.vk_handle());
+            res.commandBuffer.draw(3);
+        }
+        res.commandBuffer.end_rendering();
+
+        //transition the image from color attachment to presentation so it can be presented
+        res.commandBuffer.pipeline_barrier2(s->swapchain().attachment_to_present_barrier(imageIndex));
+
+        if (auto endRes = res.commandBuffer.end(); !endRes.has_value()) [[unlikely]] {
+            return renderer_error(endRes.error().code,
+                                  format("Failed to end command buffer: {}", endRes.error().message));
+        }
+
+        // ensure swapchain image is actually available to start color output
+        const VkSemaphoreSubmitInfo imageAcquireWaitInfo =
+            AcquireSem.submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+        // signal that the image can be presented
+        const vector<VkSemaphoreSubmitInfo> semaphoreSignals{
+            // render work completion signal
+            s->swapchain().render_finished_semaphores()[imageIndex].submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
+            // entire frame is completed (timeline)
+            this->frameTimelineSemaphore.submit_info(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, signalValue),
+        };
+
+        if (auto submitRes = this->gfxQueue.submit(
+                res.commandBuffer.submit_info(),
+                span{&imageAcquireWaitInfo, 1},
+                semaphoreSignals);
+            !submitRes.has_value()) [[unlikely]] {
+            return renderer_error(submitRes.error().code,
+                                  format("Failed to submit frame command buffer: {}", submitRes.error().message));
+        }
+
+        const auto presentRequest = s->swapchain().present_request(imageIndex);
+        auto presentRes = this->gfxQueue.present(presentRequest.present_info());
+        if (!presentRes.has_value()) [[unlikely]] {
+            return renderer_error(presentRes.error().code,
+                                  format("Failed to present frame: {}", presentRes.error().message));
+        }
+        if (*presentRes) [[unlikely]] {
+            // suboptimal/out-of-date — rebuild the swapchain before the next render_frame call.
+            s->mark_dirty();
+        }
+
         return {};
     }
 
@@ -332,12 +425,21 @@ namespace SFT::Core::Vulkan {
         VkPhysicalDeviceVulkan14Features supportedFeatures14{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = nullptr};
         VkPhysicalDeviceVulkan13Features supportedFeatures13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &supportedFeatures14};
         VkPhysicalDeviceVulkan12Features supportedFeatures12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &supportedFeatures13};
-        VkPhysicalDeviceFeatures2 supportedFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &supportedFeatures12};
+        VkPhysicalDeviceVulkan11Features supportedFeatures11{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = &supportedFeatures12};
+        VkPhysicalDeviceFeatures2 supportedFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &supportedFeatures11};
         vkGetPhysicalDeviceFeatures2(this->physicalDevice.vk_handle(), &supportedFeatures);
 
         if (not supportedFeatures13.dynamicRendering or not supportedFeatures13.synchronization2 or not supportedFeatures12.timelineSemaphore) [[unlikely]] {
             return renderer_error(RendererErrorCode::InitializationFailed,
                                   "Required Vulkan features missing: dynamicRendering, synchronization2, and timelineSemaphore are all required.");
+        }
+
+        // Slang emits SPV_KHR_shader_draw_parameters (gl_BaseVertex/gl_BaseInstance) for entry
+        // points reading SV_VertexID/SV_InstanceID, so this is required for our triangle shader
+        // even though it never reads a base value — without it validation rejects the module.
+        if (not supportedFeatures11.shaderDrawParameters) [[unlikely]] {
+            return renderer_error(RendererErrorCode::InitializationFailed,
+                                  "Required Vulkan feature missing: shaderDrawParameters.");
         }
 
         // Build the enable chain — only request what we verified above.
@@ -353,7 +455,12 @@ namespace SFT::Core::Vulkan {
             .pNext = &features13,
             .timelineSemaphore = VK_TRUE,
         };
-        VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features12};
+        VkPhysicalDeviceVulkan11Features features11{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .pNext = &features12,
+            .shaderDrawParameters = VK_TRUE,
+        };
+        VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features11};
 
         // Discover queue families. Graphics was already verified by discoverGraphicsQueue;
         // present may share the same index — VulkanDevice::create() deduplicates automatically.
@@ -455,7 +562,7 @@ namespace SFT::Core::Vulkan {
             .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             .preTransform = surfaceCaps.currentTransform,
             .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-            .presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR};
+            .presentMode = VK_PRESENT_MODE_FIFO_KHR};
 
         auto swapchain_result = VulkanSwapchain::create(this->logicalDevice.vk_handle(), swapchainCreateInfo);
         if (!swapchain_result.has_value()) [[unlikely]] {
@@ -741,12 +848,15 @@ namespace SFT::Core::Vulkan {
         };
 
         //raster settings
+        // frontFace is CLOCKWISE, not the GL-conventional CCW: our viewport (set_viewport() above)
+        // uses a positive height with no Y-flip, so Vulkan's y-down NDC makes vertices authored in
+        // the usual (x right, y up) math sense wind clockwise once rasterized in screen space.
         VkPipelineRasterizationStateCreateInfo rasterizationInfo
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
             .cullMode = VK_CULL_MODE_BACK_BIT,
-            .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .frontFace = VK_FRONT_FACE_CLOCKWISE,
             .lineWidth = 1.0f,
         };
 
@@ -849,8 +959,12 @@ namespace SFT::Core::Vulkan {
             frameResources.push_back(std::move(resources));
         }
 
+        this->destroyFrameResources();
         this->frameTimelineSemaphore = std::move(*timeline_result);
         this->frameResources_ = std::move(frameResources);
+        this->MaxFramesInFlight = frame_count;
+        this->FrameIndex = 0;
+        this->nextSignalValue = initial_timeline_value + 1;
 
         Foundation::log_info("Vulkan frame sync resources created: frames={} timeline_initial={}",
                              frame_count,
@@ -859,9 +973,40 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererResult VulkanBackend::createCommandBuffers(const RendererCreateInfo &init) {
-        // TODO(renderer): command pool(s) on the graphics queue family plus one primary command
-        // buffer per frame in flight.
         (void)init;
+        auto destroy_command_resources = [this]() noexcept {
+            for (FrameResources &resources : this->frameResources_) {
+                resources.destroyCommandResources();
+            }
+        };
+
+        destroy_command_resources();
+        for (FrameResources &resources : this->frameResources_) {
+            // Each frame gets its own pool for faster resets.
+            auto command_pool_result = VulkanCommandPool::create(
+                this->logicalDevice.vk_handle(),
+                this->gfxQueue.family_index());
+            if (!command_pool_result.has_value()) [[unlikely]] {
+                destroy_command_resources();
+                return renderer_error(command_pool_result.error().code,
+                                      format("Failed to create graphics command pool: {}",
+                                             command_pool_result.error().message));
+            }
+            auto command_pool = std::move(*command_pool_result);
+
+            auto command_buffer_result = VulkanCommandBuffer::allocate(
+                this->logicalDevice.vk_handle(),
+                command_pool.vk_handle());
+            if (!command_buffer_result.has_value()) [[unlikely]] {
+                destroy_command_resources();
+                return renderer_error(command_buffer_result.error().code,
+                                      format("Failed to create graphics command buffer: {}",
+                                             command_buffer_result.error().message));
+            }
+
+            resources.commandPool = std::move(command_pool);
+            resources.commandBuffer = std::move(*command_buffer_result);
+        }
         return {};
     }
 
@@ -869,6 +1014,7 @@ namespace SFT::Core::Vulkan {
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
             return renderer_error(RendererErrorCode::OperationFailed, "Volk failed to initialize");
         }
+        volk_initialized_ = true;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -1103,9 +1249,11 @@ namespace SFT::Core::Vulkan {
 
         auto primary_surface = this->initVulkan(init);
         if (!primary_surface.has_value()) [[unlikely]] {
+            const auto error = primary_surface.error();
+            destroyVulkanResources();
             initialized_ = false;
-            return renderer_error(primary_surface.error().code,
-                                  format("Initializing Vulkan has failed: {}", primary_surface.error().message));
+            return renderer_error(error.code,
+                                  format("Initializing Vulkan has failed: {}", error.message));
         }
 
         return *primary_surface;

@@ -46,8 +46,8 @@ export namespace SFT::Core::Slang {
     // parse is logged and skipped rather than aborting the scan, since one broken shader shouldn't
     // stop the rest of the engine from starting up.
     [[nodiscard]] inline vector<UnCompiledShader> discover_shaders(const fs::path &directory,
-                                                                    ShaderCompiler &compiler,
-                                                                    const ShaderCompileOptions &options = {}) {
+                                                                   ShaderCompiler &compiler,
+                                                                   const ShaderCompileOptions &options = {}) {
         vector<UnCompiledShader> shaders;
 
         error_code ec;

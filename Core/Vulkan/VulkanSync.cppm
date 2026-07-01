@@ -173,6 +173,19 @@ export namespace SFT::Core::Vulkan {
             return {};
         }
 
+        // Builds this semaphore's wait/signal entry for a VkSubmitInfo2. value is ignored by the
+        // driver for binary semaphores — only pass a meaningful one for a timeline semaphore.
+        [[nodiscard]] VkSemaphoreSubmitInfo submit_info(VkPipelineStageFlags2 stage, u64 value = 0) const noexcept {
+            return VkSemaphoreSubmitInfo{
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                .pNext = nullptr,
+                .semaphore = semaphore_,
+                .value = value,
+                .stageMask = stage,
+                .deviceIndex = 0,
+            };
+        }
+
         void destroy() noexcept {
             if (semaphore_ == VK_NULL_HANDLE)
                 return;

@@ -8,29 +8,6 @@ if(NOT CMAKE_GENERATOR MATCHES "^Ninja")
     )
 endif()
 
-# CLion and CMake toolchains should own compiler selection. The presets intentionally avoid
-# setting CMAKE_<LANG>_COMPILER so CLion can use the compiler configured in its toolchain.
-# If a user explicitly passes a bare compiler name (for example
-# -DCMAKE_CXX_COMPILER=clang++), resolve it before project() so the cache stores a stable path.
-function(sturdy_resolve_bare_compiler cache_variable label)
-    if(NOT DEFINED ${cache_variable})
-        return()
-    endif()
-
-    set(_compiler "${${cache_variable}}")
-    if(_compiler STREQUAL "" OR IS_ABSOLUTE "${_compiler}")
-        return()
-    endif()
-
-    find_program(_compiler_path NAMES "${_compiler}" NO_CACHE)
-    if(_compiler_path)
-        set(${cache_variable} "${_compiler_path}" CACHE FILEPATH "${label} compiler" FORCE)
-    endif()
-endfunction()
-
-sturdy_resolve_bare_compiler(CMAKE_C_COMPILER "C")
-sturdy_resolve_bare_compiler(CMAKE_CXX_COMPILER "C++")
-
 project(SturdyEngine5
     VERSION 0.1.0
     DESCRIPTION "Sturdy Engine 5"

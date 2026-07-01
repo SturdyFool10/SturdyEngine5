@@ -1,4 +1,7 @@
 module;
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+#endif
 #include "volk.h"
 #include <vector>
 
@@ -124,6 +127,151 @@ export namespace SFT::Core::Vulkan {
         }
         [[nodiscard]] VkSemaphore render_finished_semaphore(u32 image_index) const noexcept {
             return render_finished_semaphores_[image_index].vk_handle();
+        }
+
+        // Bundles the color+depth VkRenderingAttachmentInfo for one dynamic-rendering pass. Kept
+        // together (rather than returned separately) since rendering_info() hands out pointers into
+        // this object — callers must keep it alive across the vkCmdBeginRendering() call it feeds.
+        struct RenderingAttachments {
+            VkRenderingAttachmentInfo color{};
+            VkRenderingAttachmentInfo depth{};
+
+            [[nodiscard]] VkRenderingInfo rendering_info(VkRect2D render_area) const noexcept {
+                return VkRenderingInfo{
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+                    .pNext = nullptr,
+                    .flags = 0,
+                    .renderArea = render_area,
+                    .layerCount = 1,
+                    .viewMask = 0,
+                    .colorAttachmentCount = 1,
+                    .pColorAttachments = &color,
+                    .pDepthAttachment = &depth,
+                    .pStencilAttachment = nullptr,
+                };
+            }
+        };
+
+        // Builds the color+depth attachment infos for image_index, clearing both on load.
+        [[nodiscard]] RenderingAttachments rendering_attachments(
+            u32 image_index,
+            VkClearColorValue clear_color = {{0.0f, 0.0f, 0.0f, 1.0f}},
+            VkClearDepthStencilValue clear_depth = {1.0f, 0}) const noexcept {
+            return RenderingAttachments{
+                .color{
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = image_views_[image_index].vk_handle(),
+                    .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .clearValue{.color = clear_color},
+                },
+                .depth{
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = depth_image_view_.vk_handle(),
+                    .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .clearValue{.depthStencil = clear_depth},
+                },
+            };
+        }
+
+        // Transitions the color image at image_index and the shared depth image from UNDEFINED to
+        // their respective attachment-optimal layouts, ready for dynamic rendering to write into.
+        [[nodiscard]] vector<VkImageMemoryBarrier2> undefined_to_attachment_barriers(u32 image_index) const noexcept {
+            return {
+                VkImageMemoryBarrier2{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcAccessMask = 0,
+                    .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                    .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .image = images_[image_index],
+                    .subresourceRange{
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+                },
+                VkImageMemoryBarrier2{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+                    .srcAccessMask = 0,
+                    .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                    .dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                    .newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                    .image = depth_image_.vk_handle(),
+                    .subresourceRange{
+                        .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+                },
+            };
+        }
+
+        // Transitions the color image at image_index from attachment-optimal to PRESENT_SRC once
+        // rendering into it has finished, ready to be handed to vkQueuePresentKHR.
+        [[nodiscard]] vector<VkImageMemoryBarrier2> attachment_to_present_barrier(u32 image_index) const noexcept {
+            return {
+                VkImageMemoryBarrier2{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+                    .dstAccessMask = 0,
+                    .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    .image = images_[image_index],
+                    .subresourceRange{
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+                },
+            };
+        }
+
+        // Bundles the fields a VkPresentInfoKHR needs pointers into — kept together so callers
+        // keep this object alive across the vkQueuePresentKHR() call it feeds, same rationale as
+        // RenderingAttachments above.
+        struct PresentRequest {
+            VkSwapchainKHR swapchain{};
+            u32 image_index{};
+            VkSemaphore wait_semaphore{};
+
+            [[nodiscard]] VkPresentInfoKHR present_info() const noexcept {
+                return VkPresentInfoKHR{
+                    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                    .pNext = nullptr,
+                    .waitSemaphoreCount = 1,
+                    .pWaitSemaphores = &wait_semaphore,
+                    .swapchainCount = 1,
+                    .pSwapchains = &swapchain,
+                    .pImageIndices = &image_index,
+                    .pResults = nullptr,
+                };
+            }
+        };
+
+        // Waits on this swapchain image's render-finished semaphore (signaled by the submit that
+        // rendered into it) before presenting image_index.
+        [[nodiscard]] PresentRequest present_request(u32 image_index) const noexcept {
+            return PresentRequest{
+                .swapchain = swapchain_,
+                .image_index = image_index,
+                .wait_semaphore = render_finished_semaphores_[image_index].vk_handle(),
+            };
         }
 
         // VK_SUBOPTIMAL_KHR is treated as success — caller should rebuild the swapchain after the frame.

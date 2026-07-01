@@ -13,6 +13,7 @@ import Sturdy.Foundation;
 
 using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
+using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::span;
 
@@ -57,12 +58,37 @@ export namespace SFT::Core::Vulkan {
             return {};
         }
 
-        [[nodiscard]] RendererResult present(const VkPresentInfoKHR &info) noexcept {
+        // Convenience for the common one-command-buffer submission.
+        [[nodiscard]] RendererResult submit(
+            const VkCommandBufferSubmitInfo &command_buffer,
+            span<const VkSemaphoreSubmitInfo> waits,
+            span<const VkSemaphoreSubmitInfo> signals,
+            VkFence fence = VK_NULL_HANDLE) noexcept {
+            VkSubmitInfo2 submit_info{
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+                .pNext = nullptr,
+                .flags = 0,
+                .waitSemaphoreInfoCount = static_cast<u32>(waits.size()),
+                .pWaitSemaphoreInfos = waits.data(),
+                .commandBufferInfoCount = 1,
+                .pCommandBufferInfos = &command_buffer,
+                .signalSemaphoreInfoCount = static_cast<u32>(signals.size()),
+                .pSignalSemaphoreInfos = signals.data(),
+            };
+            return submit(span{&submit_info, 1}, fence);
+        }
+
+        // Returns true if the swapchain is stale (suboptimal or out-of-date) and should be rebuilt
+        // before the next frame, false if presentation is fully up to date. Both are treated as
+        // success — only failures other than staleness are reported as an error.
+        [[nodiscard]] RendererExpected<bool> present(const VkPresentInfoKHR &info) noexcept {
             std::lock_guard lock(mutex_);
             VkResult res = vkQueuePresentKHR(handle_, &info);
-            if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
-            return {};
+            if (res == VK_SUCCESS)
+                return false;
+            if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)
+                return true;
+            return renderer_error(RendererErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
         }
 
         [[nodiscard]] RendererResult wait_idle() noexcept {

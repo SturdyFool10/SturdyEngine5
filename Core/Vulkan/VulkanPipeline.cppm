@@ -139,12 +139,6 @@ export namespace SFT::Core::Vulkan {
             VkPipelineCache cache,
             VkGraphicsPipelineCreateInfo info // taken by value so we can assert renderPass is null
             ) noexcept {
-            if (device == VK_NULL_HANDLE)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateGraphicsPipelines called with a null VkDevice.");
-            if (vkCreateGraphicsPipelines == nullptr)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateGraphicsPipelines is not loaded. Call volkLoadDevice after device creation.");
-
-            info.renderPass = VK_NULL_HANDLE; // enforce: dynamic rendering never uses a render pass
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return renderer_error(RendererErrorCode::OperationFailed,

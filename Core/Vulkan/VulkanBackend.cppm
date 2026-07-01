@@ -11,6 +11,8 @@ import :RendererError;
 import :Renderer;
 import :RenderSurface;
 import :VulkanAllocator;
+import :VulkanCommandBuffer;
+import :VulkanCommandPool;
 import :VulkanDevice;
 import :VulkanQueue;
 import :VulkanShaderModule;
@@ -79,8 +81,22 @@ export namespace SFT::Core::Vulkan {
 
         struct FrameResources {
             VulkanSemaphore imageAcquiredSemaphore;
+            VulkanCommandPool commandPool;
+            VulkanCommandBuffer commandBuffer;
+
+            void destroyCommandResources() noexcept {
+                commandBuffer.destroy();
+                commandPool.destroy();
+            }
+
+            void destroy() noexcept {
+                destroyCommandResources();
+                imageAcquiredSemaphore.destroy();
+            }
         };
 
+        void destroyFrameResources() noexcept;
+        void destroyVulkanResources() noexcept;
         [[nodiscard]] RendererExpected<SurfaceCreateInfo> surface_create_info_from_window(Window &window,
                                                                                           u32 desired_frames_in_flight) const;
         [[nodiscard]] RendererExpected<RenderSurfaceHandle> createSurface(const SurfaceCreateInfo &init);
@@ -106,6 +122,7 @@ export namespace SFT::Core::Vulkan {
         bool initialized_ = false;
 
         VkInstance vulkan_instance = VK_NULL_HANDLE;
+        bool volk_initialized_ = false;
         VulkanPhysicalDevice physicalDevice;
         VulkanDevice logicalDevice;
         VulkanQueue gfxQueue;
@@ -116,6 +133,9 @@ export namespace SFT::Core::Vulkan {
         VulkanSemaphore frameTimelineSemaphore;
         VulkanPipeline graphicsPipeline;
         VkPipelineLayout pipelinelayout = VK_NULL_HANDLE;
+        u32 FrameIndex = 0;
+        u32 MaxFramesInFlight = 2;
+        u64 nextSignalValue = MaxFramesInFlight + 1;
     };
 
 } // namespace SFT::Core::Vulkan

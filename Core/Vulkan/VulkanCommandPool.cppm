@@ -27,6 +27,7 @@ export namespace SFT::Core::Vulkan {
             : device_(o.device_), pool_(o.pool_), family_index_(o.family_index_) {
             o.device_ = VK_NULL_HANDLE;
             o.pool_ = VK_NULL_HANDLE;
+            o.family_index_ = 0;
         }
         VulkanCommandPool &operator=(VulkanCommandPool &&o) noexcept {
             if (this != &o) {
@@ -36,6 +37,7 @@ export namespace SFT::Core::Vulkan {
                 family_index_ = o.family_index_;
                 o.device_ = VK_NULL_HANDLE;
                 o.pool_ = VK_NULL_HANDLE;
+                o.family_index_ = 0;
             }
             return *this;
         }
@@ -105,6 +107,7 @@ export namespace SFT::Core::Vulkan {
             vkDestroyCommandPool(device_, pool_, nullptr);
             pool_ = VK_NULL_HANDLE;
             device_ = VK_NULL_HANDLE;
+            family_index_ = 0;
         }
 
       private:

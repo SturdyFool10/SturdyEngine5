@@ -1,9 +1,29 @@
+# SturdyEngine5 build requirements
+# Info:
+# - Configure from the repo root with the shared CMake presets.
+# - Ninja is the supported generator because the project uses C++ modules.
+# - Clang is the tested C++23 compiler path.
+# Deps:
+# - All platforms: CMake, Ninja, Clang, Vulkan SDK, Slang SDK.
+# - Windows: MSBuild / Visual Studio Build Tools.
+# - Linux: autogen/autotools.
+# See docs/IDE_SETUP.md for the full setup notes.
+
 # Version-control metadata
 .lore/
 
 # Build directories
 build/
 out/
+
+# JetBrains CLion / IDE build trees and per-developer config.
+# Shared .idea/ project files (runConfigurations/, vcs.xml) stay tracked; the
+# per-developer ones are filtered by .idea/.gitignore. CLion's default out-of-source
+# build dirs (used only if someone builds without the presets) are never shared.
+/cmake-build-*/
+# CMakeUserPresets.json holds a developer's own local presets; CMakePresets.json is
+# the shared one. Keep user presets out of version control.
+/CMakeUserPresets.json
 
 # Stale/local root compile database files. The View As tasks point clangd directly
 # at build/view/<os>/<profile>/compile_commands.json instead.

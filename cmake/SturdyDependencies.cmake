@@ -141,6 +141,7 @@ function(sturdy_fetch_slang)
     # BUILD_SHARED_LIBS=OFF (forced globally) makes the Slang build produce a static library.
     set(SLANG_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_DXIL OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_GFX OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "" FORCE)
@@ -225,12 +226,182 @@ function(sturdy_fetch_sdl3)
     if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
         set(LIBC_HAS_ITOA "" CACHE INTERNAL "Have symbol itoa" FORCE)
     endif()
+    sturdy_preseed_sdl3_linux_checks()
+
     FetchContent_Declare(SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG ${STURDY_SDL3_TAG}
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(SDL3)
+endfunction()
+
+function(sturdy_preseed_sdl3_linux_checks)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_CROSSCOMPILING)
+        return()
+    endif()
+
+    set(_sdl_true_checks
+        LIBC_IS_GLIBC
+        HAVE_ALLOCA_H
+        HAVE_LIBM
+        HAVE_FDATASYNC
+        HAVE_GETAUXVAL
+        HAVE_GETHOSTNAME
+        HAVE_GETPAGESIZE
+        HAVE_GETRESGID
+        HAVE_GETRESUID
+        HAVE_GMTIME_R
+        HAVE_LOCALTIME_R
+        HAVE_MEMFD_CREATE
+        HAVE_NANOSLEEP
+        HAVE_NL_LANGINFO
+        HAVE_POSIX_FALLOCATE
+        HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP
+        HAVE_PPOLL
+        HAVE_SA_SIGACTION
+        HAVE_SETJMP
+        HAVE_SIGACTION
+        HAVE_SIGTIMEDWAIT
+        HAVE_ST_MTIM
+        HAVE_SYSCONF
+        ICONV_IN_LIBC
+        LIBC_HAS_ABS
+        LIBC_HAS_ACOS
+        LIBC_HAS_ACOSF
+        LIBC_HAS_ASIN
+        LIBC_HAS_ASINF
+        LIBC_HAS_ATAN
+        LIBC_HAS_ATAN2
+        LIBC_HAS_ATAN2F
+        LIBC_HAS_ATANF
+        LIBC_HAS_ATOF
+        LIBC_HAS_ATOI
+        LIBC_HAS_BCOPY
+        LIBC_HAS_CEIL
+        LIBC_HAS_CEILF
+        LIBC_HAS_COPYSIGN
+        LIBC_HAS_COPYSIGNF
+        LIBC_HAS_COS
+        LIBC_HAS_COSF
+        LIBC_HAS_EXP
+        LIBC_HAS_EXPF
+        LIBC_HAS_FABS
+        LIBC_HAS_FABSF
+        LIBC_HAS_FLOAT_H
+        LIBC_HAS_FLOOR
+        LIBC_HAS_FLOORF
+        LIBC_HAS_FMOD
+        LIBC_HAS_FMODF
+        LIBC_HAS_FOPEN64
+        LIBC_HAS_FSEEKO
+        LIBC_HAS_FSEEKO64
+        LIBC_HAS_GETENV
+        LIBC_HAS_ICONV_H
+        LIBC_HAS_INDEX
+        LIBC_HAS_INTTYPES_H
+        LIBC_HAS_ISINF
+        LIBC_HAS_ISINFF
+        LIBC_HAS_ISNAN
+        LIBC_HAS_ISNANF
+        LIBC_HAS_LIMITS_H
+        LIBC_HAS_LOG
+        LIBC_HAS_LOG10
+        LIBC_HAS_LOG10F
+        LIBC_HAS_LOGF
+        LIBC_HAS_LROUND
+        LIBC_HAS_LROUNDF
+        LIBC_HAS_MALLOC
+        LIBC_HAS_MALLOC_H
+        LIBC_HAS_MATH_H
+        LIBC_HAS_MEMCMP
+        LIBC_HAS_MEMCPY
+        LIBC_HAS_MEMMOVE
+        LIBC_HAS_MEMORY_H
+        LIBC_HAS_MEMSET
+        LIBC_HAS_MODF
+        LIBC_HAS_MODFF
+        LIBC_HAS_POW
+        LIBC_HAS_POWF
+        LIBC_HAS_PUTENV
+        LIBC_HAS_RINDEX
+        LIBC_HAS_ROUND
+        LIBC_HAS_ROUNDF
+        LIBC_HAS_SCALBN
+        LIBC_HAS_SCALBNF
+        LIBC_HAS_SETENV
+        LIBC_HAS_SIGNAL_H
+        LIBC_HAS_SIN
+        LIBC_HAS_SINF
+        LIBC_HAS_SQRT
+        LIBC_HAS_SQRTF
+        LIBC_HAS_SSCANF
+        LIBC_HAS_STDARG_H
+        LIBC_HAS_STDBOOL_H
+        LIBC_HAS_STDDEF_H
+        LIBC_HAS_STDINT_H
+        LIBC_HAS_STDIO_H
+        LIBC_HAS_STDLIB_H
+        LIBC_HAS_STRCASESTR
+        LIBC_HAS_STRCHR
+        LIBC_HAS_STRCMP
+        LIBC_HAS_STRINGS_H
+        LIBC_HAS_STRING_H
+        LIBC_HAS_STRLCAT
+        LIBC_HAS_STRLCPY
+        LIBC_HAS_STRLEN
+        LIBC_HAS_STRNCMP
+        LIBC_HAS_STRNLEN
+        LIBC_HAS_STRPBRK
+        LIBC_HAS_STRRCHR
+        LIBC_HAS_STRSTR
+        LIBC_HAS_STRTOD
+        LIBC_HAS_STRTOK_R
+        LIBC_HAS_STRTOL
+        LIBC_HAS_STRTOLL
+        LIBC_HAS_STRTOUL
+        LIBC_HAS_STRTOULL
+        LIBC_HAS_SYS_TYPES_H
+        LIBC_HAS_TAN
+        LIBC_HAS_TANF
+        LIBC_HAS_TIME_H
+        LIBC_HAS_TRUNC
+        LIBC_HAS_TRUNCF
+        LIBC_HAS_UNSETENV
+        LIBC_HAS_VSNPRINTF
+        LIBC_HAS_VSSCANF
+        LIBC_HAS_WCHAR_H
+        LIBC_HAS_WCSCMP
+        LIBC_HAS_WCSDUP
+        LIBC_HAS_WCSLCAT
+        LIBC_HAS_WCSLCPY
+        LIBC_HAS_WCSLEN
+        LIBC_HAS_WCSNCMP
+        LIBC_HAS_WCSNLEN
+        LIBC_HAS_WCSSTR
+        LIBC_HAS_WCSTOL
+        LIBC_HAS__EXIT
+    )
+
+    set(_sdl_false_checks
+        HAVE_ELF_AUX_INFO
+        HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR
+        HAVE_SYSCTLBYNAME
+        ICONV_IN_LIBICONV
+        LIBC_HAS_ITOA
+        LIBC_HAS_SQR
+        LIBC_HAS_STRNSTR
+        LIBC_HAS__I64TOA
+        LIBC_HAS__LTOA
+    )
+
+    foreach(_check IN LISTS _sdl_true_checks)
+        set(${_check} "1" CACHE INTERNAL "Preseeded SDL3 Linux configure check")
+    endforeach()
+
+    foreach(_check IN LISTS _sdl_false_checks)
+        set(${_check} "" CACHE INTERNAL "Preseeded SDL3 Linux configure check")
+    endforeach()
 endfunction()
 
 function(sturdy_fetch_glfw)
