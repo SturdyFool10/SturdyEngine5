@@ -3,6 +3,7 @@ module;
 #include <atomic>
 #include <concepts>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <new>
 #include <optional>
@@ -175,6 +176,14 @@ export namespace SFT::Platform::Windowing {
         // valid for the lifetime of the backend.
         [[nodiscard]] virtual expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept = 0;
+
+        // Register a callback that the windowing backend will invoke to render a frame while the
+        // OS holds the message pump hostage (Windows move/resize modal loop). The callback fires
+        // on the main thread from inside the blocked pump, so it must not call back into
+        // pump_events() but may otherwise call any engine or window API. Pass an empty
+        // std::function to clear a previously registered callback. Backends that do not have a
+        // blocking modal-loop problem may leave this as a no-op.
+        virtual void set_repaint_callback(std::function<void()> /*callback*/) noexcept {}
 
       private:
         WindowId id_;

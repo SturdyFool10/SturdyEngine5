@@ -58,6 +58,38 @@ namespace SFT::Engine {
         auto last = high_resolution_clock::now();
         u64 frame_index = 0;
 
+        // Render one frame. Extracted so it can be called both from the normal loop and from
+        // the repaint callback that fires during Windows' move/resize modal loop.
+        auto render_one_frame = [&]() {
+            Core::Extent2D framebuffer{};
+            if (auto size = window_->framebuffer_size()) {
+                framebuffer = {size->x, size->y};
+            }
+            if (framebuffer.is_zero()) {
+                return;
+            }
+            const auto now = high_resolution_clock::now();
+            const f64 delta_seconds = duration<f64>(now - last).count();
+            last = now;
+
+            const std::string title = std::format("SturdyEngine 5 Frame Time: {}", delta_seconds);
+            if (auto result = window_->set_title(title.c_str()); !result) {
+                Foundation::log_error("Failed to set window title: {}", result.error().message);
+            }
+
+            if (auto result = engine_.render(*surface_, Core::FrameInput{delta_seconds, frame_index}); !result) {
+                Foundation::log_error("Render error: " + result.error().message);
+            }
+            ++frame_index;
+        };
+
+        // On Windows, dragging the title bar or resizing enters a modal message loop inside
+        // DefWindowProc that blocks SDL_PollEvent for the duration of the drag. SDL3 works
+        // around this by setting a WM_TIMER on WM_ENTERSIZEMOVE and firing
+        // SDL_EVENT_WINDOW_EXPOSED each tick; our repaint callback catches those events via
+        // SDL_AddEventWatch and keeps the renderer running on the main thread.
+        window_->set_repaint_callback(render_one_frame);
+
         while (!window_->close_requested()) {
             if (auto pump = window_->pump_events(); !pump) {
                 Foundation::log_error("Event pump failed: {}", pump.error().message);
@@ -80,31 +112,10 @@ namespace SFT::Engine {
                 break;
             }
 
-            const auto now = high_resolution_clock::now();
-            const f64 delta_seconds = duration<f64>(now - last).count();
-            last = now;
-
-            const std::string title = std::format("SturdyEngine 5 Frame Time: {}", delta_seconds);
-            if (auto result = window_->set_title(title.c_str()); !result) {
-                Foundation::log_error("Failed to set window title: {}", result.error().message);
-            }
-
-            // Skip rendering while minimized (zero-area framebuffer).
-            Core::Extent2D framebuffer{};
-            if (auto size = window_->framebuffer_size()) {
-                framebuffer = {size->x, size->y};
-            }
-            if (framebuffer.is_zero()) {
-                continue;
-            }
-
-            if (auto result = engine_.render(*surface_, Core::FrameInput{delta_seconds, frame_index}); !result) {
-                Foundation::log_error("Render error: " + result.error().message);
-                break;
-            }
-            ++frame_index;
+            render_one_frame();
         }
 
+        window_->set_repaint_callback({});
         engine_.wait_idle();
     }
 

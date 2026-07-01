@@ -5,6 +5,7 @@ module;
 
 #include <cstring>
 #include <expected>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -153,7 +154,27 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    // SDL event watcher fired by SDL_PushEvent during the Windows move/resize modal loop.
+    // SDL3 installs a WM_TIMER on WM_ENTERSIZEMOVE that calls SDL_SendWindowEvent(EXPOSED),
+    // which goes through SDL_PushEvent and triggers this watcher synchronously on the main
+    // thread — even while SDL_PollEvent is otherwise blocked inside DefWindowProc's modal loop.
+    bool SDLCALL SDL3Window::sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept {
+        if (event->type == SDL_EVENT_WINDOW_EXPOSED) {
+            auto *self = static_cast<SDL3Window *>(userdata);
+            if (self->window_ && SDL_GetWindowID(self->window_) == event->window.windowID) {
+                if (self->repaint_callback_) {
+                    self->repaint_callback_();
+                }
+            }
+        }
+        return true;
+    }
+
     SDL3Window::~SDL3Window() noexcept {
+        if (repaint_callback_) {
+            SDL_RemoveEventWatch(sdl_repaint_watch, this);
+        }
+
         const lock_guard lock(sdl_window_mutex());
 
         if (window_) [[likely]] {
@@ -171,6 +192,16 @@ namespace SFT::Platform::Windowing::SDL3 {
             if (count == 0) {
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
             }
+        }
+    }
+
+    void SDL3Window::set_repaint_callback(std::function<void()> callback) noexcept {
+        if (repaint_callback_) {
+            SDL_RemoveEventWatch(sdl_repaint_watch, this);
+        }
+        repaint_callback_ = std::move(callback);
+        if (repaint_callback_) {
+            SDL_AddEventWatch(sdl_repaint_watch, this);
         }
     }
 

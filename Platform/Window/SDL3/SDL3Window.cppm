@@ -5,6 +5,7 @@ module;
 #include <atomic>
 #include <deque>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -76,6 +77,8 @@ export namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept override;
 
+        void set_repaint_callback(std::function<void()> callback) noexcept override;
+
       private:
         friend class ::SFT::Platform::Windowing::Window;
 
@@ -88,6 +91,9 @@ export namespace SFT::Platform::Windowing::SDL3 {
         WindowExtent last_framebuffer_size_ = {};
         atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
+        std::function<void()> repaint_callback_;
+
+        static bool SDLCALL sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept;
     };
 
 } // namespace SFT::Platform::Windowing::SDL3

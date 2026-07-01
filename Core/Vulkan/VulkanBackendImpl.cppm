@@ -281,16 +281,20 @@ namespace SFT::Core::Vulkan {
         //transition the color and depth images, then begin dynamic rendering into them
         res.commandBuffer.pipeline_barrier2(s->swapchain().undefined_to_attachment_barriers(imageIndex));
 
-        glm::vec2 size = s->window()->framebuffer_size().value();
+        const VkExtent2D swapExtent = s->swapchain().extent();
         const VkRect2D renderArea{
             .offset = {.x = 0, .y = 0},
-            .extent = {.width = static_cast<u32>(size.x), .height = static_cast<u32>(size.y)},
+            .extent = swapExtent,
         };
         const auto attachments = s->swapchain().rendering_attachments(imageIndex);
 
         res.commandBuffer.begin_rendering(attachments.rendering_info(renderArea));
         {
-            res.commandBuffer.set_viewport(VkViewport{.x = 0, .y = 0, .width = size.x, .height = size.y});
+            res.commandBuffer.set_viewport(VkViewport{
+                .x = 0, .y = 0,
+                .width  = static_cast<float>(swapExtent.width),
+                .height = static_cast<float>(swapExtent.height),
+            });
             res.commandBuffer.set_scissor(renderArea);
 
             //the all important drawing
@@ -334,10 +338,11 @@ namespace SFT::Core::Vulkan {
             return renderer_error(presentRes.error().code,
                                   format("Failed to present frame: {}", presentRes.error().message));
         }
-        if (*presentRes) [[unlikely]] {
-            // suboptimal/out-of-date — rebuild the swapchain before the next render_frame call.
-            s->mark_dirty();
-        }
+        // VK_SUBOPTIMAL_KHR (*presentRes == true) is tolerated silently during live resize —
+        // rebuilding the swapchain every frame (and calling wait_idle each time) causes severe
+        // jitter. The swapchain is rebuilt at a sensible cadence via on_surface_resize_needed()
+        // (fired from the event loop after the drag ends) or when acquire returns OUT_OF_DATE.
+        (void)presentRes;
 
         return {};
     }
