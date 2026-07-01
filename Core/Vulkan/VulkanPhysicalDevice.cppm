@@ -44,6 +44,25 @@ export namespace SFT::Core::Vulkan {
             vkGetPhysicalDeviceQueueFamilyProperties(device_, &family_count, queue_families_.data());
         }
 
+        // Enumerates every physical device visible to instance, wrapped and pre-queried.
+        [[nodiscard]] static RendererExpected<vector<VulkanPhysicalDevice>> enumerate(VkInstance instance) {
+            u32 count = 0;
+            if (vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || count == 0) {
+                return renderer_error(RendererErrorCode::InitializationFailed,
+                                      "No Vulkan-capable GPUs found on this system.");
+            }
+            vector<VkPhysicalDevice> raw(count);
+            if (vkEnumeratePhysicalDevices(instance, &count, raw.data()) != VK_SUCCESS) {
+                return renderer_error(RendererErrorCode::OperationFailed,
+                                      "vkEnumeratePhysicalDevices (populate) failed.");
+            }
+            vector<VulkanPhysicalDevice> devices;
+            devices.reserve(raw.size());
+            for (VkPhysicalDevice raw_device : raw)
+                devices.emplace_back(raw_device);
+            return devices;
+        }
+
         [[nodiscard]] VkPhysicalDevice vk_handle() const noexcept { return device_; }
         [[nodiscard]] bool is_valid() const noexcept { return device_ != VK_NULL_HANDLE; }
 

@@ -132,7 +132,7 @@ export namespace SFT::Core::Vulkan {
         vector<FrameResources> frameResources_;
         VulkanSemaphore frameTimelineSemaphore;
         VulkanPipeline graphicsPipeline;
-        VkPipelineLayout pipelinelayout = VK_NULL_HANDLE;
+        VulkanPipelineLayout pipelinelayout;
         u32 FrameIndex = 0;
         u32 MaxFramesInFlight = 2;
         u64 nextSignalValue = MaxFramesInFlight + 1;

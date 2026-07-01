@@ -180,10 +180,7 @@ namespace SFT::Core::Vulkan {
         shader_modules_.clear();
         destroyFrameResources();
         graphicsPipeline.destroy();
-        if (pipelinelayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(this->logicalDevice.vk_handle(), pipelinelayout, nullptr);
-            pipelinelayout = VK_NULL_HANDLE;
-        }
+        pipelinelayout.destroy();
         vmaAllocator.destroy();
         logicalDevice.destroy();
         gfxQueue = VulkanQueue{};
@@ -199,19 +196,8 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroySwapchain(VulkanSurface &surface) noexcept {
-        VulkanSwapchain &swapchain = surface.swapchain();
-        const bool had_swapchain_resources = swapchain.is_valid() ||
-                                             !swapchain.image_views().empty() ||
-                                             swapchain.depth_image().is_valid() ||
-                                             swapchain.depth_image_view().is_valid() ||
-                                             !swapchain.render_finished_semaphores().empty();
-
-        swapchain.destroy();
+        surface.swapchain().destroy();
         surface.mark_dirty();
-
-        if (had_swapchain_resources) {
-            Foundation::log_info("Vulkan swapchain resources destroyed");
-        }
     }
 
     void VulkanBackend::destroySurface(VulkanSurface &surface) noexcept {
@@ -358,21 +344,15 @@ namespace SFT::Core::Vulkan {
 
     RendererResult VulkanBackend::findPhysicalDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
         (void)init;
-        u32 device_count = 0;
-        vkEnumeratePhysicalDevices(vulkan_instance, &device_count, nullptr);
-        if (!device_count) [[unlikely]] {
-            return renderer_error(RendererErrorCode::InitializationFailed,
-                                  "No Vulkan-capable GPUs found on this system.");
+        auto devices_result = VulkanPhysicalDevice::enumerate(vulkan_instance);
+        if (!devices_result.has_value()) [[unlikely]] {
+            return renderer_error(devices_result.error().code, devices_result.error().message);
         }
 
-        vector<VkPhysicalDevice> raw_devices(device_count);
-        vkEnumeratePhysicalDevices(vulkan_instance, &device_count, raw_devices.data());
-
         f64 max_score = numeric_limits<f64>::lowest();
-        VkPhysicalDevice best_raw = VK_NULL_HANDLE;
+        VulkanPhysicalDevice *best = nullptr;
 
-        for (auto raw : raw_devices) {
-            VulkanPhysicalDevice candidate(raw);
+        for (auto &candidate : *devices_result) {
             f64 s = candidate.score();
             Foundation::log_info("Found GPU: {} ({}) ID={} score={:.1f}",
                                  candidate.name(),
@@ -381,21 +361,23 @@ namespace SFT::Core::Vulkan {
                                  s);
             if (s > max_score) {
                 max_score = s;
-                best_raw = raw;
+                best = &candidate;
             }
         }
 
-        physicalDevice = VulkanPhysicalDevice(best_raw);
+        physicalDevice = std::move(*best);
         Foundation::log_info("Selected GPU: {}", physicalDevice.name());
 
         // make sure we support the swapchain format we plan to use
-        u32 formatCount = 0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(this->physicalDevice.vk_handle(), primary_surface, &formatCount, nullptr);
-        vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(this->physicalDevice.vk_handle(), primary_surface, &formatCount, surfaceFormats.data());
+        auto surface_formats_result = this->physicalDevice.surface_formats(primary_surface);
+        if (!surface_formats_result.has_value()) [[unlikely]] {
+            return renderer_error(surface_formats_result.error().code,
+                                  format("Physical Device Selection failed at checking surface formats: {}",
+                                         surface_formats_result.error().message));
+        }
 
         bool formatSupported = false;
-        for (const auto &surfaceFormat : surfaceFormats) {
+        for (const auto &surfaceFormat : *surface_formats_result) {
             if (surfaceFormat.format == SWAPCHAIN_FORMAT) {
                 formatSupported = true;
                 break;
@@ -538,14 +520,12 @@ namespace SFT::Core::Vulkan {
         auto winSize = windowExtentResult.value();
 
         // request the apropriate number of images
-        VkSurfaceCapabilitiesKHR surfaceCaps{};
-        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-                this->physicalDevice.vk_handle(),
-                surface.vk_handle(),
-                &surfaceCaps) != VK_SUCCESS) [[unlikely]] {
-            return renderer_error(RendererErrorCode::InitializationFailed,
-                                  "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed.");
+        auto surface_caps_result = this->physicalDevice.surface_capabilities(surface.vk_handle());
+        if (!surface_caps_result.has_value()) [[unlikely]] {
+            return renderer_error(surface_caps_result.error().code,
+                                  format("Failed to query surface capabilities: {}", surface_caps_result.error().message));
         }
+        const VkSurfaceCapabilitiesKHR &surfaceCaps = *surface_caps_result;
         u32 requestedImageCount = sanitize_frames_in_flight(std::max(2u, surfaceCaps.minImageCount));
         if (surfaceCaps.maxImageCount > 0) [[likely]] {
             requestedImageCount = std::min(requestedImageCount, surfaceCaps.maxImageCount);
@@ -572,11 +552,6 @@ namespace SFT::Core::Vulkan {
 
         surface.set_swapchain(std::move(*swapchain_result));
         surface.clear_dirty();
-        Foundation::log_info("Vulkan swapchain created: {}x{} images={} format={}",
-                             surface.swapchain().extent().width,
-                             surface.swapchain().extent().height,
-                             surface.swapchain().image_count(),
-                             vulkan_format_name(surface.swapchain().format()));
 
         // One VkImageView per swapchain image — dynamic rendering attachments and any future
         // framebuffer-less render pass need a view, not the raw VkImage.
@@ -611,9 +586,7 @@ namespace SFT::Core::Vulkan {
             image_views.push_back(std::move(*view_result));
         }
 
-        const u32 view_count = static_cast<u32>(image_views.size());
         surface.swapchain().set_image_views(std::move(image_views));
-        Foundation::log_info("Vulkan swapchain image views created: count={}", view_count);
 
         // One render-finished semaphore per swapchain image, signaled by the submit that
         // renders into that image and waited on by the present that follows it.
@@ -628,9 +601,7 @@ namespace SFT::Core::Vulkan {
             render_finished_semaphores.push_back(std::move(*semaphore_result));
         }
 
-        const u32 semaphore_count = static_cast<u32>(render_finished_semaphores.size());
         surface.swapchain().set_render_finished_semaphores(std::move(render_finished_semaphores));
-        Foundation::log_info("Vulkan render-finished semaphores created: count={}", semaphore_count);
 
         VkImageCreateInfo depthCreateInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -672,10 +643,6 @@ namespace SFT::Core::Vulkan {
         }
 
         surface.swapchain().set_depth_attachment(std::move(depth_image), std::move(*depth_view_result));
-        Foundation::log_info("Vulkan depth image created: {}x{} format={}",
-                             winSize.x,
-                             winSize.y,
-                             vulkan_format_name(DEPTH_FORMAT));
 
         return {};
     }
@@ -786,16 +753,12 @@ namespace SFT::Core::Vulkan {
     RendererResult VulkanBackend::createGraphicsPipeline(const RendererCreateInfo &init) {
         (void)init;
         //define a pipeline layout
-        VkPipelineLayoutCreateInfo pipelineCreateInfo
-        {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 0,
-            .pushConstantRangeCount = 0
-        };
-
-        if (vkCreatePipelineLayout(this->logicalDevice.vk_handle(), &pipelineCreateInfo, nullptr, &pipelinelayout) != VK_SUCCESS) [[unlikely]] {
-            return renderer_error(RendererErrorCode::InitializationFailed, "vkCreatePipelineLayout failed.");
+        auto pipeline_layout_result = VulkanPipelineLayout::create_empty(this->logicalDevice.vk_handle());
+        if (!pipeline_layout_result.has_value()) [[unlikely]] {
+            return renderer_error(pipeline_layout_result.error().code,
+                                  format("Failed to create pipeline layout: {}", pipeline_layout_result.error().message));
         }
+        this->pipelinelayout = std::move(*pipeline_layout_result);
 
         auto *vert = find_shader_module("Shaders/triangle", "vertexMain");
         auto *frag = find_shader_module("Shaders/triangle", "fragmentMain");
@@ -916,7 +879,7 @@ namespace SFT::Core::Vulkan {
             .pDepthStencilState = &stencilInfo,
             .pColorBlendState = &blendInfo,
             .pDynamicState = &dynamicStateInfo,
-            .layout = pipelinelayout,
+            .layout = pipelinelayout.vk_handle(),
             .renderPass = VK_NULL_HANDLE
         };
 
@@ -1147,11 +1110,14 @@ namespace SFT::Core::Vulkan {
                                                 "Unsupported surface provider; only SDL3 and GLFW are implemented."});
         }
 
+        // VulkanSurface's move constructor is noexcept, so a bad_alloc here can only come from the
+        // map's own node allocation, before vulkan_surface is moved from — it still owns vk_surface
+        // when the catch block runs, so tearing it down through the wrapper is safe.
         VulkanSurface vulkan_surface(vk_surface, init.descriptor, init.window, init.framebuffer_extent, sanitize_frames_in_flight(init.desired_frames_in_flight));
         try {
             surfaces_.emplace(window_id, std::move(vulkan_surface));
         } catch (const bad_alloc &) {
-            vkDestroySurfaceKHR(vulkan_instance, vk_surface, nullptr);
+            vulkan_surface.destroy(vulkan_instance);
             return unexpected(RendererError{RendererErrorCode::OutOfMemory,
                                             "Out of memory allocating a Vulkan render surface slot."});
         }
