@@ -538,7 +538,6 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window title cannot be null."});
         }
 
-        Detail::window_info("SDL3 set title: wrapper={} native_ptr={} id={} title='{}'", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), title);
         return sdl_bool_result(SDL_SetWindowTitle(window_, title), WindowErrorCode::OperationFailed, "SDL3 set title failed.");
     }
 

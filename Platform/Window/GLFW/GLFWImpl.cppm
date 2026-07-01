@@ -704,10 +704,6 @@ namespace SFT::Platform::Windowing::GLFW {
                                           "Window title cannot be null."});
         }
 
-        Detail::window_info("GLFW set title: wrapper={} native_ptr={} title='{}'",
-                            static_cast<void *>(this),
-                            static_cast<void *>(window_),
-                            title);
         glfwSetWindowTitle(window_, title);
         return glfw_success();
     }

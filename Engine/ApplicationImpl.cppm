@@ -1,6 +1,8 @@
 module;
 
 #include <chrono>
+#include <format>
+#include <string>
 #include <utility>
 
 export module Sturdy.Engine:ApplicationImpl;
@@ -81,6 +83,11 @@ namespace SFT::Engine {
             const auto now = high_resolution_clock::now();
             const f64 delta_seconds = duration<f64>(now - last).count();
             last = now;
+
+            const std::string title = std::format("SturdyEngine 5 Frame Time: {}", delta_seconds);
+            if (auto result = window_->set_title(title.c_str()); !result) {
+                Foundation::log_error("Failed to set window title: {}", result.error().message);
+            }
 
             // Skip rendering while minimized (zero-area framebuffer).
             Core::Extent2D framebuffer{};
