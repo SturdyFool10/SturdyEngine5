@@ -13,47 +13,15 @@ import :Wide;
 import :Constants;
 import :NumericConcepts;
 
-using std::acos;
-using std::asin;
-using std::atan;
-using std::atan2;
 using std::bit_cast;
-using std::cbrt;
-using std::ceil;
-using std::copysign;
-using std::cos;
-using std::cosh;
-using std::exp;
-using std::fabs;
 using std::floating_point;
-using std::floor;
-using std::fma;
-using std::fmod;
-using std::hypot;
 using std::integral;
 using std::is_constant_evaluated;
 using std::is_unsigned_v;
-using std::isfinite;
-using std::isinf;
-using std::isnan;
-using std::ldexp;
 using std::lerp;
-using std::log;
-using std::log10;
-using std::log2;
 using std::numeric_limits;
-using std::pow;
-using std::remainder;
 using std::remove_cvref_t;
-using std::round;
 using std::same_as;
-using std::signbit;
-using std::sin;
-using std::sinh;
-using std::sqrt;
-using std::tan;
-using std::tanh;
-using std::trunc;
 
 export namespace SFT::Foundation {
 

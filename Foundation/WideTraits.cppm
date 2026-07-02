@@ -1,7 +1,8 @@
 module;
 
+#define _SILENCE_CXX23_DENORM_DEPRECATION_WARNING
+
 #include <cmath>
-#include <cstddef>
 #include <format>
 #include <functional>
 #include <limits>

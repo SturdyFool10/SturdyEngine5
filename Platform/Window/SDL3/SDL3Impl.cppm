@@ -18,7 +18,6 @@ export module Sturdy.Platform.SDL3:Impl;
 
 import :Window;
 import Sturdy.Foundation;
-import Sturdy.Platform;
 
 using std::bad_alloc;
 using std::expected;
@@ -26,8 +25,8 @@ using std::lock_guard;
 using std::nullopt;
 using std::numeric_limits;
 using std::optional;
+using std::memcpy;
 using std::recursive_mutex;
-using std::strncpy;
 using std::unexpected;
 using std::unique_ptr;
 using std::unordered_map;
@@ -95,7 +94,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
 
             const WindowError error = sdl_error(code, fallback);
-            Detail::window_error("SDL3 operation failed: fallback='{}' message='{}' code={}", fallback, error.message, static_cast<i32>(error.code));
+            Foundation::log_error("SDL3 operation failed: fallback='{}' message='{}' code={}", fallback, error.message, static_cast<i32>(error.code));
             return unexpected(error);
         }
 
@@ -123,13 +122,13 @@ namespace SFT::Platform::Windowing::SDL3 {
                 return {};
             }
 
-            Detail::window_error("SDL3 operation rejected destroyed window: operation='{}'", operation);
+            Foundation::log_error("SDL3 operation rejected destroyed window: operation='{}'", operation);
             return unexpected(destroyed_window_error());
         }
 
         expected<SDL_WindowID, WindowError> live_window_id(SDL_Window *window, const char *operation) noexcept {
             if (!window) [[unlikely]] {
-                Detail::window_error("SDL3 operation rejected destroyed window id query: operation='{}'", operation);
+                Foundation::log_error("SDL3 operation rejected destroyed window id query: operation='{}'", operation);
                 return unexpected(destroyed_window_error());
             }
 
@@ -180,7 +179,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (window_) [[likely]] {
             const SDL_WindowID id = SDL_GetWindowID(window_);
             sdl_window_registry().erase(id);
-            Detail::window_info("Closing window via SDL3");
+            Foundation::log_info("Closing window via SDL3");
             SDL_DestroyWindow(window_);
             window_ = nullptr;
 
@@ -208,14 +207,14 @@ namespace SFT::Platform::Windowing::SDL3 {
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         const lock_guard lock(sdl_window_mutex());
 
-        Detail::window_info("Opening window '{}' ({}x{}) via SDL3 [{}]",
+        Foundation::log_info("Opening window '{}' ({}x{}) via SDL3 [{}]",
                             config.title ? config.title : "<null>",
                             config.extent.x,
                             config.extent.y,
                             graphics_api_name(config.graphics_api));
 
         if (!config.title || !valid_extent(config.extent)) [[unlikely]] {
-            Detail::window_error(
+            Foundation::log_error(
                 "SDL3 window create rejected invalid config: title_ptr={} size={}x{}",
                 static_cast<const void *>(config.title),
                 config.extent.x,
@@ -225,7 +224,7 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
-            Detail::window_error("SDL3 video subsystem init failed: message='{}'", error.message);
+            Foundation::log_error("SDL3 video subsystem init failed: message='{}'", error.message);
             return unexpected(error);
         }
 
@@ -238,7 +237,7 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         if (!window) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::CreationFailed, "SDL3 window creation failed.");
-            Detail::window_error(
+            Foundation::log_error(
                 "SDL3_CreateWindow failed: title='{}' size={}x{} flags={} message='{}'",
                 config.title,
                 config.extent.x,
@@ -250,7 +249,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (!config.use_default_position) [[unlikely]] {
             if (!SDL_SetWindowPosition(window, config.position.x, config.position.y)) [[unlikely]] {
                 const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 window positioning failed.");
-                Detail::window_error(
+                Foundation::log_error(
                     "SDL3 initial window position failed: ptr={} x={} y={} message='{}'",
                     static_cast<void *>(window),
                     config.position.x,
@@ -270,7 +269,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             ++sdl_window_count();
             return wrapper;
         } catch (const bad_alloc &) {
-            Detail::window_error("SDL3 window wrapper allocation failed: native_ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));
+            Foundation::log_error("SDL3 window wrapper allocation failed: native_ptr={} id={}", static_cast<void *>(window), SDL_GetWindowID(window));
             if (raw_wrapper) {
                 delete raw_wrapper;
             } else {
@@ -291,7 +290,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     expected<void *, WindowError> SDL3Window::native_backend_handle() const noexcept {
         const lock_guard lock(sdl_window_mutex());
         if (!window_) [[unlikely]] {
-            Detail::window_error("SDL3 native backend handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
+            Foundation::log_error("SDL3 native backend handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
             return unexpected(destroyed_window_error());
         }
 
@@ -301,7 +300,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     expected<NativeWindowHandle, WindowError> SDL3Window::native_window_handle() const noexcept {
         const lock_guard lock(sdl_window_mutex());
         if (!window_) [[unlikely]] {
-            Detail::window_error("SDL3 native window handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
+            Foundation::log_error("SDL3 native window handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
             return unexpected(destroyed_window_error());
         }
 
@@ -310,7 +309,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(handle.error());
         }
 
-        Detail::window_debug(
+        Foundation::log_debug(
             "SDL3 native window handle queried: wrapper={} native_ptr={} system={} display={} window={}",
             static_cast<const void *>(this),
             static_cast<void *>(window_),
@@ -340,20 +339,20 @@ namespace SFT::Platform::Windowing::SDL3 {
                     if (registered_window) [[likely]] {
                         registered_window->close_requested_.store(true);
                         registered_window->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
-                        Detail::window_warn("SDL3 global quit routed to window: target_wrapper={} target_id={}", static_cast<void *>(registered_window), registered_id);
+                        Foundation::log_warn("SDL3 global quit routed to window: target_wrapper={} target_id={}", static_cast<void *>(registered_window), registered_id);
                     }
                 }
                 ++close_event_count;
-                Detail::window_warn("SDL3 global quit event observed while pumping window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), window_id);
+                Foundation::log_warn("SDL3 global quit event observed while pumping window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), window_id);
             } else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     found->second->close_requested_.store(true);
                     found->second->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
                     ++close_event_count;
                     ++queued_event_count;
-                    Detail::window_warn("SDL3 close requested event routed: pump_wrapper={} target_wrapper={} target_id={}", static_cast<void *>(this), static_cast<void *>(found->second), event.window.windowID);
+                    Foundation::log_warn("SDL3 close requested event routed: pump_wrapper={} target_wrapper={} target_id={}", static_cast<void *>(this), static_cast<void *>(found->second), event.window.windowID);
                 } else [[unlikely]] {
-                    Detail::window_warn("SDL3 close requested event had no registered window: pump_wrapper={} target_id={}", static_cast<void *>(this), event.window.windowID);
+                    Foundation::log_warn("SDL3 close requested event had no registered window: pump_wrapper={} target_id={}", static_cast<void *>(this), event.window.windowID);
                 }
             } else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
@@ -414,7 +413,8 @@ namespace SFT::Platform::Windowing::SDL3 {
                 if (auto found = sdl_window_registry().find(event.text.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::TextInput};
                     if (event.text.text) [[likely]] {
-                        strncpy(window_event.text.utf8, event.text.text, sizeof(window_event.text.utf8) - 1);
+                        const usize copy_size = SDL_strnlen(event.text.text, sizeof(window_event.text.utf8) - 1);
+                        memcpy(window_event.text.utf8, event.text.text, copy_size);
                     }
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
@@ -449,7 +449,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
-        Detail::window_trace(
+        Foundation::log_trace(
             "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} queued_events={} close_events={} close_requested={}",
             static_cast<void *>(this),
             static_cast<void *>(window_),
@@ -481,7 +481,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         close_requested_.store(true);
         const SDL_WindowID id = window_ ? SDL_GetWindowID(window_) : 0;
         events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
-        Detail::window_warn("SDL3 close requested by engine: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), id);
+        Foundation::log_warn("SDL3 close requested by engine: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), id);
     }
 
     bool SDL3Window::resized() const noexcept {
@@ -501,7 +501,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "show"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 show window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 show window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_ShowWindow(window_), WindowErrorCode::OperationFailed, "SDL3 show window failed.");
     }
 
@@ -510,7 +510,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "hide"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 hide window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 hide window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_HideWindow(window_), WindowErrorCode::OperationFailed, "SDL3 hide window failed.");
     }
 
@@ -519,7 +519,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "focus"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 focus window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 focus window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_RaiseWindow(window_), WindowErrorCode::OperationFailed, "SDL3 focus window failed.");
     }
 
@@ -528,7 +528,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "raise"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 raise window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 raise window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_RaiseWindow(window_), WindowErrorCode::OperationFailed, "SDL3 raise window failed.");
     }
 
@@ -537,7 +537,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "maximize"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 maximize window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 maximize window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_MaximizeWindow(window_), WindowErrorCode::OperationFailed, "SDL3 maximize window failed.");
     }
 
@@ -546,7 +546,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "minimize"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 minimize window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 minimize window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_MinimizeWindow(window_), WindowErrorCode::OperationFailed, "SDL3 minimize window failed.");
     }
 
@@ -555,7 +555,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "restore"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 restore window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+        Foundation::log_debug("SDL3 restore window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
         return sdl_bool_result(SDL_RestoreWindow(window_), WindowErrorCode::OperationFailed, "SDL3 restore window failed.");
     }
 
@@ -565,7 +565,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         if (!title) [[unlikely]] {
-            Detail::window_error("SDL3 set title rejected null title: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
+            Foundation::log_error("SDL3 set title rejected null title: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window title cannot be null."});
         }
 
@@ -582,11 +582,11 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         if (!SDL_GetWindowPosition(window_, &x, &y)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window position failed.");
-            Detail::window_error("SDL3 get position failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
+            Foundation::log_error("SDL3 get position failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
             return unexpected(error);
         }
 
-        Detail::window_trace("SDL3 get position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), x, y);
+        Foundation::log_trace("SDL3 get position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), x, y);
         return WindowPosition{x, y};
     }
 
@@ -595,7 +595,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_position"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), position.x, position.y);
+        Foundation::log_debug("SDL3 set position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), position.x, position.y);
         return sdl_bool_result(SDL_SetWindowPosition(window_, position.x, position.y), WindowErrorCode::OperationFailed, "SDL3 set position failed.");
     }
 
@@ -609,11 +609,11 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         if (!SDL_GetWindowSize(window_, &width, &height)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get window size failed.");
-            Detail::window_error("SDL3 get size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
+            Foundation::log_error("SDL3 get size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
             return unexpected(error);
         }
 
-        Detail::window_trace("SDL3 get size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
+        Foundation::log_trace("SDL3 get size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
         return WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
     }
 
@@ -623,11 +623,11 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         if (!valid_extent(extent)) [[unlikely]] {
-            Detail::window_error("SDL3 set size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+            Foundation::log_error("SDL3 set size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window size must be positive and fit in an i32."});
         }
 
-        Detail::window_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        Foundation::log_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
         return sdl_bool_result(
             SDL_SetWindowSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
             WindowErrorCode::OperationFailed,
@@ -644,11 +644,11 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         if (!SDL_GetWindowSizeInPixels(window_, &width, &height)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get framebuffer size failed.");
-            Detail::window_error("SDL3 get framebuffer size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
+            Foundation::log_error("SDL3 get framebuffer size failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
             return unexpected(error);
         }
 
-        Detail::window_trace("SDL3 get framebuffer size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
+        Foundation::log_trace("SDL3 get framebuffer size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), width, height);
         return WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
     }
 
@@ -658,11 +658,11 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         if (!valid_extent(extent)) [[unlikely]] {
-            Detail::window_error("SDL3 set minimum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+            Foundation::log_error("SDL3 set minimum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Minimum size must be positive and fit in an i32."});
         }
 
-        Detail::window_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        Foundation::log_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
         return sdl_bool_result(
             SDL_SetWindowMinimumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
             WindowErrorCode::OperationFailed,
@@ -675,11 +675,11 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         if (!valid_extent(extent)) [[unlikely]] {
-            Detail::window_error("SDL3 set maximum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+            Foundation::log_error("SDL3 set maximum size rejected invalid extent: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Maximum size must be positive and fit in an i32."});
         }
 
-        Detail::window_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        Foundation::log_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
         return sdl_bool_result(
             SDL_SetWindowMaximumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
             WindowErrorCode::OperationFailed,
@@ -691,7 +691,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_resizable"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set resizable: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
+        Foundation::log_debug("SDL3 set resizable: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
         return sdl_bool_result(SDL_SetWindowResizable(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set resizable failed.");
     }
 
@@ -700,7 +700,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_decorated"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set decorated: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
+        Foundation::log_debug("SDL3 set decorated: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
         return sdl_bool_result(SDL_SetWindowBordered(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set decorations failed.");
     }
 
@@ -709,7 +709,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_fullscreen"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
+        Foundation::log_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
         return sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed), WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
     }
 
@@ -719,10 +719,10 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         if (opacity < 0.0F || opacity > 1.0F) [[unlikely]] {
-            Detail::window_error("SDL3 set opacity rejected invalid opacity: wrapper={} native_ptr={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), opacity);
+            Foundation::log_error("SDL3 set opacity rejected invalid opacity: wrapper={} native_ptr={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), opacity);
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window opacity must be between 0.0 and 1.0."});
         }
-        Detail::window_debug("SDL3 set opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), opacity);
+        Foundation::log_debug("SDL3 set opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), opacity);
         return sdl_bool_result(SDL_SetWindowOpacity(window_, opacity), WindowErrorCode::OperationFailed, "SDL3 set opacity failed.");
     }
 
@@ -734,11 +734,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         const f32 result = SDL_GetWindowOpacity(window_);
         if (result < 0.0F) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get opacity failed.");
-            Detail::window_error("SDL3 get opacity failed: wrapper={} native_ptr={} id={} result={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result, error.message);
+            Foundation::log_error("SDL3 get opacity failed: wrapper={} native_ptr={} id={} result={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result, error.message);
             return unexpected(error);
         }
 
-        Detail::window_trace("SDL3 get opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result);
+        Foundation::log_trace("SDL3 get opacity: wrapper={} native_ptr={} id={} opacity={}", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), result);
         return result;
     }
 
@@ -747,7 +747,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_cursor_visible"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set cursor visible: wrapper={} native_ptr={} id={} visible={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), visible);
+        Foundation::log_debug("SDL3 set cursor visible: wrapper={} native_ptr={} id={} visible={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), visible);
         return sdl_bool_result(visible ? SDL_ShowCursor() : SDL_HideCursor(), WindowErrorCode::OperationFailed, "SDL3 set cursor visibility failed.");
     }
 
@@ -756,7 +756,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_cursor_grabbed"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set cursor grabbed: wrapper={} native_ptr={} id={} grabbed={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), grabbed);
+        Foundation::log_debug("SDL3 set cursor grabbed: wrapper={} native_ptr={} id={} grabbed={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), grabbed);
         return sdl_bool_result(SDL_SetWindowMouseGrab(window_, grabbed), WindowErrorCode::OperationFailed, "SDL3 set cursor grab failed.");
     }
 
@@ -765,7 +765,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_relative_mouse_mode"); !live) [[unlikely]] {
             return live;
         }
-        Detail::window_debug("SDL3 set relative mouse mode: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
+        Foundation::log_debug("SDL3 set relative mouse mode: wrapper={} native_ptr={} id={} enabled={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), enabled);
         return sdl_bool_result(SDL_SetWindowRelativeMouseMode(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set relative mouse mode failed.");
     }
 
@@ -775,7 +775,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
 
-        Detail::window_debug("SDL3 set mouse locked: wrapper={} native_ptr={} id={} locked={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), locked);
+        Foundation::log_debug("SDL3 set mouse locked: wrapper={} native_ptr={} id={} locked={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), locked);
         if (auto result = sdl_bool_result(SDL_SetWindowMouseGrab(window_, locked), WindowErrorCode::OperationFailed, "SDL3 set mouse grab failed."); !result) [[unlikely]] {
             return result;
         }
@@ -799,10 +799,10 @@ namespace SFT::Platform::Windowing::SDL3 {
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
         const lock_guard lock(sdl_window_mutex());
         if (!window_) [[unlikely]] {
-            Detail::window_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void *>(this), static_cast<i32>(effect.kind));
+            Foundation::log_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void *>(this), static_cast<i32>(effect.kind));
             return WindowEffectResult::failed("SDL3 window has already been destroyed.");
         }
-        Detail::window_info(
+        Foundation::log_info(
             "SDL3 enable native window effect: wrapper={} native_ptr={} id={} kind={} enabled={} color_argb=0x{:08X} linux_blur_protocol={}",
             static_cast<void *>(this),
             static_cast<void *>(window_),

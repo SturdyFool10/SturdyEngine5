@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("debug", "relwithdebinfo", "dist")]
+    [ValidateSet("debug", "relwithdebinfo", "release", "dist")]
     [string]$Profile
 )
 
@@ -17,6 +17,11 @@ $profiles = @{
         Configure = "ninja-relwithdebinfo"
         Build = "runtime-relwithdebinfo"
         Runtime = "build/ninja/relwithdebinfo/bin/Runtime.exe"
+    }
+    release = @{
+        Configure = "ninja-release"
+        Build = "runtime-release"
+        Runtime = "build/ninja/release/bin/Runtime.exe"
     }
     dist = @{
         Configure = "ninja-dist"

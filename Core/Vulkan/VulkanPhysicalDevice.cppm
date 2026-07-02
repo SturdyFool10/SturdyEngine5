@@ -15,7 +15,6 @@ import :RendererError;
 import :VulkanHelpers;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::nullopt;

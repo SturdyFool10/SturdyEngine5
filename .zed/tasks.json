@@ -285,6 +285,53 @@
     "allow_concurrent_runs": false
   },
   {
+    "label": "Compile Runtime (Release)",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=release",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Release, Linux)",
+    "command": "cmake",
+    "args": [
+      "-DSTURDY_RUNTIME_PROFILE=release",
+      "-DSTURDY_RUNTIME_RUN=ON",
+      "-P",
+      ".zed/cmake_runtime.cmake"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Run Runtime (Release, Windows .exe)",
+    "command": "powershell",
+    "args": [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      ".zed/cmake_runtime.ps1",
+      "-Profile",
+      "release"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
     "label": "Build All (Native, All Profiles)",
     "command": "cmake",
     "args": [

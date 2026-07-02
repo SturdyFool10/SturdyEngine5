@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Configures and builds every native (host-OS) profile in sequence: Debug,
-# RelWithDebInfo, Dist. Uses the ninja-* presets (not the cross-platform
+# RelWithDebInfo, Release, Dist. Uses the ninja-* presets (not the cross-platform
 # "view-as" ones), so this always targets whatever toolchain is installed
 # on the machine running it — no OS-specific branching needed.
 
 get_filename_component(_script_dir "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
 get_filename_component(_root "${_script_dir}/.." ABSOLUTE)
 
-set(_configure_presets ninja-debug          ninja-relwithdebinfo          ninja-dist)
-set(_build_presets     runtime-debug        runtime-relwithdebinfo        runtime-dist)
+set(_configure_presets ninja-debug          ninja-relwithdebinfo          ninja-release          ninja-dist)
+set(_build_presets     runtime-debug        runtime-relwithdebinfo        runtime-release        runtime-dist)
 
 list(LENGTH _configure_presets _count)
 math(EXPR _last_index "${_count} - 1")

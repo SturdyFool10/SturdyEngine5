@@ -6,7 +6,6 @@ export module Sturdy.Core:VulkanSync;
 import :RendererError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;

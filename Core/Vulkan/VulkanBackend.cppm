@@ -2,7 +2,6 @@ module;
 #include <optional>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
 #include <vulkan/vulkan_core.h>
 
 export module Sturdy.Core:VulkanBackend;
@@ -30,7 +29,6 @@ using SFT::Platform::Windowing::WindowId;
 using std::optional;
 using std::string_view;
 using std::unordered_map;
-using std::vector;
 
 export namespace SFT::Core::Vulkan {
 

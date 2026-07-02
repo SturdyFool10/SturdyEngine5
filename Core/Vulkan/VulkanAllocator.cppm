@@ -24,8 +24,6 @@ import :RendererError;
 import :VulkanImage;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 
 export namespace SFT::Core::Vulkan {

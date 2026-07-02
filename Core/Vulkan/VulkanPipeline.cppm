@@ -8,7 +8,6 @@ export module Sturdy.Core:VulkanPipeline;
 import :RendererError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::span;

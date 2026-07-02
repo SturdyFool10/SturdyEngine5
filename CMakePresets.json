@@ -22,6 +22,16 @@
       }
     },
     {
+      "name": "ninja-release",
+      "displayName": "Ninja Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ninja/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
       "name": "ninja-dist",
       "displayName": "Ninja Dist",
       "generator": "Ninja",
@@ -145,6 +155,12 @@
       "targets": ["Runtime"]
     },
     {
+      "name": "runtime-release",
+      "displayName": "Runtime Release",
+      "configurePreset": "ninja-release",
+      "targets": ["Runtime"]
+    },
+    {
       "name": "runtime-dist",
       "displayName": "Runtime Dist",
       "configurePreset": "ninja-dist",
@@ -160,6 +176,12 @@
       "name": "run-runtime-relwithdebinfo",
       "displayName": "Run Runtime RelWithDebInfo",
       "configurePreset": "ninja-relwithdebinfo",
+      "targets": ["run_Runtime"]
+    },
+    {
+      "name": "run-runtime-release",
+      "displayName": "Run Runtime Release",
+      "configurePreset": "ninja-release",
       "targets": ["run_Runtime"]
     },
     {

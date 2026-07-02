@@ -13,7 +13,6 @@ import :RendererError;
 import :VulkanQueue;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;

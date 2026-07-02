@@ -15,7 +15,6 @@ import :ShaderReflection;
 import :ShaderTypes;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::shared_ptr;

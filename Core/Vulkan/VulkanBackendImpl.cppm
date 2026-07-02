@@ -29,9 +29,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
-#include <cmath>
 // SDL3 and GLFW surface helpers — included after volk so VkInstance/VkSurfaceKHR are already
 // defined. GLFW gates glfwCreateWindowSurface behind #if defined(VK_VERSION_1_0) which volk sets;
 // we don't define GLFW_INCLUDE_VULKAN to avoid a double-include of vulkan.h.
@@ -63,18 +61,14 @@ import :ShaderDiscovery;
 import Sturdy.Foundation;
 import Sturdy.Platform;
 
-using SFT::Platform::Windowing::NativeWindowSystem;
 using SFT::Platform::Windowing::Window;
-using SFT::Platform::Windowing::WindowBackendKind;
 using SFT::Platform::Windowing::WindowId;
 using std::bad_alloc;
-using std::floor;
 using std::format;
 using std::make_shared;
 using std::nullopt;
 using std::numeric_limits;
 using std::optional;
-using std::shared_ptr;
 using std::span;
 using std::string;
 using std::string_view;

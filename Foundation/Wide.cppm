@@ -809,10 +809,17 @@ export namespace SFT::Foundation {
 } // namespace SFT::Foundation
 
 export namespace SFT {
-    using Foundation::f128;
-    using Foundation::f256;
-    using Foundation::i128;
-    using Foundation::i256;
-    using Foundation::u128;
-    using Foundation::u256;
+    using f128 = Foundation::f128;
+    using f256 = Foundation::f256;
+    using i128 = Foundation::i128;
+    using i256 = Foundation::i256;
+    using u128 = Foundation::u128;
+    using u256 = Foundation::u256;
+
+    static_assert(sizeof(f128) == sizeof(Foundation::f128));
+    static_assert(sizeof(f256) == sizeof(Foundation::f256));
+    static_assert(sizeof(i128) == sizeof(Foundation::i128));
+    static_assert(sizeof(i256) == sizeof(Foundation::i256));
+    static_assert(sizeof(u128) == sizeof(Foundation::u128));
+    static_assert(sizeof(u256) == sizeof(Foundation::u256));
 } // namespace SFT

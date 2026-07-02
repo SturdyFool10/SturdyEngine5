@@ -146,7 +146,7 @@ export namespace SFT::Foundation {
 
 export namespace SFT {
 
-    using Foundation::b8;
+    using b8 = Foundation::b8;
     using Foundation::byte;
     using Foundation::f32;
     using Foundation::f64;
@@ -160,5 +160,7 @@ export namespace SFT {
     using Foundation::u64;
     using Foundation::u8;
     using Foundation::usize;
+
+    static_assert(sizeof(b8) == 1);
 
 } // namespace SFT

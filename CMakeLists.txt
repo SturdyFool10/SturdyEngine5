@@ -25,6 +25,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)
 option(STURDY_BUILD_SHARED_LIBS "Build SturdyEngine targets as shared libraries." OFF)
 option(STURDY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for SturdyEngine targets." OFF)
+# Force the Windows GUI (WinMain, no console) entry point in every configuration. When OFF, WinMain
+# is used only for Windows Dist builds; Debug/RelWithDebInfo/Release keep the console main().
+option(SFT_USE_WINMAIN "Always use the Windows WinMain entry point, regardless of build type." OFF)
 
 if(NOT STURDY_BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build third-party dependencies as shared libraries." FORCE)

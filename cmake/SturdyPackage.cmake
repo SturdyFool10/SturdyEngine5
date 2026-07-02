@@ -263,6 +263,12 @@ function(sturdy_configure_package_target target_name)
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEFINES}
             "$<$<CONFIG:Debug>:DEBUG>"
+            # DIST marks a shipping build (Release-optimized, no console). It is defined ONLY for the
+            # Dist configuration — a plain Release build is optimized but keeps DIST undefined, so it
+            # still gets the console main(). On Windows this gates the WinMain entry point.
+            "$<$<CONFIG:Dist>:DIST>"
+            # Forces the Windows GUI (WinMain) entry point regardless of configuration.
+            "$<$<BOOL:${SFT_USE_WINMAIN}>:SFT_USE_WINMAIN>"
         ${_private_scope}
             ${STURDY_TARGET_PRIVATE_DEFINES}
     )
