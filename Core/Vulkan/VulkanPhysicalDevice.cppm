@@ -3,7 +3,9 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <format>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -18,6 +20,7 @@ using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::nullopt;
 using std::optional;
+using std::string;
 using std::string_view;
 using std::vector;
 
@@ -72,6 +75,27 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] const vector<VkQueueFamilyProperties> &queue_families() const noexcept { return queue_families_; }
         [[nodiscard]] string_view name() const noexcept { return properties_.deviceName; }
         [[nodiscard]] const char *type_name() const noexcept { return physical_device_type_name(properties_.deviceType); }
+
+        // PCI vendor ID and its readable name (AMD / NVIDIA / Intel / ...).
+        [[nodiscard]] u32 vendor_id() const noexcept { return properties_.vendorID; }
+        [[nodiscard]] const char *vendor_name() const noexcept { return Vulkan::vendor_name(properties_.vendorID); }
+        [[nodiscard]] u32 device_id() const noexcept { return properties_.deviceID; }
+
+        // Raw, vendor-encoded driver version, plus a decoded human-readable form. The raw value's
+        // bit layout differs per vendor — use driver_version_string() for anything user-facing.
+        [[nodiscard]] u32 driver_version() const noexcept { return properties_.driverVersion; }
+        [[nodiscard]] string driver_version_string() const {
+            return format_driver_version(properties_.vendorID, properties_.driverVersion);
+        }
+
+        // The Vulkan API version this device supports (standard VK_API_VERSION_* layout).
+        [[nodiscard]] u32 api_version() const noexcept { return properties_.apiVersion; }
+        [[nodiscard]] string api_version_string() const {
+            return std::format("{}.{}.{}",
+                               VK_API_VERSION_MAJOR(properties_.apiVersion),
+                               VK_API_VERSION_MINOR(properties_.apiVersion),
+                               VK_API_VERSION_PATCH(properties_.apiVersion));
+        }
 
         // Nanoseconds per GPU timestamp tick — multiply raw tick deltas by this value.
         [[nodiscard]] f32 timestamp_period() const noexcept {

@@ -25,6 +25,7 @@ module;
 #include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -70,7 +71,9 @@ using std::bad_alloc;
 using std::floor;
 using std::format;
 using std::make_shared;
+using std::nullopt;
 using std::numeric_limits;
+using std::optional;
 using std::shared_ptr;
 using std::span;
 using std::string;
@@ -144,6 +147,23 @@ namespace SFT::Core::Vulkan {
         return capabilities_;
     }
 
+    optional<GpuInfo> VulkanBackend::gpu_info() const {
+        // Translate the cached VkPhysicalDeviceProperties into the API-agnostic GpuInfo. Everything
+        // here is already decoded to strings/ints by VulkanPhysicalDevice, so no Vulkan types leak.
+        if (!physicalDevice.is_valid()) {
+            return nullopt; // No device selected yet (before a successful initialize()).
+        }
+        GpuInfo info{};
+        info.name = string{physicalDevice.name()};
+        info.vendor = physicalDevice.vendor_name();
+        info.driver_version = physicalDevice.driver_version_string();
+        info.api_version = physicalDevice.api_version_string();
+        info.device_type = physicalDevice.type_name();
+        info.vendor_id = physicalDevice.vendor_id();
+        info.device_id = physicalDevice.device_id();
+        return info;
+    }
+
     VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) noexcept {
         if (!handle.is_valid()) {
             return nullptr;
@@ -166,19 +186,11 @@ namespace SFT::Core::Vulkan {
         }
     }
 
-    void VulkanBackend::destroyFrameResources() noexcept {
-        for (FrameResources &resources : frameResources_) {
-            resources.destroy();
-        }
-        frameResources_.clear();
-        frameTimelineSemaphore.destroy();
-    }
-
     void VulkanBackend::destroyVulkanResources() noexcept {
         wait_idle();
+        // destroy_all_surfaces() also tears down each surface's per-frame sync/command resources.
         destroy_all_surfaces();
         shader_modules_.clear();
-        destroyFrameResources();
         graphicsPipeline.destroy();
         pipelinelayout.destroy();
         vmaAllocator.destroy();
@@ -247,6 +259,10 @@ namespace SFT::Core::Vulkan {
         (void)frame;
 
         VulkanSurface *s = surface_slot(surface);
+        if (!s || !s->has_frame_resources()) [[unlikely]] {
+            // Unknown/removed window, or a surface that never had its frame resources built.
+            return {};
+        }
         s->refresh_extent();
         if (s->swapchain_dirty() and not s->extent().is_zero()) [[unlikely]] {
             wait_idle();
@@ -258,12 +274,11 @@ namespace SFT::Core::Vulkan {
             s->clear_dirty();
         }
 
-        u32 frameResIndex = FrameIndex++ % MaxFramesInFlight;
-        const u64 signalValue = this->nextSignalValue++;
-        const u64 waitValue = signalValue - MaxFramesInFlight;
-        auto _ = this->frameTimelineSemaphore.wait(waitValue, std::numeric_limits<u64>::max());
+        // Frame pacing is per-surface, so each window throttles and records independently.
+        const auto ticket = s->begin_frame();
+        auto _ = s->frame_timeline().wait(ticket.wait_value, std::numeric_limits<u64>::max());
 
-        FrameResources& res = this->frameResources_[frameResIndex];
+        FrameResources& res = *ticket.resources;
         auto _poolReset = res.commandPool.reset(0);
 
         auto& AcquireSem = res.imageAcquiredSemaphore;
@@ -320,7 +335,7 @@ namespace SFT::Core::Vulkan {
             // render work completion signal
             s->swapchain().render_finished_semaphores()[imageIndex].submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT),
             // entire frame is completed (timeline)
-            this->frameTimelineSemaphore.submit_info(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, signalValue),
+            s->frame_timeline().submit_info(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, ticket.signal_value),
         };
 
         if (auto submitRes = this->gfxQueue.submit(
@@ -359,10 +374,11 @@ namespace SFT::Core::Vulkan {
 
         for (auto &candidate : *devices_result) {
             f64 s = candidate.score();
-            Foundation::log_info("Found GPU: {} ({}) ID={} score={:.1f}",
+            Foundation::log_info("Found GPU: {} [{}] ({}) ID={} score={:.1f}",
                                  candidate.name(),
+                                 candidate.vendor_name(),
                                  candidate.type_name(),
-                                 candidate.properties().deviceID,
+                                 candidate.device_id(),
                                  s);
             if (s > max_score) {
                 max_score = s;
@@ -371,7 +387,11 @@ namespace SFT::Core::Vulkan {
         }
 
         physicalDevice = std::move(*best);
-        Foundation::log_info("Selected GPU: {}", physicalDevice.name());
+        Foundation::log_info("Selected GPU: {} [{}] driver={} Vulkan API={}",
+                             physicalDevice.name(),
+                             physicalDevice.vendor_name(),
+                             physicalDevice.driver_version_string(),
+                             physicalDevice.api_version_string());
 
         // make sure we support the swapchain format we plan to use
         auto surface_formats_result = this->physicalDevice.surface_formats(primary_surface);
@@ -900,8 +920,11 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
-    RendererResult VulkanBackend::createSyncResources(const RendererCreateInfo &init) {
-        const u32 frame_count = sanitize_frames_in_flight(init.features.desired_frames_in_flight);
+    RendererResult VulkanBackend::createSurfaceFrameResources(VulkanSurface &surface) {
+        const u32 frame_count = surface.frames_in_flight();
+        // Seed the timeline at frame_count so the first frame_count frames wait on already-signalled
+        // values and never block; each frame's submission then signals the next value up (see
+        // VulkanSurface::begin_frame / set_frame_resources).
         const u64 initial_timeline_value = frame_count;
 
         auto timeline_result = VulkanSemaphore::create_timeline(this->logicalDevice.vk_handle(), initial_timeline_value);
@@ -910,8 +933,10 @@ namespace SFT::Core::Vulkan {
                                   format("Failed to create frame timeline semaphore: {}", timeline_result.error().message));
         }
 
-        vector<FrameResources> frameResources;
-        frameResources.reserve(frame_count);
+        // Partially built frames clean themselves up: FrameResources' members are RAII wrappers, so
+        // an early return destroys the vector and releases whatever was created so far.
+        vector<FrameResources> frames;
+        frames.reserve(frame_count);
         for (u32 frame_index = 0; frame_index < frame_count; ++frame_index) {
             FrameResources resources{};
 
@@ -922,59 +947,39 @@ namespace SFT::Core::Vulkan {
                                              frame_index,
                                              image_acquired_result.error().message));
             }
-
             resources.imageAcquiredSemaphore = std::move(*image_acquired_result);
-            frameResources.push_back(std::move(resources));
-        }
 
-        this->destroyFrameResources();
-        this->frameTimelineSemaphore = std::move(*timeline_result);
-        this->frameResources_ = std::move(frameResources);
-        this->MaxFramesInFlight = frame_count;
-        this->FrameIndex = 0;
-        this->nextSignalValue = initial_timeline_value + 1;
-
-        Foundation::log_info("Vulkan frame sync resources created: frames={} timeline_initial={}",
-                             frame_count,
-                             initial_timeline_value);
-        return {};
-    }
-
-    RendererResult VulkanBackend::createCommandBuffers(const RendererCreateInfo &init) {
-        (void)init;
-        auto destroy_command_resources = [this]() noexcept {
-            for (FrameResources &resources : this->frameResources_) {
-                resources.destroyCommandResources();
-            }
-        };
-
-        destroy_command_resources();
-        for (FrameResources &resources : this->frameResources_) {
             // Each frame gets its own pool for faster resets.
             auto command_pool_result = VulkanCommandPool::create(
                 this->logicalDevice.vk_handle(),
                 this->gfxQueue.family_index());
             if (!command_pool_result.has_value()) [[unlikely]] {
-                destroy_command_resources();
                 return renderer_error(command_pool_result.error().code,
-                                      format("Failed to create graphics command pool: {}",
+                                      format("Failed to create graphics command pool for frame {}: {}",
+                                             frame_index,
                                              command_pool_result.error().message));
             }
-            auto command_pool = std::move(*command_pool_result);
+            resources.commandPool = std::move(*command_pool_result);
 
             auto command_buffer_result = VulkanCommandBuffer::allocate(
                 this->logicalDevice.vk_handle(),
-                command_pool.vk_handle());
+                resources.commandPool.vk_handle());
             if (!command_buffer_result.has_value()) [[unlikely]] {
-                destroy_command_resources();
                 return renderer_error(command_buffer_result.error().code,
-                                      format("Failed to create graphics command buffer: {}",
+                                      format("Failed to create graphics command buffer for frame {}: {}",
+                                             frame_index,
                                              command_buffer_result.error().message));
             }
-
-            resources.commandPool = std::move(command_pool);
             resources.commandBuffer = std::move(*command_buffer_result);
+
+            frames.push_back(std::move(resources));
         }
+
+        surface.set_frame_resources(std::move(frames), std::move(*timeline_result), initial_timeline_value + 1);
+
+        Foundation::log_info("Vulkan surface frame resources created: frames={} timeline_initial={}",
+                             frame_count,
+                             initial_timeline_value);
         return {};
     }
 
@@ -1193,14 +1198,12 @@ namespace SFT::Core::Vulkan {
                                   format("Failed to create graphics pipeline: {}", result.error().message));
         }
 
-        if (auto result = this->createSyncResources(init); !result.has_value()) [[unlikely]] {
+        // Re-resolve once more before building the primary surface's frame resources — the calls
+        // above (shaders/pipeline) don't touch surfaces_, but this keeps the pointer provably valid.
+        primary = surface_slot(*surface);
+        if (auto result = this->createSurfaceFrameResources(*primary); !result.has_value()) [[unlikely]] {
             return renderer_error(result.error().code,
-                                  format("Failed to create sync resources: {}", result.error().message));
-        }
-
-        if (auto result = this->createCommandBuffers(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create command buffers: {}", result.error().message));
+                                  format("Failed to create frame resources: {}", result.error().message));
         }
 
         return surface;
@@ -1251,6 +1254,14 @@ namespace SFT::Core::Vulkan {
             destroy_window_surface(*surface);
             return unexpected(RendererError{result.error().code,
                                             format("Failed to create swapchain for added window: {}", result.error().message)});
+        }
+
+        // Each window owns its frame pacing, so an added window needs its own set — this is what
+        // lets render_frame() drive multiple windows independently in the same loop iteration.
+        if (auto result = this->createSurfaceFrameResources(*added); !result.has_value()) [[unlikely]] {
+            destroy_window_surface(*surface);
+            return unexpected(RendererError{result.error().code,
+                                            format("Failed to create frame resources for added window: {}", result.error().message)});
         }
 
         return surface;

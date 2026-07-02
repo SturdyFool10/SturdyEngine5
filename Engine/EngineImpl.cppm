@@ -2,6 +2,7 @@ module;
 
 #include <expected>
 #include <format>
+#include <optional>
 #include <utility>
 
 export module Sturdy.Engine:EngineImpl;
@@ -102,6 +103,13 @@ namespace SFT::Engine {
         if (renderer_backend_) {
             renderer_backend_->wait_idle();
         }
+    }
+
+    std::optional<Core::GpuInfo> Engine::gpu_info() const {
+        if (!renderer_backend_) {
+            return std::nullopt;
+        }
+        return renderer_backend_->gpu_info();
     }
 
 } // namespace SFT::Engine

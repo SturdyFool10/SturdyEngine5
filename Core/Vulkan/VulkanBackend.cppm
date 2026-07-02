@@ -1,4 +1,5 @@
 module;
+#include <optional>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +27,7 @@ import Sturdy.Platform;
 
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;
+using std::optional;
 using std::string_view;
 using std::unordered_map;
 using std::vector;
@@ -45,6 +47,7 @@ export namespace SFT::Core::Vulkan {
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
         void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept override;
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
+        [[nodiscard]] optional<GpuInfo> gpu_info() const override;
         RendererResult render_frame(RenderSurfaceHandle surface, const FrameInput &frame) override;
         void wait_idle() noexcept override;
         // end EngineBackend Compliance Functions
@@ -65,8 +68,11 @@ export namespace SFT::Core::Vulkan {
         RendererResult initializeVMA(const RendererCreateInfo &init);
         RendererResult createShaders(const RendererCreateInfo &init);
         RendererResult createGraphicsPipeline(const RendererCreateInfo &init);
-        RendererResult createSyncResources(const RendererCreateInfo &init);
-        RendererResult createCommandBuffers(const RendererCreateInfo &init);
+        // Builds the per-surface frame-pacing resources (timeline semaphore + one command
+        // pool/buffer/image-acquired-semaphore per frame in flight) and installs them on the
+        // surface. Run once per window — for the primary during initVulkan(), and for every
+        // window added later via create_window_surface().
+        RendererResult createSurfaceFrameResources(VulkanSurface &surface);
 
       private:
         friend class ::SFT::Core::EngineBackend;
@@ -79,23 +85,6 @@ export namespace SFT::Core::Vulkan {
             u32 desired_frames_in_flight = 2;
         };
 
-        struct FrameResources {
-            VulkanSemaphore imageAcquiredSemaphore;
-            VulkanCommandPool commandPool;
-            VulkanCommandBuffer commandBuffer;
-
-            void destroyCommandResources() noexcept {
-                commandBuffer.destroy();
-                commandPool.destroy();
-            }
-
-            void destroy() noexcept {
-                destroyCommandResources();
-                imageAcquiredSemaphore.destroy();
-            }
-        };
-
-        void destroyFrameResources() noexcept;
         void destroyVulkanResources() noexcept;
         [[nodiscard]] RendererExpected<SurfaceCreateInfo> surface_create_info_from_window(Window &window,
                                                                                           u32 desired_frames_in_flight) const;
@@ -128,14 +117,11 @@ export namespace SFT::Core::Vulkan {
         VulkanQueue gfxQueue;
         VulkanAllocator vmaAllocator;
         // Device-owned resources built during initialization. Destroyed in ~VulkanBackend before
-        // the logical device, same as the shader modules they're built alongside.
-        vector<FrameResources> frameResources_;
-        VulkanSemaphore frameTimelineSemaphore;
+        // the logical device, same as the shader modules they're built alongside. Per-frame sync
+        // and command resources are no longer global — each VulkanSurface owns its own set (see
+        // FrameResources in :VulkanSurface), so windows render fully independently.
         VulkanPipeline graphicsPipeline;
         VulkanPipelineLayout pipelinelayout;
-        u32 FrameIndex = 0;
-        u32 MaxFramesInFlight = 2;
-        u64 nextSignalValue = MaxFramesInFlight + 1;
     };
 
 } // namespace SFT::Core::Vulkan

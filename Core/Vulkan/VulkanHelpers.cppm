@@ -204,6 +204,53 @@ export namespace SFT::Core::Vulkan {
         }
     }
 
+    // Maps a PCI vendor ID (VkPhysicalDeviceProperties::vendorID) to a readable name. Vendor IDs
+    // are the PCI-assigned values, except software rasterizers which report a Khronos vendor ID.
+    [[nodiscard]] inline const char *vendor_name(u32 vendor_id) noexcept {
+        switch (vendor_id) {
+            case 0x1002:
+                return "AMD";
+            case 0x10DE:
+                return "NVIDIA";
+            case 0x8086:
+                return "Intel";
+            case 0x13B5:
+                return "ARM";
+            case 0x5143:
+                return "Qualcomm";
+            case 0x1010:
+                return "ImgTec";
+            case 0x106B:
+                return "Apple";
+            case 0x10005:
+                return "Mesa";
+            default:
+                return "Unknown";
+        }
+    }
+
+    // Decodes VkPhysicalDeviceProperties::driverVersion into a human-readable string. The bit
+    // layout is vendor-specific: NVIDIA packs 10.8.8.6, Intel on Windows packs 18.14, and every
+    // other vendor uses the standard Vulkan 10.10.12 layout (same as VK_API_VERSION_*).
+    [[nodiscard]] inline string format_driver_version(u32 vendor_id, u32 version) {
+        if (vendor_id == 0x10DE) { // NVIDIA
+            return std::format("{}.{}.{}.{}",
+                               (version >> 22) & 0x3FF,
+                               (version >> 14) & 0x0FF,
+                               (version >> 6) & 0x0FF,
+                               version & 0x03F);
+        }
+#if defined(STURDY_PLATFORM_WINDOWS)
+        if (vendor_id == 0x8086) { // Intel (Windows-only encoding)
+            return std::format("{}.{}", version >> 14, version & 0x3FFF);
+        }
+#endif
+        return std::format("{}.{}.{}",
+                           (version >> 22) & 0x3FF,
+                           (version >> 12) & 0x3FF,
+                           version & 0xFFF);
+    }
+
     [[nodiscard]] inline SurfaceSystem to_surface_system(NativeWindowSystem system) noexcept {
         switch (system) {
             case NativeWindowSystem::Win32:

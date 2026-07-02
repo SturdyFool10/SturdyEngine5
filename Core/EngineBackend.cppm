@@ -2,6 +2,7 @@ module;
 
 #include <concepts>
 #include <memory>
+#include <optional>
 #include <utility>
 
 export module Sturdy.Core:EngineBackend;
@@ -13,6 +14,7 @@ import :Renderer;
 import :RenderSurface;
 
 using std::derived_from;
+using std::optional;
 using std::shared_ptr;
 using std::unique_ptr;
 
@@ -75,6 +77,11 @@ export namespace SFT::Core {
 
         // What this backend can actually do, populated during initialize().
         [[nodiscard]] virtual RendererCapabilities capabilities() const noexcept = 0;
+
+        // Backend-agnostic description of the GPU currently in use (name, vendor, driver version,
+        // ...) as plain strings/integers — no graphics-API types leak out. Returns nullopt until a
+        // physical device has been selected (i.e. before a successful initialize()).
+        [[nodiscard]] virtual optional<GpuInfo> gpu_info() const = 0;
 
         // Execute one frame: acquire → record → submit → present.
         // The backend owns all scheduling decisions — which resources to record into,

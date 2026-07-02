@@ -1,6 +1,7 @@
 module;
 
 #include <span>
+#include <string>
 #include <vector>
 
 export module Sturdy.Core:Renderer;
@@ -11,9 +12,25 @@ import :ShaderDiscovery;
 
 using SFT::Platform::Windowing::Window;
 using std::span;
+using std::string;
 using std::vector;
 
 export namespace SFT::Core {
+
+    // Backend-agnostic description of the GPU a backend is rendering on. Deliberately free of any
+    // graphics-API types — every field is a plain string or integer, so the Engine/app layers can
+    // display or log it without linking Vulkan/Metal/etc. Populated by EngineBackend::gpu_info()
+    // after initialize(); an unqueryable/uninitialized backend returns empty strings.
+    struct GpuInfo {
+        string name;            // Marketing name, e.g. "AMD Radeon RX 9070".
+        string vendor;          // Human-readable vendor, e.g. "AMD" / "NVIDIA" / "Intel".
+        string driver_version;  // Decoded driver version, e.g. "32.0.12010" — vendor-encoded raw
+                                // bits are already unpacked into this dotted string.
+        string api_version;     // Graphics API version the device supports, e.g. "1.4.303".
+        string device_type;     // "Discrete" / "Integrated" / "Virtual" / "CPU" / "Other".
+        u32 vendor_id = 0;      // Raw PCI vendor ID (not API-specific; handy for exact matching).
+        u32 device_id = 0;      // Raw PCI device ID.
+    };
 
     struct RendererCapabilities {
         b8 multithreaded_command_recording = false;

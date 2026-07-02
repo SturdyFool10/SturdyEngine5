@@ -2,6 +2,7 @@ module;
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <vector>
 
 export module Sturdy.Engine:Engine;
@@ -10,6 +11,7 @@ import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
 
+using std::optional;
 using std::unique_ptr;
 using std::vector;
 
@@ -62,6 +64,10 @@ export namespace SFT::Engine {
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
+
+        // Backend-agnostic info about the GPU in use (name, vendor, driver version, ...). Returns
+        // nullopt until a successful initialize() has selected a physical device.
+        [[nodiscard]] optional<Core::GpuInfo> gpu_info() const;
 
         // Shaders discovered and reflected from EngineConfig::shaders_directory during initialize(),
         // before the graphics backend came up. Each one is lazily compiled: target bytecode for an
