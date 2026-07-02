@@ -2,8 +2,18 @@
   "version": 6,
   "configurePresets": [
     {
+      "name": "base",
+      "displayName": "Base (compiler pin)",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
       "name": "ninja-debug",
       "displayName": "Ninja Debug",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/debug",
       "cacheVariables": {
@@ -14,6 +24,7 @@
     {
       "name": "ninja-relwithdebinfo",
       "displayName": "Ninja RelWithDebInfo",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/relwithdebinfo",
       "cacheVariables": {
@@ -24,6 +35,7 @@
     {
       "name": "ninja-release",
       "displayName": "Ninja Release",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/release",
       "cacheVariables": {
@@ -34,6 +46,7 @@
     {
       "name": "ninja-dist",
       "displayName": "Ninja Dist",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ninja/dist",
       "cacheVariables": {
@@ -44,17 +57,18 @@
     {
       "name": "ninja-multi",
       "displayName": "Ninja Multi-Config",
+      "inherits": "base",
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/ninja/multi",
       "cacheVariables": {
         "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release;Dist",
-        "CMAKE_CROSS_CONFIGS": "all",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
       "name": "view-linux-debug",
       "displayName": "View As Linux Debug",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/debug",
       "cacheVariables": {
@@ -66,6 +80,7 @@
     {
       "name": "view-linux-relwithdebinfo",
       "displayName": "View As Linux RelWithDebInfo",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/relwithdebinfo",
       "cacheVariables": {
@@ -77,6 +92,7 @@
     {
       "name": "view-linux-dist",
       "displayName": "View As Linux Dist",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/linux/dist",
       "cacheVariables": {
@@ -88,6 +104,7 @@
     {
       "name": "view-windows-debug",
       "displayName": "View As Windows Debug",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/debug",
       "cacheVariables": {
@@ -99,6 +116,7 @@
     {
       "name": "view-windows-relwithdebinfo",
       "displayName": "View As Windows RelWithDebInfo",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/relwithdebinfo",
       "cacheVariables": {
@@ -110,6 +128,7 @@
     {
       "name": "view-windows-dist",
       "displayName": "View As Windows Dist",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/win/dist",
       "cacheVariables": {
@@ -121,6 +140,7 @@
     {
       "name": "view-macos-debug",
       "displayName": "View As MacOS Debug",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/debug",
       "cacheVariables": {
@@ -132,6 +152,7 @@
     {
       "name": "view-macos-relwithdebinfo",
       "displayName": "View As MacOS RelWithDebInfo",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/relwithdebinfo",
       "cacheVariables": {
@@ -143,6 +164,7 @@
     {
       "name": "view-macos-dist",
       "displayName": "View As MacOS Dist",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/view/macos/dist",
       "cacheVariables": {

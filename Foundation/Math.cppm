@@ -283,7 +283,7 @@ export namespace SFT::Foundation {
     }
     template <floating_point T>
     [[nodiscard]] inline bool isnan(T x) noexcept {
-        return ::isnan(x);
+        return std::isnan(x);
     }
     [[nodiscard]] constexpr bool isnan(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool isnan(i256) noexcept { return false; }
@@ -298,7 +298,7 @@ export namespace SFT::Foundation {
     }
     template <floating_point T>
     [[nodiscard]] inline bool isinf(T x) noexcept {
-        return ::isinf(x);
+        return std::isinf(x);
     }
     [[nodiscard]] constexpr bool isinf(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool isinf(i256) noexcept { return false; }
@@ -311,7 +311,7 @@ export namespace SFT::Foundation {
     }
     template <floating_point T>
     [[nodiscard]] inline bool isfinite(T x) noexcept {
-        return ::isfinite(x);
+        return std::isfinite(x);
     }
     [[nodiscard]] constexpr bool isfinite(u256) noexcept { return true; }
     [[nodiscard]] constexpr bool isfinite(i256) noexcept { return true; }
@@ -329,7 +329,7 @@ export namespace SFT::Foundation {
     }
     template <floating_point T>
     [[nodiscard]] inline bool signbit(T x) noexcept {
-        return ::signbit(x);
+        return std::signbit(x);
     }
     [[nodiscard]] constexpr bool signbit(u256) noexcept { return false; }
     [[nodiscard]] constexpr bool signbit(i256 x) noexcept { return x.is_negative(); }
