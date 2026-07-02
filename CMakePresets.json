@@ -42,6 +42,17 @@
       }
     },
     {
+      "name": "ninja-multi",
+      "displayName": "Ninja Multi-Config",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/ninja/multi",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release;Dist",
+        "CMAKE_CROSS_CONFIGS": "all",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
       "name": "view-linux-debug",
       "displayName": "View As Linux Debug",
       "generator": "Ninja",
@@ -164,6 +175,34 @@
       "name": "runtime-dist",
       "displayName": "Runtime Dist",
       "configurePreset": "ninja-dist",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-multi-debug",
+      "displayName": "Runtime Debug (Multi-Config)",
+      "configurePreset": "ninja-multi",
+      "configuration": "Debug",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-multi-relwithdebinfo",
+      "displayName": "Runtime RelWithDebInfo (Multi-Config)",
+      "configurePreset": "ninja-multi",
+      "configuration": "RelWithDebInfo",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-multi-release",
+      "displayName": "Runtime Release (Multi-Config)",
+      "configurePreset": "ninja-multi",
+      "configuration": "Release",
+      "targets": ["Runtime"]
+    },
+    {
+      "name": "runtime-multi-dist",
+      "displayName": "Runtime Dist (Multi-Config)",
+      "configurePreset": "ninja-multi",
+      "configuration": "Dist",
       "targets": ["Runtime"]
     },
     {

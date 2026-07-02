@@ -14,7 +14,7 @@ module;
 #include <unordered_map>
 #include <vector>
 
-export module Sturdy.Platform.SDL3:Impl;
+module Sturdy.Platform.SDL3;
 
 import :Window;
 import Sturdy.Foundation;

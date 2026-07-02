@@ -28,17 +28,30 @@ function(sturdy_add_package package_name)
     )
   endif()
 
-  file(GLOB_RECURSE _auto_sources CONFIGURE_DEPENDS
+  set(_sturdy_glob_options)
+  if(STURDY_GLOB_CONFIGURE_DEPENDS)
+    list(APPEND _sturdy_glob_options CONFIGURE_DEPENDS)
+  endif()
+
+  set(_sturdy_source_globs
         "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cxx"
+    )
+  if(STURDY_INCLUDE_HEADERS_IN_TARGETS)
+    list(APPEND _sturdy_source_globs
         "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hh"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hxx"
     )
-  file(GLOB_RECURSE _auto_modules CONFIGURE_DEPENDS
+  endif()
+
+  file(GLOB_RECURSE _auto_sources ${_sturdy_glob_options}
+        ${_sturdy_source_globs}
+    )
+  file(GLOB_RECURSE _auto_modules ${_sturdy_glob_options}
         "${CMAKE_CURRENT_SOURCE_DIR}/*.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cppm"
     )
@@ -133,6 +146,7 @@ function(sturdy_add_package package_name)
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             CXX_SCAN_FOR_MODULES ON
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+            OPTIMIZE_DEPENDENCIES ON
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
 

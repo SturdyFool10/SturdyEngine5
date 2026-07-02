@@ -12,8 +12,6 @@ export import :Utils;
 export import :Wide;
 export import :WideTraits;
 
-import :MemoryImpl;
-
 namespace SFT::Foundation::Detail {
 
     [[maybe_unused]] const bool memory_initialized = []() noexcept {

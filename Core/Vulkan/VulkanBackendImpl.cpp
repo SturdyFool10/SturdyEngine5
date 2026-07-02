@@ -36,7 +36,7 @@ module;
 #include <GLFW/glfw3.h>
 #include <SDL3/SDL_vulkan.h>
 
-export module Sturdy.Core:VulkanBackendImpl;
+module Sturdy.Core;
 
 import :VulkanAllocator;
 import :VulkanBackend;

@@ -1,33 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Configures and builds every native (host-OS) profile in sequence: Debug,
-# RelWithDebInfo, Release, Dist. Uses the ninja-* presets (not the cross-platform
-# "view-as" ones), so this always targets whatever toolchain is installed
-# on the machine running it — no OS-specific branching needed.
+# Configures once with Ninja Multi-Config, then builds every native (host-OS)
+# profile: Debug, RelWithDebInfo, Release, Dist. This avoids four separate
+# dependency/configure/generate passes while keeping all dependency targets enabled.
 
 get_filename_component(_script_dir "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
 get_filename_component(_root "${_script_dir}/.." ABSOLUTE)
 
-set(_configure_presets ninja-debug          ninja-relwithdebinfo          ninja-release          ninja-dist)
-set(_build_presets     runtime-debug        runtime-relwithdebinfo        runtime-release        runtime-dist)
+set(_configure_preset ninja-multi)
+set(_build_presets
+    runtime-multi-debug
+    runtime-multi-relwithdebinfo
+    runtime-multi-release
+    runtime-multi-dist
+)
 
-list(LENGTH _configure_presets _count)
-math(EXPR _last_index "${_count} - 1")
+message(STATUS "==> Configuring ${_configure_preset}")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" --preset "${_configure_preset}"
+    WORKING_DIRECTORY "${_root}"
+    RESULT_VARIABLE _configure_result
+)
+if(NOT _configure_result EQUAL 0)
+    message(FATAL_ERROR "CMake configure failed for preset ${_configure_preset} with exit code ${_configure_result}.")
+endif()
 
-foreach(_i RANGE 0 ${_last_index})
-    list(GET _configure_presets ${_i} _configure_preset)
-    list(GET _build_presets ${_i} _build_preset)
-
-    message(STATUS "==> Configuring ${_configure_preset}")
-    execute_process(
-        COMMAND "${CMAKE_COMMAND}" --preset "${_configure_preset}"
-        WORKING_DIRECTORY "${_root}"
-        RESULT_VARIABLE _configure_result
-    )
-    if(NOT _configure_result EQUAL 0)
-        message(FATAL_ERROR "CMake configure failed for preset ${_configure_preset} with exit code ${_configure_result}.")
-    endif()
-
+foreach(_build_preset IN LISTS _build_presets)
     message(STATUS "==> Building ${_build_preset}")
     execute_process(
         COMMAND "${CMAKE_COMMAND}" --build --preset "${_build_preset}" --parallel

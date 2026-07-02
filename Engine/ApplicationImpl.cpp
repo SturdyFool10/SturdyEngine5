@@ -5,7 +5,7 @@ module;
 #include <string>
 #include <utility>
 
-export module Sturdy.Engine:ApplicationImpl;
+module Sturdy.Engine;
 
 import :Application;
 import Sturdy.Foundation;

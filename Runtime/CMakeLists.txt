@@ -3,7 +3,7 @@ sturdy_add_package(Runtime
 
     PUBLIC_DEPS
         Sturdy::Foundation
-        Sturdy::Engine
+        Sturdy::EngineComponents
 
     DEBUG_PUBLIC_DEPS
 )

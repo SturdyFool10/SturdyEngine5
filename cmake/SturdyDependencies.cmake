@@ -20,6 +20,49 @@ set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader lib
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")
 set(STURDY_SLANG_LIBRARY "" CACHE FILEPATH "Optional explicit Slang library. Overrides automatic fetch when set together with STURDY_SLANG_INCLUDE_DIR.")
 set(STURDY_SLANG_INCLUDE_DIR "" CACHE PATH "Optional explicit Slang include directory containing slang.h. Overrides automatic fetch when set together with STURDY_SLANG_LIBRARY.")
+option(STURDY_PREFER_SYSTEM_DEPENDENCIES "Try find_package before downloading FetchContent dependencies." ON)
+
+function(sturdy_fetchcontent_declare name)
+    set(options)
+    set(one_value_args GIT_REPOSITORY GIT_TAG)
+    set(multi_value_args FIND_PACKAGE_ARGS)
+    cmake_parse_arguments(STURDY_FETCH "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    set(_find_package_args)
+    if(STURDY_PREFER_SYSTEM_DEPENDENCIES AND STURDY_FETCH_FIND_PACKAGE_ARGS)
+        set(_find_package_args FIND_PACKAGE_ARGS ${STURDY_FETCH_FIND_PACKAGE_ARGS})
+    endif()
+
+    FetchContent_Declare(${name}
+        GIT_REPOSITORY ${STURDY_FETCH_GIT_REPOSITORY}
+        GIT_TAG ${STURDY_FETCH_GIT_TAG}
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS FALSE
+        EXCLUDE_FROM_ALL
+        SYSTEM
+        ${_find_package_args}
+    )
+endfunction()
+
+function(sturdy_mark_dependency_targets_exclude_from_all)
+    foreach(_target IN LISTS ARGN)
+        if(NOT TARGET "${_target}")
+            continue()
+        endif()
+
+        get_target_property(_aliased_target "${_target}" ALIASED_TARGET)
+        if(_aliased_target)
+            set(_real_target "${_aliased_target}")
+        else()
+            set(_real_target "${_target}")
+        endif()
+
+        get_target_property(_imported "${_real_target}" IMPORTED)
+        if(NOT _imported)
+            set_target_properties("${_real_target}" PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        endif()
+    endforeach()
+endfunction()
 
 function(sturdy_configure_dependencies)
     sturdy_find_vulkan()
@@ -141,17 +184,21 @@ function(sturdy_fetch_slang)
     # BUILD_SHARED_LIBS=OFF (forced globally) makes the Slang build produce a static library.
     set(SLANG_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_REPLAYER OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_SLANGC OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_DXIL OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_GFX OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
-    FetchContent_Declare(slang
+    sturdy_fetchcontent_declare(slang
         GIT_REPOSITORY https://github.com/shader-slang/slang.git
         GIT_TAG ${STURDY_SLANG_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES Slang slang
     )
     FetchContent_MakeAvailable(slang)
+    sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
 
     # v2026.11 bug: slang-parser.cpp uses INT_MIN without including <climits>.
     # Patch the file after download but before the build compiles it.
@@ -187,32 +234,36 @@ endfunction()
 
 function(sturdy_fetch_glm)
     set(GLM_ENABLE_CXX_20 ON CACHE BOOL "" FORCE)
-    FetchContent_Declare(glm
+    set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(glm
         GIT_REPOSITORY https://github.com/g-truc/glm.git
         GIT_TAG ${STURDY_GLM_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(glm)
+    sturdy_mark_dependency_targets_exclude_from_all(glm glm::glm)
 endfunction()
 
 function(sturdy_fetch_vma)
-    FetchContent_Declare(vma
+    sturdy_fetchcontent_declare(vma
         GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
         GIT_TAG ${STURDY_VMA_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES VulkanMemoryAllocator
     )
     FetchContent_MakeAvailable(vma)
+    sturdy_mark_dependency_targets_exclude_from_all(VulkanMemoryAllocator GPUOpen::VulkanMemoryAllocator VulkanMemoryAllocator::VulkanMemoryAllocator)
 endfunction()
 
 function(sturdy_fetch_volk)
     set(VOLK_INSTALL OFF CACHE BOOL "" FORCE)
     set(VOLK_PULL_IN_VULKAN ON CACHE BOOL "" FORCE)
-    FetchContent_Declare(volk
+    sturdy_fetchcontent_declare(volk
         GIT_REPOSITORY https://github.com/zeux/volk.git
         GIT_TAG ${STURDY_VOLK_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(volk)
+    sturdy_mark_dependency_targets_exclude_from_all(volk volk::volk)
 endfunction()
 
 function(sturdy_fetch_sdl3)
@@ -223,17 +274,20 @@ function(sturdy_fetch_sdl3)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    set(SDL_DISABLE_INSTALL_DOCS ON CACHE BOOL "" FORCE)
     if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
         set(LIBC_HAS_ITOA "" CACHE INTERNAL "Have symbol itoa" FORCE)
     endif()
     sturdy_preseed_sdl3_linux_checks()
 
-    FetchContent_Declare(SDL3
+    sturdy_fetchcontent_declare(SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG ${STURDY_SDL3_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(SDL3)
+    sturdy_mark_dependency_targets_exclude_from_all(SDL3 SDL3::SDL3 SDL3::SDL3-static SDL3-static)
 endfunction()
 
 function(sturdy_preseed_sdl3_linux_checks)
@@ -409,25 +463,30 @@ function(sturdy_fetch_glfw)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(glfw
+    sturdy_fetchcontent_declare(glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
         GIT_TAG ${STURDY_GLFW_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES glfw3 glfw
     )
     FetchContent_MakeAvailable(glfw)
+    sturdy_mark_dependency_targets_exclude_from_all(glfw glfw3 glfw::glfw glfw3::glfw)
 endfunction()
 
 function(sturdy_fetch_spdlog)
     set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
     set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_EXAMPLE_HO OFF CACHE BOOL "" FORCE)
     set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SPDLOG_BUILD_TESTS_HO OFF CACHE BOOL "" FORCE)
     set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(spdlog
+    set(SPDLOG_BUILD_WARNINGS OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(spdlog
         GIT_REPOSITORY https://github.com/gabime/spdlog.git
         GIT_TAG ${STURDY_SPDLOG_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(spdlog)
+    sturdy_mark_dependency_targets_exclude_from_all(spdlog spdlog::spdlog spdlog::spdlog_header_only)
 endfunction()
 
 function(sturdy_fetch_mimalloc)
@@ -436,12 +495,14 @@ function(sturdy_fetch_mimalloc)
     set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(mimalloc
+    set(MI_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(mimalloc
         GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
         GIT_TAG ${STURDY_MIMALLOC_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(mimalloc)
+    sturdy_mark_dependency_targets_exclude_from_all(mimalloc mimalloc-static mimalloc::mimalloc-static mimalloc::mimalloc)
 endfunction()
 
 function(sturdy_fetch_harfbuzz)
@@ -450,12 +511,13 @@ function(sturdy_fetch_harfbuzz)
     set(HB_HAVE_FREETYPE OFF CACHE BOOL "" FORCE)
     set(HB_HAVE_GLIB OFF CACHE BOOL "" FORCE)
     set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(harfbuzz
+    sturdy_fetchcontent_declare(harfbuzz
         GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git
         GIT_TAG ${STURDY_HARFBUZZ_TAG}
-        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(harfbuzz)
+    sturdy_mark_dependency_targets_exclude_from_all(harfbuzz harfbuzz::harfbuzz)
 endfunction()
 
 function(sturdy_normalize_dependency_targets)

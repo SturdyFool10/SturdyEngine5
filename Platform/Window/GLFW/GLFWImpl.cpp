@@ -10,7 +10,7 @@ module;
 #include <optional>
 #include <vector>
 
-export module Sturdy.Platform.GLFW:Impl;
+module Sturdy.Platform.GLFW;
 
 import :Window;
 import Sturdy.Foundation;

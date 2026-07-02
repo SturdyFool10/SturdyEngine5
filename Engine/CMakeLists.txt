@@ -1,4 +1,4 @@
-sturdy_add_package(Engine
+sturdy_add_package(EngineComponents
     PUBLIC_DEPS
         Sturdy::Foundation
         Sturdy::Core
@@ -6,3 +6,5 @@ sturdy_add_package(Engine
 
     DEBUG_PUBLIC_DEPS
 )
+
+add_library(Sturdy::Engine ALIAS EngineComponents)

@@ -6,7 +6,7 @@ module;
 #include <mimalloc.h>
 #include <string_view>
 
-export module Sturdy.Foundation:MemoryImpl;
+module Sturdy.Foundation;
 
 import :Memory;
 import :Log;

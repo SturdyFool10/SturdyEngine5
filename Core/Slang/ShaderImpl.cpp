@@ -17,7 +17,7 @@ module;
 #include <string_view>
 #include <vector>
 
-export module Sturdy.Core:ShaderImpl;
+module Sturdy.Core;
 
 import :Shader;
 import :ShaderError;

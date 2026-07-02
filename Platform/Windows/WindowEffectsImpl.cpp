@@ -12,7 +12,7 @@ module;
 #include <windows.h>
 #endif
 
-export module Sturdy.Platform:WindowEffectsImpl;
+module Sturdy.Platform;
 
 import Sturdy.Foundation;
 import :WindowError;

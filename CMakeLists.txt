@@ -25,12 +25,21 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)
 option(STURDY_BUILD_SHARED_LIBS "Build SturdyEngine targets as shared libraries." OFF)
 option(STURDY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for SturdyEngine targets." OFF)
+option(STURDY_USE_COMPILER_LAUNCHER "Use sccache/ccache when available to speed repeated C/C++ builds." ON)
+set(STURDY_COMPILER_LAUNCHER "" CACHE FILEPATH "Explicit compiler launcher executable. Overrides auto-detected sccache/ccache when set.")
+option(STURDY_GLOB_CONFIGURE_DEPENDS "Re-check source globs during every build. Disable for faster incremental Ninja builds; re-run CMake after adding/removing files." OFF)
+option(STURDY_INCLUDE_HEADERS_IN_TARGETS "Add headers to generated target source lists for IDE visibility. Disable for faster configure/generate." OFF)
+option(STURDY_FETCH_UPDATES_DISCONNECTED "Skip FetchContent git update checks after dependencies are populated." ON)
 # Force the Windows GUI (WinMain, no console) entry point in every configuration. When OFF, WinMain
 # is used only for Windows Dist builds; Debug/RelWithDebInfo/Release keep the console main().
 option(SFT_USE_WINMAIN "Always use the Windows WinMain entry point, regardless of build type." OFF)
 
 if(NOT STURDY_BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build third-party dependencies as shared libraries." FORCE)
+endif()
+
+if(STURDY_FETCH_UPDATES_DISCONNECTED)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Skip FetchContent update checks" FORCE)
 endif()
 
 if(CMAKE_CONFIGURATION_TYPES)
@@ -46,6 +55,26 @@ set(CMAKE_SHARED_LINKER_FLAGS_DIST "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}" CACHE 
 set(CMAKE_STATIC_LINKER_FLAGS_DIST "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}" CACHE STRING "Static library linker flags for Dist builds." FORCE)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+function(sturdy_configure_compiler_launcher)
+    if(NOT STURDY_USE_COMPILER_LAUNCHER)
+        return()
+    endif()
+
+    if(STURDY_COMPILER_LAUNCHER)
+        set(_sturdy_compiler_launcher "${STURDY_COMPILER_LAUNCHER}")
+    else()
+        find_program(_sturdy_compiler_launcher NAMES sccache ccache)
+    endif()
+
+    if(_sturdy_compiler_launcher)
+        set(CMAKE_C_COMPILER_LAUNCHER "${_sturdy_compiler_launcher}" CACHE FILEPATH "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${_sturdy_compiler_launcher}" CACHE FILEPATH "C++ compiler launcher" FORCE)
+        message(STATUS "Compiler launcher: ${_sturdy_compiler_launcher}")
+    endif()
+endfunction()
+
+sturdy_configure_compiler_launcher()
 
 include(SturdyDependencies)
 include(SturdyPackage)

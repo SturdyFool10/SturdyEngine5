@@ -71,4 +71,4 @@ out/
 *.log
 *.dmp
 *.core
-core
+core.*
