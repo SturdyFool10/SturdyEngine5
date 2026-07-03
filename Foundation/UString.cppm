@@ -7,6 +7,7 @@ module;
 #include <concepts>
 #include <cstring>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -33,7 +34,14 @@ using std::size_t;
 using std::string;
 using std::string_view;
 using std::strong_ordering;
+using std::u16string;
+using std::u16string_view;
+using std::u32string;
+using std::u32string_view;
+using std::u8string;
 using std::u8string_view;
+using std::wstring;
+using std::wstring_view;
 
 export namespace SFT::Foundation {
 
@@ -276,6 +284,18 @@ export namespace SFT::Foundation {
             }
 
             return ResolvedSlicePattern{.range = range, .spread = slice.spread(), .grouping = grouping};
+        }
+
+        // Length of a C string that never scans past `max_bytes` — the safe answer when a buffer's NUL
+        // terminator cannot be trusted to exist. Returns the offset of the first NUL within
+        // `[0, max_bytes)`, or `max_bytes` if the region holds no terminator. `std::memchr` reads at most
+        // `max_bytes` bytes, so a missing terminator can never trigger an over-read into unmapped memory.
+        [[nodiscard]] inline usize bounded_c_length(const char *text, usize max_bytes) noexcept {
+            if (text == nullptr || max_bytes == 0) {
+                return 0;
+            }
+            const void *terminator = std::memchr(text, '\0', max_bytes);
+            return terminator == nullptr ? max_bytes : static_cast<usize>(static_cast<const char *>(terminator) - text);
         }
 
         // Human-readable renderings shared by the `operator<<` overloads and the `std::formatter`
@@ -580,10 +600,99 @@ export namespace SFT::Foundation {
             return value;
         }
 
+        // Build from a NUL-terminated C string, trusting the caller's terminator (the length is found with
+        // `strlen`). C makes NUL termination a caller obligation the compiler cannot check, so if `buffer`
+        // is not actually terminated this over-reads — prefer the bounded overload whenever the terminator
+        // is not under your control.
+        [[nodiscard]] static UString from_c_str(const char *buffer) {
+            if (buffer == nullptr) {
+                throw invalid_argument{"UString::from_c_str() received a null pointer."};
+            }
+            return UString{string_view{buffer}};
+        }
+
+        // Safe, bounded ingestion: reads at most `max_bytes` bytes, stopping early at the first NUL if one
+        // occurs sooner. A buffer with no terminator inside `max_bytes` is taken as exactly `max_bytes`
+        // bytes rather than over-read, so this never leans on C's fragile NUL-termination invariant. Pass
+        // the buffer's real capacity as `max_bytes`.
+        [[nodiscard]] static UString from_c_str(const char *buffer, usize max_bytes) {
+            if (buffer == nullptr && max_bytes != 0) {
+                throw invalid_argument{"UString::from_c_str() received a null pointer with a non-zero size."};
+            }
+            const usize length = Detail::bounded_c_length(buffer, max_bytes);
+            return UString{string_view{buffer == nullptr ? "" : buffer, length}};
+        }
+
+        // Bounded ingestion that validates instead of throwing: returns `nullopt` for a null buffer or when
+        // the (bounded) bytes are not strict UTF-8. Same over-read guarantee as `from_c_str(buffer, max)`.
+        [[nodiscard]] static optional<UString> try_from_c_str(const char *buffer, usize max_bytes) {
+            if (buffer == nullptr) {
+                return max_bytes == 0 ? optional<UString>{UString{}} : nullopt;
+            }
+            const usize length = Detail::bounded_c_length(buffer, max_bytes);
+            return try_from_utf8(string_view{buffer, length});
+        }
+
+        // UTF-16 -> UTF-8, combining surrogate pairs. Throws `invalid_argument` on an unpaired or truncated
+        // surrogate, or on U+0000 (which would violate the no-embedded-NUL invariant).
+        [[nodiscard]] static UString from_utf16(u16string_view text) {
+            UString value;
+            for (usize index = 0; index < text.size(); ++index) {
+                const auto unit = static_cast<u32>(static_cast<char16_t>(text[index]));
+                char32_t scalar = 0;
+                if (unit >= 0xD800 && unit <= 0xDBFF) {
+                    if (index + 1 >= text.size()) {
+                        throw invalid_argument{"UString::from_utf16() ends with a truncated surrogate pair."};
+                    }
+                    const auto low = static_cast<u32>(static_cast<char16_t>(text[index + 1]));
+                    if (low < 0xDC00 || low > 0xDFFF) {
+                        throw invalid_argument{"UString::from_utf16() has an unpaired high surrogate."};
+                    }
+                    scalar = static_cast<char32_t>(0x10000u + ((unit - 0xD800u) << 10u) + (low - 0xDC00u));
+                    ++index;
+                } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+                    throw invalid_argument{"UString::from_utf16() has an unpaired low surrogate."};
+                } else {
+                    scalar = static_cast<char32_t>(unit);
+                }
+                value.append(scalar);
+            }
+            return value;
+        }
+
+        // UTF-32 -> UTF-8. Each unit is a Unicode scalar, so `append` validates it (rejecting surrogates,
+        // values above U+10FFFF, and U+0000).
+        [[nodiscard]] static UString from_utf32(u32string_view text) {
+            return from_codepoints(text);
+        }
+
+        // Platform-wide (`wchar_t`) -> UTF-8, dispatched on the platform's `wchar_t` width: UTF-16 on
+        // Windows, UTF-32 on the Unix-likes. Each unit is widened without a reinterpreting cast.
+        [[nodiscard]] static UString from_wstring(wstring_view text) {
+            if constexpr (sizeof(wchar_t) == 2) {
+                u16string units;
+                units.reserve(text.size());
+                for (wchar_t unit : text) {
+                    units.push_back(static_cast<char16_t>(unit));
+                }
+                return from_utf16(units);
+            } else {
+                u32string units;
+                units.reserve(text.size());
+                for (wchar_t unit : text) {
+                    units.push_back(static_cast<char32_t>(unit));
+                }
+                return from_utf32(units);
+            }
+        }
+
         [[nodiscard]] const char *data() const noexcept {
             return storage_data();
         }
 
+        // Returns a NUL-terminated pointer safe to hand to C APIs: the no-embedded-NUL invariant guarantees
+        // the C string spans the whole value (`strlen(c_str()) == byte_size()`), so it cannot be silently
+        // truncated by a stray interior NUL.
         [[nodiscard]] const char *c_str() const noexcept {
             return storage_data();
         }
@@ -614,6 +723,30 @@ export namespace SFT::Foundation {
 
         [[nodiscard]] string str() const {
             return string{view()};
+        }
+
+        // Borrowed `char8_t` view over the same bytes — UTF-8-typed interop without a copy. The bytes are
+        // identical to `view()`; only the element type differs.
+        [[nodiscard]] u8string_view u8view() const noexcept {
+            return u8string_view{reinterpret_cast<const char8_t *>(storage_data()), byte_size_};
+        }
+
+        // Owned `std::u8string` copy.
+        [[nodiscard]] u8string u8str() const {
+            return u8string{u8view()};
+        }
+
+        // Owned UTF-16 / UTF-32 / platform-wide copies, for handing text to APIs that speak those units.
+        [[nodiscard]] u16string to_u16string() const;
+        [[nodiscard]] u32string to_u32string() const;
+        [[nodiscard]] wstring to_wstring() const {
+            if constexpr (sizeof(wchar_t) == 2) {
+                const u16string units = to_u16string();
+                return wstring{units.begin(), units.end()};
+            } else {
+                const u32string units = to_u32string();
+                return wstring{units.begin(), units.end()};
+            }
         }
 
         [[nodiscard]] operator string_view() const noexcept {
@@ -1677,9 +1810,27 @@ export namespace SFT::Foundation {
             return UString::is_valid_utf8(text);
         }
 
+        // Safe, bounded borrow of a C buffer: the resulting slice spans at most `max_bytes` bytes, stopping
+        // at the first NUL if one occurs sooner, and never over-reads past `max_bytes` even if the buffer
+        // is not NUL-terminated. Like every `ustr`, it borrows — the buffer must outlive the slice. Throws
+        // `invalid_argument` if the bounded bytes are not strict UTF-8.
+        [[nodiscard]] static ustr from_c_str(const char *buffer, usize max_bytes) {
+            if (buffer == nullptr && max_bytes != 0) {
+                throw invalid_argument{"ustr::from_c_str() received a null pointer with a non-zero size."};
+            }
+            const usize length = Detail::bounded_c_length(buffer, max_bytes);
+            return ustr{string_view{buffer == nullptr ? "" : buffer, length}};
+        }
+
         [[nodiscard]] const char *data() const noexcept {
             return bytes_.data();
         }
+
+        // A borrowed slice may point into the middle of a larger buffer, so it is not guaranteed to be
+        // NUL-terminated. `ustr` therefore has no `c_str()`: materialize an owned value when a C string is
+        // required (`UString{slice}.c_str()`), which restores the terminator and the no-interior-NUL
+        // guarantee. Deleted (rather than merely absent) so a mistaken call is a clear compile error.
+        const char *c_str() const = delete;
 
         [[nodiscard]] string_view view() const noexcept {
             return bytes_;
@@ -1695,6 +1846,28 @@ export namespace SFT::Foundation {
 
         [[nodiscard]] UString to_owned() const {
             return UString{*this};
+        }
+
+        // Borrowed `char8_t` view over the same bytes (no copy); owned `std::u8string` copy.
+        [[nodiscard]] u8string_view u8view() const noexcept {
+            return u8string_view{reinterpret_cast<const char8_t *>(bytes_.data()), bytes_.size()};
+        }
+
+        [[nodiscard]] u8string u8str() const {
+            return u8string{u8view()};
+        }
+
+        // Owned UTF-16 / UTF-32 / platform-wide copies.
+        [[nodiscard]] u16string to_u16string() const;
+        [[nodiscard]] u32string to_u32string() const;
+        [[nodiscard]] wstring to_wstring() const {
+            if constexpr (sizeof(wchar_t) == 2) {
+                const u16string units = to_u16string();
+                return wstring{units.begin(), units.end()};
+            } else {
+                const u32string units = to_u32string();
+                return wstring{units.begin(), units.end()};
+            }
         }
 
         [[nodiscard]] operator string_view() const noexcept {
@@ -2132,6 +2305,55 @@ export namespace SFT::Foundation {
         return as_ustr().slice(pattern);
     }
 
+    namespace Detail {
+
+        // UTF-8 -> UTF-16 / UTF-32, shared by the `to_u16string()`/`to_u32string()` members of both string
+        // types. Defined here (a reopened `Detail`) because they take `UString::CodepointView`, which is
+        // only complete after the class body. The source scalars are already validated, so no re-checking
+        // is needed: UTF-32 is a straight copy, and UTF-16 emits a surrogate pair for astral scalars.
+        [[nodiscard]] inline u32string to_utf32(UString::CodepointView codepoints) {
+            u32string result;
+            result.reserve(codepoints.size());
+            for (char32_t scalar : codepoints) {
+                result.push_back(scalar);
+            }
+            return result;
+        }
+
+        [[nodiscard]] inline u16string to_utf16(UString::CodepointView codepoints) {
+            u16string result;
+            result.reserve(codepoints.size());
+            for (char32_t scalar : codepoints) {
+                const auto value = static_cast<u32>(scalar);
+                if (value <= 0xFFFF) {
+                    result.push_back(static_cast<char16_t>(value));
+                } else {
+                    const u32 offset = value - 0x10000u;
+                    result.push_back(static_cast<char16_t>(0xD800u + (offset >> 10u)));
+                    result.push_back(static_cast<char16_t>(0xDC00u + (offset & 0x3FFu)));
+                }
+            }
+            return result;
+        }
+
+    } // namespace Detail
+
+    [[nodiscard]] inline u16string UString::to_u16string() const {
+        return Detail::to_utf16(codepoints());
+    }
+
+    [[nodiscard]] inline u32string UString::to_u32string() const {
+        return Detail::to_utf32(codepoints());
+    }
+
+    [[nodiscard]] inline u16string ustr::to_u16string() const {
+        return Detail::to_utf16(codepoints());
+    }
+
+    [[nodiscard]] inline u32string ustr::to_u32string() const {
+        return Detail::to_utf32(codepoints());
+    }
+
     [[nodiscard]] inline ustr UString::operator[](USlice range) const & {
         return slice(range);
     }
@@ -2349,6 +2571,23 @@ struct std::formatter<SFT::Foundation::UStringValidation> : std::formatter<std::
     }
 };
 
+// `std::hash` specializations so both string types are usable as keys in `std::unordered_map`/`set`. Both
+// hash their raw UTF-8 bytes, so an equal `UString` and `ustr` hash identically (matching their `==`).
+// Non-exported for the same reachability reason as the formatters above.
+template <>
+struct std::hash<SFT::Foundation::UString> {
+    [[nodiscard]] std::size_t operator()(const SFT::Foundation::UString &value) const noexcept {
+        return std::hash<std::string_view>{}(value.view());
+    }
+};
+
+template <>
+struct std::hash<SFT::Foundation::ustr> {
+    [[nodiscard]] std::size_t operator()(const SFT::Foundation::ustr &value) const noexcept {
+        return std::hash<std::string_view>{}(value.view());
+    }
+};
+
 // Every own-type this partition exposes is `Displayable` (streams with `<<` and formats with
 // `std::format`). Checked here, after the formatter specializations are in scope, so a regression in
 // either facility is a hard compile error rather than a silent loss of printability.
@@ -2358,3 +2597,8 @@ static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlice>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlicePattern>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidationError>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidation>);
+
+// And both string types are `Hashable` (usable as hash-map keys), verified after the `std::hash`
+// specializations are in scope.
+static_assert(SFT::Foundation::Hashable<SFT::Foundation::UString>);
+static_assert(SFT::Foundation::Hashable<SFT::Foundation::ustr>);
