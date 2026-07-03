@@ -10,12 +10,11 @@ namespace {
     // initialize, and run the application. Each entry point is responsible only for turning its
     // platform-specific input into a CliArgs (see Sturdy.Runtime.Cli).
     #ifndef SFT_CUSTOM_MAIN
-    int sturdy_run(const CliArgs &args) {
+    i32 sturdy_run(const CliArgs &args) {
         //SFT::Foundation::log_info("Sturdy Engine 5 starting with {} argument(s).", args.size());
         //for (CliArgs::size_type i = 0; i < args.size(); ++i) {
         //    SFT::Foundation::log_debug("  arg[{}] = \"{}\"", i, args[i]);
         //}
-
         Application app;
         if (app.initialize()) {
             app.run();
@@ -36,7 +35,7 @@ namespace {
 #endif
 #include <windows.h>
 
-int WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*cmd_line*/, int /*show_cmd*/) {
+i32 WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*cmd_line*/, int /*show_cmd*/) {
     // WinMain's lpCmdLine is a raw, unparsed string, so pull and tokenize the full command line
     // ourselves rather than trusting the (ANSI, program-name-less) argument handed in.
     return sturdy_run(SFT::Runtime::args_from_windows_command_line());
@@ -44,7 +43,7 @@ int WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*
 
 #else
 
-int main(int argc, char **argv) {
+i32 main(int argc, char **argv) {
     return sturdy_run(SFT::Runtime::args_from_argv(argc, argv));
 }
 

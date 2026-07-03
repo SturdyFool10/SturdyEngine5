@@ -7,7 +7,8 @@
 //
 // This primary module interface re-exports every partition, so a single `import Sturdy.Foundation;`
 // brings the whole layer into scope. Numeric and boolean type aliases plus their literal suffixes are
-// exported into global scope for terse engine code; the rest stays under `SFT::Foundation::`.
+// exported into global scope for terse engine code; `ustr`/`UString` and their slice DSL follow the
+// same basic-type pattern while the rest stays under `SFT::Foundation::`.
 export module Sturdy.Foundation;
 
 export import :Concepts;
@@ -18,12 +19,13 @@ export import :Math;
 export import :Memory;
 export import :NumericConcepts;
 export import :Types;
+export import :UString;
 export import :Utils;
 export import :Wide;
 export import :WideTraits;
 
-// Global numeric aliases. These intentionally mirror the aliases in `SFT` so engine code can write `u32`,
-// `f128`, or `b8` directly after importing Foundation.
+// Global basic aliases. These intentionally mirror the aliases in `SFT` so engine code can write `u32`,
+// `f128`, `b8`, `ustr`, `UString`, or `uslice(0).to(5)` directly after importing Foundation.
 export using b8 [[maybe_unused]] = SFT::Foundation::b8;
 export using f32 [[maybe_unused]] = SFT::Foundation::f32;
 export using f64 [[maybe_unused]] = SFT::Foundation::f64;
@@ -43,8 +45,14 @@ export using u64 [[maybe_unused]] = SFT::Foundation::u64;
 export using u128 [[maybe_unused]] = SFT::Foundation::u128;
 export using u256 [[maybe_unused]] = SFT::Foundation::u256;
 export using usize [[maybe_unused]] = SFT::Foundation::usize;
+export using USlice [[maybe_unused]] = SFT::Foundation::USlice;
+export using USlicePattern [[maybe_unused]] = SFT::Foundation::USlicePattern;
+export using ustr [[maybe_unused]] = SFT::Foundation::ustr;
+export using UString [[maybe_unused]] = SFT::Foundation::UString;
+export using SFT::Foundation::slice_from;
+export using SFT::Foundation::uslice;
 
-// Numeric literal suffixes are exported globally by the `Types` and `Wide` partitions and re-exported by
+// Numeric and `ustr` literal suffixes are exported globally by their partitions and re-exported by
 // the primary module imports above.
 
 namespace SFT::Foundation::Detail {
