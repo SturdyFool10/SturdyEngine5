@@ -25,26 +25,44 @@ namespace fs = std::filesystem;
 
 export namespace SFT::Core::Slang {
 
+    // File extension `discover_shaders()` scans for. Slang source files end in `.slang`.
     inline constexpr string_view shader_file_extension = ".slang";
 
-    // A shader that Slang has parsed and reflected but not yet compiled to any target's bytecode.
-    // It holds only source code and reflection info -- no session, module, or linked program -- so
-    // discovering and reflecting every shader on disk at startup, before a graphics backend even
-    // exists, costs no GPU or codegen work and leaves nothing Slang-specific to keep alive.
-    // Actually generating bytecode for an entry point means recompiling `source` later via
-    // ShaderCompiler.
+    // A shader that Slang has parsed and **reflected but not yet compiled** to any target's bytecode.
+    //
+    // It holds only `source` and `reflection` — no session, module, or linked program — so discovering
+    // and reflecting every shader on disk at startup, *before a graphics backend even exists*, costs no
+    // GPU or codegen work and leaves nothing Slang-specific alive. Actually generating bytecode for an
+    // entry point means recompiling `source` later through `ShaderCompiler::compile()`.
     struct UnCompiledShader {
         ShaderSource source;
         ShaderReflection reflection;
 
+        // Convenience accessor for `source.module_name` — the shader's stable identity.
         [[nodiscard]] string_view module_name() const noexcept {
             return source.module_name;
         }
     };
 
-    // Recursively walks `directory` for *.slang files and reflects each one. A file that fails to
-    // parse is logged and skipped rather than aborting the scan, since one broken shader shouldn't
-    // stop the rest of the engine from starting up.
+    // Recursively scan `directory` for `*.slang` files and reflect each one into an `UnCompiledShader`.
+    //
+    // Resilient by design: a file that fails to read or reflect is **logged and skipped**, not fatal —
+    // one broken shader shouldn't stop the engine from starting. A missing directory logs a warning and
+    // yields an empty list. Each shader's module name is set to the file stem, so it keeps one stable
+    // name from discovery through later compilation.
+    //
+    // @param directory root to walk (recursively).
+    // @param compiler  used for the reflection pass (`ShaderCompiler::reflect`).
+    // @param options   reflection options (search paths, macros, ...); defaults are usually fine.
+    // @returns every successfully reflected shader found, in traversal order.
+    //
+    // ```cpp
+    // ShaderCompiler compiler;
+    // auto shaders = discover_shaders("Shaders", compiler);
+    // for (const auto &s : shaders)
+    //     log_info("found shader '{}' with {} entry point(s)",
+    //              s.module_name(), s.reflection.entry_points.size());
+    // ```
     [[nodiscard]] inline vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
                                                                    const ShaderCompileOptions &options = {}) {

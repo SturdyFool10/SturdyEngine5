@@ -21,6 +21,12 @@ using std::strong_ordering;
 
 export namespace SFT::Foundation {
 
+    // Extended-precision value types used by the engine's generic numeric code. The integer types are
+    // fixed-width, wrapping, constexpr-friendly arithmetic types; the floating types are expansion
+    // floats (`f128` = double-double, `f256` = quad-double) built from IEEE `f64` limbs. They are meant
+    // for deterministic high-precision constants, tooling, and math paths that need more precision than
+    // native `double`, not as drop-in replacements for hardware IEEE binary128.
+
 #if !defined(__SIZEOF_INT128__)
 #error "SturdyEngine's wide integer types require a compiler with __int128 (GCC/Clang)."
 #endif
@@ -29,9 +35,15 @@ export namespace SFT::Foundation {
 #error "SturdyEngine's f128/f256 require IEEE FP semantics; -ffast-math/-Ofast breaks them."
 #endif
 
+    // Native 128-bit integers supplied by GCC/Clang. They are re-exported with engine aliases so the
+    // rest of the codebase does not name compiler extension types directly.
     using i128 = __int128;
     using u128 = unsigned __int128;
 
+    // Unsigned 256-bit integer represented as two 128-bit limbs (`hi:lo`). Arithmetic intentionally
+    // wraps modulo 2^256, matching built-in unsigned integer behavior. Division by zero returns zero
+    // quotient/remainder through `divmod()` rather than throwing or trapping, keeping the type usable in
+    // `constexpr` and `noexcept` generic code.
     class u256 {
       public:
         u128 lo{};
@@ -194,6 +206,8 @@ export namespace SFT::Foundation {
         }
     };
 
+    // Signed 256-bit integer stored as two's-complement bits. Arithmetic and bit operations reuse the
+    // underlying `u256` representation, so overflow wraps just like fixed-width machine integers.
     class i256 {
       public:
         u256 bits{};
@@ -356,6 +370,9 @@ export namespace SFT::Foundation {
 
     } // namespace Detail
 
+    // Double-double floating point: the value is the unevaluated sum `hi + lo`, where each limb is an
+    // IEEE `f64`. Operations use error-free transforms and renormalization to keep roughly 106 bits of
+    // precision while remaining usable in constant evaluation.
     class f128 {
       public:
         f64 hi{};
@@ -506,6 +523,10 @@ export namespace SFT::Foundation {
 
     } // namespace Detail
 
+    // Quad-double floating point: four ordered `f64` limbs representing a high-precision expansion.
+    // Operations keep roughly 212 bits of precision. The type supports infinities/NaNs through the lead
+    // limb, but it is not an IEEE interchange format; `numeric_limits` in `WideTraits.cppm` documents
+    // the supported range and precision.
     class f256 {
       public:
         f64 x[4]{};
@@ -715,13 +736,43 @@ export namespace SFT::Foundation {
             return value;
         }
 
+        [[nodiscard]] constexpr int literal_digit_value(char c) noexcept {
+            if (c >= '0' && c <= '9')
+                return static_cast<int>(c - '0');
+            if (c >= 'a' && c <= 'f')
+                return static_cast<int>(c - 'a' + 10);
+            if (c >= 'A' && c <= 'F')
+                return static_cast<int>(c - 'A' + 10);
+            return -1;
+        }
+
+        [[nodiscard]] constexpr int parse_literal_exponent(const char *&text) noexcept {
+            bool negative = false;
+            if (*text == '+')
+                ++text;
+            else if (*text == '-') {
+                negative = true;
+                ++text;
+            }
+
+            int magnitude = 0;
+            for (; *text != '\0'; ++text) {
+                if (*text == '\'')
+                    continue;
+                const int digit = literal_digit_value(*text);
+                if (digit < 0 || digit >= 10)
+                    break;
+                magnitude = magnitude * 10 + digit;
+            }
+            return negative ? -magnitude : magnitude;
+        }
+
         template <class F>
-        [[nodiscard]] constexpr F scale_pow10(F value, int exponent) noexcept {
+        [[nodiscard]] constexpr F scale_pow(F value, F base, int exponent) noexcept {
             if (exponent == 0)
                 return value;
             int n = exponent < 0 ? -exponent : exponent;
             F factor(1.0);
-            F base(10.0);
             while (n != 0) {
                 if ((n & 1) != 0)
                     factor = factor * base;
@@ -732,7 +783,7 @@ export namespace SFT::Foundation {
         }
 
         template <class F>
-        [[nodiscard]] constexpr F parse_wide_float(const char *text) noexcept {
+        [[nodiscard]] constexpr F parse_wide_decimal_float(const char *text) noexcept {
             F value(0.0);
             int fraction_digits = 0;
             bool seen_dot = false;
@@ -744,41 +795,95 @@ export namespace SFT::Foundation {
                     seen_dot = true;
                     continue;
                 }
-                if (c < '0' || c > '9')
+                const int digit = literal_digit_value(c);
+                if (digit < 0 || digit >= 10)
                     break;
-                value = value * F(10.0) + F(static_cast<f64>(c - '0'));
+                value = value * F(10.0) + F(static_cast<f64>(digit));
                 if (seen_dot)
                     ++fraction_digits;
             }
+
             int exponent = 0;
             if (*text == 'e' || *text == 'E') {
                 ++text;
-                bool negative = false;
-                if (*text == '+')
-                    ++text;
-                else if (*text == '-') {
-                    negative = true;
-                    ++text;
-                }
-                int magnitude = 0;
-                for (; *text >= '0' && *text <= '9'; ++text)
-                    magnitude = magnitude * 10 + (*text - '0');
-                exponent = negative ? -magnitude : magnitude;
+                exponent = parse_literal_exponent(text);
             }
-            return scale_pow10<F>(value, exponent - fraction_digits);
+            return scale_pow(value, F(10.0), exponent - fraction_digits);
+        }
+
+        template <class F>
+        [[nodiscard]] constexpr F parse_wide_hex_float(const char *text) noexcept {
+            F value(0.0);
+            int fraction_digits = 0;
+            bool seen_dot = false;
+            for (; *text != '\0'; ++text) {
+                const char c = *text;
+                if (c == '\'')
+                    continue;
+                if (c == '.') {
+                    seen_dot = true;
+                    continue;
+                }
+                const int digit = literal_digit_value(c);
+                if (digit < 0 || digit >= 16)
+                    break;
+                value = value * F(16.0) + F(static_cast<f64>(digit));
+                if (seen_dot)
+                    ++fraction_digits;
+            }
+
+            int exponent = 0;
+            if (*text == 'p' || *text == 'P') {
+                ++text;
+                exponent = parse_literal_exponent(text);
+            }
+            return scale_pow(value, F(2.0), exponent - fraction_digits * 4);
+        }
+
+        template <class F>
+        [[nodiscard]] constexpr F parse_wide_float(const char *text) noexcept {
+            if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+                return parse_wide_hex_float<F>(text + 2);
+            return parse_wide_decimal_float<F>(text);
         }
 
     } // namespace Detail
 
+    // Wide numeric literals parse the token text directly so values larger than built-in literal ranges
+    // can still be written naturally. Integer literals accept decimal, binary (`0b`), octal (`0`),
+    // hexadecimal (`0x`), and digit separators; wide-float literals accept decimal notation with `e`/`E`
+    // exponents and hexadecimal notation with `p`/`P` exponents.
+
+} // namespace SFT::Foundation
+
+export [[nodiscard]] constexpr SFT::Foundation::u128 operator""_u128(const char *text) noexcept {
+    return SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u128>(text);
+}
+export [[nodiscard]] constexpr SFT::Foundation::i128 operator""_i128(const char *text) noexcept {
+    return static_cast<SFT::Foundation::i128>(SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u128>(text));
+}
+export [[nodiscard]] constexpr SFT::Foundation::u256 operator""_u256(const char *text) noexcept {
+    return SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u256>(text);
+}
+export [[nodiscard]] constexpr SFT::Foundation::i256 operator""_i256(const char *text) noexcept {
+    return SFT::Foundation::i256::from_bits(SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u256>(text));
+}
+export [[nodiscard]] constexpr SFT::Foundation::f128 operator""_f128(const char *text) noexcept {
+    return SFT::Foundation::Detail::parse_wide_float<SFT::Foundation::f128>(text);
+}
+export [[nodiscard]] constexpr SFT::Foundation::f256 operator""_f256(const char *text) noexcept {
+    return SFT::Foundation::Detail::parse_wide_float<SFT::Foundation::f256>(text);
+}
+
+export namespace SFT::Foundation {
+
     namespace Literals {
-
-        [[nodiscard]] constexpr u128 operator""_u128(const char *text) noexcept { return Detail::parse_wide_unsigned<u128>(text); }
-        [[nodiscard]] constexpr i128 operator""_i128(const char *text) noexcept { return static_cast<i128>(Detail::parse_wide_unsigned<u128>(text)); }
-        [[nodiscard]] constexpr u256 operator""_u256(const char *text) noexcept { return Detail::parse_wide_unsigned<u256>(text); }
-        [[nodiscard]] constexpr i256 operator""_i256(const char *text) noexcept { return i256::from_bits(Detail::parse_wide_unsigned<u256>(text)); }
-        [[nodiscard]] constexpr f128 operator""_f128(const char *text) noexcept { return Detail::parse_wide_float<f128>(text); }
-        [[nodiscard]] constexpr f256 operator""_f256(const char *text) noexcept { return Detail::parse_wide_float<f256>(text); }
-
+        using ::operator""_f128;
+        using ::operator""_f256;
+        using ::operator""_i128;
+        using ::operator""_i256;
+        using ::operator""_u128;
+        using ::operator""_u256;
     } // namespace Literals
 
     namespace Detail {
@@ -799,6 +904,8 @@ export namespace SFT::Foundation {
                 return false;
             if (static_cast<f64>(1.5e2_f128) != 150.0 || static_cast<f64>(2500e-2_f256) != 25.0)
                 return false;
+            if (static_cast<f64>(0x1.8p+2_f128) != 6.0 || static_cast<f64>(0x1p128_f256) != 0x1p128)
+                return false;
             return true;
         }
 
@@ -809,6 +916,8 @@ export namespace SFT::Foundation {
 } // namespace SFT::Foundation
 
 export namespace SFT {
+    // Re-export wide numeric aliases beside the scalar aliases from `Types.cppm`, so engine code can use
+    // `u256`, `f128`, etc. without qualifying every numeric type through `Foundation`.
     using f128 = Foundation::f128;
     using f256 = Foundation::f256;
     using i128 = Foundation::i128;

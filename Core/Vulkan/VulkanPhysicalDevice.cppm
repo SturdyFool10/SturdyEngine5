@@ -70,6 +70,14 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] const VkPhysicalDeviceProperties &properties() const noexcept { return properties_; }
         [[nodiscard]] const VkPhysicalDeviceFeatures &features() const noexcept { return features_; }
+
+        // Populates the extended feature chain rooted at `features` (the VkPhysicalDeviceFeatures2
+        // counterpart to features(), which exposes only the cached core 1.0 set). Chain the version
+        // or extension feature structs you want to probe into features.pNext before calling; each is
+        // filled in place. Requires Vulkan 1.1+ / VK_KHR_get_physical_device_properties2.
+        void query_features2(VkPhysicalDeviceFeatures2 &features) const noexcept {
+            vkGetPhysicalDeviceFeatures2(device_, &features);
+        }
         [[nodiscard]] const VkPhysicalDeviceMemoryProperties &memory_properties() const noexcept { return memory_properties_; }
         [[nodiscard]] const vector<VkQueueFamilyProperties> &queue_families() const noexcept { return queue_families_; }
         [[nodiscard]] string_view name() const noexcept { return properties_.deviceName; }

@@ -25,6 +25,10 @@ using std::to_string;
 
 export namespace SFT::Foundation {
 
+    // Standard-library-adjacent support for the wide numeric types: decimal rendering, streams,
+    // `numeric_limits`, hashing, and `std::format`. Kept separate from `Wide.cppm` so the core arithmetic
+    // types do not need to include heavier formatting/streaming headers.
+
     // --- Decimal conversion -----------------------------------------------------------------
     [[nodiscard]] inline string to_string(u128 v) {
         if (v == 0)
@@ -116,6 +120,8 @@ export namespace SFT::Foundation {
     [[nodiscard]] inline string to_string(const f256 &v) { return Detail::wide_float_to_string(v, 62); }
 
     // --- Stream insertion (ADL-found for the program-defined wide types) --------------------
+    // These overloads intentionally render through the same `to_string()` helpers used by formatting, so
+    // logging, streams, and diagnostics show one consistent decimal representation.
     inline ostream &operator<<(ostream &os, const u256 &v) { return os << to_string(v); }
     inline ostream &operator<<(ostream &os, const i256 &v) { return os << to_string(v); }
     inline ostream &operator<<(ostream &os, f128 v) { return os << to_string(v); }
@@ -128,6 +134,9 @@ export inline ostream &operator<<(ostream &os, __int128 v) { return os << SFT::F
 export inline ostream &operator<<(ostream &os, unsigned __int128 v) { return os << SFT::Foundation::to_string(v); }
 
 // --- numeric_limits ------------------------------------------------------------------------
+// Specializations make the wide numeric types usable in generic code that queries range, precision, and
+// IEEE-like traits. `f128`/`f256` advertise their expansion precision and range, but `is_iec559` remains
+// false because they are composed of multiple `f64` limbs rather than single hardware formats.
 namespace std {
 
     template <>
@@ -289,6 +298,8 @@ namespace std {
 } // namespace std
 
 // --- hash -----------------------------------------------------------------------------
+// Hashes mix all storage limbs and normalize signed zero for wide floats so values that compare equal also
+// hash equal. This satisfies the standard unordered-container requirement for the supported equality model.
 namespace SFT::Foundation::Detail {
     [[nodiscard]] inline usize hash_mix(usize seed, usize value) noexcept {
         return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
@@ -334,6 +345,8 @@ namespace std {
     };
 
     // --- formatter (inherits string formatter -> supports fill/align/width) ---------------
+    // Formatters delegate to the decimal string conversion and then reuse `std::formatter<string>`, giving
+    // wide values normal fill/alignment/width behavior without duplicating formatting machinery.
     template <>
     struct formatter<SFT::Foundation::u256> : formatter<string> {
         auto format(const SFT::Foundation::u256 &v, auto &ctx) const {

@@ -415,7 +415,7 @@ namespace SFT::Core::Vulkan {
         VkPhysicalDeviceVulkan12Features supportedFeatures12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &supportedFeatures13};
         VkPhysicalDeviceVulkan11Features supportedFeatures11{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = &supportedFeatures12};
         VkPhysicalDeviceFeatures2 supportedFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &supportedFeatures11};
-        vkGetPhysicalDeviceFeatures2(this->physicalDevice.vk_handle(), &supportedFeatures);
+        this->physicalDevice.query_features2(supportedFeatures);
 
         if (not supportedFeatures13.dynamicRendering or not supportedFeatures13.synchronization2 or not supportedFeatures12.timelineSemaphore) [[unlikely]] {
             return renderer_error(RendererErrorCode::InitializationFailed,

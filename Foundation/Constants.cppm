@@ -13,9 +13,14 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        // Precision a math constant can be requested at: `f32`, `f64`, or the wide `f128` / `f256`.
         template <class T>
         concept ConstantScalar = same_as<T, f32> || same_as<T, f64> || same_as<T, f128> || same_as<T, f256>;
 
+        // Assemble a constant from up to four `f64` "limbs" (`c0` high … `c3` low) at precision `T`:
+        // narrow types keep just `c0`, `f128` uses the first two limbs, `f256` all four. The limbs are
+        // the double-double/quad-double expansion of the exact value, given as hex floats so the digits
+        // are bit-exact. This is the shared machinery behind every constant below.
         template <ConstantScalar T>
         [[nodiscard]] constexpr T constant(f64 c0, f64 c1 = 0.0, f64 c2 = 0.0, f64 c3 = 0.0) noexcept {
             if constexpr (same_as<T, f32>) {
@@ -33,8 +38,21 @@ namespace SFT::Foundation {
 
 } // namespace SFT::Foundation
 
+// Mathematical constants, each a `constexpr` function template parameterized on precision: call
+// `pi<f64>()`, `pi<f256>()`, or just `pi()` (defaults to `f64`). Every value is stored bit-exact to
+// quad-double precision, so the same name is correct whether you want a `float` or a 212-bit `f256` —
+// no truncated literals. The set spans the π family, angle conversions, e / logarithms, the golden-ratio
+// family, and a grab-bag of named mathematical constants. A `consteval` smoke test at the bottom of the
+// file checks each value against its own definition to quad-double tolerance.
+//
+// ```cpp
+// float  turn   = tau<f32>();          // 2π as a float
+// f256   area   = pi<f256>() * r * r;  // full-precision π
+// f64    rads   = degrees * deg_to_rad();
+// ```
 export namespace SFT::Foundation {
 
+    // 0 and 1 at the requested precision — occasionally handy in generic code.
     template <Detail::ConstantScalar T = f64>
     [[nodiscard]] constexpr T zero() noexcept {
         return Detail::constant<T>(0x0.0p+0, 0x0.0p+0, 0x0.0p+0, 0x0.0p+0);
@@ -44,6 +62,9 @@ export namespace SFT::Foundation {
         return Detail::constant<T>(0x1.0000000000000p+0, 0x0.0p+0, 0x0.0p+0, 0x0.0p+0);
     }
 
+    // ── π family ─────────────────────────────────────────────────────────────────────
+    // π and its common multiples, fractions, reciprocals, powers, and square roots — everything named so
+    // hot-path code never recomputes `2*pi` or `pi/2` (`half_pi`, `two_pi`/`tau`, `inv_pi`, `sqrt_pi`, …).
     template <Detail::ConstantScalar T = f64>
     [[nodiscard]] constexpr T pi() noexcept {
         return Detail::constant<T>(0x1.921fb54442d18p+1, 0x1.1a62633145c07p-53, -0x1.f1976b7ed8fbcp-109, 0x1.4cf98e804177dp-163);

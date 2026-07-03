@@ -25,6 +25,11 @@ using std::same_as;
 
 export namespace SFT::Foundation {
 
+    // Numeric helpers and elementary math for both built-in scalars and Foundation wide types. Built-in
+    // floating-point overloads delegate to the C math library; `f128`/`f256` overloads stay `constexpr`
+    // where practical and use the constants/wide arithmetic from this module. Integer overloads exist for
+    // classification and sign-style helpers so generic numeric code can call one Foundation function set.
+
     namespace Detail {
 
         template <class T>
@@ -277,6 +282,9 @@ export namespace SFT::Foundation {
     } // namespace Detail
 
     // --- classification -----------------------------------------------------------------------
+    // Mirrors the familiar floating-point classification API while making integers trivially finite and
+    // non-NaN/non-infinite. Wide floats inspect their `f64` limbs, so a NaN or infinity anywhere in the
+    // expansion is reported consistently to generic callers.
     template <integral T>
     [[nodiscard]] constexpr bool isnan(T) noexcept {
         return false;
@@ -353,6 +361,8 @@ export namespace SFT::Foundation {
     }
 
     // --- abs / sign / copy sign ---------------------------------------------------------------
+    // Sign helpers are overloaded for built-in integers/floats and all wide types. `sign()` returns -1,
+    // 0, or 1 in the input type where that makes sense; unsigned inputs can only return 0 or 1.
     template <floating_point T>
     [[nodiscard]] inline T abs(T x) noexcept {
         return ::fabs(x);
@@ -393,6 +403,8 @@ export namespace SFT::Foundation {
     }
 
     // --- scaling ------------------------------------------------------------------------------
+    // Power-of-two scaling. Built-in floats use the platform `ldexp`; wide floats scale every limb by the
+    // same exponent to preserve the expansion structure.
     template <floating_point T>
     [[nodiscard]] inline T ldexp(T x, int exp) noexcept {
         return ::ldexp(x, exp);
@@ -407,6 +419,9 @@ export namespace SFT::Foundation {
     }
 
     // --- sqrt / cbrt --------------------------------------------------------------------------
+    // Roots for wide floats start from an `f64` seed and refine with Newton-style iterations until the
+    // target expansion precision is reached. Domain behavior follows the standard math functions: negative
+    // square roots produce NaN and infinities propagate.
     template <floating_point T>
     [[nodiscard]] inline T sqrt(T x) noexcept {
         return ::sqrt(x);
@@ -470,6 +485,8 @@ export namespace SFT::Foundation {
     }
 
     // --- fma (full-precision a*b + c) ---------------------------------------------------------
+    // Wide `fma` is implemented as `a * b + c` using the wide arithmetic path. That gives expanded
+    // precision for the operation, but it is not a hardware fused instruction with single final rounding.
     template <floating_point T>
     [[nodiscard]] inline T fma(T a, T b, T c) noexcept {
         return ::fma(a, b, c);
@@ -478,6 +495,8 @@ export namespace SFT::Foundation {
     [[nodiscard]] constexpr f256 fma(const f256 &a, const f256 &b, const f256 &c) noexcept { return a * b + c; }
 
     // --- floor / ceil / trunc / round ---------------------------------------------------------
+    // Rounding helpers follow the standard function semantics. Wide `floor()` descends through lower limbs
+    // only while higher limbs are already integer-exact, then renormalizes the expansion.
     template <floating_point T>
     [[nodiscard]] inline T floor(T x) noexcept {
         return ::floor(x);
@@ -628,6 +647,8 @@ export namespace SFT::Foundation {
     } // namespace Detail
 
     // --- trigonometry -------------------------------------------------------------------------
+    // Wide sine/cosine reduce by multiples of π/2 using the high-precision constants, then evaluate a
+    // Taylor kernel in the reduced range. Non-finite inputs return NaN.
     template <floating_point T>
     [[nodiscard]] inline T sin(T x) noexcept {
         return ::sin(x);
@@ -710,6 +731,9 @@ export namespace SFT::Foundation {
     [[nodiscard]] constexpr f256 tan(const f256 &x) noexcept { return sin(x) / cos(x); }
 
     // --- exponentials and logarithms ----------------------------------------------------------
+    // Wide `exp()` reduces by powers of two and evaluates a series near zero; wide `log()` starts from an
+    // `f64` approximation and refines with a symmetric Newton correction. `pow()` uses fast integer-power
+    // exponentiation when the exponent is exactly representable as an `i64`.
     template <floating_point T>
     [[nodiscard]] inline T exp(T x) noexcept {
         return ::exp(x);
@@ -822,6 +846,8 @@ export namespace SFT::Foundation {
     }
 
     // --- inverse trigonometry -----------------------------------------------------------------
+    // Inverse trig functions use an `f64` seed followed by Newton refinement in wide precision. Domain
+    // errors produce NaN instead of throwing.
     template <floating_point T>
     [[nodiscard]] inline T asin(T x) noexcept {
         return ::asin(x);
@@ -920,6 +946,7 @@ export namespace SFT::Foundation {
     }
 
     // --- hyperbolic ---------------------------------------------------------------------------
+    // Hyperbolic wide overloads are expressed in terms of the wide exponential functions.
     template <floating_point T>
     [[nodiscard]] inline T sinh(T x) noexcept {
         return ::sinh(x);
@@ -962,6 +989,8 @@ export namespace SFT::Foundation {
     }
 
     // --- common numeric helpers ---------------------------------------------------------------
+    // Miscellaneous helpers shared by math-heavy engine code. These keep shader-style utilities such as
+    // `fract()` and `saturate()` available on the same overload set as the standard math wrappers.
     template <floating_point T>
     [[nodiscard]] inline T fmod(T x, T y) noexcept {
         return ::fmod(x, y);

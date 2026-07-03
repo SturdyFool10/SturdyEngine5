@@ -25,23 +25,31 @@ using std::uint8_t;
 
 export namespace SFT::Foundation {
 
-    using i8 = int8_t;
-    using i16 = int16_t;
-    using i32 = int32_t;
-    using i64 = int64_t;
+    // Fixed-width scalar aliases used everywhere in the engine — short, explicit, and size-guaranteed
+    // (the `static_assert`s below enforce the sizes, and `f32`/`f64` are required to be IEEE-754).
+    // Prefer these over `int`/`unsigned`/`float` so widths never drift across platforms. Also exported
+    // unqualified into the `SFT` namespace at the bottom of this file for terse use engine-wide.
+    using i8 = int8_t;   // signed 8-bit
+    using i16 = int16_t; // signed 16-bit
+    using i32 = int32_t; // signed 32-bit
+    using i64 = int64_t; // signed 64-bit
 
-    using u8 = uint8_t;
-    using u16 = uint16_t;
-    using u32 = uint32_t;
-    using u64 = uint64_t;
+    using u8 = uint8_t;   // unsigned 8-bit
+    using u16 = uint16_t; // unsigned 16-bit
+    using u32 = uint32_t; // unsigned 32-bit
+    using u64 = uint64_t; // unsigned 64-bit
 
-    using f32 = float;
-    using f64 = double;
+    using f32 = float;  // 32-bit IEEE-754
+    using f64 = double; // 64-bit IEEE-754
 
-    using byte = ::byte;
-    using usize = size_t;
-    using isize = ptrdiff_t;
+    using byte = ::byte;      // raw byte (`std::byte`)
+    using usize = size_t;     // unsigned size / index type
+    using isize = ptrdiff_t;  // signed size / pointer-difference type
 
+    // A **guaranteed 1-byte boolean**. `bool`'s size is implementation-defined, which makes it unsafe in
+    // GPU-facing structs and serialized layouts; `b8` is exactly one byte (`static_assert`ed), trivially
+    // copyable, and standard-layout, so it can sit in a struct shared with a shader. Converts to/from
+    // `bool` implicitly enough to use like one: `b8 flag = true; if (flag) ...`.
     class b8 {
       public:
         constexpr b8() noexcept = default;
@@ -82,6 +90,9 @@ export namespace SFT::Foundation {
     static_assert(is_trivially_copyable_v<b8>);
     static_assert(is_standard_layout_v<b8>);
 
+    // Runtime re-check of every scalar-size / IEEE-754 / `b8`-layout invariant (the same ones the
+    // `static_assert`s above enforce at compile time). Runs automatically once in debug builds via the
+    // `Detail::type_assumptions_checked` initializer; also callable directly.
     inline void assert_type_assumptions() noexcept {
         assert(sizeof(i8) == 1);
         assert(sizeof(i16) == 2);
@@ -116,21 +127,42 @@ export namespace SFT::Foundation {
 
     } // namespace Detail
 
+    // User-defined literal suffixes are exported globally below, so importing `Sturdy.Foundation` makes
+    // `200_u8`, `0xFF_u32`, `16_usize`, and `2.5_f64` available without a `using namespace` directive.
+    // `SFT::Foundation::Literals` remains as a compatibility namespace that aliases the same operators.
+
+} // namespace SFT::Foundation
+
+export [[nodiscard]] constexpr SFT::Foundation::i8 operator""_i8(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i8>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::i16 operator""_i16(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i16>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::i32 operator""_i32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i32>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::i64 operator""_i64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i64>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::u8 operator""_u8(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u8>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::u16 operator""_u16(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u16>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::u32 operator""_u32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u32>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::u64 operator""_u64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u64>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::usize operator""_usize(unsigned long long v) noexcept { return static_cast<SFT::Foundation::usize>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::isize operator""_isize(unsigned long long v) noexcept { return static_cast<SFT::Foundation::isize>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::f32 operator""_f32(long double v) noexcept { return static_cast<SFT::Foundation::f32>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::f32 operator""_f32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::f32>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::f64 operator""_f64(long double v) noexcept { return static_cast<SFT::Foundation::f64>(v); }
+export [[nodiscard]] constexpr SFT::Foundation::f64 operator""_f64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::f64>(v); }
+
+export namespace SFT::Foundation {
+
     namespace Literals {
-        [[nodiscard]] constexpr i8 operator""_i8(unsigned long long v) noexcept { return static_cast<i8>(v); }
-        [[nodiscard]] constexpr i16 operator""_i16(unsigned long long v) noexcept { return static_cast<i16>(v); }
-        [[nodiscard]] constexpr i32 operator""_i32(unsigned long long v) noexcept { return static_cast<i32>(v); }
-        [[nodiscard]] constexpr i64 operator""_i64(unsigned long long v) noexcept { return static_cast<i64>(v); }
-        [[nodiscard]] constexpr u8 operator""_u8(unsigned long long v) noexcept { return static_cast<u8>(v); }
-        [[nodiscard]] constexpr u16 operator""_u16(unsigned long long v) noexcept { return static_cast<u16>(v); }
-        [[nodiscard]] constexpr u32 operator""_u32(unsigned long long v) noexcept { return static_cast<u32>(v); }
-        [[nodiscard]] constexpr u64 operator""_u64(unsigned long long v) noexcept { return static_cast<u64>(v); }
-        [[nodiscard]] constexpr usize operator""_usize(unsigned long long v) noexcept { return static_cast<usize>(v); }
-        [[nodiscard]] constexpr isize operator""_isize(unsigned long long v) noexcept { return static_cast<isize>(v); }
-        [[nodiscard]] constexpr f32 operator""_f32(long double v) noexcept { return static_cast<f32>(v); }
-        [[nodiscard]] constexpr f32 operator""_f32(unsigned long long v) noexcept { return static_cast<f32>(v); }
-        [[nodiscard]] constexpr f64 operator""_f64(long double v) noexcept { return static_cast<f64>(v); }
-        [[nodiscard]] constexpr f64 operator""_f64(unsigned long long v) noexcept { return static_cast<f64>(v); }
+        using ::operator""_f32;
+        using ::operator""_f64;
+        using ::operator""_i8;
+        using ::operator""_i16;
+        using ::operator""_i32;
+        using ::operator""_i64;
+        using ::operator""_isize;
+        using ::operator""_u8;
+        using ::operator""_u16;
+        using ::operator""_u32;
+        using ::operator""_u64;
+        using ::operator""_usize;
     } // namespace Literals
 
     namespace Detail {
@@ -144,6 +176,8 @@ export namespace SFT::Foundation {
 
 } // namespace SFT::Foundation
 
+// The scalar types are re-exported unqualified into `SFT` so engine code can write `u32`, `f64`, `b8`
+// directly without the `Foundation::` prefix. Everything else in Foundation stays namespace-qualified.
 export namespace SFT {
 
     using b8 = Foundation::b8;
