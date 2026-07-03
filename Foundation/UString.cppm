@@ -10,6 +10,7 @@ module;
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <ostream>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -18,6 +19,7 @@ module;
 
 export module Sturdy.Foundation:UString;
 
+import :Concepts;
 import :Types;
 
 using std::array;
@@ -274,6 +276,29 @@ export namespace SFT::Foundation {
             }
 
             return ResolvedSlicePattern{.range = range, .spread = slice.spread(), .grouping = grouping};
+        }
+
+        // Human-readable renderings shared by the `operator<<` overloads and the `std::formatter`
+        // specializations below, so both spell a value the same way.
+        [[nodiscard]] inline string display_string(USlice slice) {
+            if (slice.has_end()) {
+                return format("USlice({}..{})", slice.start(), slice.end_or(0));
+            }
+            return format("USlice({}..)", slice.start());
+        }
+
+        [[nodiscard]] inline string display_string(USlicePattern pattern) {
+            if (pattern.has_end()) {
+                return format("USlicePattern({}..{}, group={}, spread={})", pattern.start(), pattern.end_or(0), pattern.grouping(), pattern.spread());
+            }
+            return format("USlicePattern({}.., group={}, spread={})", pattern.start(), pattern.grouping(), pattern.spread());
+        }
+
+        [[nodiscard]] inline string display_string(const UStringValidation &validation) {
+            if (validation.valid) {
+                return format("UStringValidation(valid, {} scalars)", validation.scalar_count);
+            }
+            return format("UStringValidation(invalid: {} at byte {}, {} scalars)", to_string(validation.error), validation.byte_index, validation.scalar_count);
         }
 
     } // namespace Detail
@@ -2223,6 +2248,30 @@ export namespace SFT::Foundation {
         return result;
     }
 
+    inline std::ostream &operator<<(std::ostream &os, const UString &value) {
+        return os << value.view();
+    }
+
+    inline std::ostream &operator<<(std::ostream &os, const ustr &value) {
+        return os << value.view();
+    }
+
+    inline std::ostream &operator<<(std::ostream &os, USlice value) {
+        return os << Detail::display_string(value);
+    }
+
+    inline std::ostream &operator<<(std::ostream &os, USlicePattern value) {
+        return os << Detail::display_string(value);
+    }
+
+    inline std::ostream &operator<<(std::ostream &os, UStringValidationError value) {
+        return os << to_string(value);
+    }
+
+    inline std::ostream &operator<<(std::ostream &os, const UStringValidation &value) {
+        return os << Detail::display_string(value);
+    }
+
 } // namespace SFT::Foundation
 
 export [[nodiscard]] SFT::Foundation::ustr operator""_ustr(const char *text, size_t byte_count) {
@@ -2251,3 +2300,61 @@ export namespace SFT {
     using Foundation::uslice;
 
 } // namespace SFT
+
+// `std::formatter` specializations for every own-type this partition exposes. Each delegates to the
+// `string_view` formatter so the types work with `std::format`/`std::print` (including format specs like
+// `{:>10}`); the `format` member is templated on the context so the types also satisfy `std::formattable`
+// (and thus `Displayable`), which probes with a different context than `std::format` itself uses. They are
+// intentionally left non-exported: explicit specializations are found by reachability rather than name
+// lookup, so importing the module makes them usable without polluting the exported name set.
+template <>
+struct std::formatter<SFT::Foundation::UString> : std::formatter<std::string_view> {
+    auto format(const SFT::Foundation::UString &value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(value.view(), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::ustr> : std::formatter<std::string_view> {
+    auto format(const SFT::Foundation::ustr &value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(value.view(), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::USlice> : std::formatter<std::string_view> {
+    auto format(SFT::Foundation::USlice value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::USlicePattern> : std::formatter<std::string_view> {
+    auto format(SFT::Foundation::USlicePattern value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::UStringValidationError> : std::formatter<std::string_view> {
+    auto format(SFT::Foundation::UStringValidationError value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(SFT::Foundation::to_string(value), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::UStringValidation> : std::formatter<std::string_view> {
+    auto format(const SFT::Foundation::UStringValidation &value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
+// Every own-type this partition exposes is `Displayable` (streams with `<<` and formats with
+// `std::format`). Checked here, after the formatter specializations are in scope, so a regression in
+// either facility is a hard compile error rather than a silent loss of printability.
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::UString>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::ustr>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlice>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlicePattern>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidationError>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidation>);

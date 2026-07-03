@@ -2,7 +2,9 @@ module;
 
 #include <compare>
 #include <concepts>
+#include <format>
 #include <functional>
+#include <ostream>
 #include <type_traits>
 
 export module Sturdy.Foundation:Concepts;
@@ -18,7 +20,9 @@ using std::default_initializable;
 using std::destructible;
 using std::equality_comparable;
 using std::equality_comparable_with;
+using std::formattable;
 using std::hash;
+using std::ostream;
 using std::is_enum_v;
 using std::is_object_v;
 using std::movable;
@@ -141,6 +145,14 @@ export namespace SFT::Foundation {
     template <class T>
     concept Hashable = requires(const Detail::Unqualified<T> &value) {
         { hash<Detail::Unqualified<T>>{}(value) } -> convertible_to<usize>;
+    };
+
+    // Prints via `os << value` and formats via `std::format`/`std::print` without extra glue — the
+    // vocabulary for "this value can be shown to a human". Satisfied by the engine's own text types
+    // (`UString`, `ustr`, ...) and by any `std`/builtin type with both facilities.
+    template <class T>
+    concept Displayable = formattable<Detail::Unqualified<T>, char> && requires(ostream &os, const Detail::Unqualified<T> &value) {
+        { os << value } -> same_as<ostream &>;
     };
 
 } // namespace SFT::Foundation
