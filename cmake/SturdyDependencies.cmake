@@ -11,6 +11,7 @@ set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
 set(STURDY_SPDLOG_TAG "v1.17.0" CACHE STRING "spdlog git tag to fetch.")
 set(STURDY_MIMALLOC_TAG "v2.1.7" CACHE STRING "mimalloc git tag to fetch.")
 set(STURDY_HARFBUZZ_TAG "14.2.1" CACHE STRING "HarfBuzz git tag to fetch.")
+set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # Slang is built from source so we get a static library with SPIRV-Tools baked in.
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
 # Python3 must be available on the build machine for that step.
@@ -76,6 +77,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_spdlog()
         sturdy_fetch_mimalloc()
         sturdy_fetch_harfbuzz()
+        sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
     else()
         find_package(glm CONFIG REQUIRED)
@@ -86,6 +88,7 @@ function(sturdy_configure_dependencies)
         find_package(spdlog CONFIG REQUIRED)
         find_package(mimalloc CONFIG REQUIRED)
         find_package(harfbuzz CONFIG REQUIRED)
+        find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
     endif()
 
@@ -520,6 +523,28 @@ function(sturdy_fetch_harfbuzz)
     sturdy_mark_dependency_targets_exclude_from_all(harfbuzz harfbuzz::harfbuzz)
 endfunction()
 
+function(sturdy_fetch_miniaudio)
+    # miniaudio is the base audio engine: device output (up to 7.1), capture with low latency,
+    # and built-in lossless decoding (FLAC/WAV) via dr_flac. It is public-domain / MIT-0, so it
+    # static-links into proprietary software with no copyleft obligation. It honors
+    # BUILD_SHARED_LIBS (forced OFF globally), producing a static library. Steam Audio's
+    # ray-traced spatialization is layered on top as a DSP node in miniaudio's node graph.
+    set(MINIAUDIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(MINIAUDIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(MINIAUDIO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    # We do not need OGG/Vorbis/Opus; disabling them keeps miniaudio from pulling the
+    # external/ogg, external/vorbis, and external/opus subprojects into the build.
+    set(MINIAUDIO_NO_LIBVORBIS ON CACHE BOOL "" FORCE)
+    set(MINIAUDIO_NO_LIBOPUS OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(miniaudio
+        GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+        GIT_TAG ${STURDY_MINIAUDIO_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(miniaudio)
+    sturdy_mark_dependency_targets_exclude_from_all(miniaudio miniaudio::miniaudio)
+endfunction()
+
 function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::GLM
         glm::glm
@@ -567,6 +592,11 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::HarfBuzz
         harfbuzz::harfbuzz
         harfbuzz
+    )
+
+    sturdy_alias_existing_target(Sturdy::miniaudio
+        miniaudio::miniaudio
+        miniaudio
     )
 endfunction()
 

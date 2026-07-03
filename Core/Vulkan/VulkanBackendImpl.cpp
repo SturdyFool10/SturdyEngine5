@@ -115,6 +115,13 @@ namespace SFT::Core::Vulkan {
             return requested == 0 ? 2u : requested;
         }
 
+        [[nodiscard]] VkPresentModeKHR choose_present_mode(const vector<VkPresentModeKHR> &available_modes) noexcept {
+            constexpr VkPresentModeKHR preferred_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            return std::ranges::find(available_modes, preferred_mode) != available_modes.end()
+                       ? preferred_mode
+                       : VK_PRESENT_MODE_FIFO_KHR;
+        }
+
         // Drops a trailing ".slang" so shader module keys are addressed by bare source name, e.g.
         // "Shaders/triangle" rather than "Shaders/triangle.slang". Used both when filing modules and
         // when looking them up, so callers may pass the path with or without the extension.
@@ -537,6 +544,13 @@ namespace SFT::Core::Vulkan {
             requestedImageCount = std::min(requestedImageCount, surfaceCaps.maxImageCount);
         }
 
+        auto present_modes_result = this->physicalDevice.surface_present_modes(surface.vk_handle());
+        if (!present_modes_result.has_value()) [[unlikely]] {
+            return renderer_error(present_modes_result.error().code,
+                                  format("Failed to query surface present modes: {}", present_modes_result.error().message));
+        }
+        const VkPresentModeKHR present_mode = choose_present_mode(*present_modes_result);
+
         VkSwapchainCreateInfoKHR swapchainCreateInfo{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = surface.vk_handle(),
@@ -548,7 +562,7 @@ namespace SFT::Core::Vulkan {
             .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             .preTransform = surfaceCaps.currentTransform,
             .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-            .presentMode = VK_PRESENT_MODE_FIFO_KHR};
+            .presentMode = present_mode};
 
         auto swapchain_result = VulkanSwapchain::create(this->logicalDevice.vk_handle(), swapchainCreateInfo);
         if (!swapchain_result.has_value()) [[unlikely]] {

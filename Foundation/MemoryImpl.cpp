@@ -6,6 +6,17 @@ module;
 #include <mimalloc.h>
 #include <string_view>
 
+#if defined(__linux__)
+    #include <cstdio>
+    #include <unistd.h>
+#elif defined(_WIN32)
+    #include <windows.h>
+    // psapi.h must follow windows.h.
+    #include <psapi.h>
+#elif defined(__APPLE__)
+    #include <mach/mach.h>
+#endif
+
 module Sturdy.Foundation;
 
 import :Memory;
@@ -49,6 +60,55 @@ namespace {
         }
 
         return {bytes_per_mb, "MB", false};
+    }
+
+    // The true, physically-resident footprint as the OS accounts for it. mimalloc's
+    // mi_process_info reports its own *committed* address space (reserved from the OS but not
+    // necessarily touched), which runs far larger than what a system monitor shows and is not a
+    // meaningful "how much RAM are we using" number. Returns 0 if the OS value is unavailable, in
+    // which case callers fall back to mimalloc's figure.
+    usize os_resident_bytes() noexcept {
+#if defined(__linux__)
+        // /proc/self/statm reports (in pages): size resident shared text lib data dt.
+        // resident - shared is the private working set, which matches the "Memory" column that
+        // KDE/GNOME system monitors show (shared pages are attributed separately).
+        FILE *statm = std::fopen("/proc/self/statm", "r");
+        if (statm == nullptr) {
+            return 0;
+        }
+        unsigned long resident_pages = 0;
+        unsigned long shared_pages = 0;
+        const int matched = std::fscanf(statm, "%*u %lu %lu", &resident_pages, &shared_pages);
+        std::fclose(statm);
+        if (matched != 2 || resident_pages < shared_pages) {
+            return 0;
+        }
+        const long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size <= 0) {
+            return 0;
+        }
+        return static_cast<usize>(resident_pages - shared_pages) * static_cast<usize>(page_size);
+#elif defined(_WIN32)
+        // WorkingSetSize is the total resident set (private + shared). It is not the private-only
+        // figure Task Manager's "Memory" column shows (that needs QueryWorkingSetEx enumeration),
+        // but it is a true resident measurement rather than committed address space.
+        PROCESS_MEMORY_COUNTERS counters{};
+        counters.cb = sizeof(counters);
+        if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)) == 0) {
+            return 0;
+        }
+        return static_cast<usize>(counters.WorkingSetSize);
+#elif defined(__APPLE__)
+        // phys_footprint matches Activity Monitor's "Memory" column.
+        task_vm_info_data_t info{};
+        mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) {
+            return 0;
+        }
+        return static_cast<usize>(info.phys_footprint);
+#else
+        return 0;
+#endif
     }
 
     void log_mimalloc_line(const char *message, void *arg) noexcept {
@@ -136,6 +196,13 @@ namespace SFT::Foundation::Memory {
 
         HeapUsage usage{};
         mi_process_info(nullptr, nullptr, nullptr, &usage.current_resident_bytes, &usage.peak_resident_bytes, &usage.current_bytes, &usage.peak_bytes, &usage.page_faults);
+
+        // Prefer the OS's real resident figure over mimalloc's, which actually reports committed
+        // address space and vastly overstates physical footprint. Fall back to mimalloc only if the
+        // OS query fails.
+        if (const usize os_resident = os_resident_bytes(); os_resident != 0) {
+            usage.current_resident_bytes = os_resident;
+        }
         return usage;
     }
 

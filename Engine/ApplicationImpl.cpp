@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <string>
@@ -12,9 +13,9 @@ import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
 import Sturdy.Platform.SDL3;
-
 using std::chrono::duration;
 using std::chrono::high_resolution_clock;
+using SFT::Foundation::f64;
 
 namespace SFT::Engine {
 
@@ -56,7 +57,10 @@ namespace SFT::Engine {
         }
 
         auto last = high_resolution_clock::now();
+        auto last_memory_log = last;
+        constexpr f64 memory_log_interval_seconds = 1.0;
         u64 frame_index = 0;
+        usize peak_resident_bytes = 0;
 
         // Render one frame. Extracted so it can be called both from the normal loop and from
         // the repaint callback that fires during Windows' move/resize modal loop.
@@ -72,7 +76,30 @@ namespace SFT::Engine {
             const f64 delta_seconds = duration<f64>(now - last).count();
             last = now;
 
-            const std::string title = std::format("SturdyEngine 5 Frame Time: {}", delta_seconds);
+            if (duration<f64>(now - last_memory_log).count() >= memory_log_interval_seconds) {
+                // Hand back host memory mimalloc is retaining but no longer needs before we
+                // sample. mimalloc keeps freed pages committed for fast reuse (delayed purge),
+                // so after a startup peak (shader compilation, staging uploads) the reported
+                // footprint can look alarmingly large while very little is actually live. Forcing
+                // a collect here makes the numbers below reflect what we truly hold.
+                Foundation::Memory::collect(true);
+
+                const auto usage = Foundation::Memory::heap_usage();
+                // mimalloc's peak_rss is only refreshed during allocator work and can read lower
+                // than the live RSS (producing a nonsensical peak < current), so track our own
+                // high-water mark from the post-collect samples instead.
+                peak_resident_bytes = std::max(peak_resident_bytes, usage.current_resident_bytes);
+                Foundation::log_info("Memory usage: resident={} peak_resident={} committed={} peak_committed={}",
+                                     Foundation::Memory::format_bytes(usage.current_resident_bytes),
+                                     Foundation::Memory::format_bytes(peak_resident_bytes),
+                                     Foundation::Memory::format_bytes(usage.current_bytes),
+                                     Foundation::Memory::format_bytes(usage.peak_bytes));
+                last_memory_log = now;
+            }
+
+            const std::string title = std::format("SturdyEngine 5 Frame Time: {}, FPS: {:.0f}",
+                                                   Foundation::human_readable_time(delta_seconds),
+                                                   1.0 / delta_seconds);
             if (auto result = window_->set_title(title.c_str()); !result) {
                 Foundation::log_error("Failed to set window title: {}", result.error().message);
             }
