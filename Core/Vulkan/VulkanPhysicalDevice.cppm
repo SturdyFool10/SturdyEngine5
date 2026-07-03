@@ -3,8 +3,10 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <algorithm>
 #include <format>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,11 +60,9 @@ export namespace SFT::Core::Vulkan {
                 return renderer_error(RendererErrorCode::OperationFailed,
                                       "vkEnumeratePhysicalDevices (populate) failed.");
             }
-            vector<VulkanPhysicalDevice> devices;
-            devices.reserve(raw.size());
-            for (VkPhysicalDevice raw_device : raw)
-                devices.emplace_back(raw_device);
-            return devices;
+            return raw
+                 | std::views::transform([](VkPhysicalDevice raw_device) { return VulkanPhysicalDevice(raw_device); })
+                 | std::ranges::to<vector>();
         }
 
         [[nodiscard]] VkPhysicalDevice vk_handle() const noexcept { return device_; }
@@ -156,114 +156,73 @@ export namespace SFT::Core::Vulkan {
             vkGetPhysicalDeviceQueueFamilyProperties2(this->device_, &queueFamCount, nullptr);
             vector<VkQueueFamilyProperties2> qfamprops(queueFamCount, {.sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2, .pNext = nullptr});
             vkGetPhysicalDeviceQueueFamilyProperties2(this->device_, &queueFamCount, qfamprops.data());
-            for (u32 idx = 0; idx < queueFamCount; ++idx) {
+            auto indices = std::views::iota(0u, queueFamCount);
+            auto match = std::ranges::find_if(indices, [&](u32 idx) {
                 VkBool32 hasPresentSupp = VK_FALSE;
                 vkGetPhysicalDeviceSurfaceSupportKHR(this->device_, idx, surface, &hasPresentSupp);
-                const auto &props = qfamprops[idx];
-                if ((props.queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && hasPresentSupp) {
-                    this->gfxQueueFamIdx = idx;
-                    return idx;
-                }
-            }
-            return nullopt;
+                return (qfamprops[idx].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && hasPresentSupp;
+            });
+            if (match == indices.end())
+                return nullopt;
+            this->gfxQueueFamIdx = *match;
+            return gfxQueueFamIdx;
         }
 
         // Returns the index of a queue family that can present to the given surface.
         [[nodiscard]] optional<u32> find_present_queue_family(VkSurfaceKHR surface) noexcept {
             if (presentQueueFamIdx.has_value())
                 return presentQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
+            auto indices = std::views::iota(0u, static_cast<u32>(queue_families_.size()));
+            auto match = std::ranges::find_if(indices, [&](u32 i) {
                 VkBool32 supported = VK_FALSE;
-                if (vkGetPhysicalDeviceSurfaceSupportKHR(device_, i, surface, &supported) == VK_SUCCESS && supported) {
-                    this->presentQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+                return vkGetPhysicalDeviceSurfaceSupportKHR(device_, i, surface, &supported) == VK_SUCCESS && supported;
+            });
+            if (match == indices.end())
+                return nullopt;
+            this->presentQueueFamIdx = *match;
+            return presentQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_compute_queue_family() noexcept {
-            if (computeQueueFamIdx.has_value())
-                return computeQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
-                    computeQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!computeQueueFamIdx.has_value())
+                computeQueueFamIdx = find_queue_family_with(VK_QUEUE_COMPUTE_BIT);
+            return computeQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_transfer_queue_family() noexcept {
-            if (transferQueueFamIdx.has_value())
-                return transferQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_TRANSFER_BIT) {
-                    transferQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!transferQueueFamIdx.has_value())
+                transferQueueFamIdx = find_queue_family_with(VK_QUEUE_TRANSFER_BIT);
+            return transferQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_sparse_binding_queue_family() noexcept {
-            if (sparseBindingQueueFamIdx.has_value())
-                return sparseBindingQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) {
-                    sparseBindingQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!sparseBindingQueueFamIdx.has_value())
+                sparseBindingQueueFamIdx = find_queue_family_with(VK_QUEUE_SPARSE_BINDING_BIT);
+            return sparseBindingQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_protected_queue_family() noexcept {
-            if (protectedQueueFamIdx.has_value())
-                return protectedQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_PROTECTED_BIT) {
-                    protectedQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!protectedQueueFamIdx.has_value())
+                protectedQueueFamIdx = find_queue_family_with(VK_QUEUE_PROTECTED_BIT);
+            return protectedQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_video_decode_queue_family() noexcept {
-            if (videoDecodeQueueFamIdx.has_value())
-                return videoDecodeQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) {
-                    videoDecodeQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!videoDecodeQueueFamIdx.has_value())
+                videoDecodeQueueFamIdx = find_queue_family_with(VK_QUEUE_VIDEO_DECODE_BIT_KHR);
+            return videoDecodeQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_video_encode_queue_family() noexcept {
-            if (videoEncodeQueueFamIdx.has_value())
-                return videoEncodeQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR) {
-                    videoEncodeQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!videoEncodeQueueFamIdx.has_value())
+                videoEncodeQueueFamIdx = find_queue_family_with(VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
+            return videoEncodeQueueFamIdx;
         }
 
         [[nodiscard]] optional<u32> find_optical_flow_queue_family() noexcept {
-            if (opticalFlowQueueFamIdx.has_value())
-                return opticalFlowQueueFamIdx;
-            for (u32 i = 0; i < static_cast<u32>(queue_families_.size()); ++i) {
-                if (queue_families_[i].queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV) {
-                    opticalFlowQueueFamIdx = i;
-                    return i;
-                }
-            }
-            return nullopt;
+            if (!opticalFlowQueueFamIdx.has_value())
+                opticalFlowQueueFamIdx = find_queue_family_with(VK_QUEUE_OPTICAL_FLOW_BIT_NV);
+            return opticalFlowQueueFamIdx;
         }
 
         // Surface capability queries used during swapchain creation and resize.
@@ -308,6 +267,16 @@ export namespace SFT::Core::Vulkan {
         }
 
       private:
+        // Index of the first queue family whose flags include every bit in `flags`, or nullopt.
+        [[nodiscard]] optional<u32> find_queue_family_with(VkQueueFlags flags) const noexcept {
+            auto match = std::ranges::find_if(queue_families_, [flags](const VkQueueFamilyProperties &qf) {
+                return (qf.queueFlags & flags) == flags;
+            });
+            if (match == queue_families_.end())
+                return nullopt;
+            return static_cast<u32>(match - queue_families_.begin());
+        }
+
         VkPhysicalDevice device_ = VK_NULL_HANDLE;
         VkPhysicalDeviceProperties properties_ = {};
         VkPhysicalDeviceFeatures features_ = {};

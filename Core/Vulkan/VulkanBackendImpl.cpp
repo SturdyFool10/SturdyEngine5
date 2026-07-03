@@ -26,6 +26,7 @@ module;
 #include <memory>
 #include <new>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -212,8 +213,8 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroy_all_surfaces() noexcept {
-        for (auto &[id, s] : surfaces_) {
-            destroySurface(s);
+        for (VulkanSurface &surface : surfaces_ | std::views::values) {
+            destroySurface(surface);
         }
         surfaces_.clear();
     }
@@ -363,23 +364,17 @@ namespace SFT::Core::Vulkan {
             return renderer_error(devices_result.error().code, devices_result.error().message);
         }
 
-        f64 max_score = numeric_limits<f64>::lowest();
-        VulkanPhysicalDevice *best = nullptr;
-
-        for (auto &candidate : *devices_result) {
-            f64 s = candidate.score();
+        for (const auto &candidate : *devices_result) {
             Foundation::log_info("Found GPU: {} [{}] ({}) ID={} score={:.1f}",
                                  candidate.name(),
                                  candidate.vendor_name(),
                                  candidate.type_name(),
                                  candidate.device_id(),
-                                 s);
-            if (s > max_score) {
-                max_score = s;
-                best = &candidate;
-            }
+                                 candidate.score());
         }
 
+        // enumerate() guarantees a non-empty list, so max_element always dereferences a valid device.
+        auto best = std::ranges::max_element(*devices_result, {}, &VulkanPhysicalDevice::score);
         physicalDevice = std::move(*best);
         Foundation::log_info("Selected GPU: {} [{}] driver={} Vulkan API={}",
                              physicalDevice.name(),
@@ -395,15 +390,7 @@ namespace SFT::Core::Vulkan {
                                          surface_formats_result.error().message));
         }
 
-        bool formatSupported = false;
-        for (const auto &surfaceFormat : *surface_formats_result) {
-            if (surfaceFormat.format == SWAPCHAIN_FORMAT) {
-                formatSupported = true;
-                break;
-            }
-        }
-
-        if (!formatSupported) [[unlikely]] {
+        if (!std::ranges::contains(*surface_formats_result, SWAPCHAIN_FORMAT, &VkSurfaceFormatKHR::format)) [[unlikely]] {
             return renderer_error(RendererErrorCode::InitializationFailed, "Physical Device Selection failed at checking surface formats");
         }
 

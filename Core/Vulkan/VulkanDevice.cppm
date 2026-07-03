@@ -3,7 +3,9 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <algorithm>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <vector>
 
@@ -81,12 +83,8 @@ export namespace SFT::Core::Vulkan {
             // Collect unique queue family indices.
             vector<u32> families;
             auto push_unique = [&](optional<u32> fam) {
-                if (!fam)
-                    return;
-                for (u32 f : families)
-                    if (f == *fam)
-                        return;
-                families.push_back(*fam);
+                if (fam && !std::ranges::contains(families, *fam))
+                    families.push_back(*fam);
             };
             push_unique(desc.graphics_queue_family);
             push_unique(desc.present_queue_family);
@@ -94,17 +92,17 @@ export namespace SFT::Core::Vulkan {
             push_unique(desc.transfer_queue_family);
 
             const float priority = 1.0f;
-            vector<VkDeviceQueueCreateInfo> queue_infos;
-            queue_infos.reserve(families.size());
-            for (u32 fam : families) {
-                queue_infos.push_back({
-                    .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                    .pNext = nullptr,
-                    .queueFamilyIndex = fam,
-                    .queueCount = 1,
-                    .pQueuePriorities = &priority,
-                });
-            }
+            auto queue_infos = families
+                             | std::views::transform([&priority](u32 fam) {
+                                   return VkDeviceQueueCreateInfo{
+                                       .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                                       .pNext = nullptr,
+                                       .queueFamilyIndex = fam,
+                                       .queueCount = 1,
+                                       .pQueuePriorities = &priority,
+                                   };
+                               })
+                             | std::ranges::to<vector>();
 
             VkDeviceCreateInfo create_info{
                 .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,

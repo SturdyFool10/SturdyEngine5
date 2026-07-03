@@ -1,5 +1,6 @@
 module;
 #include "volk.h"
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -139,9 +140,7 @@ export namespace SFT::Core::Vulkan {
         }
 
         void destroy_frame_resources() noexcept {
-            for (FrameResources &frame : frames_) {
-                frame.destroy();
-            }
+            std::ranges::for_each(frames_, &FrameResources::destroy);
             frames_.clear();
             frame_timeline_.destroy();
             frame_cursor_ = 0;
