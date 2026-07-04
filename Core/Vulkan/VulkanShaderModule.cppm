@@ -4,8 +4,6 @@ module;
 #include <functional>
 #include <memory>
 #include <span>
-#include <string>
-#include <string_view>
 #include <utility>
 
 export module Sturdy.Core:VulkanShaderModule;
@@ -19,8 +17,6 @@ using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::shared_ptr;
 using std::span;
-using std::string;
-using std::string_view;
 
 export namespace SFT::Core::Vulkan {
 
@@ -110,8 +106,8 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] static RendererExpected<VulkanShaderModule> create(
             VkDevice device,
             span<const u32> spirv,
-            string source_file,
-            string entry_point,
+            UString source_file,
+            UString entry_point,
             VkShaderStageFlagBits stage,
             shared_ptr<const Slang::ShaderReflection> reflection) noexcept {
             VkShaderModuleCreateInfo info{
@@ -151,8 +147,10 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] VkShaderModule vk_handle() const noexcept { return module_; }
         [[nodiscard]] bool is_valid() const noexcept { return module_ != VK_NULL_HANDLE; }
-        [[nodiscard]] string_view source_file() const noexcept { return source_file_; }
-        [[nodiscard]] string_view entry_point() const noexcept { return entry_point_; }
+        // Borrowed views over the owned members. `ustr` can't be moved, but a prvalue built in the return
+        // is elided into the caller — the one shape in which a borrowed return works.
+        [[nodiscard]] ustr source_file() const noexcept { return ustr{source_file_}; }
+        [[nodiscard]] ustr entry_point() const noexcept { return ustr{entry_point_}; }
         [[nodiscard]] VkShaderStageFlagBits stage() const noexcept { return stage_; }
 
         // The full reflection of the source file this entry point was compiled from. Shared with
@@ -174,8 +172,8 @@ export namespace SFT::Core::Vulkan {
       private:
         VkDevice device_ = VK_NULL_HANDLE;
         VkShaderModule module_ = VK_NULL_HANDLE;
-        string source_file_;
-        string entry_point_;
+        UString source_file_;
+        UString entry_point_;
         VkShaderStageFlagBits stage_ = static_cast<VkShaderStageFlagBits>(0);
         shared_ptr<const Slang::ShaderReflection> reflection_;
     };
@@ -184,8 +182,8 @@ export namespace SFT::Core::Vulkan {
     // The backend keeps every VulkanShaderModule in a map under this key so a pipeline can ask for
     // "the vertex entry point of triangle.slang" directly.
     struct VulkanShaderModuleKey {
-        string source_file;
-        string entry_point;
+        UString source_file;
+        UString entry_point;
 
         [[nodiscard]] bool operator==(const VulkanShaderModuleKey &) const = default;
     };
@@ -195,8 +193,8 @@ export namespace SFT::Core::Vulkan {
     // across the module boundary.
     struct VulkanShaderModuleKeyHash {
         [[nodiscard]] std::size_t operator()(const VulkanShaderModuleKey &key) const noexcept {
-            const std::size_t h1 = std::hash<string>{}(key.source_file);
-            const std::size_t h2 = std::hash<string>{}(key.entry_point);
+            const std::size_t h1 = std::hash<UString>{}(key.source_file);
+            const std::size_t h2 = std::hash<UString>{}(key.entry_point);
             // 0x9e3779b97f4a7c15 is the 64-bit golden-ratio constant; the usual hash_combine mix.
             return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
         }

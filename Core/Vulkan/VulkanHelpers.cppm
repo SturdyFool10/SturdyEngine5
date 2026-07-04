@@ -1,18 +1,17 @@
 module;
 #include <format>
-#include <string>
 #include <vulkan/vulkan_core.h>
 
 export module Sturdy.Core:VulkanHelpers;
 
 import :RenderSurface;
+import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using SFT::Core::SurfaceProvider;
 using SFT::Core::SurfaceSystem;
 using SFT::Platform::Windowing::NativeWindowSystem;
 using SFT::Platform::Windowing::WindowBackendKind;
-using std::string;
 
 export namespace SFT::Core::Vulkan {
 
@@ -44,7 +43,7 @@ export namespace SFT::Core::Vulkan {
         }
     }
 
-    [[nodiscard]] inline string vulkan_format_name(VkFormat fmt) {
+    [[nodiscard]] inline UString vulkan_format_name(VkFormat fmt) {
 #define SFT_VULKAN_FORMAT_NAME(format) \
     case format:                       \
         return #format
@@ -232,7 +231,7 @@ export namespace SFT::Core::Vulkan {
     // Decodes VkPhysicalDeviceProperties::driverVersion into a human-readable string. The bit
     // layout is vendor-specific: NVIDIA packs 10.8.8.6, Intel on Windows packs 18.14, and every
     // other vendor uses the standard Vulkan 10.10.12 layout (same as VK_API_VERSION_*).
-    [[nodiscard]] inline string format_driver_version(u32 vendor_id, u32 version) {
+    [[nodiscard]] inline UString format_driver_version(u32 vendor_id, u32 version) {
         if (vendor_id == 0x10DE) { // NVIDIA
             return std::format("{}.{}.{}.{}",
                                (version >> 22) & 0x3FF,

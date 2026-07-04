@@ -7,8 +7,6 @@ module;
 #include <format>
 #include <optional>
 #include <ranges>
-#include <string>
-#include <string_view>
 #include <vector>
 
 export module Sturdy.Core:VulkanPhysicalDevice;
@@ -21,8 +19,6 @@ using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::nullopt;
 using std::optional;
-using std::string;
-using std::string_view;
 using std::vector;
 
 export namespace SFT::Core::Vulkan {
@@ -80,7 +76,12 @@ export namespace SFT::Core::Vulkan {
         }
         [[nodiscard]] const VkPhysicalDeviceMemoryProperties &memory_properties() const noexcept { return memory_properties_; }
         [[nodiscard]] const vector<VkQueueFamilyProperties> &queue_families() const noexcept { return queue_families_; }
-        [[nodiscard]] string_view name() const noexcept { return properties_.deviceName; }
+        // `deviceName` is a fixed-size C array the driver fills and NUL-terminates. `from_c_str` scans
+        // only within `VK_MAX_PHYSICAL_DEVICE_NAME_SIZE`, so a driver that forgot the terminator can't make
+        // us over-read. Borrows the array (no copy), so the returned slice lives as long as this device.
+        // Not `noexcept`: `ustr` validates UTF-8 and throws on a non-UTF-8 name (there is no non-throwing
+        // borrowed constructor) — a real friction point versus the old `string_view` return.
+        [[nodiscard]] ustr name() const { return ustr::from_c_str(properties_.deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE); }
         [[nodiscard]] const char *type_name() const noexcept { return physical_device_type_name(properties_.deviceType); }
 
         // PCI vendor ID and its readable name (AMD / NVIDIA / Intel / ...).
@@ -91,13 +92,13 @@ export namespace SFT::Core::Vulkan {
         // Raw, vendor-encoded driver version, plus a decoded human-readable form. The raw value's
         // bit layout differs per vendor — use driver_version_string() for anything user-facing.
         [[nodiscard]] u32 driver_version() const noexcept { return properties_.driverVersion; }
-        [[nodiscard]] string driver_version_string() const {
+        [[nodiscard]] UString driver_version_string() const {
             return format_driver_version(properties_.vendorID, properties_.driverVersion);
         }
 
         // The Vulkan API version this device supports (standard VK_API_VERSION_* layout).
         [[nodiscard]] u32 api_version() const noexcept { return properties_.apiVersion; }
-        [[nodiscard]] string api_version_string() const {
+        [[nodiscard]] UString api_version_string() const {
             return std::format("{}.{}.{}",
                                VK_API_VERSION_MAJOR(properties_.apiVersion),
                                VK_API_VERSION_MINOR(properties_.apiVersion),

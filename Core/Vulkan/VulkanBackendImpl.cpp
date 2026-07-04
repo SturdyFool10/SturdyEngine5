@@ -28,8 +28,6 @@ module;
 #include <optional>
 #include <ranges>
 #include <span>
-#include <string>
-#include <string_view>
 #include <vector>
 // SDL3 and GLFW surface helpers — included after volk so VkInstance/VkSurfaceKHR are already
 // defined. GLFW gates glfwCreateWindowSurface behind #if defined(VK_VERSION_1_0) which volk sets;
@@ -71,8 +69,6 @@ using std::nullopt;
 using std::numeric_limits;
 using std::optional;
 using std::span;
-using std::string;
-using std::string_view;
 using std::unexpected;
 using std::unique_ptr;
 using std::vector;
@@ -130,13 +126,13 @@ namespace SFT::Core::Vulkan {
         // platform's native separator ('\\' on Windows), while call sites like createPipeline() use
         // hardcoded forward slashes. Without normalizing, the two disagree and the map lookup misses
         // on Windows even though the shader compiled successfully.
-        [[nodiscard]] string strip_slang_extension(string_view path) {
-            constexpr string_view extension = ".slang";
-            if (path.size() >= extension.size() && path.substr(path.size() - extension.size()) == extension) {
-                path.remove_suffix(extension.size());
-            }
-            string result{path};
-            std::ranges::replace(result, '\\', '/');
+        [[nodiscard]] UString strip_slang_extension(const ustr &path) {
+            // ".slang" is 6 ASCII scalars, so scalar and byte counts coincide for these paths.
+            // FRICTION: ends_with(".slang") is ambiguous — a const char* literal converts equally well to
+            // ustr or string_view, and both have overloads — so the suffix must be spelled ustr{...}.
+            const ustr trimmed = path.ends_with(ustr{".slang"}) ? path.substr(0, path.size() - 6) : path.substr();
+            UString result{trimmed};
+            result.replace_all(ustr{"\\"}, ustr{"/"});
             return result;
         }
 
@@ -156,10 +152,12 @@ namespace SFT::Core::Vulkan {
             return nullopt; // No device selected yet (before a successful initialize()).
         }
         GpuInfo info{};
-        info.name = string{physicalDevice.name()};
+        // GpuInfo stays std::string (the API-agnostic boundary type), so each UString/ustr is lowered with
+        // .cpp_string(). The cpp_ prefix flags the crossing back into standard types at the call site.
+        info.name = physicalDevice.name().cpp_string();
         info.vendor = physicalDevice.vendor_name();
-        info.driver_version = physicalDevice.driver_version_string();
-        info.api_version = physicalDevice.api_version_string();
+        info.driver_version = physicalDevice.driver_version_string().cpp_string();
+        info.api_version = physicalDevice.api_version_string().cpp_string();
         info.device_type = physicalDevice.type_name();
         info.vendor_id = physicalDevice.vendor_id();
         info.device_id = physicalDevice.device_id();
@@ -372,6 +370,8 @@ namespace SFT::Core::Vulkan {
         }
 
         for (const auto &candidate : *devices_result) {
+            // The engine logger is spdlog/{fmt}; UString/ustr now have fmt::formatter specializations, so
+            // they log directly with no .view()/.cpp_string_view() adaptation at the call site.
             Foundation::log_info("Found GPU: {} [{}] ({}) ID={} score={:.1f}",
                                  candidate.name(),
                                  candidate.vendor_name(),
@@ -681,8 +681,11 @@ namespace SFT::Core::Vulkan {
         const auto total_start = steady_clock::now();
 
         for (const Slang::UnCompiledShader &uncompiled : init.uncompiled_shaders) {
-            const string source_path{uncompiled.source.path};        // real path — for logs/errors
-            const string source_file = strip_slang_extension(source_path); // key + stored provenance
+            const UString source_path{uncompiled.source.path};        // real path — for logs/errors
+            // FRICTION: strip_slang_extension(source_path) is ambiguous — UString->ustr can go via either
+            // ustr(const UString&) or UString::operator ustr(), so the conversion must be forced with
+            // .as_ustr(). This bites any UString passed where a `const ustr&` is expected.
+            const UString source_file = strip_slang_extension(source_path.as_ustr()); // key + stored provenance
 
             const auto frontend_start = steady_clock::now();
             auto compiled = compiler.compile(uncompiled.source, options);
@@ -764,9 +767,9 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
-    const VulkanShaderModule *VulkanBackend::find_shader_module(string_view source_file,
-                                                               string_view entry_point) const noexcept {
-        const auto it = shader_modules_.find(VulkanShaderModuleKey{strip_slang_extension(source_file), string{entry_point}});
+    const VulkanShaderModule *VulkanBackend::find_shader_module(const ustr &source_file,
+                                                               const ustr &entry_point) const noexcept {
+        const auto it = shader_modules_.find(VulkanShaderModuleKey{strip_slang_extension(source_file), UString{entry_point}});
         return it != shader_modules_.end() ? &it->second : nullptr;
     }
 
@@ -788,7 +791,7 @@ namespace SFT::Core::Vulkan {
         }
 
         // stage_info() builds the create info from the module's own stage + entry point (stored as
-        // an owned std::string, so .pName stays valid), rather than reaching into string_view here.
+        // an owned UString, so .pName stays valid), rather than reaching into a borrowed ustr here.
         const vector<VkPipelineShaderStageCreateInfo> shaderStages{
             vert->stage_info(),
             frag->stage_info(),

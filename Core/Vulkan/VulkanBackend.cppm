@@ -1,6 +1,5 @@
 module;
 #include <optional>
-#include <string_view>
 #include <unordered_map>
 #include <vulkan/vulkan_core.h>
 
@@ -27,7 +26,6 @@ import Sturdy.Platform;
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;
 using std::optional;
-using std::string_view;
 using std::unordered_map;
 
 export namespace SFT::Core::Vulkan {
@@ -54,8 +52,8 @@ export namespace SFT::Core::Vulkan {
         // e.g. find_shader_module("Shaders/triangle", "vertexMain"). The source file is keyed without
         // its ".slang" extension, but a trailing ".slang" is accepted and stripped. Returns nullptr
         // if no such module was produced during createShaders().
-        [[nodiscard]] const VulkanShaderModule *find_shader_module(string_view source_file,
-                                                                   string_view entry_point) const noexcept;
+        [[nodiscard]] const VulkanShaderModule *find_shader_module(const ustr &source_file,
+                                                                   const ustr &entry_point) const noexcept;
         RendererExpected<RenderSurfaceHandle> initVulkan(const RendererCreateInfo &init);
         RendererResult createVulkanInstance(const RendererCreateInfo &init);
         // GPU/device bring-up only ever runs once, against the surface of the first window
