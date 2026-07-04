@@ -6,6 +6,7 @@ module;
 #include <compare>
 #include <concepts>
 #include <cstring>
+#include <fmt/format.h>
 #include <format>
 #include <functional>
 #include <iterator>
@@ -460,7 +461,7 @@ export namespace SFT::Foundation {
         UString(const ustr &text);
 
         UString(const UString &other) {
-            assign_validated_unaliased(other.view(), other.scalar_size_);
+            assign_validated_unaliased(other.cpp_string_view(), other.scalar_size_);
         }
 
         UString(UString &&other) noexcept {
@@ -697,12 +698,12 @@ export namespace SFT::Foundation {
             return storage_data();
         }
 
-        [[nodiscard]] string_view view() const noexcept {
+        [[nodiscard]] string_view cpp_string_view() const noexcept {
             return string_view{storage_data(), byte_size_};
         }
 
-        [[nodiscard]] string_view bytes() const noexcept {
-            return view();
+        [[nodiscard]] string_view cpp_bytes() const noexcept {
+            return cpp_string_view();
         }
 
         [[nodiscard]] ustr as_ustr() const & noexcept;
@@ -721,36 +722,36 @@ export namespace SFT::Foundation {
         [[nodiscard]] operator ustr() const & noexcept;
         [[nodiscard]] operator ustr() const && = delete;
 
-        [[nodiscard]] string str() const {
-            return string{view()};
+        [[nodiscard]] string cpp_string() const {
+            return string{cpp_string_view()};
         }
 
         // Borrowed `char8_t` view over the same bytes — UTF-8-typed interop without a copy. The bytes are
-        // identical to `view()`; only the element type differs.
-        [[nodiscard]] u8string_view u8view() const noexcept {
+        // identical to `cpp_string_view()`; only the element type differs.
+        [[nodiscard]] u8string_view cpp_u8string_view() const noexcept {
             return u8string_view{reinterpret_cast<const char8_t *>(storage_data()), byte_size_};
         }
 
         // Owned `std::u8string` copy.
-        [[nodiscard]] u8string u8str() const {
-            return u8string{u8view()};
+        [[nodiscard]] u8string cpp_u8string() const {
+            return u8string{cpp_u8string_view()};
         }
 
         // Owned UTF-16 / UTF-32 / platform-wide copies, for handing text to APIs that speak those units.
-        [[nodiscard]] u16string to_u16string() const;
-        [[nodiscard]] u32string to_u32string() const;
-        [[nodiscard]] wstring to_wstring() const {
+        [[nodiscard]] u16string cpp_u16string() const;
+        [[nodiscard]] u32string cpp_u32string() const;
+        [[nodiscard]] wstring cpp_wstring() const {
             if constexpr (sizeof(wchar_t) == 2) {
-                const u16string units = to_u16string();
+                const u16string units = cpp_u16string();
                 return wstring{units.begin(), units.end()};
             } else {
-                const u32string units = to_u32string();
+                const u32string units = cpp_u32string();
                 return wstring{units.begin(), units.end()};
             }
         }
 
         [[nodiscard]] operator string_view() const noexcept {
-            return view();
+            return cpp_string_view();
         }
 
         [[nodiscard]] bool empty() const noexcept {
@@ -921,7 +922,7 @@ export namespace SFT::Foundation {
         }
 
         UString &append(const UString &text) {
-            return append_validated(text.view(), text.scalar_size_);
+            return append_validated(text.cpp_string_view(), text.scalar_size_);
         }
 
         UString &append(const ustr &text);
@@ -1008,7 +1009,7 @@ export namespace SFT::Foundation {
         }
 
         UString &insert(usize scalar_index, const UString &text) {
-            return insert_validated(scalar_index, text.view(), text.scalar_size_);
+            return insert_validated(scalar_index, text.cpp_string_view(), text.scalar_size_);
         }
 
         UString &insert(usize scalar_index, const ustr &text);
@@ -1049,7 +1050,7 @@ export namespace SFT::Foundation {
         }
 
         UString &replace(usize scalar_index, usize scalar_count, const UString &replacement) {
-            return replace_validated(scalar_index, scalar_count, replacement.view(), replacement.scalar_size_);
+            return replace_validated(scalar_index, scalar_count, replacement.cpp_string_view(), replacement.scalar_size_);
         }
 
         UString &replace(usize scalar_index, usize scalar_count, const ustr &replacement);
@@ -1107,7 +1108,7 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] usize find(const UString &needle, usize scalar_position = 0) const {
-            return find_validated(needle.view(), scalar_position);
+            return find_validated(needle.cpp_string_view(), scalar_position);
         }
 
         [[nodiscard]] usize find(const ustr &needle, usize scalar_position = 0) const;
@@ -1122,7 +1123,7 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] usize rfind(const UString &needle, usize scalar_position = npos) const {
-            return rfind_validated(needle.view(), scalar_position);
+            return rfind_validated(needle.cpp_string_view(), scalar_position);
         }
 
         [[nodiscard]] usize rfind(const ustr &needle, usize scalar_position = npos) const;
@@ -1137,7 +1138,7 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] bool contains(const UString &needle) const noexcept {
-            return view().find(needle.view()) != string_view::npos;
+            return cpp_string_view().find(needle.cpp_string_view()) != string_view::npos;
         }
 
         [[nodiscard]] bool contains(const ustr &needle) const noexcept;
@@ -1156,14 +1157,14 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] bool starts_with(const UString &prefix) const noexcept {
-            return view().starts_with(prefix.view());
+            return cpp_string_view().starts_with(prefix.cpp_string_view());
         }
 
         [[nodiscard]] bool starts_with(const ustr &prefix) const noexcept;
 
         [[nodiscard]] bool starts_with(string_view prefix) const {
             validate_or_throw(prefix);
-            return view().starts_with(prefix);
+            return cpp_string_view().starts_with(prefix);
         }
 
         [[nodiscard]] bool starts_with(u8string_view prefix) const {
@@ -1171,14 +1172,14 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] bool ends_with(const UString &suffix) const noexcept {
-            return view().ends_with(suffix.view());
+            return cpp_string_view().ends_with(suffix.cpp_string_view());
         }
 
         [[nodiscard]] bool ends_with(const ustr &suffix) const noexcept;
 
         [[nodiscard]] bool ends_with(string_view suffix) const {
             validate_or_throw(suffix);
-            return view().ends_with(suffix);
+            return cpp_string_view().ends_with(suffix);
         }
 
         [[nodiscard]] bool ends_with(u8string_view suffix) const {
@@ -1297,14 +1298,14 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] int compare(const UString &other) const noexcept {
-            return view().compare(other.view());
+            return cpp_string_view().compare(other.cpp_string_view());
         }
 
         [[nodiscard]] int compare(const ustr &other) const noexcept;
 
         [[nodiscard]] int compare(string_view other) const {
             validate_or_throw(other);
-            return view().compare(other);
+            return cpp_string_view().compare(other);
         }
 
         void swap(UString &other) noexcept {
@@ -1317,7 +1318,7 @@ export namespace SFT::Foundation {
         }
 
         [[nodiscard]] friend bool operator==(const UString &lhs, const UString &rhs) noexcept {
-            return lhs.view() == rhs.view();
+            return lhs.cpp_string_view() == rhs.cpp_string_view();
         }
 
         [[nodiscard]] friend strong_ordering operator<=>(const UString &lhs, const UString &rhs) noexcept {
@@ -1583,7 +1584,7 @@ export namespace SFT::Foundation {
             }
             if (overlaps_storage(text)) {
                 UString copy{text, scalar_count, ValidatedInput{}};
-                return append_validated(copy.view(), copy.scalar_size_);
+                return append_validated(copy.cpp_string_view(), copy.scalar_size_);
             }
 
             append_validated_unaliased(text, scalar_count);
@@ -1621,7 +1622,7 @@ export namespace SFT::Foundation {
             }
             if (overlaps_storage(text)) {
                 UString copy{text, scalar_count, ValidatedInput{}};
-                return insert_validated(scalar_index, copy.view(), copy.scalar_size_);
+                return insert_validated(scalar_index, copy.cpp_string_view(), copy.scalar_size_);
             }
 
             const usize insert_byte = byte_index_of_unchecked(scalar_index);
@@ -1642,7 +1643,7 @@ export namespace SFT::Foundation {
             }
             if (overlaps_storage(replacement)) {
                 UString copy{replacement, replacement_scalar_count, ValidatedInput{}};
-                return replace_validated(scalar_index, scalar_count, copy.view(), copy.scalar_size_);
+                return replace_validated(scalar_index, scalar_count, copy.cpp_string_view(), copy.scalar_size_);
             }
 
             const usize actual_scalar_count = scalar_count == npos ? scalar_size_ - scalar_index : std::min(scalar_count, scalar_size_ - scalar_index);
@@ -1708,7 +1709,7 @@ export namespace SFT::Foundation {
             }
 
             const usize start_byte = byte_index_of_unchecked(scalar_position);
-            const size_t found = view().find(needle, start_byte);
+            const size_t found = cpp_string_view().find(needle, start_byte);
             if (found == string_view::npos) {
                 return npos;
             }
@@ -1725,7 +1726,7 @@ export namespace SFT::Foundation {
 
             const usize clamped_scalar_position = scalar_position == npos ? scalar_size_ : std::min(scalar_position, scalar_size_);
             const usize byte_position = byte_index_of_unchecked(clamped_scalar_position);
-            const size_t found = view().rfind(needle, byte_position);
+            const size_t found = cpp_string_view().rfind(needle, byte_position);
             if (found == string_view::npos) {
                 return npos;
             }
@@ -1796,7 +1797,7 @@ export namespace SFT::Foundation {
         }
 
         ustr(const UString &text) noexcept
-            : bytes_(text.view()), scalar_size_(text.scalar_size()) {
+            : bytes_(text.cpp_string_view()), scalar_size_(text.scalar_size()) {
         }
 
         ustr(UString &&) = delete;
@@ -1832,15 +1833,15 @@ export namespace SFT::Foundation {
         // guarantee. Deleted (rather than merely absent) so a mistaken call is a clear compile error.
         const char *c_str() const = delete;
 
-        [[nodiscard]] string_view view() const noexcept {
+        [[nodiscard]] string_view cpp_string_view() const noexcept {
             return bytes_;
         }
 
-        [[nodiscard]] string_view bytes() const noexcept {
+        [[nodiscard]] string_view cpp_bytes() const noexcept {
             return bytes_;
         }
 
-        [[nodiscard]] string str() const {
+        [[nodiscard]] string cpp_string() const {
             return string{bytes_};
         }
 
@@ -1849,23 +1850,23 @@ export namespace SFT::Foundation {
         }
 
         // Borrowed `char8_t` view over the same bytes (no copy); owned `std::u8string` copy.
-        [[nodiscard]] u8string_view u8view() const noexcept {
+        [[nodiscard]] u8string_view cpp_u8string_view() const noexcept {
             return u8string_view{reinterpret_cast<const char8_t *>(bytes_.data()), bytes_.size()};
         }
 
-        [[nodiscard]] u8string u8str() const {
-            return u8string{u8view()};
+        [[nodiscard]] u8string cpp_u8string() const {
+            return u8string{cpp_u8string_view()};
         }
 
         // Owned UTF-16 / UTF-32 / platform-wide copies.
-        [[nodiscard]] u16string to_u16string() const;
-        [[nodiscard]] u32string to_u32string() const;
-        [[nodiscard]] wstring to_wstring() const {
+        [[nodiscard]] u16string cpp_u16string() const;
+        [[nodiscard]] u32string cpp_u32string() const;
+        [[nodiscard]] wstring cpp_wstring() const {
             if constexpr (sizeof(wchar_t) == 2) {
-                const u16string units = to_u16string();
+                const u16string units = cpp_u16string();
                 return wstring{units.begin(), units.end()};
             } else {
-                const u32string units = to_u32string();
+                const u32string units = cpp_u32string();
                 return wstring{units.begin(), units.end()};
             }
         }
@@ -2271,7 +2272,7 @@ export namespace SFT::Foundation {
     };
 
     inline UString::UString(const ustr &text) {
-        assign_validated_unaliased(text.view(), text.scalar_size());
+        assign_validated_unaliased(text.cpp_string_view(), text.scalar_size());
     }
 
     inline UString &UString::operator=(const ustr &text) {
@@ -2279,7 +2280,7 @@ export namespace SFT::Foundation {
     }
 
     [[nodiscard]] inline ustr UString::as_ustr() const & noexcept {
-        return ustr{view(), scalar_size_, ustr::ValidatedInput{}};
+        return ustr{cpp_string_view(), scalar_size_, ustr::ValidatedInput{}};
     }
 
     [[nodiscard]] inline ustr UString::slice() const & noexcept {
@@ -2307,7 +2308,7 @@ export namespace SFT::Foundation {
 
     namespace Detail {
 
-        // UTF-8 -> UTF-16 / UTF-32, shared by the `to_u16string()`/`to_u32string()` members of both string
+        // UTF-8 -> UTF-16 / UTF-32, shared by the `cpp_u16string()`/`cpp_u32string()` members of both string
         // types. Defined here (a reopened `Detail`) because they take `UString::CodepointView`, which is
         // only complete after the class body. The source scalars are already validated, so no re-checking
         // is needed: UTF-32 is a straight copy, and UTF-16 emits a surrogate pair for astral scalars.
@@ -2338,19 +2339,19 @@ export namespace SFT::Foundation {
 
     } // namespace Detail
 
-    [[nodiscard]] inline u16string UString::to_u16string() const {
+    [[nodiscard]] inline u16string UString::cpp_u16string() const {
         return Detail::to_utf16(codepoints());
     }
 
-    [[nodiscard]] inline u32string UString::to_u32string() const {
+    [[nodiscard]] inline u32string UString::cpp_u32string() const {
         return Detail::to_utf32(codepoints());
     }
 
-    [[nodiscard]] inline u16string ustr::to_u16string() const {
+    [[nodiscard]] inline u16string ustr::cpp_u16string() const {
         return Detail::to_utf16(codepoints());
     }
 
-    [[nodiscard]] inline u32string ustr::to_u32string() const {
+    [[nodiscard]] inline u32string ustr::cpp_u32string() const {
         return Detail::to_utf32(codepoints());
     }
 
@@ -2367,12 +2368,12 @@ export namespace SFT::Foundation {
     }
 
     inline UString &UString::assign(const ustr &text) {
-        assign_validated_unaliased(text.view(), text.scalar_size());
+        assign_validated_unaliased(text.cpp_string_view(), text.scalar_size());
         return *this;
     }
 
     inline UString &UString::append(const ustr &text) {
-        return append_validated(text.view(), text.scalar_size());
+        return append_validated(text.cpp_string_view(), text.scalar_size());
     }
 
     inline UString &UString::operator+=(const ustr &text) {
@@ -2380,11 +2381,11 @@ export namespace SFT::Foundation {
     }
 
     inline UString &UString::insert(usize scalar_index, const ustr &text) {
-        return insert_validated(scalar_index, text.view(), text.scalar_size());
+        return insert_validated(scalar_index, text.cpp_string_view(), text.scalar_size());
     }
 
     inline UString &UString::replace(usize scalar_index, usize scalar_count, const ustr &replacement) {
-        return replace_validated(scalar_index, scalar_count, replacement.view(), replacement.scalar_size());
+        return replace_validated(scalar_index, scalar_count, replacement.cpp_string_view(), replacement.scalar_size());
     }
 
     inline UString &UString::replace_all(const ustr &needle, const ustr &replacement) {
@@ -2406,35 +2407,35 @@ export namespace SFT::Foundation {
     }
 
     [[nodiscard]] inline usize UString::find(const ustr &needle, usize scalar_position) const {
-        return find_validated(needle.view(), scalar_position);
+        return find_validated(needle.cpp_string_view(), scalar_position);
     }
 
     [[nodiscard]] inline usize UString::rfind(const ustr &needle, usize scalar_position) const {
-        return rfind_validated(needle.view(), scalar_position);
+        return rfind_validated(needle.cpp_string_view(), scalar_position);
     }
 
     [[nodiscard]] inline bool UString::contains(const ustr &needle) const noexcept {
-        return view().find(needle.view()) != string_view::npos;
+        return cpp_string_view().find(needle.cpp_string_view()) != string_view::npos;
     }
 
     [[nodiscard]] inline bool UString::starts_with(const ustr &prefix) const noexcept {
-        return view().starts_with(prefix.view());
+        return cpp_string_view().starts_with(prefix.cpp_string_view());
     }
 
     [[nodiscard]] inline bool UString::ends_with(const ustr &suffix) const noexcept {
-        return view().ends_with(suffix.view());
+        return cpp_string_view().ends_with(suffix.cpp_string_view());
     }
 
     [[nodiscard]] inline int UString::compare(const ustr &other) const noexcept {
-        return view().compare(other.view());
+        return cpp_string_view().compare(other.cpp_string_view());
     }
 
     [[nodiscard]] inline bool operator==(const UString &lhs, const ustr &rhs) noexcept {
-        return lhs.view() == rhs.view();
+        return lhs.cpp_string_view() == rhs.cpp_string_view();
     }
 
     [[nodiscard]] inline bool operator==(const ustr &lhs, const UString &rhs) noexcept {
-        return lhs.view() == rhs.view();
+        return lhs.cpp_string_view() == rhs.cpp_string_view();
     }
 
     [[nodiscard]] inline strong_ordering operator<=>(const UString &lhs, const ustr &rhs) noexcept {
@@ -2471,11 +2472,11 @@ export namespace SFT::Foundation {
     }
 
     inline std::ostream &operator<<(std::ostream &os, const UString &value) {
-        return os << value.view();
+        return os << value.cpp_string_view();
     }
 
     inline std::ostream &operator<<(std::ostream &os, const ustr &value) {
-        return os << value.view();
+        return os << value.cpp_string_view();
     }
 
     inline std::ostream &operator<<(std::ostream &os, USlice value) {
@@ -2532,14 +2533,14 @@ export namespace SFT {
 template <>
 struct std::formatter<SFT::Foundation::UString> : std::formatter<std::string_view> {
     auto format(const SFT::Foundation::UString &value, auto &ctx) const {
-        return std::formatter<std::string_view>::format(value.view(), ctx);
+        return std::formatter<std::string_view>::format(value.cpp_string_view(), ctx);
     }
 };
 
 template <>
 struct std::formatter<SFT::Foundation::ustr> : std::formatter<std::string_view> {
     auto format(const SFT::Foundation::ustr &value, auto &ctx) const {
-        return std::formatter<std::string_view>::format(value.view(), ctx);
+        return std::formatter<std::string_view>::format(value.cpp_string_view(), ctx);
     }
 };
 
@@ -2571,20 +2572,66 @@ struct std::formatter<SFT::Foundation::UStringValidation> : std::formatter<std::
     }
 };
 
+// `fmt::formatter` mirrors of the above, so the same types format through {fmt}/spdlog. Each delegates to
+// fmt's `string_view` formatter (inheriting its `parse`, so format specs still work). Kept in lockstep with
+// the `std::formatter` set — `Displayable` requires both, so a type is never printable through one path but
+// not the other.
+template <>
+struct fmt::formatter<SFT::Foundation::UString> : fmt::formatter<std::string_view> {
+    auto format(const SFT::Foundation::UString &value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(value.cpp_string_view(), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<SFT::Foundation::ustr> : fmt::formatter<std::string_view> {
+    auto format(const SFT::Foundation::ustr &value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(value.cpp_string_view(), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<SFT::Foundation::USlice> : fmt::formatter<std::string_view> {
+    auto format(SFT::Foundation::USlice value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<SFT::Foundation::USlicePattern> : fmt::formatter<std::string_view> {
+    auto format(SFT::Foundation::USlicePattern value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<SFT::Foundation::UStringValidationError> : fmt::formatter<std::string_view> {
+    auto format(SFT::Foundation::UStringValidationError value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(SFT::Foundation::to_string(value), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<SFT::Foundation::UStringValidation> : fmt::formatter<std::string_view> {
+    auto format(const SFT::Foundation::UStringValidation &value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
+    }
+};
+
 // `std::hash` specializations so both string types are usable as keys in `std::unordered_map`/`set`. Both
 // hash their raw UTF-8 bytes, so an equal `UString` and `ustr` hash identically (matching their `==`).
 // Non-exported for the same reachability reason as the formatters above.
 template <>
 struct std::hash<SFT::Foundation::UString> {
     [[nodiscard]] std::size_t operator()(const SFT::Foundation::UString &value) const noexcept {
-        return std::hash<std::string_view>{}(value.view());
+        return std::hash<std::string_view>{}(value.cpp_string_view());
     }
 };
 
 template <>
 struct std::hash<SFT::Foundation::ustr> {
     [[nodiscard]] std::size_t operator()(const SFT::Foundation::ustr &value) const noexcept {
-        return std::hash<std::string_view>{}(value.view());
+        return std::hash<std::string_view>{}(value.cpp_string_view());
     }
 };
 

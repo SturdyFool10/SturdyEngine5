@@ -2,6 +2,7 @@ module;
 
 #include <compare>
 #include <concepts>
+#include <fmt/base.h>
 #include <format>
 #include <functional>
 #include <ostream>
@@ -147,11 +148,15 @@ export namespace SFT::Foundation {
         { hash<Detail::Unqualified<T>>{}(value) } -> convertible_to<usize>;
     };
 
-    // Prints via `os << value` and formats via `std::format`/`std::print` without extra glue — the
-    // vocabulary for "this value can be shown to a human". Satisfied by the engine's own text types
-    // (`UString`, `ustr`, ...) and by any `std`/builtin type with both facilities.
+    // Formats through `{fmt}`/spdlog without extra glue.
     template <class T>
-    concept Displayable = formattable<Detail::Unqualified<T>, char> && requires(ostream &os, const Detail::Unqualified<T> &value) {
+    concept FmtFormattable = fmt::is_formattable<Detail::Unqualified<T>, char>::value;
+
+    // Prints via `os << value` and formats via both `std::format`/`std::print` and `{fmt}`/spdlog
+    // without extra glue — the vocabulary for "this value can be shown to a human". Satisfied by the
+    // engine's own text types (`UString`, `ustr`, ...) and by any `std`/builtin type with both facilities.
+    template <class T>
+    concept Displayable = formattable<Detail::Unqualified<T>, char> && FmtFormattable<T> && requires(ostream &os, const Detail::Unqualified<T> &value) {
         { os << value } -> same_as<ostream &>;
     };
 
