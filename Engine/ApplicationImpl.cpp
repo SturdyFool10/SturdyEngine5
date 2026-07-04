@@ -65,6 +65,15 @@ namespace SFT::Engine {
         // Render one frame. Extracted so it can be called both from the normal loop and from
         // the repaint callback that fires during Windows' move/resize modal loop.
         auto render_one_frame = [&]() {
+            // Consume a pending resize here rather than only in the main loop below: during
+            // Windows' modal move/resize loop this lambda runs as the repaint callback while the
+            // main loop is blocked inside DefWindowProc, so this is the only place a resize gets
+            // observed mid-drag. Marking the surface dirty makes render_frame rebuild the
+            // swapchain at the new size instead of presenting stale-resolution frames.
+            if (window_->consume_resize()) {
+                engine_.on_surface_resize_needed(*surface_);
+            }
+
             Core::Extent2D framebuffer{};
             if (auto size = window_->framebuffer_size()) {
                 framebuffer = {size->x, size->y};
@@ -130,15 +139,12 @@ namespace SFT::Engine {
                 }
             }
 
-            // Notify the renderer that surface-sized resources may need rebuilding.
-            if (window_->consume_resize()) {
-                engine_.on_surface_resize_needed(*surface_);
-            }
-
             if (close_requested) {
                 break;
             }
 
+            // render_one_frame() consumes any pending resize before drawing (see its top), so the
+            // rebuild path is shared by both the normal loop and the modal-resize repaint callback.
             render_one_frame();
         }
 

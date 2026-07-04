@@ -92,6 +92,13 @@ namespace SFT::Core::Vulkan {
         }
         const VkPresentModeKHR present_mode = choose_present_mode(*present_modes_result);
 
+        // Hand the retiring swapchain to the driver as oldSwapchain so it can transition that
+        // swapchain's presentation backing into the new one instead of committing a fresh set of
+        // images every resize — recreating from scratch grows the process's resident memory each
+        // time. VK_NULL_HANDLE on the first build. The old handle is only destroyed further down,
+        // when set_swapchain() replaces it, so it stays valid across vkCreateSwapchainKHR here.
+        const VkSwapchainKHR old_swapchain = surface.swapchain().vk_handle();
+
         VkSwapchainCreateInfoKHR swapchainCreateInfo{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = surface.vk_handle(),
@@ -103,7 +110,8 @@ namespace SFT::Core::Vulkan {
             .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             .preTransform = surfaceCaps.currentTransform,
             .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-            .presentMode = present_mode};
+            .presentMode = present_mode,
+            .oldSwapchain = old_swapchain};
 
         auto swapchain_result = VulkanSwapchain::create(this->logicalDevice.vk_handle(), swapchainCreateInfo);
         if (!swapchain_result.has_value()) [[unlikely]] {

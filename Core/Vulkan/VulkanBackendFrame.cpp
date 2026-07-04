@@ -44,7 +44,9 @@ namespace SFT::Core::Vulkan {
         s->refresh_extent();
         if (s->swapchain_dirty() and not s->extent().is_zero()) [[unlikely]] {
             wait_idle();
-            destroySwapchain(*s);
+            // Don't tear the old swapchain down first: createSwapchain feeds it to the driver as
+            // oldSwapchain and only releases it once the replacement is built (see set_swapchain),
+            // which lets the driver reuse the retiring backing instead of committing a fresh set.
             if (auto result = createSwapchain(create_info_, *s); !result.has_value()) [[unlikely]] {
                 return renderer_error(result.error().code,
                                       format("Failed to recreate swapchain after resize: {}", result.error().message));
