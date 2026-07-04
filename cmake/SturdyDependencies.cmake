@@ -8,6 +8,11 @@ set(STURDY_VMA_TAG "v3.4.0" CACHE STRING "Vulkan Memory Allocator git tag to fet
 set(STURDY_VOLK_TAG "1.4.350" CACHE STRING "volk git tag to fetch.")
 set(STURDY_SDL3_TAG "release-3.4.10" CACHE STRING "SDL3 git tag to fetch.")
 set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
+# {fmt} is fetched as a standalone library and spdlog is pointed at it via SPDLOG_FMT_EXTERNAL
+# (see sturdy_fetch_spdlog), so the engine's direct <fmt/...> includes and spdlog share one fmt
+# instead of spdlog's private bundled copy (two copies would collide in the fmt:: namespace).
+# Keep this tag in sync with the fmt version spdlog bundles at STURDY_SPDLOG_TAG (v1.17.0 -> 12.1.0).
+set(STURDY_FMT_TAG "12.1.0" CACHE STRING "{fmt} git tag to fetch; shared with spdlog via SPDLOG_FMT_EXTERNAL.")
 set(STURDY_SPDLOG_TAG "v1.17.0" CACHE STRING "spdlog git tag to fetch.")
 set(STURDY_MIMALLOC_TAG "v2.1.7" CACHE STRING "mimalloc git tag to fetch.")
 set(STURDY_HARFBUZZ_TAG "14.2.1" CACHE STRING "HarfBuzz git tag to fetch.")
@@ -96,6 +101,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_volk()
         sturdy_fetch_sdl3()
         sturdy_fetch_glfw()
+        sturdy_fetch_fmt()
         sturdy_fetch_spdlog()
         sturdy_fetch_mimalloc()
         sturdy_fetch_harfbuzz()
@@ -107,6 +113,7 @@ function(sturdy_configure_dependencies)
         find_package(volk CONFIG REQUIRED)
         find_package(SDL3 CONFIG REQUIRED)
         find_package(glfw3 CONFIG REQUIRED)
+        find_package(fmt CONFIG REQUIRED)
         find_package(spdlog CONFIG REQUIRED)
         find_package(mimalloc CONFIG REQUIRED)
         find_package(harfbuzz CONFIG REQUIRED)
@@ -497,7 +504,24 @@ function(sturdy_fetch_glfw)
     sturdy_mark_dependency_targets_exclude_from_all(glfw glfw3 glfw::glfw glfw3::glfw)
 endfunction()
 
+function(sturdy_fetch_fmt)
+    set(FMT_INSTALL OFF CACHE BOOL "" FORCE)
+    set(FMT_DOC OFF CACHE BOOL "" FORCE)
+    set(FMT_TEST OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(fmt
+        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+        GIT_TAG ${STURDY_FMT_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(fmt)
+    sturdy_mark_dependency_targets_exclude_from_all(fmt fmt::fmt fmt-header-only fmt::fmt-header-only)
+endfunction()
+
 function(sturdy_fetch_spdlog)
+    # Share the standalone {fmt} fetched by sturdy_fetch_fmt (which must run first) instead of
+    # spdlog's bundled copy. spdlog reuses an existing fmt::fmt target when one is defined
+    # (its CMake only find_package(fmt)s when the target is missing), so this just flips the mode.
+    set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
     set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
     set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
     set(SPDLOG_BUILD_EXAMPLE_HO OFF CACHE BOOL "" FORCE)
@@ -596,6 +620,11 @@ function(sturdy_normalize_dependency_targets)
         glfw3
         glfw::glfw
         glfw3::glfw
+    )
+
+    sturdy_alias_existing_target(Sturdy::fmt
+        fmt::fmt
+        fmt
     )
 
     sturdy_alias_existing_target(Sturdy::spdlog
