@@ -1,6 +1,7 @@
 // VulkanBackend per-frame work: the render_frame() record/submit/present loop and the
 // per-surface frame resources (timeline semaphore, per-frame command pools/buffers).
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -10,9 +11,11 @@ module;
 #include <limits>
 #include <span>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanBackend;
 import :VulkanCommandBuffer;
 import :VulkanCommandPool;
@@ -26,6 +29,7 @@ import :RendererError;
 import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::format;
 using std::span;

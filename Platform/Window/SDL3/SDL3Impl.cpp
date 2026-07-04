@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
 
@@ -13,11 +14,14 @@ module;
 #include <optional>
 #include <unordered_map>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Platform.SDL3;
 
+#pragma region Imports
 import :Window;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::bad_alloc;
 using std::expected;

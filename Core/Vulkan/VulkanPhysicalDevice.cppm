@@ -1,4 +1,5 @@
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -8,12 +9,15 @@ module;
 #include <optional>
 #include <ranges>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:VulkanPhysicalDevice;
 
+#pragma region Imports
 import :RendererError;
 import :VulkanHelpers;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;

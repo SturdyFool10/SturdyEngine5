@@ -1,14 +1,18 @@
 module;
 
+#pragma region Imports
 #include <array>
 #include <memory>
 #include <string>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:ShaderReflection;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import :ShaderTypes;
+#pragma endregion
 
 using std::array;
 using std::shared_ptr;

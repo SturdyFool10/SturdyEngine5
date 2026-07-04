@@ -1,14 +1,18 @@
 module;
 
+#pragma region Imports
 #include <span>
 #include <string>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:Renderer;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Platform;
 import :ShaderDiscovery;
+#pragma endregion
 
 using SFT::Platform::Windowing::Window;
 using std::span;

@@ -1,10 +1,14 @@
 module;
+#pragma region Imports
 #include "volk.h"
+#pragma endregion
 
 export module Sturdy.Core:VulkanSampler;
 
+#pragma region Imports
 import :RendererError;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;

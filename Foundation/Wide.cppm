@@ -1,14 +1,18 @@
 module;
 
+#pragma region Imports
 #include <cmath>
 #include <compare>
 #include <concepts>
 #include <type_traits>
 #include <utility>
+#pragma endregion
 
 export module Sturdy.Foundation:Wide;
 
+#pragma region Imports
 import :Types;
+#pragma endregion
 
 using std::fma;
 using std::integral;

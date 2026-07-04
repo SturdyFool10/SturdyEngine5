@@ -1,10 +1,13 @@
 module;
 
+#pragma region Imports
 #include <memory>
 #include <string_view>
+#pragma endregion
 
 export module Sturdy.Core:Shader;
 
+#pragma region Imports
 import Sturdy.Foundation;
 
 // Re-export all Slang sub-partitions so callers that import :Shader or Sturdy.Core get
@@ -13,6 +16,7 @@ export import :ShaderError;
 export import :ShaderSource;
 export import :ShaderTypes;
 export import :ShaderReflection;
+#pragma endregion
 
 using std::shared_ptr;
 using std::string_view;

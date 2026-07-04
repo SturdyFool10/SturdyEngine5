@@ -1,12 +1,16 @@
 module;
+#pragma region Imports
 #include <format>
 #include <vulkan/vulkan_core.h>
+#pragma endregion
 
 export module Sturdy.Core:VulkanHelpers;
 
+#pragma region Imports
 import :RenderSurface;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using SFT::Core::SurfaceProvider;
 using SFT::Core::SurfaceSystem;

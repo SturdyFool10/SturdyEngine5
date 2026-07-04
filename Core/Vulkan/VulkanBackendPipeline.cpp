@@ -1,6 +1,7 @@
 // VulkanBackend graphics pipeline construction: the fixed-function state block and the
 // dynamic-rendering pipeline built from the compiled triangle shader modules.
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -8,9 +9,11 @@ module;
 
 #include <format>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanBackend;
 import :VulkanConstants;
 import :VulkanDevice;
@@ -19,6 +22,7 @@ import :VulkanShaderModule;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::format;
 using std::vector;

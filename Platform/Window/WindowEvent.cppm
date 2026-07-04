@@ -2,8 +2,10 @@ module;
 
 export module Sturdy.Platform:WindowEvent;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import :WindowGeometry;
+#pragma endregion
 
 export namespace SFT::Platform::Windowing {
 

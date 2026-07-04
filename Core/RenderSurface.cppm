@@ -1,7 +1,9 @@
 export module Sturdy.Core:RenderSurface;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 export namespace SFT::Core {
 

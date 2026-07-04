@@ -1,11 +1,15 @@
 module;
 
+#pragma region Imports
 #include <string>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:ShaderTypes;
 
+#pragma region Imports
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::string;
 using std::vector;

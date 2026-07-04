@@ -1,15 +1,19 @@
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
 #include <mutex>
 #include <span>
+#pragma endregion
 
 export module Sturdy.Core:VulkanQueue;
 
+#pragma region Imports
 import :RendererError;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;

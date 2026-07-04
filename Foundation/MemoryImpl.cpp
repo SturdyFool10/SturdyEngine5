@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <atomic>
 #include <format>
 #include <mimalloc-new-delete.h>
@@ -16,12 +17,15 @@ module;
 #elif defined(__APPLE__)
     #include <mach/mach.h>
 #endif
+#pragma endregion
 
 module Sturdy.Foundation;
 
+#pragma region Imports
 import :Memory;
 import :Log;
 import :Types;
+#pragma endregion
 
 using SFT::Foundation::f64, SFT::Foundation::u32, SFT::Foundation::usize;
 using std::atomic;

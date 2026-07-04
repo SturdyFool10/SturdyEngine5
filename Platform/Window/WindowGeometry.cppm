@@ -1,6 +1,8 @@
 module;
 
+#pragma region Imports
 #include <glm/vec2.hpp>
+#pragma endregion
 
 export module Sturdy.Platform:WindowGeometry;
 

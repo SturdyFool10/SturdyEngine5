@@ -1,17 +1,21 @@
 module;
 
+#pragma region Imports
 #include <concepts>
 #include <memory>
 #include <optional>
 #include <utility>
+#pragma endregion
 
 export module Sturdy.Core:EngineBackend;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Platform;
 import :RendererError;
 import :Renderer;
 import :RenderSurface;
+#pragma endregion
 
 using std::derived_from;
 using std::optional;

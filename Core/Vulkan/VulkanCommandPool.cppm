@@ -1,11 +1,15 @@
 module;
+#pragma region Imports
 #include "volk.h"
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:VulkanCommandPool;
 
+#pragma region Imports
 import :RendererError;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;

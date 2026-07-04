@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <atomic>
 #include <concepts>
 #include <expected>
@@ -9,9 +10,11 @@ module;
 #include <optional>
 #include <utility>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Platform:Window;
 
+#pragma region Imports
 import Sturdy.Foundation;
 
 export import :WindowError;
@@ -19,6 +22,7 @@ export import :WindowGeometry;
 export import :WindowEvent;
 export import :WindowEffect;
 export import :WindowConfig;
+#pragma endregion
 
 using std::bad_alloc;
 using std::derived_from;

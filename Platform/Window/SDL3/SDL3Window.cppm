@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <SDL3/SDL.h>
 
 #include <atomic>
@@ -9,10 +10,13 @@ module;
 #include <memory>
 #include <optional>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Platform.SDL3:Window;
 
+#pragma region Imports
 export import Sturdy.Platform;
+#pragma endregion
 
 using std::atomic_bool;
 using std::deque;

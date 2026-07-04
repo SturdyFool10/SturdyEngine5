@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <GLFW/glfw3.h>
 
 #include <expected>
@@ -9,12 +10,15 @@ module;
 #include <new>
 #include <optional>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Platform.GLFW;
 
+#pragma region Imports
 import :Window;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using std::bad_alloc;
 using std::expected;

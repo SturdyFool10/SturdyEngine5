@@ -1,10 +1,14 @@
 module;
 
+#pragma region Imports
 #include <string_view>
+#pragma endregion
 
 export module Sturdy.Platform:WindowEffect;
 
+#pragma region Imports
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::string_view;
 

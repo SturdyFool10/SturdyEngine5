@@ -1,12 +1,16 @@
 module;
 
+#pragma region Imports
 #include <concepts>
 #include <string>
 #include <string_view>
+#pragma endregion
 
 export module Sturdy.Core:ShaderSource;
 
+#pragma region Imports
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::convertible_to;
 using std::string;

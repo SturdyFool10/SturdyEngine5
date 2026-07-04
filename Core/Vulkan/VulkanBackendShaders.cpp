@@ -1,6 +1,7 @@
 // VulkanBackend shader pipeline: Slang → SPIR-V compilation of the engine's uncompiled
 // shaders, VkShaderModule creation per entry point, and keyed module lookup.
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -10,9 +11,11 @@ module;
 #include <format>
 #include <memory>
 #include <span>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanBackend;
 import :VulkanDevice;
 import :VulkanShaderModule;
@@ -21,6 +24,7 @@ import :Renderer;
 import :Shader;
 import :ShaderDiscovery;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::format;
 using std::make_shared;

@@ -1,12 +1,16 @@
 module;
 
+#pragma region Imports
 #include <expected>
 #include <string>
 #include <utility>
+#pragma endregion
 
 export module Sturdy.Core:RendererError;
 
+#pragma region Imports
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::expected;
 using std::string;

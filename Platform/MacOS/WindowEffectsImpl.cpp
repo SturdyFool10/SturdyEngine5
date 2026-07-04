@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <expected>
 #if defined(__APPLE__)
 #include <SDL3/SDL.h>
@@ -8,9 +9,11 @@ module;
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #endif
+#pragma endregion
 
 module Sturdy.Platform;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import :WindowError;
 import :WindowConfig;
@@ -18,6 +21,7 @@ import :WindowEffect;
 import :WindowEffects;
 import :WindowLog;
 import :WindowNative;
+#pragma endregion
 
 using std::expected;
 using std::unexpected;

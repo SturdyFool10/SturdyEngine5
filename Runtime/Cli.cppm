@@ -1,11 +1,13 @@
 module;
 
+#pragma region Imports
 #include <algorithm>
 #include <cstddef>
 #include <ranges>
 #include <span>
 #include <string>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Runtime.Cli;
 

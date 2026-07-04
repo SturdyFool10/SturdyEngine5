@@ -1,11 +1,15 @@
 module;
 
+#pragma region Imports
 #include <expected>
+#pragma endregion
 
 export module Sturdy.Platform:WindowNative;
 
+#pragma region Imports
 import :WindowError;
 import :WindowConfig;
+#pragma endregion
 
 using std::expected;
 

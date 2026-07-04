@@ -1,4 +1,5 @@
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -17,12 +18,15 @@ module;
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#pragma endregion
 
 export module Sturdy.Core:VulkanAllocator;
 
+#pragma region Imports
 import :RendererError;
 import :VulkanImage;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::RendererExpected;
 

@@ -1,5 +1,6 @@
 export module Sturdy.Core;
 
+#pragma region Imports
 export import Sturdy.Foundation;
 
 export import :RenderSurface;
@@ -9,3 +10,4 @@ export import :EngineBackend;
 export import :VulkanBackend;
 export import :Shader;
 export import :ShaderDiscovery;
+#pragma endregion

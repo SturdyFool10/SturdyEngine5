@@ -1,12 +1,16 @@
 module;
+#pragma region Imports
 #include "volk.h"
 #include <span>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:VulkanPipeline;
 
+#pragma region Imports
 import :RendererError;
 import Sturdy.Foundation;
+#pragma endregion
 
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;

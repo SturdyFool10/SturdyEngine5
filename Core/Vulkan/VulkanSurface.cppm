@@ -1,11 +1,14 @@
 module;
+#pragma region Imports
 #include "volk.h"
 #include <algorithm>
 #include <utility>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:VulkanSurface;
 
+#pragma region Imports
 import :RenderSurface;
 import :RendererError;
 import :VulkanHelpers;
@@ -15,6 +18,7 @@ import :VulkanCommandPool;
 import :VulkanCommandBuffer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using SFT::Core::Extent2D;
 using SFT::Core::RenderSurfaceDescriptor;

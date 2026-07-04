@@ -1,7 +1,9 @@
 module;
 
+#pragma region Imports
 #include <string>
 #include <string_view>
+#pragma endregion
 
 export module Sturdy.Platform:WindowError;
 

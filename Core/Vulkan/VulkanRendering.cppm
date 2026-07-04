@@ -1,10 +1,14 @@
 module;
+#pragma region Imports
 #include "volk.h"
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Core:VulkanRendering;
 
+#pragma region Imports
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::vector;
 

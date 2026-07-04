@@ -2,7 +2,9 @@ module;
 
 export module Sturdy.Platform:WindowConfig;
 
+#pragma region Imports
 import :WindowGeometry;
+#pragma endregion
 
 export namespace SFT::Platform::Windowing {
 

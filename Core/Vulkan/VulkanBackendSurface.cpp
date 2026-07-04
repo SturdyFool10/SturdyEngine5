@@ -1,6 +1,7 @@
 // VulkanBackend surface management: window → VkSurfaceKHR creation (SDL3/GLFW providers),
 // per-window surface slots, resize notifications, and surface teardown.
 module;
+#pragma region Imports
 #include "glm/ext/vector_float2.hpp"
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -16,9 +17,11 @@ module;
 // we don't define GLFW_INCLUDE_VULKAN to avoid a double-include of vulkan.h.
 #include <GLFW/glfw3.h>
 #include <SDL3/SDL_vulkan.h>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanBackend;
 import :VulkanConstants;
 import :VulkanHelpers;
@@ -29,6 +32,7 @@ import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;

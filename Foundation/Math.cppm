@@ -1,17 +1,21 @@
 module;
 
+#pragma region Imports
 #include <bit>
 #include <cmath>
 #include <concepts>
 #include <limits>
 #include <type_traits>
+#pragma endregion
 
 export module Sturdy.Foundation:Math;
 
+#pragma region Imports
 import :Types;
 import :Wide;
 import :Constants;
 import :NumericConcepts;
+#pragma endregion
 
 using std::bit_cast;
 using std::floating_point;

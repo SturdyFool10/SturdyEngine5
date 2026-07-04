@@ -1,6 +1,8 @@
 module;
 
+#pragma region Imports
 #include <string_view>
+#pragma endregion
 
 export module Sturdy.Foundation:Embed;
 

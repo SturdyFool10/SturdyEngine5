@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -12,6 +13,7 @@ module;
 #include <windows.h>
 #include <shellapi.h> // CommandLineToArgvW
 #endif
+#pragma endregion
 
 // Module implementation unit for Sturdy.Runtime.Cli. Kept as a .cpp (a plain implementation unit,
 // "module X;" with no export) so it is compiled as a normal translation unit — the .cppm extension

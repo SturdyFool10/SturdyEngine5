@@ -1,6 +1,7 @@
 // VulkanBackend swapchain construction and teardown: image count/present-mode negotiation,
 // per-image views and render-finished semaphores, and the depth attachment.
 module;
+#pragma region Imports
 #include "glm/ext/vector_float2.hpp"
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -24,9 +25,11 @@ module;
 #include <algorithm>
 #include <format>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanConstants;
@@ -39,6 +42,7 @@ import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using std::format;
 using std::vector;

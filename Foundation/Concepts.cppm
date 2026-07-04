@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <compare>
 #include <concepts>
 #include <fmt/base.h>
@@ -7,10 +8,13 @@ module;
 #include <functional>
 #include <ostream>
 #include <type_traits>
+#pragma endregion
 
 export module Sturdy.Foundation:Concepts;
 
+#pragma region Imports
 import :Types;
+#pragma endregion
 
 using std::assignable_from;
 using std::constructible_from;

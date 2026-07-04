@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -9,10 +10,13 @@ module;
 #include <optional>
 #include <sstream>
 #include <string>
+#pragma endregion
 
 export module Sturdy.Foundation:Utils;
 
+#pragma region Imports
 import :Types;
+#pragma endregion
 
 using SFT::Foundation::f64;
 using std::chrono::duration;

@@ -1,16 +1,20 @@
 module;
 
+#pragma region Imports
 #include <expected>
 #include <format>
 #include <optional>
 #include <utility>
+#pragma endregion
 
 module Sturdy.Engine;
 
+#pragma region Imports
 import :Engine;
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
+#pragma endregion
 
 using std::format;
 using std::unexpected;

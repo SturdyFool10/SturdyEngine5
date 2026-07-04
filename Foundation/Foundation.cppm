@@ -11,6 +11,7 @@
 // same basic-type pattern while the rest stays under `SFT::Foundation::`.
 export module Sturdy.Foundation;
 
+#pragma region Imports
 export import :Concepts;
 export import :Constants;
 export import :Embed;
@@ -23,6 +24,7 @@ export import :UString;
 export import :Utils;
 export import :Wide;
 export import :WideTraits;
+#pragma endregion
 
 // Global basic aliases. These intentionally mirror the aliases in `SFT` so engine code can write `u32`,
 // `f128`, `b8`, `ustr`, `UString`, or `uslice(0).to(5)` directly after importing Foundation.

@@ -1,6 +1,8 @@
+#pragma region Imports
 import Sturdy.Engine;
 import Sturdy.Foundation;
 import Sturdy.Runtime.Cli;
+#pragma endregion
 
 using SFT::Engine::Application;
 using SFT::Runtime::CliArgs;

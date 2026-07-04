@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <GLFW/glfw3.h>
 
 #include <deque>
@@ -7,10 +8,13 @@ module;
 #include <memory>
 #include <optional>
 #include <vector>
+#pragma endregion
 
 export module Sturdy.Platform.GLFW:Window;
 
+#pragma region Imports
 export import Sturdy.Platform;
+#pragma endregion
 
 using std::deque;
 using std::expected;

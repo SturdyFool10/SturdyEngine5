@@ -1,11 +1,15 @@
 module;
 
+#pragma region Imports
 #include <concepts>
+#pragma endregion
 
 export module Sturdy.Foundation:NumericConcepts;
 
+#pragma region Imports
 import :Concepts;
 import :Wide;
+#pragma endregion
 
 using std::floating_point;
 using std::integral;

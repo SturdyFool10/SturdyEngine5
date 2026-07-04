@@ -1,9 +1,11 @@
 module;
 
+#pragma region Imports
 #include <spdlog/spdlog.h>
 
 #include <string_view>
 #include <utility>
+#pragma endregion
 
 export module Sturdy.Foundation:Log;
 

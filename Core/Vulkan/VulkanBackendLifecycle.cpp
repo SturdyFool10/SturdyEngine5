@@ -2,6 +2,7 @@
 // bring-up sequence, and ordered teardown. Sibling VulkanBackend*.cpp files implement the
 // subsystem steps this file orchestrates.
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -11,9 +12,11 @@ module;
 #include <format>
 #include <memory>
 #include <optional>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanDevice;
@@ -27,6 +30,7 @@ import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using std::format;
 using std::nullopt;

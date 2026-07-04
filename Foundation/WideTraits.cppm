@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #define _SILENCE_CXX23_DENORM_DEPRECATION_WARNING
 
 #include <cmath>
@@ -8,11 +9,14 @@ module;
 #include <limits>
 #include <ostream>
 #include <string>
+#pragma endregion
 
 export module Sturdy.Foundation:WideTraits;
 
+#pragma region Imports
 import :Types;
 import :Wide;
+#pragma endregion
 
 using std::floor;
 using std::hash;

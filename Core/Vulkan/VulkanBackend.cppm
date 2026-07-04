@@ -1,10 +1,13 @@
 module;
+#pragma region Imports
 #include <optional>
 #include <unordered_map>
 #include <vulkan/vulkan_core.h>
+#pragma endregion
 
 export module Sturdy.Core:VulkanBackend;
 
+#pragma region Imports
 import :EngineBackend;
 import :RendererError;
 import :Renderer;
@@ -22,6 +25,7 @@ import :VulkanPipeline;
 import :VulkanSync;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;

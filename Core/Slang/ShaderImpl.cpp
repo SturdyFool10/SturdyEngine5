@@ -1,5 +1,6 @@
 module;
 
+#pragma region Imports
 #include <slang-com-ptr.h>
 #include <slang.h>
 
@@ -16,15 +17,18 @@ module;
 #include <string>
 #include <string_view>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :Shader;
 import :ShaderError;
 import :ShaderSource;
 import :ShaderTypes;
 import :ShaderReflection;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::bad_alloc;
 using std::exception;

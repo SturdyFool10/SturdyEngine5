@@ -1,6 +1,7 @@
 // VulkanBackend device bring-up: physical device selection and scoring, graphics queue
 // discovery, logical device creation with feature verification, and VMA initialization.
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -9,9 +10,11 @@ module;
 #include <algorithm>
 #include <format>
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanConstants;
@@ -21,6 +24,7 @@ import :VulkanQueue;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
+#pragma endregion
 
 using std::format;
 using std::vector;

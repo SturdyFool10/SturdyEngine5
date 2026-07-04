@@ -1,14 +1,18 @@
 module;
 
+#pragma region Imports
 #include <memory>
 #include <optional>
+#pragma endregion
 
 export module Sturdy.Engine:Application;
 
+#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
 import :Engine;
+#pragma endregion
 
 using std::optional;
 using std::unique_ptr;

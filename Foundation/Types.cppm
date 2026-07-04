@@ -1,10 +1,12 @@
 module;
 
+#pragma region Imports
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
+#pragma endregion
 
 export module Sturdy.Foundation:Types;
 

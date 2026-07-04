@@ -1,21 +1,25 @@
 // VulkanBackend instance bring-up: volk initialization, VkInstance creation, and the
 // validation-layer debug messenger callback (Debug builds only).
 module;
+#pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
 
 #include <vector>
+#pragma endregion
 
 module Sturdy.Core;
 
+#pragma region Imports
 import :VulkanBackend;
 import :VulkanConstants;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+#pragma endregion
 
 using std::vector;
 
