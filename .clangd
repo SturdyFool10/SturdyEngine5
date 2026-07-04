@@ -1,9 +1,10 @@
 # clangd configuration for SturdyEngine5 (C++23 modules).
 #
-# Managed by .zed/view_as_profile.cmake. Use a .zed View As task to switch
-# this file between OS/profile compile databases. The active view is:
+# Managed by cmake/ClangdView.cmake. Use a 'View As' editor task (or run the script
+# directly) to switch this file between arch/OS/profile compile databases. Active view:
+#   Arch: x86-64
 #   OS: Linux
-#   Profile: Dist
+#   Profile: Debug
 #
 # Flags that are NOT settable here (they are clangd command-line options, not
 # per-TU compile flags) live in the editor config — see .zed/settings.json:
@@ -11,9 +12,9 @@
 #   --header-insertion=never         never auto-#include in a modules-first tree
 
 CompileFlags:
-  # Compilation database for the active OS/profile view (relative to repo root).
+  # Compilation database for the active arch/OS/profile view (relative to repo root).
   # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.
-  CompilationDatabase: build/view/linux/dist
+  CompilationDatabase: build/x86-64/linux/debug
   # clangd builds and manages its own module BMIs. Strip the build system's BMI
   # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
   # interchangeable with clangd's and make it crash on load, or (b) writes its

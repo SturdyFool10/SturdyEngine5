@@ -1,13 +1,107 @@
 [
   {
+    "label": "Compile Runtime (Debug)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Debug", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Runtime (RelWithDebInfo)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Runtime (Release)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Release", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Runtime (Dist)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Dist", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Runtime (Debug)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Debug", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Runtime (RelWithDebInfo)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=RelWithDebInfo", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Runtime (Release)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Release", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Runtime (Dist)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Dist", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Build All (Native, All Profiles)",
+    "command": "cmake",
+    "args": ["-DSTURDY_ALL_PROFILES=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
     "label": "View As: Linux Debug",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Linux",
-      "-DSTURDY_VIEW_PROFILE=Debug",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Linux", "-DSTURDY_PROFILE=Debug", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -18,12 +112,7 @@
   {
     "label": "View As: Linux RelWithDebInfo",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Linux",
-      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Linux", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -34,12 +123,7 @@
   {
     "label": "View As: Linux Dist",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Linux",
-      "-DSTURDY_VIEW_PROFILE=Dist",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Linux", "-DSTURDY_PROFILE=Dist", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -50,12 +134,7 @@
   {
     "label": "View As: Windows Debug",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Windows",
-      "-DSTURDY_VIEW_PROFILE=Debug",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Windows", "-DSTURDY_PROFILE=Debug", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -66,12 +145,7 @@
   {
     "label": "View As: Windows RelWithDebInfo",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Windows",
-      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Windows", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -82,12 +156,7 @@
   {
     "label": "View As: Windows Dist",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=Windows",
-      "-DSTURDY_VIEW_PROFILE=Dist",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=Windows", "-DSTURDY_PROFILE=Dist", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -98,12 +167,7 @@
   {
     "label": "View As: MacOS Debug",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=MacOS",
-      "-DSTURDY_VIEW_PROFILE=Debug",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=MacOS", "-DSTURDY_PROFILE=Debug", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -114,12 +178,7 @@
   {
     "label": "View As: MacOS RelWithDebInfo",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=MacOS",
-      "-DSTURDY_VIEW_PROFILE=RelWithDebInfo",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=MacOS", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -130,12 +189,7 @@
   {
     "label": "View As: MacOS Dist",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_VIEW_OS=MacOS",
-      "-DSTURDY_VIEW_PROFILE=Dist",
-      "-P",
-      ".zed/view_as_profile.cmake"
-    ],
+    "args": ["-DSTURDY_OS=MacOS", "-DSTURDY_PROFILE=Dist", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "on_success",
@@ -144,213 +198,42 @@
     "save": "all"
   },
   {
-    "label": "Compile Runtime (Debug)",
+    "label": "View As: FreeBSD Debug",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=debug",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
+    "args": ["-DSTURDY_OS=FreeBSD", "-DSTURDY_PROFILE=Debug", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
-    "label": "Run Runtime (Debug, Linux)",
+    "label": "View As: FreeBSD RelWithDebInfo",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=debug",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
+    "args": ["-DSTURDY_OS=FreeBSD", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
-    "label": "Run Runtime (Debug, Windows .exe)",
-    "command": "powershell",
-    "args": [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      ".zed/cmake_runtime.ps1",
-      "-Profile",
-      "debug"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Compile Runtime (Dist)",
+    "label": "View As: FreeBSD Dist",
     "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=dist",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
+    "args": ["-DSTURDY_OS=FreeBSD", "-DSTURDY_PROFILE=Dist", "-P", "cmake/ClangdView.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (Dist, Linux)",
-    "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=dist",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (Dist, Windows .exe)",
-    "command": "powershell",
-    "args": [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      ".zed/cmake_runtime.ps1",
-      "-Profile",
-      "dist"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Compile Runtime (RelWithDebInfo)",
-    "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (RelWithDebInfo, Linux)",
-    "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=relwithdebinfo",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (RelWithDebInfo, Windows .exe)",
-    "command": "powershell",
-    "args": [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      ".zed/cmake_runtime.ps1",
-      "-Profile",
-      "relwithdebinfo"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Compile Runtime (Release)",
-    "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=release",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (Release, Linux)",
-    "command": "cmake",
-    "args": [
-      "-DSTURDY_RUNTIME_PROFILE=release",
-      "-DSTURDY_RUNTIME_RUN=ON",
-      "-P",
-      ".zed/cmake_runtime.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Run Runtime (Release, Windows .exe)",
-    "command": "powershell",
-    "args": [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      ".zed/cmake_runtime.ps1",
-      "-Profile",
-      "release"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
-  },
-  {
-    "label": "Build All (Native, All Profiles)",
-    "command": "cmake",
-    "args": [
-      "-P",
-      ".zed/build_all.cmake"
-    ],
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "reveal": "always",
-    "hide": "never",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false
+    "allow_concurrent_runs": false,
+    "save": "all"
   },
   {
     "label": "Format All C++",
     "command": "cmake",
-    "args": [
-      "-P",
-      ".zed/format_cpp.cmake"
-    ],
+    "args": ["-P", ".zed/format_cpp.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",

@@ -23,6 +23,16 @@ set(STURDY_SLANG_LIBRARY "" CACHE FILEPATH "Optional explicit Slang library. Ove
 set(STURDY_SLANG_INCLUDE_DIR "" CACHE PATH "Optional explicit Slang include directory containing slang.h. Overrides automatic fetch when set together with STURDY_SLANG_LIBRARY.")
 option(STURDY_PREFER_SYSTEM_DEPENDENCIES "Try find_package before downloading FetchContent dependencies." ON)
 
+# Every build/<arch>/<os>/<profile> tree normally gets its own _deps, so each configuration
+# re-clones every third-party source. With this on, the git checkouts (and their download
+# subbuilds) live in one shared cache instead, so a source is fetched once and reused by all
+# trees. Per-configuration build artifacts stay isolated (each tree still builds the deps into
+# its own _deps/<name>-build), so Debug/Release/arch outputs never collide. Turn OFF for fully
+# independent trees — e.g. CI matrix jobs that configure the same source concurrently and could
+# race on the shared checkout.
+option(STURDY_SHARED_DEPS_CACHE "Share downloaded third-party sources across all build trees so each configuration does not re-download them." ON)
+set(STURDY_DEPS_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache/deps" CACHE PATH "Directory holding the shared FetchContent source cache when STURDY_SHARED_DEPS_CACHE is ON.")
+
 function(sturdy_fetchcontent_declare name)
     set(options)
     set(one_value_args GIT_REPOSITORY GIT_TAG)
@@ -34,6 +44,17 @@ function(sturdy_fetchcontent_declare name)
         set(_find_package_args FIND_PACKAGE_ARGS ${STURDY_FETCH_FIND_PACKAGE_ARGS})
     endif()
 
+    # Redirect only the source checkout and its download subbuild into the shared cache; the
+    # build dir is left to FetchContent's default (this tree's _deps/<name>-build), keeping
+    # per-configuration artifacts isolated.
+    set(_cache_dirs)
+    if(STURDY_SHARED_DEPS_CACHE)
+        set(_cache_dirs
+            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-src"
+            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-subbuild"
+        )
+    endif()
+
     FetchContent_Declare(${name}
         GIT_REPOSITORY ${STURDY_FETCH_GIT_REPOSITORY}
         GIT_TAG ${STURDY_FETCH_GIT_TAG}
@@ -41,6 +62,7 @@ function(sturdy_fetchcontent_declare name)
         GIT_PROGRESS FALSE
         EXCLUDE_FROM_ALL
         SYSTEM
+        ${_cache_dirs}
         ${_find_package_args}
     )
 endfunction()

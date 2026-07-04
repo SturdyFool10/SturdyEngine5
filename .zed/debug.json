@@ -1,9 +1,9 @@
 [
   {
-    "label": "Debug Runtime (Debug, Linux)",
+    "label": "Debug Runtime (Debug)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/debug/bin/Runtime",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/Runtime",
     "cwd": "$ZED_WORKTREE_ROOT",
     "build": "Compile Runtime (Debug)"
   },
@@ -11,31 +11,15 @@
     "label": "Debug Runtime (Debug, Windows .exe)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/debug/bin/Runtime.exe",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/Runtime.exe",
     "cwd": "$ZED_WORKTREE_ROOT",
     "build": "Compile Runtime (Debug)"
   },
   {
-    "label": "Debug Runtime (Dist, Linux)",
+    "label": "Debug Runtime (RelWithDebInfo)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/dist/bin/Runtime",
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "build": "Compile Runtime (Dist)"
-  },
-  {
-    "label": "Debug Runtime (Dist, Windows .exe)",
-    "adapter": "CodeLLDB",
-    "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/dist/bin/Runtime.exe",
-    "cwd": "$ZED_WORKTREE_ROOT",
-    "build": "Compile Runtime (Dist)"
-  },
-  {
-    "label": "Debug Runtime (RelWithDebInfo, Linux)",
-    "adapter": "CodeLLDB",
-    "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/relwithdebinfo/bin/Runtime",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/Runtime",
     "cwd": "$ZED_WORKTREE_ROOT",
     "build": "Compile Runtime (RelWithDebInfo)"
   },
@@ -43,8 +27,24 @@
     "label": "Debug Runtime (RelWithDebInfo, Windows .exe)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/ninja/relwithdebinfo/bin/Runtime.exe",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/Runtime.exe",
     "cwd": "$ZED_WORKTREE_ROOT",
     "build": "Compile Runtime (RelWithDebInfo)"
+  },
+  {
+    "label": "Debug Runtime (Dist)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/dist/bin/Runtime",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile Runtime (Dist)"
+  },
+  {
+    "label": "Debug Runtime (Dist, Windows .exe)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/dist/bin/Runtime.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile Runtime (Dist)"
   }
 ]

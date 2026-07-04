@@ -56,6 +56,13 @@ set(CMAKE_STATIC_LINKER_FLAGS_DIST "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}" CACHE 
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Arch/OS/Profile build matrix (validates STURDY_ARCH/STURDY_OS, applies cross --target flags)
+# and build-throughput settings (ThinLTO for optimized profiles, lld, split DWARF). Both must
+# run before dependencies and subdirectories so every target inherits them.
+include(SturdyMatrix)
+sturdy_apply_matrix()
+include(SturdyBuildSpeed)
+
 function(sturdy_configure_compiler_launcher)
     if(NOT STURDY_USE_COMPILER_LAUNCHER)
         return()

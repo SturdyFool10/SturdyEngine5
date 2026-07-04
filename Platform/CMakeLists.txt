@@ -1,25 +1,9 @@
-set(STURDY_VIEW_OS "" CACHE STRING "Override the platform source set for clangd View As profiles. Valid values: Windows, MacOS, Linux.")
-set_property(CACHE STURDY_VIEW_OS PROPERTY STRINGS "" Windows MacOS Linux)
-
+# The platform source view follows the build matrix's target OS (STURDY_OS, resolved and
+# validated by sturdy_apply_matrix() in the root CMakeLists.txt; the legacy STURDY_VIEW_OS
+# spelling is honored there as well).
 set(_sturdy_platform_definitions)
 set(_sturdy_platform_excluded_source_dirs)
-
-if(STURDY_VIEW_OS)
-    if(NOT STURDY_VIEW_OS MATCHES "^(Windows|MacOS|Linux)$")
-        message(FATAL_ERROR "Unsupported STURDY_VIEW_OS='${STURDY_VIEW_OS}'. Expected Windows, MacOS, Linux, or empty.")
-    endif()
-    set(_sturdy_effective_platform "${STURDY_VIEW_OS}")
-else()
-    if(WIN32)
-        set(_sturdy_effective_platform Windows)
-    elseif(APPLE)
-        set(_sturdy_effective_platform MacOS)
-    elseif(UNIX)
-        set(_sturdy_effective_platform Linux)
-    else()
-        message(FATAL_ERROR "Unsupported platform. Add a Platform/<OS> implementation and CMake gate.")
-    endif()
-endif()
+set(_sturdy_effective_platform "${STURDY_OS}")
 
 if(_sturdy_effective_platform STREQUAL "Windows")
     list(APPEND _sturdy_platform_definitions STURDY_PLATFORM_WINDOWS=1)
@@ -29,6 +13,13 @@ elseif(_sturdy_effective_platform STREQUAL "MacOS")
     list(APPEND _sturdy_platform_excluded_source_dirs Linux Windows)
 elseif(_sturdy_effective_platform STREQUAL "Linux")
     list(APPEND _sturdy_platform_definitions STURDY_PLATFORM_LINUX=1)
+    list(APPEND _sturdy_platform_excluded_source_dirs MacOS Windows)
+elseif(_sturdy_effective_platform STREQUAL "FreeBSD")
+    # FreeBSD has no dedicated source tree yet: it reuses the Linux implementation (both are POSIX
+    # + X11/Wayland via the same SDL3/GLFW paths). The Linux sources gate their OS-specific bodies
+    # on __linux__, so on FreeBSD they compile to their portable fallbacks — a valid starting point
+    # that links today. Flesh out __FreeBSD__ branches (or a Platform/FreeBSD tree) when needed.
+    list(APPEND _sturdy_platform_definitions STURDY_PLATFORM_FREEBSD=1)
     list(APPEND _sturdy_platform_excluded_source_dirs MacOS Windows)
 else()
     message(FATAL_ERROR "Unsupported effective platform '${_sturdy_effective_platform}'.")

@@ -1,39 +1,45 @@
+# Points clangd at the compile database for a chosen matrix combination — in particular a target
+# OS other than the host — so code intelligence can be checked "as if" building for that platform.
+# Configures the matching single-config preset (which exports compile_commands.json) and rewrites
+# the repo-root .clangd to reference it. Preset name and build tree come from cmake/SturdyMatrix.cmake.
+#
+#   cmake [-DSTURDY_ARCH=<arch>] -DSTURDY_OS=<os> [-DSTURDY_PROFILE=<profile>] \
+#         -P cmake/ClangdView.cmake
+#
+# STURDY_ARCH defaults to the host, STURDY_PROFILE to Debug. STURDY_OS is required (choosing the
+# platform source view is the whole point). Editors that consume CMakePresets.json directly do not
+# need this — they just select the desired preset.
 cmake_minimum_required(VERSION 3.28)
 
-set(_valid_view_oses Windows MacOS Linux)
-set(_valid_view_profiles Debug RelWithDebInfo Dist)
+include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
+get_filename_component(_root_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
-if(NOT DEFINED STURDY_VIEW_OS)
-    message(FATAL_ERROR "STURDY_VIEW_OS is required. Expected one of: ${_valid_view_oses}")
+sturdy_detect_host_arch(_host_arch)
+
+if(NOT DEFINED STURDY_ARCH OR STURDY_ARCH STREQUAL "")
+    set(STURDY_ARCH "${_host_arch}")
+endif()
+if(NOT DEFINED STURDY_PROFILE OR STURDY_PROFILE STREQUAL "")
+    set(STURDY_PROFILE "Debug")
+endif()
+if(NOT DEFINED STURDY_OS OR STURDY_OS STREQUAL "")
+    message(FATAL_ERROR "STURDY_OS is required. Expected one of: ${STURDY_OS_LIST}")
 endif()
 
-if(NOT DEFINED STURDY_VIEW_PROFILE)
-    message(FATAL_ERROR "STURDY_VIEW_PROFILE is required. Expected one of: ${_valid_view_profiles}")
+if(NOT STURDY_ARCH IN_LIST STURDY_ARCH_LIST)
+    message(FATAL_ERROR "Unsupported STURDY_ARCH='${STURDY_ARCH}'. Expected one of: ${STURDY_ARCH_LIST}")
+endif()
+if(NOT STURDY_OS IN_LIST STURDY_OS_LIST)
+    message(FATAL_ERROR "Unsupported STURDY_OS='${STURDY_OS}'. Expected one of: ${STURDY_OS_LIST}")
+endif()
+if(NOT STURDY_PROFILE IN_LIST STURDY_PROFILE_LIST)
+    message(FATAL_ERROR "Unsupported STURDY_PROFILE='${STURDY_PROFILE}'. Expected one of: ${STURDY_PROFILE_LIST}")
 endif()
 
-if(NOT STURDY_VIEW_OS IN_LIST _valid_view_oses)
-    message(FATAL_ERROR "Unsupported STURDY_VIEW_OS='${STURDY_VIEW_OS}'. Expected one of: ${_valid_view_oses}")
-endif()
+sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" _preset)
+sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" _compilation_database)
 
-if(NOT STURDY_VIEW_PROFILE IN_LIST _valid_view_profiles)
-    message(FATAL_ERROR "Unsupported STURDY_VIEW_PROFILE='${STURDY_VIEW_PROFILE}'. Expected one of: ${_valid_view_profiles}")
-endif()
-
-get_filename_component(_zed_dir "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
-get_filename_component(_root_dir "${_zed_dir}/.." ABSOLUTE)
-
-string(TOLOWER "${STURDY_VIEW_OS}" _view_os_lower)
-string(TOLOWER "${STURDY_VIEW_PROFILE}" _view_profile_lower)
-set(_view_os_dir "${_view_os_lower}")
-# Slang's CMake source glob excludes paths containing /windows/, so keep Windows
-# view build directories under /win/ while preserving the user-facing OS name.
-if(STURDY_VIEW_OS STREQUAL "Windows")
-    set(_view_os_dir win)
-endif()
-set(_preset "view-${_view_os_lower}-${_view_profile_lower}")
-set(_compilation_database "build/view/${_view_os_dir}/${_view_profile_lower}")
-
-message(STATUS "Configuring ${STURDY_VIEW_OS} ${STURDY_VIEW_PROFILE} clangd view via preset '${_preset}'")
+message(STATUS "Configuring ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} clangd view via preset '${_preset}'")
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --preset "${_preset}"
     WORKING_DIRECTORY "${_root_dir}"
@@ -46,10 +52,11 @@ endif()
 set(_clangd_path "${_root_dir}/.clangd")
 file(WRITE "${_clangd_path}" "# clangd configuration for SturdyEngine5 (C++23 modules).\n")
 file(APPEND "${_clangd_path}" "#\n")
-file(APPEND "${_clangd_path}" "# Managed by .zed/view_as_profile.cmake. Use a .zed View As task to switch\n")
-file(APPEND "${_clangd_path}" "# this file between OS/profile compile databases. The active view is:\n")
-file(APPEND "${_clangd_path}" "#   OS: ${STURDY_VIEW_OS}\n")
-file(APPEND "${_clangd_path}" "#   Profile: ${STURDY_VIEW_PROFILE}\n")
+file(APPEND "${_clangd_path}" "# Managed by cmake/ClangdView.cmake. Use a 'View As' editor task (or run the script\n")
+file(APPEND "${_clangd_path}" "# directly) to switch this file between arch/OS/profile compile databases. Active view:\n")
+file(APPEND "${_clangd_path}" "#   Arch: ${STURDY_ARCH}\n")
+file(APPEND "${_clangd_path}" "#   OS: ${STURDY_OS}\n")
+file(APPEND "${_clangd_path}" "#   Profile: ${STURDY_PROFILE}\n")
 file(APPEND "${_clangd_path}" "#\n")
 file(APPEND "${_clangd_path}" "# Flags that are NOT settable here (they are clangd command-line options, not\n")
 file(APPEND "${_clangd_path}" "# per-TU compile flags) live in the editor config — see .zed/settings.json:\n")
@@ -57,7 +64,7 @@ file(APPEND "${_clangd_path}" "#   --experimental-modules-support   clangd build
 file(APPEND "${_clangd_path}" "#   --header-insertion=never         never auto-#include in a modules-first tree\n")
 file(APPEND "${_clangd_path}" "\n")
 file(APPEND "${_clangd_path}" "CompileFlags:\n")
-file(APPEND "${_clangd_path}" "  # Compilation database for the active OS/profile view (relative to repo root).\n")
+file(APPEND "${_clangd_path}" "  # Compilation database for the active arch/OS/profile view (relative to repo root).\n")
 file(APPEND "${_clangd_path}" "  # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.\n")
 file(APPEND "${_clangd_path}" "  CompilationDatabase: ${_compilation_database}\n")
 file(APPEND "${_clangd_path}" "  # clangd builds and manages its own module BMIs. Strip the build system's BMI\n")
@@ -107,7 +114,7 @@ if(CMAKE_HOST_WIN32)
     )
     if(_taskkill_result EQUAL 0)
         set(_restarted_count 1)
-        message(STATUS "Requested clangd restart with taskkill; Zed will respawn clangd on demand")
+        message(STATUS "Requested clangd restart with taskkill; the editor will respawn clangd on demand")
     else()
         message(STATUS "No running clangd.exe process was found to restart")
     endif()
@@ -135,10 +142,10 @@ else()
     endif()
 
     if(_restarted_count GREATER 0)
-        message(STATUS "Restarted ${_restarted_count} clangd process(es); Zed will respawn clangd on demand")
+        message(STATUS "Restarted ${_restarted_count} clangd process(es); the editor will respawn clangd on demand")
     else()
         message(STATUS "No running clangd process was found to restart")
     endif()
 endif()
 
-message(STATUS "Active clangd view: ${STURDY_VIEW_OS} ${STURDY_VIEW_PROFILE} (${_compilation_database})")
+message(STATUS "Active clangd view: ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} (${_compilation_database})")
