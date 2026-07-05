@@ -21,6 +21,7 @@ set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
 # Python3 must be available on the build machine for that step.
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
+set(STURDY_BOX3D_TAG "v0.1.0" CACHE STRING "Box3D git tag to fetch.")
 
 set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader library. Set this to a static loader library when available.")
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")
@@ -107,6 +108,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_harfbuzz()
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
+        sturdy_fetch_box3d()
     else()
         find_package(glm CONFIG REQUIRED)
         find_package(VulkanMemoryAllocator CONFIG REQUIRED)
@@ -119,9 +121,11 @@ function(sturdy_configure_dependencies)
         find_package(harfbuzz CONFIG REQUIRED)
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
+        find_package(box3d CONFIG REQUIRED)
     endif()
 
     sturdy_normalize_dependency_targets()
+    sturdy_finalize_licenses()
 endfunction()
 
 function(sturdy_find_vulkan)
@@ -231,6 +235,7 @@ function(sturdy_fetch_slang)
     )
     FetchContent_MakeAvailable(slang)
     sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
+    sturdy_register_license(slang "${slang_SOURCE_DIR}")
 
     # v2026.11 bug: slang-parser.cpp uses INT_MIN without including <climits>.
     # Patch the file after download but before the build compiles it.
@@ -274,6 +279,7 @@ function(sturdy_fetch_glm)
     )
     FetchContent_MakeAvailable(glm)
     sturdy_mark_dependency_targets_exclude_from_all(glm glm::glm)
+    sturdy_register_license(glm "${glm_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_vma)
@@ -284,6 +290,7 @@ function(sturdy_fetch_vma)
     )
     FetchContent_MakeAvailable(vma)
     sturdy_mark_dependency_targets_exclude_from_all(VulkanMemoryAllocator GPUOpen::VulkanMemoryAllocator VulkanMemoryAllocator::VulkanMemoryAllocator)
+    sturdy_register_license(vma "${vma_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_volk)
@@ -296,6 +303,7 @@ function(sturdy_fetch_volk)
     )
     FetchContent_MakeAvailable(volk)
     sturdy_mark_dependency_targets_exclude_from_all(volk volk::volk)
+    sturdy_register_license(volk "${volk_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_sdl3)
@@ -320,6 +328,7 @@ function(sturdy_fetch_sdl3)
     )
     FetchContent_MakeAvailable(SDL3)
     sturdy_mark_dependency_targets_exclude_from_all(SDL3 SDL3::SDL3 SDL3::SDL3-static SDL3-static)
+    sturdy_register_license(sdl3 "${sdl3_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_preseed_sdl3_linux_checks)
@@ -502,6 +511,7 @@ function(sturdy_fetch_glfw)
     )
     FetchContent_MakeAvailable(glfw)
     sturdy_mark_dependency_targets_exclude_from_all(glfw glfw3 glfw::glfw glfw3::glfw)
+    sturdy_register_license(glfw "${glfw_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_fmt)
@@ -536,6 +546,7 @@ function(sturdy_fetch_spdlog)
     )
     FetchContent_MakeAvailable(spdlog)
     sturdy_mark_dependency_targets_exclude_from_all(spdlog spdlog::spdlog spdlog::spdlog_header_only)
+    sturdy_register_license(spdlog "${spdlog_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_mimalloc)
@@ -552,6 +563,7 @@ function(sturdy_fetch_mimalloc)
     )
     FetchContent_MakeAvailable(mimalloc)
     sturdy_mark_dependency_targets_exclude_from_all(mimalloc mimalloc-static mimalloc::mimalloc-static mimalloc::mimalloc)
+    sturdy_register_license(mimalloc "${mimalloc_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_harfbuzz)
@@ -567,6 +579,7 @@ function(sturdy_fetch_harfbuzz)
     )
     FetchContent_MakeAvailable(harfbuzz)
     sturdy_mark_dependency_targets_exclude_from_all(harfbuzz harfbuzz::harfbuzz)
+    sturdy_register_license(harfbuzz "${harfbuzz_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_miniaudio)
@@ -589,6 +602,23 @@ function(sturdy_fetch_miniaudio)
     )
     FetchContent_MakeAvailable(miniaudio)
     sturdy_mark_dependency_targets_exclude_from_all(miniaudio miniaudio::miniaudio)
+    sturdy_register_license(miniaudio "${miniaudio_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_box3d)
+    # Box3D is Erin Catto's 3D physics engine (the Box2D author's successor project). Its
+    # add_library() call carries no STATIC/SHARED keyword, so it follows BUILD_SHARED_LIBS
+    # (forced OFF globally) and links statically. Its samples/tests/docs subdirectories are
+    # gated behind PROJECT_IS_TOP_LEVEL in its own CMakeLists, which is false when it's pulled
+    # in via FetchContent, so they're skipped automatically.
+    sturdy_fetchcontent_declare(box3d
+        GIT_REPOSITORY https://github.com/erincatto/box3d.git
+        GIT_TAG ${STURDY_BOX3D_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES box3d
+    )
+    FetchContent_MakeAvailable(box3d)
+    sturdy_mark_dependency_targets_exclude_from_all(box3d box3d::box3d)
+    sturdy_register_license(box3d "${box3d_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_normalize_dependency_targets)
@@ -648,6 +678,11 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::miniaudio
         miniaudio::miniaudio
         miniaudio
+    )
+
+    sturdy_alias_existing_target(Sturdy::box3d
+        box3d::box3d
+        box3d
     )
 endfunction()
 

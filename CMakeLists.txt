@@ -84,6 +84,7 @@ endfunction()
 sturdy_configure_compiler_launcher()
 
 include(SturdyDependencies)
+include(SturdyLicenses)
 include(SturdyPackage)
 
 sturdy_configure_dependencies()

@@ -138,6 +138,13 @@ namespace SFT::Core::Vulkan {
             VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
         };
 
+        // The Vulkan spec requires enabling VK_KHR_portability_subset on any device that
+        // advertises it — MoltenVK and other non-conformant implementations use it to report
+        // which core features they can't fully provide. Omitting it despite support is invalid.
+        if (this->physicalDevice.supports_extension(PORTABILITY_SUBSET_EXTENSION_NAME)) {
+            extensions.push_back(PORTABILITY_SUBSET_EXTENSION_NAME);
+        }
+
         VulkanDevice::DeviceCreateDesc desc{
             .graphics_queue_family = gfx_family,
             .present_queue_family = present_family,

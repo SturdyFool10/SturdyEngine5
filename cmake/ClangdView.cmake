@@ -14,6 +14,18 @@ cmake_minimum_required(VERSION 3.28)
 include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
 get_filename_component(_root_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# CMakePresets.json is generated (gitignored, not hand-edited — see GeneratePresets.cmake) and
+# the --preset invocation below needs it to exist, so regenerate it unconditionally first. This
+# is also every editor task's only trigger for that generator, since none of them call it directly.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_LIST_DIR}/GeneratePresets.cmake"
+    WORKING_DIRECTORY "${_root_dir}"
+    RESULT_VARIABLE _presets_result
+)
+if(NOT _presets_result EQUAL 0)
+    message(FATAL_ERROR "Failed to generate CMakePresets.json (exit ${_presets_result}).")
+endif()
+
 sturdy_detect_host_arch(_host_arch)
 
 if(NOT DEFINED STURDY_ARCH OR STURDY_ARCH STREQUAL "")

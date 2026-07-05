@@ -11,6 +11,10 @@ agent_collaboration.md
 build/
 out/
 
+# Upstream dependency licenses, copied in from each FetchContent source tree at build time
+# (see cmake/SturdyLicenses.cmake). Regenerated content, not tracked.
+/thirdparty/licenses/
+
 # CMake generated files and directories
 **/CMakeFiles/
 **/CMakeCache.txt

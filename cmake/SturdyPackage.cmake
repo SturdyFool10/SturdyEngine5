@@ -150,6 +150,10 @@ function(sturdy_add_package package_name)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
 
+    # thirdparty/licenses/ is regenerated (and gitignored), so make sure it's populated before
+    # this target's compiler invocations rather than only when CMake happens to reconfigure.
+    add_dependencies("${package_name}" sturdy_collect_licenses)
+
     if(_all_modules)
       target_sources("${package_name}"
                 PUBLIC

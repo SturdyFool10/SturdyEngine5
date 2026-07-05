@@ -7,6 +7,8 @@ module;
 #endif
 #include "volk.h"
 
+#include <algorithm>
+#include <string_view>
 #include <vector>
 #pragma endregion
 
@@ -21,6 +23,7 @@ import Sturdy.Foundation;
 import Sturdy.Platform;
 #pragma endregion
 
+using std::string_view;
 using std::vector;
 
 namespace SFT::Core::Vulkan {
@@ -77,6 +80,23 @@ namespace SFT::Core::Vulkan {
         vector<const char *> extensions = extension_res.value();
         vector<const char *> requestedLayers{};
 
+        // MoltenVK (and other non-conformant "portability" implementations) are hidden from
+        // vkEnumeratePhysicalDevices unless the instance opts in via VK_KHR_portability_enumeration
+        // plus VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR. Conformant loaders (Windows/Linux)
+        // never advertise this extension, so it's only requested when actually present.
+        u32 supported_instance_ext_count = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &supported_instance_ext_count, nullptr);
+        vector<VkExtensionProperties> supported_instance_exts(supported_instance_ext_count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &supported_instance_ext_count, supported_instance_exts.data());
+
+        VkInstanceCreateFlags instance_flags = 0;
+        if (std::ranges::any_of(supported_instance_exts, [](const VkExtensionProperties &ext) {
+                return string_view{ext.extensionName} == VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+            })) {
+            extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+        }
+
 #ifdef DEBUG
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         requestedLayers.push_back("VK_LAYER_KHRONOS_validation");
@@ -95,6 +115,7 @@ namespace SFT::Core::Vulkan {
         VkInstanceCreateInfo instCreateInfo{
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pNext = &debugInfo,
+            .flags = instance_flags,
             .pApplicationInfo = &appInfo,
             .enabledLayerCount = static_cast<u32>(requestedLayers.size()),
             .ppEnabledLayerNames = requestedLayers.data(),

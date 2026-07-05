@@ -3,6 +3,7 @@ sturdy_add_package(EngineComponents
         Sturdy::Foundation
         Sturdy::Core
         Sturdy::Platform
+        Sturdy::box3d
 
     DEBUG_PUBLIC_DEPS
 )

@@ -8,6 +8,7 @@ module;
 #include <format>
 #include <optional>
 #include <ranges>
+#include <string_view>
 #include <vector>
 #pragma endregion
 
@@ -23,6 +24,7 @@ using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;
 using std::nullopt;
 using std::optional;
+using std::string_view;
 using std::vector;
 
 export namespace SFT::Core::Vulkan {
@@ -236,6 +238,32 @@ export namespace SFT::Core::Vulkan {
             if (!opticalFlowQueueFamIdx.has_value())
                 opticalFlowQueueFamIdx = find_queue_family_with(VK_QUEUE_OPTICAL_FLOW_BIT_NV);
             return opticalFlowQueueFamIdx;
+        }
+
+        // Every device extension this physical device advertises support for. Used to probe for
+        // extensions that only exist on some backends (e.g. VK_KHR_portability_subset on MoltenVK)
+        // instead of assuming a fixed vendor-specific set.
+        [[nodiscard]] RendererExpected<vector<VkExtensionProperties>> enumerate_extensions() const {
+            u32 count = 0;
+            if (vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, nullptr) != VK_SUCCESS) {
+                return renderer_error(RendererErrorCode::OperationFailed,
+                                      "vkEnumerateDeviceExtensionProperties (count) failed.");
+            }
+            vector<VkExtensionProperties> extensions(count);
+            if (count > 0 && vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, extensions.data()) != VK_SUCCESS) {
+                return renderer_error(RendererErrorCode::OperationFailed,
+                                      "vkEnumerateDeviceExtensionProperties (populate) failed.");
+            }
+            return extensions;
+        }
+
+        // Whether this device advertises support for a given device extension by name.
+        [[nodiscard]] bool supports_extension(string_view name) const {
+            auto extensions = enumerate_extensions();
+            if (!extensions) return false;
+            return std::ranges::any_of(*extensions, [&](const VkExtensionProperties &ext) {
+                return name == string_view{ext.extensionName};
+            });
         }
 
         // Surface capability queries used during swapchain creation and resize.
