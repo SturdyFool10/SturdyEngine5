@@ -130,7 +130,7 @@ export namespace SFT::Core::Vulkan {
         VulkanBuffer vertexBuffer;
         VulkanBuffer indexBuffer;
         u32 indexCount = 0;
-        VkIndexType indexType = VK_INDEX_TYPE_UINT16;
+        VkIndexType indexType = VK_INDEX_TYPE_UINT32;
     };
 
 } // namespace SFT::Core::Vulkan

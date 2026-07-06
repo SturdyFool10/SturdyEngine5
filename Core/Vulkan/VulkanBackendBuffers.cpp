@@ -181,7 +181,7 @@ namespace SFT::Core::Vulkan {
         this->vertexBuffer = std::move(staged_vertices->device_local);
         this->indexBuffer = std::move(staged_indices->device_local);
         this->indexCount = static_cast<u32>(indices.size());
-        this->indexType = VK_INDEX_TYPE_UINT16;
+        this->indexType = VK_INDEX_TYPE_UINT32;
 
         Foundation::log_info("Vulkan geometry buffers created: {} vertices, {} indices ({} + {} bytes).",
                              vertices.size(), this->indexCount, vertex_bytes, index_bytes);

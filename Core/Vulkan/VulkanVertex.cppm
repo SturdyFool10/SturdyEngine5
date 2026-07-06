@@ -65,15 +65,17 @@ export namespace SFT::Core::Vulkan {
     }
 
     // The 6 triangles fanning hexagon_vertices() out from its center (index 0) into a filled
-    // hexagon. `u16` comfortably covers this vertex count (and any other single small mesh this
-    // engine draws for now) — nothing here forces every future mesh to the same index type, since
-    // VulkanCommandBuffer::bind_index_buffer() takes the VkIndexType to use explicitly.
+    // hexagon. `u32` here (rather than `u16`) even though this one tiny mesh obviously fits in 16
+    // bits — a real mesh can easily clear 65535 vertices (a single modern-game mesh can be tens of
+    // thousands of triangles), so 32-bit indices are the right default; nothing here forces every
+    // future mesh to the same index type regardless, since VulkanCommandBuffer::bind_index_buffer()
+    // takes the VkIndexType to use explicitly.
     //
     // Winding: each triangle lists its two rim vertices in *decreasing* angle order
     // (center, P[i+1], P[i]) to match the same front-face winding Shaders/triangle.slang's original
     // hardcoded triangle used — this pipeline's rasterization state (see VulkanBackendPipeline.cpp)
     // culls back faces with frontFace = COUNTER_CLOCKWISE.
-    [[nodiscard]] constexpr std::array<u16, 18> hexagon_indices() noexcept {
+    [[nodiscard]] constexpr std::array<u32, 18> hexagon_indices() noexcept {
         return {
             0, 2, 1,
             0, 3, 2,
