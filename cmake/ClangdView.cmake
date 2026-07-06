@@ -4,11 +4,16 @@
 # the repo-root .clangd to reference it. Preset name and build tree come from cmake/SturdyMatrix.cmake.
 #
 #   cmake [-DSTURDY_ARCH=<arch>] -DSTURDY_OS=<os> [-DSTURDY_PROFILE=<profile>] \
-#         -P cmake/ClangdView.cmake
+#         [-DSTURDY_COMPILER=<compiler>] -P cmake/ClangdView.cmake
 #
-# STURDY_ARCH defaults to the host, STURDY_PROFILE to Debug. STURDY_OS is required (choosing the
-# platform source view is the whole point). Editors that consume CMakePresets.json directly do not
-# need this — they just select the desired preset.
+# STURDY_ARCH defaults to the host, STURDY_PROFILE to Debug, STURDY_COMPILER to Clang. STURDY_OS is
+# required (choosing the platform source view is the whole point). Editors that consume
+# CMakePresets.json directly do not need this — they just select the desired preset.
+#
+# STURDY_COMPILER=GCC still points clangd (a clang-family tool) at a compile_commands.json full of
+# GCC's own module flags (-fmodules-ts, -fdeps-format=*, -fmodule-mapper=*, ...), which clang does
+# not understand — those are stripped below the same way clang's -fmodule-output=*/-fmodule-file=*
+# already are, so clangd degrades to its own --experimental-modules-support scanning either way.
 cmake_minimum_required(VERSION 3.28)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
@@ -37,6 +42,9 @@ endif()
 if(NOT DEFINED STURDY_OS OR STURDY_OS STREQUAL "")
     message(FATAL_ERROR "STURDY_OS is required. Expected one of: ${STURDY_OS_LIST}")
 endif()
+if(NOT DEFINED STURDY_COMPILER OR STURDY_COMPILER STREQUAL "")
+    set(STURDY_COMPILER "Clang")
+endif()
 
 if(NOT STURDY_ARCH IN_LIST STURDY_ARCH_LIST)
     message(FATAL_ERROR "Unsupported STURDY_ARCH='${STURDY_ARCH}'. Expected one of: ${STURDY_ARCH_LIST}")
@@ -47,11 +55,17 @@ endif()
 if(NOT STURDY_PROFILE IN_LIST STURDY_PROFILE_LIST)
     message(FATAL_ERROR "Unsupported STURDY_PROFILE='${STURDY_PROFILE}'. Expected one of: ${STURDY_PROFILE_LIST}")
 endif()
+if(NOT STURDY_COMPILER IN_LIST STURDY_COMPILER_LIST)
+    message(FATAL_ERROR "Unsupported STURDY_COMPILER='${STURDY_COMPILER}'. Expected one of: ${STURDY_COMPILER_LIST}")
+endif()
+if(STURDY_OS STREQUAL "Web" AND NOT STURDY_COMPILER STREQUAL "Clang")
+    message(FATAL_ERROR "STURDY_OS=Web has no GCC variant (Emscripten's toolchain is clang-based only).")
+endif()
 
-sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" _preset)
-sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" _compilation_database)
+sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY_COMPILER}" _preset)
+sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY_COMPILER}" _compilation_database)
 
-message(STATUS "Configuring ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} clangd view via preset '${_preset}'")
+message(STATUS "Configuring ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} (${STURDY_COMPILER}) clangd view via preset '${_preset}'")
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --preset "${_preset}"
     WORKING_DIRECTORY "${_root_dir}"
@@ -69,6 +83,7 @@ file(APPEND "${_clangd_path}" "# directly) to switch this file between arch/OS/p
 file(APPEND "${_clangd_path}" "#   Arch: ${STURDY_ARCH}\n")
 file(APPEND "${_clangd_path}" "#   OS: ${STURDY_OS}\n")
 file(APPEND "${_clangd_path}" "#   Profile: ${STURDY_PROFILE}\n")
+file(APPEND "${_clangd_path}" "#   Compiler: ${STURDY_COMPILER}\n")
 file(APPEND "${_clangd_path}" "#\n")
 file(APPEND "${_clangd_path}" "# Flags that are NOT settable here (they are clangd command-line options, not\n")
 file(APPEND "${_clangd_path}" "# per-TU compile flags) live in the editor config — see .zed/settings.json:\n")
@@ -84,10 +99,17 @@ file(APPEND "${_clangd_path}" "  # wiring so clangd never (a) tries to load CMak
 file(APPEND "${_clangd_path}" "  # interchangeable with clangd's and make it crash on load, or (b) writes its\n")
 file(APPEND "${_clangd_path}" "  # own BMIs back into the CMake build tree. With --experimental-modules-support\n")
 file(APPEND "${_clangd_path}" "  # clangd resolves imports by scanning sources itself; without it, this simply\n")
-file(APPEND "${_clangd_path}" "  # degrades to plain diagnostics instead of a hard crash.\n")
+file(APPEND "${_clangd_path}" "  # degrades to plain diagnostics instead of a hard crash. The -fdeps-*/-fmodules-ts/\n")
+file(APPEND "${_clangd_path}" "  # -fmodule-mapper=* entries only appear in a GCC (STURDY_COMPILER=GCC) compile\n")
+file(APPEND "${_clangd_path}" "  # database — clang/clangd does not understand GCC's module flags at all.\n")
 file(APPEND "${_clangd_path}" "  Remove:\n")
 file(APPEND "${_clangd_path}" "    - -fmodule-output=*\n")
 file(APPEND "${_clangd_path}" "    - -fmodule-file=*\n")
+file(APPEND "${_clangd_path}" "    - -fmodules-ts\n")
+file(APPEND "${_clangd_path}" "    - -fdeps-file=*\n")
+file(APPEND "${_clangd_path}" "    - -fdeps-target=*\n")
+file(APPEND "${_clangd_path}" "    - -fdeps-format=*\n")
+file(APPEND "${_clangd_path}" "    - -fmodule-mapper=*\n")
 file(APPEND "${_clangd_path}" "\n")
 file(APPEND "${_clangd_path}" "---\n")
 file(APPEND "${_clangd_path}" "# C++23 fallback for C++ sources that have no compile_commands.json entry.\n")
@@ -160,4 +182,4 @@ else()
     endif()
 endif()
 
-message(STATUS "Active clangd view: ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} (${_compilation_database})")
+message(STATUS "Active clangd view: ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} ${STURDY_COMPILER} (${_compilation_database})")

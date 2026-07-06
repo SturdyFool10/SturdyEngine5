@@ -13,11 +13,9 @@ module;
 
 export module Sturdy.Core:VulkanDevice;
 
-#pragma region Imports
 import :RendererError;
 import :VulkanQueue;
 import Sturdy.Foundation;
-#pragma endregion
 
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;

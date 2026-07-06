@@ -20,8 +20,27 @@ set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # Slang is built from source so we get a static library with SPIRV-Tools baked in.
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
 # Python3 must be available on the build machine for that step.
+#
+# KNOWN GAP (Web/wasm32): Slang's build compiles host-side code generators (slang-generate,
+# slang-embed, ...) that must run natively mid-build to produce C++ sources, then links the
+# result into the target library. Its CMake has no host/target split for cross-compiling those
+# generators separately from the target library, so under the Emscripten toolchain they get
+# built as .js/.wasm too and CMake tries to execute them as native tools, which fails. Core (which
+# links Sturdy::Slang, and whose Renderer.cppm bakes Slang::UnCompiledShader into the
+# backend-agnostic RendererCreateInfo) is therefore not buildable for STURDY_OS=Web yet — fixing
+# this needs either a proper Slang host/target build split or decoupling shader compilation from
+# Core's interface for Web (precompiled/offline shaders instead of in-engine compilation).
+# Foundation and Platform are unaffected and build/link cleanly for Web today.
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
 set(STURDY_BOX3D_TAG "v0.1.0" CACHE STRING "Box3D git tag to fetch.")
+set(STURDY_CLAY_TAG "v0.14" CACHE STRING "Clay git tag to fetch.")
+# Microsoft's official, MIT-licensed native D3D12/DXGI headers (no NuGet/.NET tooling involved —
+# plain C/C++ headers only). Only fetched when STURDY_OS is Windows.
+set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2" CACHE STRING "DirectX-Headers git tag to fetch.")
+# Apple's official, Apache-2.0-licensed C++ bindings for Metal (headers only; Apple ships no
+# prebuilt binary, this just wraps the Objective-C API). Tags track macOS/iOS SDK releases. Only
+# fetched when STURDY_OS is MacOS.
+set(STURDY_METALCPP_TAG "release/metal-cpp_macOS27_iOS27" CACHE STRING "apple/metal-cpp git tag to fetch.")
 
 set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader library. Set this to a static loader library when available.")
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")
@@ -49,6 +68,17 @@ function(sturdy_fetchcontent_declare name)
     if(STURDY_PREFER_SYSTEM_DEPENDENCIES AND STURDY_FETCH_FIND_PACKAGE_ARGS)
         set(_find_package_args FIND_PACKAGE_ARGS ${STURDY_FETCH_FIND_PACKAGE_ARGS})
     endif()
+
+    # Stashed so sturdy_register_license() can still fetch just this dependency's license later
+    # even when find_package() satisfies it and FetchContent never populates its source — it
+    # can't reuse this Declare to do that (FetchContent refuses to re-populate a name already
+    # resolved via find_package()), so it needs the repo/tag to do its own independent fetch.
+    # Keyed by lowercased name to match FetchContent's own <lowercaseName>_SOURCE_DIR convention
+    # (and thus the name sturdy_register_license() is actually called with, e.g. "sdl3" for a
+    # Declare of "SDL3").
+    string(TOLOWER "${name}" _sturdy_dep_key)
+    set_property(GLOBAL PROPERTY STURDY_DEP_GIT_REPOSITORY_${_sturdy_dep_key} "${STURDY_FETCH_GIT_REPOSITORY}")
+    set_property(GLOBAL PROPERTY STURDY_DEP_GIT_TAG_${_sturdy_dep_key} "${STURDY_FETCH_GIT_TAG}")
 
     # Redirect only the source checkout and its download subbuild into the shared cache; the
     # build dir is left to FetchContent's default (this tree's _deps/<name>-build), keeping
@@ -94,14 +124,23 @@ function(sturdy_mark_dependency_targets_exclude_from_all)
 endfunction()
 
 function(sturdy_configure_dependencies)
-    sturdy_find_vulkan()
+    # Vulkan is the desktop (Windows/MacOS/Linux/FreeBSD) graphics API. Web gets WebGPU only —
+    # see sturdy_configure_webgpu() below — so it never finds/links Vulkan at all.
+    if(NOT STURDY_OS STREQUAL "Web")
+        sturdy_find_vulkan()
+    endif()
 
     if(STURDY_FETCH_DEPENDENCIES)
         sturdy_fetch_glm()
         sturdy_fetch_vma()
         sturdy_fetch_volk()
         sturdy_fetch_sdl3()
-        sturdy_fetch_glfw()
+        # GLFW has no official Emscripten/wasm support (unlike SDL3, which is actively maintained
+        # there), so it is not part of the Web build at all — see Platform/CMakeLists.txt, which
+        # only links Sturdy::SDL3 for STURDY_OS=Web.
+        if(NOT STURDY_OS STREQUAL "Web")
+            sturdy_fetch_glfw()
+        endif()
         sturdy_fetch_fmt()
         sturdy_fetch_spdlog()
         sturdy_fetch_mimalloc()
@@ -109,12 +148,22 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
         sturdy_fetch_box3d()
+        sturdy_fetch_clay()
+
+        if(STURDY_OS STREQUAL "Windows")
+            sturdy_fetch_directx_headers()
+        endif()
+        if(STURDY_OS STREQUAL "MacOS")
+            sturdy_fetch_metalcpp()
+        endif()
     else()
         find_package(glm CONFIG REQUIRED)
         find_package(VulkanMemoryAllocator CONFIG REQUIRED)
         find_package(volk CONFIG REQUIRED)
         find_package(SDL3 CONFIG REQUIRED)
-        find_package(glfw3 CONFIG REQUIRED)
+        if(NOT STURDY_OS STREQUAL "Web")
+            find_package(glfw3 CONFIG REQUIRED)
+        endif()
         find_package(fmt CONFIG REQUIRED)
         find_package(spdlog CONFIG REQUIRED)
         find_package(mimalloc CONFIG REQUIRED)
@@ -122,6 +171,18 @@ function(sturdy_configure_dependencies)
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
         find_package(box3d CONFIG REQUIRED)
+        sturdy_find_clay()
+
+        if(STURDY_OS STREQUAL "Windows")
+            sturdy_find_directx()
+        endif()
+        if(STURDY_OS STREQUAL "MacOS")
+            sturdy_find_metalcpp()
+        endif()
+    endif()
+
+    if(STURDY_OS STREQUAL "Web")
+        sturdy_configure_webgpu()
     endif()
 
     sturdy_normalize_dependency_targets()
@@ -144,6 +205,114 @@ function(sturdy_find_vulkan)
         else()
             target_link_libraries(Sturdy::Vulkan INTERFACE Vulkan::Vulkan)
         endif()
+    endif()
+endfunction()
+
+# Fetches Microsoft's official, MIT-licensed DirectX-Headers (native C/C++ headers + import-lib
+# GUIDs; no NuGet/.NET tooling involved) and links the Windows SDK's own d3d12/dxgi/dxguid import
+# libraries against them, so Sturdy::DirectX gets the latest D3D12 declarations rather than
+# whatever ships in the installed Windows SDK.
+function(sturdy_fetch_directx_headers)
+    sturdy_fetchcontent_declare(directx_headers
+        GIT_REPOSITORY https://github.com/microsoft/DirectX-Headers.git
+        GIT_TAG ${STURDY_DIRECTX_HEADERS_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES DirectX-Headers directx-headers
+    )
+    FetchContent_MakeAvailable(directx_headers)
+    sturdy_mark_dependency_targets_exclude_from_all(DirectX-Headers DirectX-Guids Microsoft::DirectX-Headers Microsoft::DirectX-Guids)
+    sturdy_register_license(directx_headers "${directx_headers_SOURCE_DIR}")
+
+    if(NOT TARGET Sturdy::DirectX)
+        add_library(Sturdy::DirectX INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(Sturdy::DirectX INTERFACE
+            Microsoft::DirectX-Headers
+            Microsoft::DirectX-Guids
+            d3d12
+            dxgi
+            dxguid
+        )
+    endif()
+endfunction()
+
+# STURDY_FETCH_DEPENDENCIES=OFF fallback: the Windows SDK already ships d3d12.h/dxgi1_x.h on the
+# default include path, just older than Microsoft's open-source DirectX-Headers releases.
+function(sturdy_find_directx)
+    if(NOT TARGET Sturdy::DirectX)
+        add_library(Sturdy::DirectX INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(Sturdy::DirectX INTERFACE d3d12 dxgi dxguid)
+    endif()
+endfunction()
+
+# Apple's official, Apache-2.0-licensed C++ bindings for Metal (apple/metal-cpp). It ships no
+# CMakeLists.txt (headers only, same shape as Clay below), so this populates the source directly
+# (the non-declarative FetchContent_Populate() form — FetchContent_MakeAvailable() would try to
+# add_subdirectory() a tree with no build system) and wires up an include path + the actual
+# system frameworks by hand.
+function(sturdy_fetch_metalcpp)
+    set(_cache_dirs)
+    if(STURDY_SHARED_DEPS_CACHE)
+        set(_cache_dirs
+            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/metalcpp-src"
+            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/metalcpp-subbuild"
+        )
+    endif()
+    FetchContent_Populate(metalcpp
+        QUIET
+        GIT_REPOSITORY https://github.com/apple/metal-cpp.git
+        GIT_TAG ${STURDY_METALCPP_TAG}
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS FALSE
+        ${_cache_dirs}
+    )
+    sturdy_register_license(metalcpp "${metalcpp_SOURCE_DIR}")
+
+    if(NOT TARGET Sturdy::Metal)
+        add_library(SturdyMetalCpp INTERFACE)
+        target_include_directories(SturdyMetalCpp SYSTEM INTERFACE "${metalcpp_SOURCE_DIR}")
+        sturdy_mark_dependency_targets_exclude_from_all(SturdyMetalCpp)
+
+        add_library(Sturdy::Metal INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(Sturdy::Metal INTERFACE SturdyMetalCpp
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework QuartzCore"
+            "-framework Foundation"
+        )
+    endif()
+endfunction()
+
+function(sturdy_find_metalcpp)
+    find_path(STURDY_METALCPP_INCLUDE_DIR NAMES Metal/Metal.hpp)
+    if(NOT STURDY_METALCPP_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find metal-cpp (Metal/Metal.hpp). Install apple/metal-cpp or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+
+    if(NOT TARGET Sturdy::Metal)
+        add_library(SturdyMetalCpp INTERFACE)
+        target_include_directories(SturdyMetalCpp SYSTEM INTERFACE "${STURDY_METALCPP_INCLUDE_DIR}")
+
+        add_library(Sturdy::Metal INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(Sturdy::Metal INTERFACE SturdyMetalCpp
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework QuartzCore"
+            "-framework Foundation"
+        )
+    endif()
+endfunction()
+
+# Web's only graphics API. Unlike every other dependency in this file, WebGPU is not a FetchContent
+# checkout we control: `--use-port=emdawnwebgpu` tells em++ itself to download and build Dawn's
+# pinned webgpu.h/webgpu_cpp.h implementation (see
+# https://dawn.googlesource.com/dawn/+/HEAD/src/emdawnwebgpu/pkg/README.md), cached inside the
+# Emscripten toolchain's own ports cache. That means there is no source directory here for
+# sturdy_register_license() to point at — collecting Dawn's license text is left as a follow-up
+# once a Web/WebGPU renderer backend actually exists to consume it.
+function(sturdy_configure_webgpu)
+    if(NOT TARGET Sturdy::WebGPU)
+        add_library(Sturdy::WebGPU INTERFACE IMPORTED GLOBAL)
+        target_compile_options(Sturdy::WebGPU INTERFACE "--use-port=emdawnwebgpu")
+        target_link_options(Sturdy::WebGPU INTERFACE "--use-port=emdawnwebgpu")
     endif()
 endfunction()
 
@@ -210,6 +379,21 @@ function(sturdy_find_slang)
     endif()
 endfunction()
 
+# Clay ships no installed CMake package (its own CMakeLists.txt only builds examples), so unlike
+# the other STURDY_PREFER_SYSTEM_DEPENDENCIES=OFF paths, this just looks for a system-installed
+# clay.h rather than a find_package() config.
+function(sturdy_find_clay)
+    find_path(STURDY_CLAY_INCLUDE_DIR NAMES clay.h)
+    if(NOT STURDY_CLAY_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find clay.h. Install Clay or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+
+    if(NOT TARGET clay)
+        add_library(clay INTERFACE)
+        target_include_directories(clay INTERFACE "${STURDY_CLAY_INCLUDE_DIR}")
+    endif()
+endfunction()
+
 function(sturdy_fetch_slang)
     # Honor manual overrides even in fetch mode.
     if(STURDY_SLANG_LIBRARY AND STURDY_SLANG_INCLUDE_DIR)
@@ -227,6 +411,10 @@ function(sturdy_fetch_slang)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    # slang-rhi is Slang's own example/test graphics-abstraction harness (unrelated to this
+    # engine's renderer) and its test target does not configure cleanly when cross-compiling to
+    # Emscripten, so it stays off everywhere rather than only on Web.
+    set(SLANG_ENABLE_SLANG_RHI OFF CACHE BOOL "" FORCE)
 
     sturdy_fetchcontent_declare(slang
         GIT_REPOSITORY https://github.com/shader-slang/slang.git
@@ -525,6 +713,7 @@ function(sturdy_fetch_fmt)
     )
     FetchContent_MakeAvailable(fmt)
     sturdy_mark_dependency_targets_exclude_from_all(fmt fmt::fmt fmt-header-only fmt::fmt-header-only)
+    sturdy_register_license(fmt "${fmt_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_spdlog)
@@ -621,6 +810,35 @@ function(sturdy_fetch_box3d)
     sturdy_register_license(box3d "${box3d_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_clay)
+    # Clay (clay.h) is a single-header UI layout library with no library target of its own — its
+    # CMakeLists.txt only builds examples, and CLAY_INCLUDE_ALL_EXAMPLES defaults ON, which would
+    # drag in raylib/SDL2/SDL3/sokol/etc. Disable every example option so add_subdirectory is a
+    # no-op, then wire up the include directory ourselves.
+    set(CLAY_INCLUDE_ALL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_DEMOS OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_CPP_EXAMPLE OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_RAYLIB_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_SDL2_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_SDL3_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_WIN32_GDI_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_SOKOL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CLAY_INCLUDE_PLAYDATE_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(clay
+        GIT_REPOSITORY https://github.com/nicbarker/clay.git
+        GIT_TAG ${STURDY_CLAY_TAG}
+    )
+    FetchContent_MakeAvailable(clay)
+
+    if(NOT TARGET clay)
+        add_library(clay INTERFACE)
+        target_include_directories(clay INTERFACE "${clay_SOURCE_DIR}")
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(clay)
+    sturdy_register_license(clay "${clay_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::GLM
         glm::glm
@@ -645,12 +863,15 @@ function(sturdy_normalize_dependency_targets)
         SDL3
     )
 
-    sturdy_alias_existing_target(Sturdy::GLFW
-        glfw
-        glfw3
-        glfw::glfw
-        glfw3::glfw
-    )
+    # No GLFW on Web — see the STURDY_OS STREQUAL "Web" guards in sturdy_configure_dependencies().
+    if(NOT STURDY_OS STREQUAL "Web")
+        sturdy_alias_existing_target(Sturdy::GLFW
+            glfw
+            glfw3
+            glfw::glfw
+            glfw3::glfw
+        )
+    endif()
 
     sturdy_alias_existing_target(Sturdy::fmt
         fmt::fmt
@@ -683,6 +904,10 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::box3d
         box3d::box3d
         box3d
+    )
+
+    sturdy_alias_existing_target(Sturdy::clay
+        clay
     )
 endfunction()
 

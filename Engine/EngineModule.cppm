@@ -9,11 +9,9 @@ module;
 
 export module Sturdy.Engine:Engine;
 
-#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
-#pragma endregion
 
 using std::optional;
 using std::unique_ptr;

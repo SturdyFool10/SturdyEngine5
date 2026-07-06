@@ -6,10 +6,8 @@ module;
 
 export module Sturdy.Foundation:Constants;
 
-#pragma region Imports
 import :Types;
 import :Wide;
-#pragma endregion
 
 using std::same_as;
 

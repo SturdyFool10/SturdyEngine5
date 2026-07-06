@@ -23,10 +23,8 @@ module;
 
 export module Sturdy.Foundation:UString;
 
-#pragma region Imports
 import :Concepts;
 import :Types;
-#pragma endregion
 
 using std::array;
 using std::format;

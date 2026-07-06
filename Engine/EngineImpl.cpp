@@ -9,12 +9,10 @@ module;
 
 module Sturdy.Engine;
 
-#pragma region Imports
 import :Engine;
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
-#pragma endregion
 
 using std::format;
 using std::unexpected;

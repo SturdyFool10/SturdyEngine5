@@ -11,14 +11,12 @@ module;
 
 export module Sturdy.Core:ShaderDiscovery;
 
-#pragma region Imports
 import Sturdy.Foundation;
 import :Shader;
 import :ShaderError;
 import :ShaderSource;
 import :ShaderTypes;
 import :ShaderReflection;
-#pragma endregion
 
 using std::error_code;
 using std::string;

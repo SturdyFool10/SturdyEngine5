@@ -11,6 +11,13 @@ agent_collaboration.md
 build/
 out/
 
+# Local build/tooling caches: clangd index and the shared FetchContent dependency source cache
+# (STURDY_SHARED_DEPS_CACHE). Mirrors /.cache/ in .gitignore.
+/.cache/
+
+# Claude Code local settings (machine-specific tool permissions, not shared repo state).
+.claude/
+
 # Upstream dependency licenses, copied in from each FetchContent source tree at build time
 # (see cmake/SturdyLicenses.cmake). Regenerated content, not tracked.
 /thirdparty/licenses/

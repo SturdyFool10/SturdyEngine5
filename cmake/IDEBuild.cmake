@@ -3,14 +3,16 @@
 # script instead of hard-coding preset names or build paths — those are derived from the axis
 # lists in cmake/SturdyMatrix.cmake, so adding an arch/os/profile needs no change here.
 #
-#   cmake [-DSTURDY_ARCH=<arch>] [-DSTURDY_OS=<os>] -DSTURDY_PROFILE=<profile> \
-#         [-DSTURDY_RUN=ON] [-DSTURDY_TARGET=<target>] [-DSTURDY_ALL_PROFILES=ON] \
-#         -P cmake/IDEBuild.cmake
+#   cmake [-DSTURDY_ARCH=<arch>] [-DSTURDY_OS=<os>] [-DSTURDY_COMPILER=<compiler>] \
+#         -DSTURDY_PROFILE=<profile> [-DSTURDY_RUN=ON] [-DSTURDY_TARGET=<target>] \
+#         [-DSTURDY_ALL_PROFILES=ON] -P cmake/IDEBuild.cmake
 #
-# STURDY_ARCH / STURDY_OS default to the host. STURDY_PROFILE defaults to Debug (ignored when
-# STURDY_ALL_PROFILES is set, which builds every profile for the selected arch/os). STURDY_RUN
-# launches the built target afterwards (single profile, host-native only). STURDY_TARGET defaults
-# to Runtime.
+# STURDY_ARCH / STURDY_OS default to the host. STURDY_COMPILER defaults to Clang (GCC is only
+# valid for native arch/os — see the STURDY_COMPILER guard in SturdyMatrix.cmake's
+# sturdy_apply_matrix(), and Web never has a GCC variant). STURDY_PROFILE defaults to Debug
+# (ignored when STURDY_ALL_PROFILES is set, which builds every profile for the selected arch/os).
+# STURDY_RUN launches the built target afterwards (single profile, host-native only).
+# STURDY_TARGET defaults to Runtime.
 cmake_minimum_required(VERSION 3.28)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
@@ -40,12 +42,21 @@ endif()
 if(NOT DEFINED STURDY_TARGET OR STURDY_TARGET STREQUAL "")
     set(STURDY_TARGET "Runtime")
 endif()
+if(NOT DEFINED STURDY_COMPILER OR STURDY_COMPILER STREQUAL "")
+    set(STURDY_COMPILER "Clang")
+endif()
 
 if(NOT STURDY_ARCH IN_LIST STURDY_ARCH_LIST)
     message(FATAL_ERROR "Unsupported STURDY_ARCH='${STURDY_ARCH}'. Expected one of: ${STURDY_ARCH_LIST}")
 endif()
 if(NOT STURDY_OS IN_LIST STURDY_OS_LIST)
     message(FATAL_ERROR "Unsupported STURDY_OS='${STURDY_OS}'. Expected one of: ${STURDY_OS_LIST}")
+endif()
+if(NOT STURDY_COMPILER IN_LIST STURDY_COMPILER_LIST)
+    message(FATAL_ERROR "Unsupported STURDY_COMPILER='${STURDY_COMPILER}'. Expected one of: ${STURDY_COMPILER_LIST}")
+endif()
+if(STURDY_OS STREQUAL "Web" AND NOT STURDY_COMPILER STREQUAL "Clang")
+    message(FATAL_ERROR "STURDY_OS=Web has no GCC variant (Emscripten's toolchain is clang-based only).")
 endif()
 
 if(STURDY_ALL_PROFILES)
@@ -61,8 +72,8 @@ else()
 endif()
 
 foreach(_profile IN LISTS _profiles)
-    sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${_profile}" _preset)
-    sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${_profile}" _binary_dir)
+    sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${_profile}" "${STURDY_COMPILER}" _preset)
+    sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${_profile}" "${STURDY_COMPILER}" _binary_dir)
 
     message(STATUS "==> Configuring ${_preset}")
     execute_process(
@@ -104,7 +115,7 @@ if(STURDY_ARCH STREQUAL _host_arch AND STURDY_OS STREQUAL _host_os)
 endif()
 
 if(STURDY_RUN AND NOT STURDY_ALL_PROFILES)
-    sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" _binary_dir)
+    sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY_COMPILER}" _binary_dir)
     if(CMAKE_HOST_WIN32)
         set(_binary "${_root}/${_binary_dir}/bin/${STURDY_TARGET}.exe")
     else()

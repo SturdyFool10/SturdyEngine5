@@ -13,7 +13,6 @@ module;
 
 module Sturdy.Platform;
 
-#pragma region Imports
 import Sturdy.Foundation;
 import :WindowError;
 import :WindowConfig;
@@ -21,7 +20,6 @@ import :WindowEffect;
 import :WindowEffects;
 import :WindowLog;
 import :WindowNative;
-#pragma endregion
 
 using std::expected;
 using std::unexpected;

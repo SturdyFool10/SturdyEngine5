@@ -14,7 +14,6 @@ module;
 
 module Sturdy.Core;
 
-#pragma region Imports
 import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanConstants;
@@ -24,7 +23,6 @@ import :VulkanQueue;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::format;
 using std::vector;

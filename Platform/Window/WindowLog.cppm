@@ -8,9 +8,7 @@ module;
 
 export module Sturdy.Platform:WindowLog;
 
-#pragma region Imports
 import Sturdy.Foundation;
-#pragma endregion
 
 export namespace SFT::Platform::Windowing::Detail {
 

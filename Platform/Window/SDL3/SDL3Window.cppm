@@ -14,9 +14,7 @@ module;
 
 export module Sturdy.Platform.SDL3:Window;
 
-#pragma region Imports
 export import Sturdy.Platform;
-#pragma endregion
 
 using std::atomic_bool;
 using std::deque;

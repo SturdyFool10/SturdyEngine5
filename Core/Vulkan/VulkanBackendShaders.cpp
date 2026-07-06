@@ -15,7 +15,6 @@ module;
 
 module Sturdy.Core;
 
-#pragma region Imports
 import :VulkanBackend;
 import :VulkanDevice;
 import :VulkanShaderModule;
@@ -24,7 +23,6 @@ import :Renderer;
 import :Shader;
 import :ShaderDiscovery;
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::format;
 using std::make_shared;

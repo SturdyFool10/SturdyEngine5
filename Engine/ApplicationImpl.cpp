@@ -10,13 +10,11 @@ module;
 
 module Sturdy.Engine;
 
-#pragma region Imports
 import :Application;
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
 import Sturdy.Platform.SDL3;
-#pragma endregion
 using std::chrono::duration;
 using std::chrono::high_resolution_clock;
 using SFT::Foundation::f64;

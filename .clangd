@@ -3,8 +3,9 @@
 # Managed by cmake/ClangdView.cmake. Use a 'View As' editor task (or run the script
 # directly) to switch this file between arch/OS/profile compile databases. Active view:
 #   Arch: x86-64
-#   OS: Windows
+#   OS: Linux
 #   Profile: Debug
+#   Compiler: GCC
 #
 # Flags that are NOT settable here (they are clangd command-line options, not
 # per-TU compile flags) live in the editor config — see .zed/settings.json:
@@ -14,16 +15,23 @@
 CompileFlags:
   # Compilation database for the active arch/OS/profile view (relative to repo root).
   # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.
-  CompilationDatabase: build/x86-64/win/debug
+  CompilationDatabase: build/x86-64/linux/debug-gcc
   # clangd builds and manages its own module BMIs. Strip the build system's BMI
   # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
   # interchangeable with clangd's and make it crash on load, or (b) writes its
   # own BMIs back into the CMake build tree. With --experimental-modules-support
   # clangd resolves imports by scanning sources itself; without it, this simply
-  # degrades to plain diagnostics instead of a hard crash.
+  # degrades to plain diagnostics instead of a hard crash. The -fdeps-*/-fmodules-ts/
+  # -fmodule-mapper=* entries only appear in a GCC (STURDY_COMPILER=GCC) compile
+  # database — clang/clangd does not understand GCC's module flags at all.
   Remove:
     - -fmodule-output=*
     - -fmodule-file=*
+    - -fmodules-ts
+    - -fdeps-file=*
+    - -fdeps-target=*
+    - -fdeps-format=*
+    - -fmodule-mapper=*
 
 ---
 # C++23 fallback for C++ sources that have no compile_commands.json entry.

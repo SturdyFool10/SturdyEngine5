@@ -12,9 +12,7 @@ module;
 
 export module Sturdy.Platform.GLFW:Window;
 
-#pragma region Imports
 export import Sturdy.Platform;
-#pragma endregion
 
 using std::deque;
 using std::expected;

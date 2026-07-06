@@ -22,11 +22,9 @@ module;
 
 export module Sturdy.Core:VulkanAllocator;
 
-#pragma region Imports
 import :RendererError;
 import :VulkanImage;
 import Sturdy.Foundation;
-#pragma endregion
 
 using SFT::Core::RendererExpected;
 

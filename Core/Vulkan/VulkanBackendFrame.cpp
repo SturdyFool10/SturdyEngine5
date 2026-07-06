@@ -15,7 +15,6 @@ module;
 
 module Sturdy.Core;
 
-#pragma region Imports
 import :VulkanBackend;
 import :VulkanCommandBuffer;
 import :VulkanCommandPool;
@@ -29,7 +28,6 @@ import :RendererError;
 import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::format;
 using std::span;

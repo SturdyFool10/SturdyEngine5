@@ -6,11 +6,9 @@ module;
 
 export module Sturdy.Core:VulkanHelpers;
 
-#pragma region Imports
 import :RenderSurface;
 import Sturdy.Foundation;
 import Sturdy.Platform;
-#pragma endregion
 
 using SFT::Core::SurfaceProvider;
 using SFT::Core::SurfaceSystem;

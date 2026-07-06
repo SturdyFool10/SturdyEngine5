@@ -21,11 +21,9 @@ module;
 
 module Sturdy.Foundation;
 
-#pragma region Imports
 import :Memory;
 import :Log;
 import :Types;
-#pragma endregion
 
 using SFT::Foundation::f64, SFT::Foundation::u32, SFT::Foundation::usize;
 using std::atomic;

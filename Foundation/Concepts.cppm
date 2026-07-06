@@ -12,9 +12,7 @@ module;
 
 export module Sturdy.Foundation:Concepts;
 
-#pragma region Imports
 import :Types;
-#pragma endregion
 
 using std::assignable_from;
 using std::constructible_from;

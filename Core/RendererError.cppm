@@ -8,9 +8,7 @@ module;
 
 export module Sturdy.Core:RendererError;
 
-#pragma region Imports
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::expected;
 using std::string;

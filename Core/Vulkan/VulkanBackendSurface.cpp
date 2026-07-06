@@ -21,7 +21,6 @@ module;
 
 module Sturdy.Core;
 
-#pragma region Imports
 import :VulkanBackend;
 import :VulkanConstants;
 import :VulkanHelpers;
@@ -32,7 +31,6 @@ import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
 import Sturdy.Platform;
-#pragma endregion
 
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;

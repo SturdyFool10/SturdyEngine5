@@ -6,10 +6,8 @@ module;
 
 export module Sturdy.Foundation:Memory;
 
-#pragma region Imports
 import :Types;
 import :Log;
-#pragma endregion
 
 using SFT::Foundation::f64;
 using SFT::Foundation::u32;

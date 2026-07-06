@@ -6,9 +6,7 @@ module;
 
 export module Sturdy.Core:VulkanRendering;
 
-#pragma region Imports
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::vector;
 

@@ -10,10 +10,8 @@ module;
 
 export module Sturdy.Core:VulkanQueue;
 
-#pragma region Imports
 import :RendererError;
 import Sturdy.Foundation;
-#pragma endregion
 
 using SFT::Core::renderer_error;
 using SFT::Core::RendererErrorCode;

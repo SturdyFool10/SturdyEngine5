@@ -18,10 +18,8 @@ module;
 
 module Sturdy.Platform.SDL3;
 
-#pragma region Imports
 import :Window;
 import Sturdy.Foundation;
-#pragma endregion
 
 using std::bad_alloc;
 using std::expected;

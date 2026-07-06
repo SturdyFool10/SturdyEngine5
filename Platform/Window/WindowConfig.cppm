@@ -2,9 +2,7 @@ module;
 
 export module Sturdy.Platform:WindowConfig;
 
-#pragma region Imports
 import :WindowGeometry;
-#pragma endregion
 
 export namespace SFT::Platform::Windowing {
 
@@ -20,6 +18,7 @@ export namespace SFT::Platform::Windowing {
         OpenGL,
         Metal,
         Direct3D,
+        WebGPU,
     };
 
     enum class OperatingSystem {
@@ -27,6 +26,7 @@ export namespace SFT::Platform::Windowing {
         Windows,
         Linux,
         MacOS,
+        Web,
     };
 
     enum class NativeWindowSystem {

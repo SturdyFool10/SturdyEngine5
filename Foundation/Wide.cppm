@@ -10,9 +10,7 @@ module;
 
 export module Sturdy.Foundation:Wide;
 
-#pragma region Imports
 import :Types;
-#pragma endregion
 
 using std::fma;
 using std::integral;

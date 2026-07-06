@@ -13,10 +13,8 @@ module;
 
 export module Sturdy.Foundation:WideTraits;
 
-#pragma region Imports
 import :Types;
 import :Wide;
-#pragma endregion
 
 using std::floor;
 using std::hash;

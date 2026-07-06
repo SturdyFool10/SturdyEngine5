@@ -7,12 +7,10 @@ module;
 
 export module Sturdy.Engine:Application;
 
-#pragma region Imports
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Platform;
 import :Engine;
-#pragma endregion
 
 using std::optional;
 using std::unique_ptr;

@@ -4,9 +4,18 @@
 #   cmake -P cmake/GeneratePresets.cmake
 #
 # Preset names are "<arch>-<os>-<profile>", all lowercase (e.g. x86-64-linux-debug,
-# arm64-win-relwithdebinfo). Do not edit CMakePresets.json by hand — change the lists (or this
-# generator) and re-run. Personal tweaks belong in CMakeUserPresets.json, which CMake overlays
-# automatically and which stays untracked.
+# arm64-win-relwithdebinfo), plus a "-gcc" suffix for the GCC variant of each native (non-Web)
+# combination (e.g. x86-64-linux-debug-gcc — see sturdy_compiler_suffix() in SturdyMatrix.cmake).
+# Do not edit CMakePresets.json by hand — change the lists (or this generator) and re-run.
+# Personal tweaks belong in CMakeUserPresets.json, which CMake overlays automatically and which
+# stays untracked.
+#
+# The "x86-64-web-<profile>" presets configure through the Emscripten toolchain file instead of
+# clang directly (see the "web-base" hidden preset below and the STURDY_OS STREQUAL "Web" guard
+# in cmake/SturdyMatrix.cmake). They need the environment variable STURDY_EMSCRIPTEN_ROOT set to
+# the directory containing cmake/Modules/Platform/Emscripten.cmake — e.g. /usr/lib/emscripten for
+# a distro package, or $EMSDK/upstream/emscripten for an official emsdk checkout. Web has no GCC
+# variant (Emscripten's toolchain is clang-based only).
 cmake_minimum_required(VERSION 3.28)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
@@ -16,30 +25,59 @@ get_filename_component(_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(_configure_presets "")
 set(_build_presets "")
 
+set(_combo_count 0)
+
 foreach(_arch IN LISTS STURDY_ARCH_LIST)
     foreach(_os IN LISTS STURDY_OS_LIST)
-        foreach(_profile IN LISTS STURDY_PROFILE_LIST)
-            sturdy_preset_name("${_arch}" "${_os}" "${_profile}" _name)
-            sturdy_binary_dir("${_arch}" "${_os}" "${_profile}" _binary_dir)
+        # Web is arch-independent (wasm32, fixed by the Emscripten toolchain file) and only ever
+        # pairs with the canonical "x86-64" label — see the matching guard in
+        # sturdy_apply_matrix(). Skip the Arm64/RISCV crosses so they are never generated.
+        if(_os STREQUAL "Web" AND NOT _arch STREQUAL "x86-64")
+            continue()
+        endif()
 
-            string(APPEND _configure_presets "    {
+        # Web has no GCC variant — Emscripten's toolchain is clang-based only (see the header
+        # comment above and the STURDY_COMPILER doc comment in SturdyMatrix.cmake).
+        if(_os STREQUAL "Web")
+            set(_compilers_for_os Clang)
+        else()
+            set(_compilers_for_os ${STURDY_COMPILER_LIST})
+        endif()
+
+        foreach(_compiler IN LISTS _compilers_for_os)
+            if(_os STREQUAL "Web")
+                set(_inherits "web-base")
+            elseif(_compiler STREQUAL "GCC")
+                set(_inherits "gcc-base")
+            else()
+                set(_inherits "base")
+            endif()
+
+            foreach(_profile IN LISTS STURDY_PROFILE_LIST)
+                sturdy_preset_name("${_arch}" "${_os}" "${_profile}" "${_compiler}" _name)
+                sturdy_binary_dir("${_arch}" "${_os}" "${_profile}" "${_compiler}" _binary_dir)
+                math(EXPR _combo_count "${_combo_count} + 1")
+
+                string(APPEND _configure_presets "    {
       \"name\": \"${_name}\",
-      \"displayName\": \"${_arch} ${_os} ${_profile}\",
-      \"inherits\": \"base\",
+      \"displayName\": \"${_arch} ${_os} ${_profile} (${_compiler})\",
+      \"inherits\": \"${_inherits}\",
       \"binaryDir\": \"\${sourceDir}/${_binary_dir}\",
       \"cacheVariables\": {
         \"CMAKE_BUILD_TYPE\": \"${_profile}\",
         \"STURDY_ARCH\": \"${_arch}\",
-        \"STURDY_OS\": \"${_os}\"
+        \"STURDY_OS\": \"${_os}\",
+        \"STURDY_COMPILER\": \"${_compiler}\"
       }
     },\n")
 
-            string(APPEND _build_presets "    {
+                string(APPEND _build_presets "    {
       \"name\": \"runtime-${_name}\",
-      \"displayName\": \"Runtime ${_arch} ${_os} ${_profile}\",
+      \"displayName\": \"Runtime ${_arch} ${_os} ${_profile} (${_compiler})\",
       \"configurePreset\": \"${_name}\",
       \"targets\": [\"Runtime\"]
     },\n")
+            endforeach()
         endforeach()
     endforeach()
 endforeach()
@@ -65,6 +103,32 @@ set(_json "{
         \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\"
       }
     },
+    {
+      \"name\": \"gcc-base\",
+      \"displayName\": \"GCC base (Ninja + gcc/g++ pin, compile_commands.json export)\",
+      \"hidden\": true,
+      \"generator\": \"Ninja\",
+      \"cacheVariables\": {
+        \"CMAKE_C_COMPILER\": \"gcc\",
+        \"CMAKE_CXX_COMPILER\": \"g++\",
+        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\"
+      }
+    },
+    {
+      \"name\": \"web-base\",
+      \"displayName\": \"Web base (Ninja + Emscripten toolchain, compile_commands.json export)\",
+      \"hidden\": true,
+      \"generator\": \"Ninja\",
+      \"toolchainFile\": \"\$env{STURDY_EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake\",
+      \"cacheVariables\": {
+        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\",
+        \"CMAKE_CXX_FLAGS\": \"\",
+        \"CMAKE_C_FLAGS\": \"\",
+        \"CMAKE_EXE_LINKER_FLAGS\": \"\",
+        \"CMAKE_SHARED_LINKER_FLAGS\": \"\",
+        \"CMAKE_MODULE_LINKER_FLAGS\": \"\"
+      }
+    },
 ${_configure_presets}  ],
   \"buildPresets\": [
 ${_build_presets}  ]
@@ -73,8 +137,4 @@ ${_build_presets}  ]
 
 file(WRITE "${_root}/CMakePresets.json" "${_json}")
 
-list(LENGTH STURDY_ARCH_LIST _arch_count)
-list(LENGTH STURDY_OS_LIST _os_count)
-list(LENGTH STURDY_PROFILE_LIST _profile_count)
-math(EXPR _combo_count "${_arch_count} * ${_os_count} * ${_profile_count}")
 message(STATUS "Wrote ${_root}/CMakePresets.json: ${_combo_count} configure presets + ${_combo_count} build presets")

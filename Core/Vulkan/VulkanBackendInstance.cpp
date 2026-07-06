@@ -14,14 +14,12 @@ module;
 
 module Sturdy.Core;
 
-#pragma region Imports
 import :VulkanBackend;
 import :VulkanConstants;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
-#pragma endregion
 
 using std::string_view;
 using std::vector;

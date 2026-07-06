@@ -5,9 +5,7 @@ module;
 
 export module Sturdy.Core:VulkanConstants;
 
-#pragma region Imports
 import Sturdy.Foundation;
-#pragma endregion
 
 export namespace SFT::Core::Vulkan {
 

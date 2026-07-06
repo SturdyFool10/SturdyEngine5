@@ -10,12 +10,10 @@ module;
 
 export module Sturdy.Core:VulkanShaderModule;
 
-#pragma region Imports
 import :RendererError;
 import :ShaderReflection;
 import :ShaderTypes;
 import Sturdy.Foundation;
-#pragma endregion
 
 using SFT::Core::RendererErrorCode;
 using SFT::Core::RendererExpected;

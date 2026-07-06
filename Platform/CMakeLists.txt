@@ -21,6 +21,12 @@ elseif(_sturdy_effective_platform STREQUAL "FreeBSD")
     # that links today. Flesh out __FreeBSD__ branches (or a Platform/FreeBSD tree) when needed.
     list(APPEND _sturdy_platform_definitions STURDY_PLATFORM_FREEBSD=1)
     list(APPEND _sturdy_platform_excluded_source_dirs MacOS Windows)
+elseif(_sturdy_effective_platform STREQUAL "Web")
+    # Browsers have no native window handle / OS chrome effects (see Platform/Web/
+    # WindowEffectsImpl.cpp), so none of the desktop trees apply. GLFW itself is also excluded
+    # (see the windowing deps comment below) since its sources are never linkable on Web.
+    list(APPEND _sturdy_platform_definitions STURDY_PLATFORM_WEB=1)
+    list(APPEND _sturdy_platform_excluded_source_dirs Linux MacOS Windows Window/GLFW)
 else()
     message(FATAL_ERROR "Unsupported effective platform '${_sturdy_effective_platform}'.")
 endif()
@@ -30,14 +36,21 @@ list(APPEND _sturdy_platform_definitions STURDY_VIEW_OS_${_sturdy_effective_plat
 
 message(STATUS "Platform source view: ${_sturdy_effective_platform}")
 
+# GLFW has no official Emscripten/wasm support (unlike SDL3, which is actively maintained there),
+# so Web builds only ever get the SDL3 windowing backend — see Window::create<Backend> call sites,
+# which must use SDL3::SDL3Window on Web since GLFW::GLFWWindow will not be compiled in.
+set(_sturdy_platform_windowing_deps Sturdy::SDL3)
+if(NOT _sturdy_effective_platform STREQUAL "Web")
+    list(APPEND _sturdy_platform_windowing_deps Sturdy::GLFW)
+endif()
+
 sturdy_add_package(Platform
     EXCLUDE_SOURCE_DIRS
         ${_sturdy_platform_excluded_source_dirs}
 
     PUBLIC_DEPS
         Sturdy::Foundation
-        Sturdy::SDL3
-        Sturdy::GLFW
+        ${_sturdy_platform_windowing_deps}
         Sturdy::GLM
 
     DEBUG_PUBLIC_DEPS

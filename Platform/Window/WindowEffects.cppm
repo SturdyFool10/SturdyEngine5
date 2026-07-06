@@ -7,11 +7,9 @@ module;
 
 export module Sturdy.Platform:WindowEffects;
 
-#pragma region Imports
 import :WindowError;
 import :WindowConfig;
 import :WindowEffect;
-#pragma endregion
 
 using std::expected;
 using std::string_view;
