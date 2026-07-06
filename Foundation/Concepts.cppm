@@ -25,6 +25,7 @@ using std::equality_comparable;
 using std::equality_comparable_with;
 using std::formattable;
 using std::hash;
+using std::invocable;
 using std::ostream;
 using std::is_enum_v;
 using std::is_object_v;
@@ -161,5 +162,16 @@ export namespace SFT::Foundation {
     concept Displayable = formattable<Detail::Unqualified<T>, char> && FmtFormattable<T> && requires(ostream &os, const Detail::Unqualified<T> &value) {
         { os << value } -> same_as<ostream &>;
     };
+
+    // A callable usable as ordinary, single-threaded work: invoked directly from one call site, with
+    // no requirement that it tolerate being copied elsewhere or invoked from more than one thread.
+    // Name a callable parameter this way in a `requires` clause (e.g. this module's own `:Iter`'s
+    // `.map()`/`.filter()`/`.for_each()`) to say, in the signature itself, "this runs like an
+    // ordinary function call" — as opposed to `Sturdy.Async`'s `AsyncWork` (see Async/Runtime.cppm),
+    // which additionally has to survive being copied to, and possibly shared concurrently across,
+    // other threads. Deliberately not qualifier-stripped like the concepts above: pass `Fn &`
+    // explicitly at the call site the way the rest of the engine already invokes `std::invocable`.
+    template <class Fn, class... Args>
+    concept SyncWork = invocable<Fn, Args...>;
 
 } // namespace SFT::Foundation

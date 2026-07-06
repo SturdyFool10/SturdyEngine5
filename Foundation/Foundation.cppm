@@ -2,8 +2,9 @@
 //
 // Everything below the renderer/platform stack builds on this: fixed-width scalar types, extended-
 // precision integers and floats (`u128`…`f256`), a constexpr math library that works on all of them,
-// math constants, concepts, logging, and the mimalloc-backed allocator. It imports nothing from the
-// rest of the engine, so any layer can depend on it freely.
+// math constants, concepts, a Rust-flavored lazy iterator over any range (`iter()`, see :Iter),
+// logging, and the mimalloc-backed allocator. It imports nothing from the rest of the engine, so any
+// layer can depend on it freely.
 //
 // This primary module interface re-exports every partition, so a single `import Sturdy.Foundation;`
 // brings the whole layer into scope. Numeric and boolean type aliases plus their literal suffixes are
@@ -14,6 +15,7 @@ export module Sturdy.Foundation;
 export import :Concepts;
 export import :Constants;
 export import :Embed;
+export import :Iter;
 export import :Log;
 export import :Math;
 export import :Memory;

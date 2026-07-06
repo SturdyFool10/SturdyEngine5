@@ -12,6 +12,7 @@ module Sturdy.Engine;
 
 import :Application;
 import Sturdy.Foundation;
+import Sturdy.Async;
 import Sturdy.Core;
 import Sturdy.Platform;
 import Sturdy.Platform.SDL3;
@@ -129,6 +130,11 @@ namespace SFT::Engine {
         window_->set_repaint_callback(render_one_frame);
 
         while (!window_->close_requested()) {
+            // Run any work queued via Async::run_on_main_thread() before touching the window/
+            // renderer this frame, since that's exactly the kind of main-thread-affined state such
+            // jobs exist to touch safely.
+            Async::pump_main_thread();
+
             if (auto pump = window_->pump_events(); !pump) {
                 Foundation::log_error("Event pump failed: {}", pump.error().message);
                 break;

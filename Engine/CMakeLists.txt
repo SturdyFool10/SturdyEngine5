@@ -1,6 +1,7 @@
 sturdy_add_package(EngineComponents
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::Async
         Sturdy::Core
         Sturdy::Platform
         Sturdy::box3d

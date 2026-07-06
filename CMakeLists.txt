@@ -89,6 +89,7 @@ include(SturdyPackage)
 
 sturdy_configure_dependencies()
 add_subdirectory(Foundation)
+add_subdirectory(Async)
 add_subdirectory(Platform)
 add_subdirectory(Core)
 add_subdirectory(Engine)
