@@ -49,11 +49,19 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        // FIFO_RELAXED needs no device extension beyond VK_KHR_swapchain (already required — see
+        // createDevice() in VulkanBackendDevice.cpp): it's just one of the VkPresentModeKHR values
+        // that extension's enum has always defined, and whether a given surface actually supports it
+        // is a per-surface capability queried at runtime here, not a compile-/device-time feature to
+        // opt into. FIFO_KHR is the fallback because it's the one present mode every Vulkan
+        // implementation is required to support, so this never fails to pick something.
         [[nodiscard]] VkPresentModeKHR choose_present_mode(const vector<VkPresentModeKHR> &available_modes) noexcept {
-            constexpr VkPresentModeKHR preferred_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-            return std::ranges::find(available_modes, preferred_mode) != available_modes.end()
+            constexpr VkPresentModeKHR preferred_mode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+            auto presentMode = std::ranges::find(available_modes, preferred_mode) != available_modes.end()
                        ? preferred_mode
                        : VK_PRESENT_MODE_FIFO_KHR;
+            //if (presentMode != VK_PRESENT_MODE_FIFO_RELAXED_KHR) Foundation::log_info("FIFO_RELAXED was not supported for presentation mode, falling back to FIFO");
+            return presentMode;
         }
 
     } // namespace
