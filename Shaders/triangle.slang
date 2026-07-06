@@ -1,26 +1,22 @@
-// Minimal hardcoded-triangle shader used to exercise shader discovery + SPIR-V compilation.
+// Vertex-buffer-fed shader: position/color come from a bound vertex buffer (see
+// Core/Vulkan/VulkanVertex.cppm) rather than being hardcoded here. Locations are pinned explicitly
+// to match VulkanVertex.cppm's VkVertexInputAttributeDescription array exactly (position at 0,
+// color at 1) rather than relying on the compiler's default attribute-ordering behavior.
+struct VertexInput {
+    [[vk::location(0)]] float2 position : POSITION;
+    [[vk::location(1)]] float3 color : COLOR0;
+};
+
 struct VertexOutput {
     float4 position : SV_Position;
     float3 color : COLOR0;
 };
 
-static const float2 kPositions[3] = {
-    float2(0.5, 0.5),
-    float2(0.0, -0.5),
-    float2(-0.5, 0.5),
-};
-
-static const float3 kColors[3] = {
-    float3(1.0, 0.0, 0.0),
-    float3(0.0, 1.0, 0.0),
-    float3(0.0, 0.0, 1.0),
-};
-
 [shader("vertex")]
-VertexOutput vertexMain(uint vertexID : SV_VertexID) {
+VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    output.position = float4(kPositions[vertexID], 0.0, 1.0);
-    output.color = kColors[vertexID];
+    output.position = float4(input.position, 0.0, 1.0);
+    output.color = input.color;
     return output;
 }
 

@@ -96,7 +96,9 @@ namespace SFT::Core::Vulkan {
 
             //the all important drawing
             res.commandBuffer.bind_pipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, this->graphicsPipeline.vk_handle());
-            res.commandBuffer.draw(3);
+            res.commandBuffer.bind_vertex_buffer(this->vertexBuffer.vk_handle());
+            res.commandBuffer.bind_index_buffer(this->indexBuffer.vk_handle(), this->indexType);
+            res.commandBuffer.draw_indexed(this->indexCount);
         }
         res.commandBuffer.end_rendering();
 

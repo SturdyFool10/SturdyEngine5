@@ -18,6 +18,7 @@ import :VulkanConstants;
 import :VulkanDevice;
 import :VulkanPipeline;
 import :VulkanShaderModule;
+import :VulkanVertex;
 import :RendererError;
 import :Renderer;
 import Sturdy.Foundation;
@@ -51,10 +52,17 @@ namespace SFT::Core::Vulkan {
             frag->stage_info(),
         };
 
-        //Vertex Pulling, don't define
+        // Vertex input: one binding (interleaved position + color, see :VulkanVertex), matching
+        // Shaders/triangle.slang's VertexInput struct location-for-location.
+        const auto vertexBinding = vertex_binding_description();
+        const auto vertexAttributes = vertex_attribute_descriptions();
         VkPipelineVertexInputStateCreateInfo vertInputInfo
         {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &vertexBinding,
+            .vertexAttributeDescriptionCount = static_cast<u32>(vertexAttributes.size()),
+            .pVertexAttributeDescriptions = vertexAttributes.data(),
         };
 
         //input assembly, we'll be drawing triangle lists

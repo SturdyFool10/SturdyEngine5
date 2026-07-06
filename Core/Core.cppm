@@ -8,6 +8,7 @@ export import :RendererError;
 export import :Licenses;
 export import :Renderer;
 export import :EngineBackend;
+export import :Triangle;
 // Core/Vulkan is excluded from the Web build (see Core/CMakeLists.txt) — Vulkan is not one of
 // Web's graphics APIs (see EngineBackend.cppm), so there is no :VulkanFeatures/:VulkanBackend
 // partition to import there. A future WebGPU backend partition takes its place once it exists.

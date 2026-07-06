@@ -12,6 +12,7 @@ import :RendererError;
 import :Renderer;
 import :RenderSurface;
 import :VulkanAllocator;
+import :VulkanBuffer;
 import :VulkanCommandBuffer;
 import :VulkanCommandPool;
 import :VulkanDevice;
@@ -64,6 +65,10 @@ export namespace SFT::Core::Vulkan {
         RendererResult discoverGraphicsQueue(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult initializeVMA(const RendererCreateInfo &init);
+        // Uploads the demo hexagon's vertices and indices (see :VulkanVertex) into device-local
+        // vertex/index buffers via temporary staging buffers + a one-shot command buffer copy.
+        // Requires initializeVMA() and createDevice() to have already run.
+        RendererResult createGeometryBuffers(const RendererCreateInfo &init);
         RendererResult createShaders(const RendererCreateInfo &init);
         RendererResult createGraphicsPipeline(const RendererCreateInfo &init);
         // Builds the per-surface frame-pacing resources (timeline semaphore + one command
@@ -120,6 +125,12 @@ export namespace SFT::Core::Vulkan {
         // FrameResources in :VulkanSurface), so windows render fully independently.
         VulkanPipeline graphicsPipeline;
         VulkanPipelineLayout pipelinelayout;
+        // The demo hexagon's device-local vertex/index buffers (see createGeometryBuffers()) and its
+        // index count + type, used verbatim by render_frame()'s bind_index_buffer()/draw_indexed().
+        VulkanBuffer vertexBuffer;
+        VulkanBuffer indexBuffer;
+        u32 indexCount = 0;
+        VkIndexType indexType = VK_INDEX_TYPE_UINT16;
     };
 
 } // namespace SFT::Core::Vulkan

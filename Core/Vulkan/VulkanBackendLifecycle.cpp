@@ -77,6 +77,8 @@ namespace SFT::Core::Vulkan {
         shader_modules_.clear();
         graphicsPipeline.destroy();
         pipelinelayout.destroy();
+        vertexBuffer.destroy();
+        indexBuffer.destroy();
         vmaAllocator.destroy();
         logicalDevice.destroy();
         gfxQueue = VulkanQueue{};
@@ -137,6 +139,11 @@ namespace SFT::Core::Vulkan {
         if (auto result = this->initializeVMA(init); !result.has_value()) [[unlikely]] {
             return renderer_error(result.error().code,
                                   format("Failed to initialize VMA allocator: {}", result.error().message));
+        }
+
+        if (auto result = this->createGeometryBuffers(init); !result.has_value()) [[unlikely]] {
+            return renderer_error(result.error().code,
+                                  format("Failed to create geometry buffers: {}", result.error().message));
         }
 
         // Re-resolve the surface pointer: the map cannot rehash from any of the calls above

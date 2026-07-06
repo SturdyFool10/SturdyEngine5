@@ -148,6 +148,26 @@ export namespace SFT::Core::Vulkan {
             vkCmdDraw(buffer_, vertex_count, instance_count, first_vertex, first_instance);
         }
 
+        void bind_vertex_buffer(VkBuffer buffer, VkDeviceSize offset = 0, u32 binding = 0) const noexcept {
+            vkCmdBindVertexBuffers(buffer_, binding, 1, &buffer, &offset);
+        }
+
+        void bind_index_buffer(VkBuffer buffer, VkIndexType index_type, VkDeviceSize offset = 0) const noexcept {
+            vkCmdBindIndexBuffer(buffer_, buffer, offset, index_type);
+        }
+
+        void draw_indexed(u32 index_count, u32 instance_count = 1, u32 first_index = 0, i32 vertex_offset = 0, u32 first_instance = 0) const noexcept {
+            vkCmdDrawIndexed(buffer_, index_count, instance_count, first_index, vertex_offset, first_instance);
+        }
+
+        // Whole-region copy, `size` bytes from `src` to `dst` — the staging-buffer-to-device-local
+        // pattern (see VulkanBackendBuffers.cpp) is currently the only user, so this doesn't (yet)
+        // take a span of regions the way pipeline_barrier2() takes a span of barriers.
+        void copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size, VkDeviceSize src_offset = 0, VkDeviceSize dst_offset = 0) const noexcept {
+            VkBufferCopy region{.srcOffset = src_offset, .dstOffset = dst_offset, .size = size};
+            vkCmdCopyBuffer(buffer_, src, dst, 1, &region);
+        }
+
         void destroy() noexcept {
             if (buffer_ == VK_NULL_HANDLE)
                 return;

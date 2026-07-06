@@ -23,6 +23,7 @@ module;
 export module Sturdy.Core:VulkanAllocator;
 
 import :RendererError;
+import :VulkanBuffer;
 import :VulkanImage;
 import Sturdy.Foundation;
 
@@ -39,7 +40,13 @@ export namespace SFT::Core::Vulkan {
             VkDevice device = VK_NULL_HANDLE;
             VkInstance instance = VK_NULL_HANDLE;
             u32 api_version = 0;
-            VmaAllocatorCreateFlags flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+            // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT is deliberately not on by default: it
+            // makes VMA tag *every* allocation with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, which is a
+            // validation error unless the bufferDeviceAddress physical device feature is also
+            // enabled at device-creation time (see VulkanBackendDevice.cpp's createDevice()) — only
+            // pass it here once something actually requests
+            // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT and that feature has been enabled to match.
+            VmaAllocatorCreateFlags flags = 0;
         };
 
         VulkanAllocator() = default;
@@ -93,6 +100,13 @@ export namespace SFT::Core::Vulkan {
             const VkImageCreateInfo &image_info,
             const VmaAllocationCreateInfo &allocation_info) const noexcept {
             return VulkanImage::create(device, allocator_, image_info, allocation_info);
+        }
+
+        [[nodiscard]] RendererExpected<VulkanBuffer> create_buffer(
+            VkDevice device,
+            const VkBufferCreateInfo &buffer_info,
+            const VmaAllocationCreateInfo &allocation_info) const noexcept {
+            return VulkanBuffer::create(device, allocator_, buffer_info, allocation_info);
         }
 
         void destroy() noexcept {
