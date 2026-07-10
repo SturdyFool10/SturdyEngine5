@@ -9,12 +9,12 @@ module;
 
 export module Sturdy.Core:VulkanSwapchain;
 
-import :RendererError;
+import :GraphicsBackendError;
 import :VulkanImage;
 import :VulkanSync;
 import Sturdy.Foundation;
 
-using SFT::Core::RendererErrorCode;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::vector;
@@ -67,17 +67,17 @@ export namespace SFT::Core::Vulkan {
             const VkSwapchainCreateInfoKHR &info) noexcept {
             VkSwapchainKHR sc = VK_NULL_HANDLE;
             if (vkCreateSwapchainKHR(device, &info, nullptr, &sc) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
 
             u32 count = 0;
             if (vkGetSwapchainImagesKHR(device, sc, &count, nullptr) != VK_SUCCESS) {
                 vkDestroySwapchainKHR(device, sc, nullptr);
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
             }
             vector<VkImage> images(count, VK_NULL_HANDLE);
             if (vkGetSwapchainImagesKHR(device, sc, &count, images.data()) != VK_SUCCESS) {
                 vkDestroySwapchainKHR(device, sc, nullptr);
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (populate) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (populate) failed.");
             }
 
             VulkanSwapchain out;
@@ -291,8 +291,10 @@ export namespace SFT::Core::Vulkan {
             };
             u32 index = 0;
             VkResult res = vkAcquireNextImage2KHR(device_, &info, &index);
+            if (res == VK_ERROR_DEVICE_LOST)
+                return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkAcquireNextImage2KHR reported device loss.");
             if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkAcquireNextImage2KHR failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkAcquireNextImage2KHR failed.");
             return index;
         }
 

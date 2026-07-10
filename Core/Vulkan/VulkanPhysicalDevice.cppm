@@ -14,11 +14,11 @@ module;
 
 export module Sturdy.Core:VulkanPhysicalDevice;
 
-import :RendererError;
+import :GraphicsBackendError;
 import :VulkanHelpers;
 import Sturdy.Foundation;
 
-using SFT::Core::RendererErrorCode;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using std::nullopt;
 using std::optional;
@@ -52,12 +52,12 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] static RendererExpected<vector<VulkanPhysicalDevice>> enumerate(VkInstance instance) {
             u32 count = 0;
             if (vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || count == 0) {
-                return renderer_error(RendererErrorCode::InitializationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
                                       "No Vulkan-capable GPUs found on this system.");
             }
             vector<VkPhysicalDevice> raw(count);
             if (vkEnumeratePhysicalDevices(instance, &count, raw.data()) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkEnumeratePhysicalDevices (populate) failed.");
             }
             return raw
@@ -127,11 +127,11 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<vector<VkTimeDomainKHR>> calibrateable_time_domains() const noexcept {
             u32 count = 0;
             if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(device_, &count, nullptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (count) failed.");
             vector<VkTimeDomainKHR> domains(count);
             if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(device_, &count, domains.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (populate) failed.");
             return domains;
         }
@@ -244,12 +244,12 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<vector<VkExtensionProperties>> enumerate_extensions() const {
             u32 count = 0;
             if (vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, nullptr) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkEnumerateDeviceExtensionProperties (count) failed.");
             }
             vector<VkExtensionProperties> extensions(count);
             if (count > 0 && vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, extensions.data()) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkEnumerateDeviceExtensionProperties (populate) failed.");
             }
             return extensions;
@@ -269,7 +269,7 @@ export namespace SFT::Core::Vulkan {
         surface_capabilities(VkSurfaceKHR surface) const noexcept {
             VkSurfaceCapabilitiesKHR caps{};
             if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_, surface, &caps) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed.");
             }
             return caps;
@@ -279,12 +279,12 @@ export namespace SFT::Core::Vulkan {
         surface_formats(VkSurfaceKHR surface) const {
             u32 count = 0;
             if (vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfaceFormatsKHR failed or returned no formats.");
             }
             vector<VkSurfaceFormatKHR> formats(count);
             if (vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, formats.data()) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfaceFormatsKHR (populate) failed.");
             }
             return formats;
@@ -294,12 +294,12 @@ export namespace SFT::Core::Vulkan {
         surface_present_modes(VkSurfaceKHR surface) const {
             u32 count = 0;
             if (vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfacePresentModesKHR failed or returned no present modes.");
             }
             vector<VkPresentModeKHR> modes(count);
             if (vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, modes.data()) != VK_SUCCESS) {
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfacePresentModesKHR (populate) failed.");
             }
             return modes;

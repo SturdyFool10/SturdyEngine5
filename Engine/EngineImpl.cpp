@@ -3,6 +3,7 @@ module;
 #pragma region Imports
 #include <expected>
 #include <format>
+#include <memory>
 #include <optional>
 #include <utility>
 #pragma endregion
@@ -12,17 +13,20 @@ module Sturdy.Engine;
 import :Engine;
 import Sturdy.Foundation;
 import Sturdy.Core;
+import Sturdy.Renderer;
+import Sturdy.RHI;
 import Sturdy.Platform;
 
 using std::format;
+using std::make_unique;
 using std::unexpected;
 
 namespace SFT::Engine {
 
-    // The API-selection switch point lives behind create_vulkan_backend(): swapping in Metal or
-    // WebGPU later is a one-line change here, with no volk/Vulkan headers in this translation unit.
+    // The API-selection switch point now lives inside SFT::Renderer::Renderer. Engine owns the
+    // high-level renderer, not the raw graphics backend.
     Engine::Engine()
-        : renderer_backend_(Core::create_vulkan_backend()) {
+        : renderer_(make_unique<SFT::Renderer::Renderer>()) {
     }
 
     Engine::~Engine() = default;
@@ -30,7 +34,7 @@ namespace SFT::Engine {
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(Platform::Windowing::Window &window,
                                                                          const EngineConfig &config) {
         if (initialized_) {
-            return unexpected(Core::RendererError{Core::RendererErrorCode::OperationFailed,
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                   "Engine renderer is already initialized."});
         }
 
@@ -41,8 +45,8 @@ namespace SFT::Engine {
 
         auto wsi_extensions = window.required_vulkan_instance_extensions();
         if (!wsi_extensions) {
-            return unexpected(Core::RendererError{
-                Core::RendererErrorCode::InitializationFailed,
+            return unexpected(Core::GraphicsBackendError{
+                Core::GraphicsBackendErrorCode::InitializationFailed,
                 format("Failed to query Vulkan WSI extensions from window: {}", wsi_extensions.error().message),
             });
         }
@@ -56,28 +60,28 @@ namespace SFT::Engine {
         // format. shaders_ outlives this call, so the non-owning span stays valid.
         renderer_info.uncompiled_shaders = shaders_;
 
-        auto surface = renderer_backend_->initialize(renderer_info);
+        auto surface = renderer_->initialize(renderer_info);
         if (!surface) {
             return unexpected(surface.error());
         }
 
         initialized_ = true;
-        capabilities_ = renderer_backend_->capabilities();
+        capabilities_ = renderer_->capabilities();
         return *surface;
     }
 
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::add_window(Platform::Windowing::Window &window,
                                                                          u32 desired_frames_in_flight) {
-        if (!renderer_backend_ || !initialized_) {
-            return unexpected(Core::RendererError{Core::RendererErrorCode::OperationFailed,
+        if (!renderer_ || !initialized_) {
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                   "Engine renderer must be initialized before adding another window."});
         }
-        return renderer_backend_->create_window_surface(window, desired_frames_in_flight);
+        return renderer_->create_window_surface(window, desired_frames_in_flight);
     }
 
     void Engine::remove_window(Core::RenderSurfaceHandle surface) noexcept {
-        if (renderer_backend_) {
-            renderer_backend_->destroy_window_surface(surface);
+        if (renderer_) {
+            renderer_->destroy_window_surface(surface);
         }
     }
 
@@ -89,29 +93,37 @@ namespace SFT::Engine {
     }
 
     void Engine::on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept {
-        if (renderer_backend_) {
-            renderer_backend_->on_surface_resize_needed(surface);
+        if (renderer_) {
+            renderer_->on_surface_resize_needed(surface);
         }
     }
 
     Core::RendererResult Engine::render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame) {
-        if (!renderer_backend_) {
-            return Core::renderer_error(Core::RendererErrorCode::OperationFailed, "Renderer backend is unavailable.");
+        if (!renderer_) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "Renderer is unavailable.");
         }
-        return renderer_backend_->render_frame(surface, frame);
+        return renderer_->render_frame(surface, frame);
     }
 
     void Engine::wait_idle() noexcept {
-        if (renderer_backend_) {
-            renderer_backend_->wait_idle();
+        if (renderer_) {
+            renderer_->wait_idle();
         }
     }
 
     std::optional<Core::GpuInfo> Engine::gpu_info() const {
-        if (!renderer_backend_) {
+        if (!renderer_) {
             return std::nullopt;
         }
-        return renderer_backend_->gpu_info();
+        return renderer_->gpu_info();
+    }
+
+    Core::EngineBackend *Engine::graphics_backend() noexcept {
+        return renderer_ ? renderer_->graphics_backend() : nullptr;
+    }
+
+    RHI::RhiDevice *Engine::rhi_device() noexcept {
+        return renderer_ ? renderer_->rhi_device() : nullptr;
     }
 
 } // namespace SFT::Engine

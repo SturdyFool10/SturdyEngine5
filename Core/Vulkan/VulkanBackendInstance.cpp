@@ -16,7 +16,7 @@ module Sturdy.Core;
 
 import :VulkanBackend;
 import :VulkanConstants;
-import :RendererError;
+import :GraphicsBackendError;
 import :Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
@@ -58,7 +58,7 @@ namespace SFT::Core::Vulkan {
 
     RendererResult VulkanBackend::createVulkanInstance(const RendererCreateInfo &init) {
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
-            return renderer_error(RendererErrorCode::OperationFailed, "Volk failed to initialize");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
         }
         volk_initialized_ = true;
 
@@ -72,7 +72,7 @@ namespace SFT::Core::Vulkan {
 
         auto extension_res = init.window->required_vulkan_instance_extensions();
         if (!extension_res) [[unlikely]] {
-            return renderer_error(RendererErrorCode::OperationFailed,
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                   "Failed to get Window extensions list for Vulkan");
         }
         vector<const char *> extensions = extension_res.value();
@@ -87,13 +87,28 @@ namespace SFT::Core::Vulkan {
         vector<VkExtensionProperties> supported_instance_exts(supported_instance_ext_count);
         vkEnumerateInstanceExtensionProperties(nullptr, &supported_instance_ext_count, supported_instance_exts.data());
 
+        auto add_supported_extension = [&](const char *name) {
+            const bool supported = std::ranges::any_of(supported_instance_exts, [name](const VkExtensionProperties &ext) {
+                return string_view{ext.extensionName} == string_view{name};
+            });
+            const bool already_requested = std::ranges::any_of(extensions, [name](const char *requested) {
+                return string_view{requested} == string_view{name};
+            });
+            if (supported && !already_requested) {
+                extensions.push_back(name);
+            }
+            return supported;
+        };
+
         VkInstanceCreateFlags instance_flags = 0;
-        if (std::ranges::any_of(supported_instance_exts, [](const VkExtensionProperties &ext) {
-                return string_view{ext.extensionName} == VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
-            })) {
-            extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        if (add_supported_extension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
             instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         }
+#if defined(__linux__)
+        add_supported_extension("VK_KHR_xlib_surface");
+        add_supported_extension("VK_KHR_xcb_surface");
+        add_supported_extension("VK_KHR_wayland_surface");
+#endif
 
 #ifdef DEBUG
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -123,7 +138,7 @@ namespace SFT::Core::Vulkan {
 #pragma clang diagnostic pop
 
         if (vkCreateInstance(&instCreateInfo, nullptr, &this->vulkan_instance) != VK_SUCCESS) [[unlikely]] {
-            return renderer_error(RendererErrorCode::InitializationFailed, "vkCreateInstance failed");
+            return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vkCreateInstance failed");
         }
 
         volkLoadInstance(this->vulkan_instance);

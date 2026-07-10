@@ -9,11 +9,11 @@ module;
 
 export module Sturdy.Core:VulkanTimestamp;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::vector;
@@ -39,11 +39,11 @@ export namespace SFT::Core::Vulkan {
         VkPhysicalDevice physical) noexcept {
         u32 count = 0;
         if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(physical, &count, nullptr) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed,
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                   "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (count) failed.");
         vector<VkTimeDomainKHR> domains(count);
         if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(physical, &count, domains.data()) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed,
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                   "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR (populate) failed.");
         return domains;
     }
@@ -64,7 +64,7 @@ export namespace SFT::Core::Vulkan {
         u64 timestamps[2]{};
         u64 max_deviation = 0;
         if (vkGetCalibratedTimestampsKHR(device, 2, infos, timestamps, &max_deviation) != VK_SUCCESS)
-            return renderer_error(RendererErrorCode::OperationFailed,
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                   "vkGetCalibratedTimestampsKHR failed.");
         return CalibratedClocks{
             .gpu_ticks = timestamps[0],
@@ -133,7 +133,7 @@ export namespace SFT::Core::Vulkan {
             };
             VkQueryPool pool = VK_NULL_HANDLE;
             if (vkCreateQueryPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkCreateQueryPool (timestamp) failed.");
             VulkanTimestampPool out;
             out.device_ = device;
@@ -158,7 +158,7 @@ export namespace SFT::Core::Vulkan {
             vector<u64> ticks(count, 0);
             VkResult res = vkGetQueryPoolResults(device_, pool_, first_query, count, ticks.size() * sizeof(u64), ticks.data(), sizeof(u64), flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
-                return renderer_error(RendererErrorCode::OperationFailed,
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetQueryPoolResults (timestamp) failed.");
             return ticks;
         }

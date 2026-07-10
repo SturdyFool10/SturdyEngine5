@@ -22,7 +22,7 @@ module;
 
 export module Sturdy.Core:VulkanAllocator;
 
-import :RendererError;
+import :GraphicsBackendError;
 import :VulkanBuffer;
 import :VulkanImage;
 import Sturdy.Foundation;
@@ -85,7 +85,7 @@ export namespace SFT::Core::Vulkan {
 
             VmaAllocator allocator = VK_NULL_HANDLE;
             if (vmaCreateAllocator(&info, &allocator) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::InitializationFailed, "vmaCreateAllocator failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vmaCreateAllocator failed.");
 
             VulkanAllocator out;
             out.allocator_ = allocator;

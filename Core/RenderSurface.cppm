@@ -42,9 +42,9 @@ export namespace SFT::Core {
         [[nodiscard]] constexpr bool is_zero() const noexcept { return width == 0 || height == 0; }
     };
 
-    // Stable handle used by the engine/glue to address one backend-owned surface/swapchain.
-    // Backed directly by the owning window's WindowId, since the backend stores all per-window
-    // GPU resources (surface, swapchain, sync objects, ...) in a map keyed by that ID.
+    // Stable handle used by the engine/glue to address one window's backend-side surface.
+    // Backed directly by the owning window's WindowId; renderer-owned presentation resources are
+    // addressed through RHI handles.
     struct RenderSurfaceHandle {
         Platform::Windowing::WindowId window_id = Platform::Windowing::invalid_window_id;
 

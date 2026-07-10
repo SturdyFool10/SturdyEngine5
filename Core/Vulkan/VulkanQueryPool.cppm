@@ -6,11 +6,11 @@ module;
 
 export module Sturdy.Core:VulkanQueryPool;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::span;
@@ -59,7 +59,7 @@ export namespace SFT::Core::Vulkan {
             };
             VkQueryPool pool = VK_NULL_HANDLE;
             if (vkCreateQueryPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateQueryPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateQueryPool failed.");
             VulkanQueryPool out;
             out.device_ = device;
             out.pool_ = pool;
@@ -82,7 +82,7 @@ export namespace SFT::Core::Vulkan {
             VkQueryResultFlags flags) noexcept {
             VkResult res = vkGetQueryPoolResults(device_, pool_, first_query, count, data.size_bytes(), data.data(), stride, flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
             return {};
         }
 

@@ -5,11 +5,11 @@ module;
 
 export module Sturdy.Core:VulkanSampler;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 
 export namespace SFT::Core::Vulkan {
@@ -42,7 +42,7 @@ export namespace SFT::Core::Vulkan {
             const VkSamplerCreateInfo &info) noexcept {
             VkSampler sampler = VK_NULL_HANDLE;
             if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateSampler failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSampler failed.");
             VulkanSampler out;
             out.device_ = device;
             out.sampler_ = sampler;

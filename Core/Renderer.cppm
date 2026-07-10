@@ -10,6 +10,7 @@ export module Sturdy.Core:Renderer;
 
 import Sturdy.Foundation;
 import Sturdy.Platform;
+import Sturdy.RHI;
 import :ShaderDiscovery;
 
 using SFT::Platform::Windowing::Window;
@@ -45,10 +46,13 @@ export namespace SFT::Core {
     };
 
     // The engine asks for what it wants; the backend grants what it can and reports truth via
-    // RendererCapabilities. Requesting raytracing does not guarantee it.
+    // RendererCapabilities and RHI's FeatureNegotiationReport. Requesting raytracing does not
+    // guarantee it unless the feature is also placed in `required_rhi_features`.
     struct RendererFeatureRequest {
         b8 raytracing = false;
         b8 prefer_async_compute = false;
+        RHI::FeatureSet required_rhi_features{};
+        RHI::FeatureSet optional_rhi_features{};
         u32 desired_frames_in_flight = 2;
     };
 

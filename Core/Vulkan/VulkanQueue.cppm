@@ -10,11 +10,11 @@ module;
 
 export module Sturdy.Core:VulkanQueue;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::span;
@@ -55,8 +55,11 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult submit(span<const VkSubmitInfo2> submits,
                                             VkFence fence = VK_NULL_HANDLE) noexcept {
             std::lock_guard lock(mutex_);
-            if (vkQueueSubmit2(handle_, static_cast<u32>(submits.size()), submits.data(), fence) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkQueueSubmit2 failed.");
+            const VkResult result = vkQueueSubmit2(handle_, static_cast<u32>(submits.size()), submits.data(), fence);
+            if (result == VK_ERROR_DEVICE_LOST)
+                return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueSubmit2 reported device loss.");
+            if (result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueSubmit2 failed.");
             return {};
         }
 
@@ -90,21 +93,29 @@ export namespace SFT::Core::Vulkan {
                 return false;
             if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)
                 return true;
-            return renderer_error(RendererErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
+            if (res == VK_ERROR_DEVICE_LOST)
+                return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueuePresentKHR reported device loss.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
         }
 
         [[nodiscard]] RendererResult wait_idle() noexcept {
             std::lock_guard lock(mutex_);
-            if (vkQueueWaitIdle(handle_) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkQueueWaitIdle failed.");
+            const VkResult result = vkQueueWaitIdle(handle_);
+            if (result == VK_ERROR_DEVICE_LOST)
+                return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueWaitIdle reported device loss.");
+            if (result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueWaitIdle failed.");
             return {};
         }
 
         [[nodiscard]] RendererResult bind_sparse(span<const VkBindSparseInfo> infos,
                                                  VkFence fence = VK_NULL_HANDLE) noexcept {
             std::lock_guard lock(mutex_);
-            if (vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkQueueBindSparse failed.");
+            const VkResult result = vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence);
+            if (result == VK_ERROR_DEVICE_LOST)
+                return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueBindSparse reported device loss.");
+            if (result != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueBindSparse failed.");
             return {};
         }
 

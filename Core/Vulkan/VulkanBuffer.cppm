@@ -23,11 +23,11 @@ module;
 
 export module Sturdy.Core:VulkanBuffer;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 
@@ -87,7 +87,7 @@ export namespace SFT::Core::Vulkan {
             };
             VkBuffer buf = VK_NULL_HANDLE;
             if (vkCreateBuffer(device, &info, nullptr, &buf) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateBuffer failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBuffer failed.");
             VulkanBuffer out;
             out.device_ = device;
             out.buffer_ = buf;
@@ -104,7 +104,7 @@ export namespace SFT::Core::Vulkan {
             VkBuffer buf = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
             if (vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buf, &allocation, nullptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vmaCreateBuffer failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaCreateBuffer failed.");
             VulkanBuffer out;
             out.device_ = device;
             out.allocator_ = allocator;
@@ -128,9 +128,48 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult upload(const void *data, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept {
             void *mapped = nullptr;
             if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vmaMapMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
             std::memcpy(static_cast<std::byte *>(mapped) + offset, data, bytes);
             vmaUnmapMemory(allocator_, allocation_);
+            return {};
+        }
+
+        // Symmetric readback: maps, copies `bytes` out into `dst` at `offset`, then unmaps. Only valid
+        // for a host-visible VMA allocation (a HostReadback buffer the GPU copied results into).
+        [[nodiscard]] RendererResult download(void *dst, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept {
+            void *mapped = nullptr;
+            if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
+            std::memcpy(dst, static_cast<const std::byte *>(mapped) + offset, bytes);
+            vmaUnmapMemory(allocator_, allocation_);
+            return {};
+        }
+
+        // Persistent map/unmap for direct CPU access — the backing of the RHI's map_buffer. VMA
+        // reference-counts nested maps, so pair each map() with an unmap(). The pointer is valid for
+        // the whole allocation; the caller offsets into it. Only valid for a host-visible allocation.
+        [[nodiscard]] RendererExpected<void *> map() noexcept {
+            void *mapped = nullptr;
+            if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
+            return mapped;
+        }
+        void unmap() noexcept {
+            if (allocation_ != VK_NULL_HANDLE) {
+                vmaUnmapMemory(allocator_, allocation_);
+            }
+        }
+
+        // Flush/invalidate a mapped range for non-coherent host memory (no-op cost on coherent memory,
+        // which VMA reports; call around non-coherent readback/upload to make writes visible).
+        [[nodiscard]] RendererResult flush(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept {
+            if (vmaFlushAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaFlushAllocation failed.");
+            return {};
+        }
+        [[nodiscard]] RendererResult invalidate(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept {
+            if (vmaInvalidateAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaInvalidateAllocation failed.");
             return {};
         }
 
@@ -154,7 +193,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset = 0) noexcept {
             if (vkBindBufferMemory(device_, buffer_, memory, offset) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkBindBufferMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindBufferMemory failed.");
             return {};
         }
 
@@ -193,6 +232,79 @@ export namespace SFT::Core::Vulkan {
         VmaAllocation allocation_ = VK_NULL_HANDLE;
         VkDeviceSize size_ = 0;
         VkBufferUsageFlags usage_ = 0;
+    };
+
+    // ─── VulkanBufferView ─────────────────────────────────────────────────────────
+
+    // Owns a VkBufferView — the typed window over a buffer range that a uniform/storage *texel* buffer
+    // binding reads through (the buffer must carry the matching UNIFORM/STORAGE_TEXEL_BUFFER usage). The
+    // buffer must outlive the view.
+    class VulkanBufferView {
+      public:
+        VulkanBufferView() = default;
+        ~VulkanBufferView() { destroy(); }
+
+        VulkanBufferView(const VulkanBufferView &) = delete;
+        VulkanBufferView &operator=(const VulkanBufferView &) = delete;
+
+        VulkanBufferView(VulkanBufferView &&o) noexcept
+            : device_(o.device_), view_(o.view_), format_(o.format_) {
+            o.device_ = VK_NULL_HANDLE;
+            o.view_ = VK_NULL_HANDLE;
+        }
+        VulkanBufferView &operator=(VulkanBufferView &&o) noexcept {
+            if (this != &o) {
+                destroy();
+                device_ = o.device_;
+                view_ = o.view_;
+                format_ = o.format_;
+                o.device_ = VK_NULL_HANDLE;
+                o.view_ = VK_NULL_HANDLE;
+            }
+            return *this;
+        }
+
+        [[nodiscard]] static RendererExpected<VulkanBufferView> create(
+            VkDevice device,
+            VkBuffer buffer,
+            VkFormat format,
+            VkDeviceSize offset = 0,
+            VkDeviceSize range = VK_WHOLE_SIZE) noexcept {
+            VkBufferViewCreateInfo info{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .buffer = buffer,
+                .format = format,
+                .offset = offset,
+                .range = range,
+            };
+            VkBufferView view = VK_NULL_HANDLE;
+            if (vkCreateBufferView(device, &info, nullptr, &view) != VK_SUCCESS)
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBufferView failed.");
+            VulkanBufferView out;
+            out.device_ = device;
+            out.view_ = view;
+            out.format_ = format;
+            return out;
+        }
+
+        [[nodiscard]] VkBufferView vk_handle() const noexcept { return view_; }
+        [[nodiscard]] bool is_valid() const noexcept { return view_ != VK_NULL_HANDLE; }
+        [[nodiscard]] VkFormat format() const noexcept { return format_; }
+
+        void destroy() noexcept {
+            if (view_ == VK_NULL_HANDLE)
+                return;
+            vkDestroyBufferView(device_, view_, nullptr);
+            view_ = VK_NULL_HANDLE;
+            device_ = VK_NULL_HANDLE;
+        }
+
+      private:
+        VkDevice device_ = VK_NULL_HANDLE;
+        VkBufferView view_ = VK_NULL_HANDLE;
+        VkFormat format_ = VK_FORMAT_UNDEFINED;
     };
 
 } // namespace SFT::Core::Vulkan

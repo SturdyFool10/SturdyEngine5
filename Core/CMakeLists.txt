@@ -23,6 +23,7 @@ sturdy_add_package(Core
 
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::RHI
         Sturdy::Platform
         Sturdy::GLM
         Sturdy::SDL3

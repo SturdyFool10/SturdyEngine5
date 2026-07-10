@@ -3,6 +3,7 @@ sturdy_add_package(EngineComponents
         Sturdy::Foundation
         Sturdy::Async
         Sturdy::Core
+        Sturdy::Renderer
         Sturdy::Platform
         Sturdy::box3d
 

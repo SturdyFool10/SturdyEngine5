@@ -13,7 +13,7 @@ using std::string_view;
 export namespace SFT::Async {
 
     // Shared error shape for :File and :Net — deliberately small and platform-agnostic (no errno/
-    // WinSock codes leak out), matching the WindowError/RendererError shape used elsewhere.
+    // WinSock codes leak out), matching the WindowError/GraphicsBackendError shape used elsewhere.
     enum class IoErrorCode {
         NotFound,
         PermissionDenied,

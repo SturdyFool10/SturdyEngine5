@@ -4,7 +4,7 @@ export module Sturdy.Core;
 export import Sturdy.Foundation;
 
 export import :RenderSurface;
-export import :RendererError;
+export import :GraphicsBackendError;
 export import :Licenses;
 export import :Renderer;
 export import :EngineBackend;

@@ -1,5 +1,6 @@
 module;
 #pragma region Imports
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vulkan/vulkan_core.h>
@@ -8,23 +9,17 @@ module;
 export module Sturdy.Core:VulkanBackend;
 
 import :EngineBackend;
-import :RendererError;
+import :GraphicsBackendError;
 import :Renderer;
 import :RenderSurface;
 import :VulkanAllocator;
-import :VulkanBuffer;
-import :VulkanCommandBuffer;
-import :VulkanCommandPool;
 import :VulkanDevice;
 import :VulkanQueue;
-import :VulkanShaderModule;
 import :VulkanSurface;
-import :VulkanSwapchain;
 import :VulkanPhysicalDevice;
-import :VulkanPipeline;
-import :VulkanSync;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+import Sturdy.RHI;
 
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;
@@ -46,17 +41,12 @@ export namespace SFT::Core::Vulkan {
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
         void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept override;
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
+        [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept override;
+        [[nodiscard]] const RHI::RhiDevice *rhi_device() const noexcept override;
         [[nodiscard]] optional<GpuInfo> gpu_info() const override;
-        RendererResult render_frame(RenderSurfaceHandle surface, const FrameInput &frame) override;
         void wait_idle() noexcept override;
         // end EngineBackend Compliance Functions
 
-        // Look up a compiled shader module by the source file it came from plus its entry point name,
-        // e.g. find_shader_module("Shaders/triangle", "vertexMain"). The source file is keyed without
-        // its ".slang" extension, but a trailing ".slang" is accepted and stripped. Returns nullptr
-        // if no such module was produced during createShaders().
-        [[nodiscard]] const VulkanShaderModule *find_shader_module(const ustr &source_file,
-                                                                   const ustr &entry_point) const noexcept;
         RendererExpected<RenderSurfaceHandle> initVulkan(const RendererCreateInfo &init);
         RendererResult createVulkanInstance(const RendererCreateInfo &init);
         // GPU/device bring-up only ever runs once, against the surface of the first window
@@ -65,17 +55,7 @@ export namespace SFT::Core::Vulkan {
         RendererResult discoverGraphicsQueue(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult initializeVMA(const RendererCreateInfo &init);
-        // Uploads the demo hexagon's vertices and indices (see :VulkanVertex) into device-local
-        // vertex/index buffers via temporary staging buffers + a one-shot command buffer copy.
-        // Requires initializeVMA() and createDevice() to have already run.
-        RendererResult createGeometryBuffers(const RendererCreateInfo &init);
-        RendererResult createShaders(const RendererCreateInfo &init);
-        RendererResult createGraphicsPipeline(const RendererCreateInfo &init);
-        // Builds the per-surface frame-pacing resources (timeline semaphore + one command
-        // pool/buffer/image-acquired-semaphore per frame in flight) and installs them on the
-        // surface. Run once per window — for the primary during initVulkan(), and for every
-        // window added later via create_window_surface().
-        RendererResult createSurfaceFrameResources(VulkanSurface &surface);
+        void installRhiBridge();
 
       private:
         friend class ::SFT::Core::EngineBackend;
@@ -92,8 +72,6 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<SurfaceCreateInfo> surface_create_info_from_window(Window &window,
                                                                                           u32 desired_frames_in_flight) const;
         [[nodiscard]] RendererExpected<RenderSurfaceHandle> createSurface(const SurfaceCreateInfo &init);
-        RendererResult createSwapchain(const RendererCreateInfo &init, VulkanSurface &surface);
-        void destroySwapchain(VulkanSurface &surface) noexcept;
         void destroySurface(VulkanSurface &surface) noexcept;
         void destroy_all_surfaces() noexcept;
         [[nodiscard]] VulkanSurface *surface_slot(RenderSurfaceHandle handle) noexcept;
@@ -107,10 +85,6 @@ export namespace SFT::Core::Vulkan {
         // recycled into a reused slot — when one is destroyed its entry is erased outright.
         unordered_map<WindowId, VulkanSurface> surfaces_;
 
-        // Every SPIR-V shader module compiled from the engine's UnCompiledShader list during
-        // initialize(), keyed by (source file, entry point). Each module retains a shared handle to
-        // its source file's reflection. Destroyed in ~VulkanBackend before the logical device.
-        unordered_map<VulkanShaderModuleKey, VulkanShaderModule, VulkanShaderModuleKeyHash> shader_modules_;
         bool initialized_ = false;
 
         VkInstance vulkan_instance = VK_NULL_HANDLE;
@@ -119,18 +93,8 @@ export namespace SFT::Core::Vulkan {
         VulkanDevice logicalDevice;
         VulkanQueue gfxQueue;
         VulkanAllocator vmaAllocator;
-        // Device-owned resources built during initialization. Destroyed in ~VulkanBackend before
-        // the logical device, same as the shader modules they're built alongside. Per-frame sync
-        // and command resources are no longer global — each VulkanSurface owns its own set (see
-        // FrameResources in :VulkanSurface), so windows render fully independently.
-        VulkanPipeline graphicsPipeline;
-        VulkanPipelineLayout pipelinelayout;
-        // The demo hexagon's device-local vertex/index buffers (see createGeometryBuffers()) and its
-        // index count + type, used verbatim by render_frame()'s bind_index_buffer()/draw_indexed().
-        VulkanBuffer vertexBuffer;
-        VulkanBuffer indexBuffer;
-        u32 indexCount = 0;
-        VkIndexType indexType = VK_INDEX_TYPE_UINT32;
+        RHI::FeatureNegotiationReport feature_report_{};
+        std::unique_ptr<RHI::RhiDevice> rhiDevice;
     };
 
 } // namespace SFT::Core::Vulkan

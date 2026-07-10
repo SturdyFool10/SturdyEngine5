@@ -77,7 +77,7 @@ export namespace SFT::Core::Vulkan {
         MemoryReporting,
         ExternalInterop,
         PipelineManagement,
-        DeviceMaintenance,
+        VulkanMaintenanceBundles,
         DataTransferAndCopy,
         CommandBufferRecording,
         PrivateData,
@@ -395,18 +395,21 @@ export namespace SFT::Core::Vulkan {
         VulkanExtensionRequirement{"VK_KHR_pipeline_executable_properties", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "pipeline executable properties"},
         };
 
+        // Vulkan's maintenance extensions are backend revision bundles, not renderer-facing RHI
+        // capabilities. Keep their registry names here for Vulkan device-extension selection, and only
+        // promote individual behavior into RHI::Feature once the RHI exposes vocabulary that uses it.
         inline constexpr array device_maintenance_exts{
-        VulkanExtensionRequirement{"VK_KHR_maintenance1", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "maintenance1"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance2", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "maintenance2"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance3", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "maintenance3"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance4", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_3, "maintenance4"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance5", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_4, "maintenance5"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance6", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_4, "maintenance6"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance7", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "maintenance7"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance8", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "maintenance8"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance9", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "maintenance9"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance10", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "maintenance10"},
-        VulkanExtensionRequirement{"VK_KHR_maintenance11", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "maintenance11"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance1", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance1 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance2", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance2 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance3", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance3 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance4", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_3, "Vulkan maintenance4 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance5", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_4, "Vulkan maintenance5 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance6", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_4, "Vulkan maintenance6 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance7", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "Vulkan maintenance7 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance8", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "Vulkan maintenance8 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance9", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "Vulkan maintenance9 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance10", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "Vulkan maintenance10 bundle"},
+        VulkanExtensionRequirement{"VK_KHR_maintenance11", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "Vulkan maintenance11 bundle"},
         };
 
         inline constexpr array data_transfer_and_copy_exts{
@@ -662,7 +665,7 @@ export namespace SFT::Core::Vulkan {
             FeatureVulkanExtensionList{VulkanAppFeature::MemoryReporting, "Memory Reporting", false, memory_reporting_exts},
             FeatureVulkanExtensionList{VulkanAppFeature::ExternalInterop, "External Interop", false, external_interop_exts},
             FeatureVulkanExtensionList{VulkanAppFeature::PipelineManagement, "Pipeline Management", false, pipeline_management_exts},
-            FeatureVulkanExtensionList{VulkanAppFeature::DeviceMaintenance, "Device Maintenance Bundles", false, device_maintenance_exts},
+            FeatureVulkanExtensionList{VulkanAppFeature::VulkanMaintenanceBundles, "Vulkan Maintenance Bundles", false, device_maintenance_exts},
             FeatureVulkanExtensionList{VulkanAppFeature::DataTransferAndCopy, "Data Transfer & Copy", false, data_transfer_and_copy_exts},
             FeatureVulkanExtensionList{VulkanAppFeature::CommandBufferRecording, "Command Buffer Recording", false, command_buffer_recording_exts},
             FeatureVulkanExtensionList{VulkanAppFeature::PrivateData, "Private Data", false, private_data_exts},

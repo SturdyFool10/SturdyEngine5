@@ -26,7 +26,7 @@ import :VulkanConstants;
 import :VulkanHelpers;
 import :VulkanSurface;
 import :VulkanSwapchain;
-import :RendererError;
+import :GraphicsBackendError;
 import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
@@ -57,7 +57,6 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroySurface(VulkanSurface &surface) noexcept {
-        destroySwapchain(surface);
         surface.destroy(vulkan_instance);
     }
 
@@ -94,24 +93,24 @@ namespace SFT::Core::Vulkan {
     VulkanBackend::surface_create_info_from_window(Window &window, u32 desired_frames_in_flight) const {
         const auto native = window.native_window_handle();
         if (!native) [[unlikely]] {
-            return unexpected(RendererError{
-                RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{
+                GraphicsBackendErrorCode::InitializationFailed,
                 format("Failed to query native window handle for Vulkan surface: {}", native.error().message),
             });
         }
 
         const auto provider_window = window.native_backend_handle();
         if (!provider_window) [[unlikely]] {
-            return unexpected(RendererError{
-                RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{
+                GraphicsBackendErrorCode::InitializationFailed,
                 format("Failed to query native backend handle for Vulkan surface: {}", provider_window.error().message),
             });
         }
 
         const auto framebuffer = window.framebuffer_size();
         if (!framebuffer) [[unlikely]] {
-            return unexpected(RendererError{
-                RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{
+                GraphicsBackendErrorCode::InitializationFailed,
                 format("Failed to query framebuffer size for Vulkan surface: {}", framebuffer.error().message),
             });
         }
@@ -130,17 +129,17 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::createSurface(const SurfaceCreateInfo &init) {
         if (!initialized_) [[unlikely]] {
-            return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend must be initialized before creating its owned surface."});
         }
         if (!init.window) [[unlikely]] {
-            return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan surface creation requires a live window."});
         }
 
         const WindowId window_id = init.window->id();
         if (surfaces_.contains(window_id)) [[unlikely]] {
-            return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "A Vulkan surface already exists for this window."});
         }
 
@@ -151,7 +150,7 @@ namespace SFT::Core::Vulkan {
                 {
                     auto *sdl_window = static_cast<SDL_Window *>(init.descriptor.provider_window);
                     if (!SDL_Vulkan_CreateSurface(sdl_window, vulkan_instance, nullptr, &vk_surface)) {
-                        return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                        return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                                         format("SDL_Vulkan_CreateSurface failed: {}", SDL_GetError())});
                     }
                     break;
@@ -160,13 +159,13 @@ namespace SFT::Core::Vulkan {
                 {
                     auto *glfw_window = static_cast<GLFWwindow *>(init.descriptor.provider_window);
                     if (glfwCreateWindowSurface(vulkan_instance, glfw_window, nullptr, &vk_surface) != VK_SUCCESS) {
-                        return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                        return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                                         "glfwCreateWindowSurface failed."});
                     }
                     break;
                 }
             default:
-                return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+                return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                                 "Unsupported surface provider; only SDL3 and GLFW are implemented."});
         }
 
@@ -178,7 +177,7 @@ namespace SFT::Core::Vulkan {
             surfaces_.emplace(window_id, std::move(vulkan_surface));
         } catch (const bad_alloc &) {
             vulkan_surface.destroy(vulkan_instance);
-            return unexpected(RendererError{RendererErrorCode::OutOfMemory,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OutOfMemory,
                                             "Out of memory allocating a Vulkan render surface slot."});
         }
 
@@ -192,7 +191,7 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::create_window_surface(Window &window, u32 desired_frames_in_flight) {
         if (!initialized_) [[unlikely]] {
-            return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend must be initialized before adding another window."});
         }
 
@@ -204,21 +203,6 @@ namespace SFT::Core::Vulkan {
         auto surface = createSurface(*surface_info);
         if (!surface) [[unlikely]] {
             return unexpected(surface.error());
-        }
-
-        VulkanSurface *added = surface_slot(*surface);
-        if (auto result = this->createSwapchain(create_info_, *added); !result.has_value()) [[unlikely]] {
-            destroy_window_surface(*surface);
-            return unexpected(RendererError{result.error().code,
-                                            format("Failed to create swapchain for added window: {}", result.error().message)});
-        }
-
-        // Each window owns its frame pacing, so an added window needs its own set — this is what
-        // lets render_frame() drive multiple windows independently in the same loop iteration.
-        if (auto result = this->createSurfaceFrameResources(*added); !result.has_value()) [[unlikely]] {
-            destroy_window_surface(*surface);
-            return unexpected(RendererError{result.error().code,
-                                            format("Failed to create frame resources for added window: {}", result.error().message)});
         }
 
         return surface;

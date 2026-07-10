@@ -6,11 +6,11 @@ module;
 
 export module Sturdy.Core:VulkanCommandPool;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::vector;
@@ -56,7 +56,7 @@ export namespace SFT::Core::Vulkan {
             };
             VkCommandPool pool = VK_NULL_HANDLE;
             if (vkCreateCommandPool(device, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateCommandPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateCommandPool failed.");
             VulkanCommandPool out;
             out.device_ = device;
             out.pool_ = pool;
@@ -80,7 +80,7 @@ export namespace SFT::Core::Vulkan {
             };
             vector<VkCommandBuffer> buffers(count, VK_NULL_HANDLE);
             if (vkAllocateCommandBuffers(device_, &info, buffers.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
             return buffers;
         }
 
@@ -94,7 +94,7 @@ export namespace SFT::Core::Vulkan {
         // Recycles all command buffers allocated from this pool back to the pool.
         [[nodiscard]] RendererResult reset(VkCommandPoolResetFlags flags = 0) noexcept {
             if (vkResetCommandPool(device_, pool_, flags) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetCommandPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandPool failed.");
             return {};
         }
 

@@ -13,11 +13,11 @@ module;
 
 export module Sturdy.Core:VulkanDevice;
 
-import :RendererError;
+import :GraphicsBackendError;
 import :VulkanQueue;
 import Sturdy.Foundation;
 
-using SFT::Core::RendererErrorCode;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::optional;
@@ -117,7 +117,7 @@ export namespace SFT::Core::Vulkan {
 
             VkDevice vk_device = VK_NULL_HANDLE;
             if (vkCreateDevice(physical, &create_info, nullptr, &vk_device) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::InitializationFailed, "vkCreateDevice failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vkCreateDevice failed.");
 
             volkLoadDevice(vk_device);
 
@@ -176,7 +176,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkDeviceMemory> allocate_memory(const VkMemoryAllocateInfo &info) noexcept {
             VkDeviceMemory mem = VK_NULL_HANDLE;
             if (vkAllocateMemory(device_, &info, nullptr, &mem) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OutOfMemory, "vkAllocateMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateMemory failed.");
             return mem;
         }
 
@@ -187,7 +187,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<void *> map_memory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags = 0) noexcept {
             void *ptr = nullptr;
             if (vkMapMemory(device_, memory, offset, size, flags, &ptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkMapMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkMapMemory failed.");
             return ptr;
         }
 
@@ -195,13 +195,13 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult flush_mapped_memory_ranges(span<const VkMappedMemoryRange> ranges) noexcept {
             if (vkFlushMappedMemoryRanges(device_, static_cast<u32>(ranges.size()), ranges.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkFlushMappedMemoryRanges failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkFlushMappedMemoryRanges failed.");
             return {};
         }
 
         [[nodiscard]] RendererResult invalidate_mapped_memory_ranges(span<const VkMappedMemoryRange> ranges) noexcept {
             if (vkInvalidateMappedMemoryRanges(device_, static_cast<u32>(ranges.size()), ranges.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkInvalidateMappedMemoryRanges failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkInvalidateMappedMemoryRanges failed.");
             return {};
         }
 
@@ -212,7 +212,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkBuffer> create_buffer(const VkBufferCreateInfo &info) noexcept {
             VkBuffer buf = VK_NULL_HANDLE;
             if (vkCreateBuffer(device_, &info, nullptr, &buf) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateBuffer failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBuffer failed.");
             return buf;
         }
 
@@ -237,7 +237,7 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult bind_buffer_memory(VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset = 0) noexcept {
             if (vkBindBufferMemory(device_, buffer, memory, offset) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkBindBufferMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindBufferMemory failed.");
             return {};
         }
 
@@ -267,7 +267,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkImage> create_image(const VkImageCreateInfo &info) noexcept {
             VkImage img = VK_NULL_HANDLE;
             if (vkCreateImage(device_, &info, nullptr, &img) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImage failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImage failed.");
             return img;
         }
 
@@ -292,7 +292,7 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult bind_image_memory(VkImage image, VkDeviceMemory memory, VkDeviceSize offset = 0) noexcept {
             if (vkBindImageMemory(device_, image, memory, offset) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkBindImageMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindImageMemory failed.");
             return {};
         }
 
@@ -310,7 +310,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkImageView> create_image_view(const VkImageViewCreateInfo &info) noexcept {
             VkImageView view = VK_NULL_HANDLE;
             if (vkCreateImageView(device_, &info, nullptr, &view) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImageView failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImageView failed.");
             return view;
         }
 
@@ -323,7 +323,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkSampler> create_sampler(const VkSamplerCreateInfo &info) noexcept {
             VkSampler sampler = VK_NULL_HANDLE;
             if (vkCreateSampler(device_, &info, nullptr, &sampler) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateSampler failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSampler failed.");
             return sampler;
         }
 
@@ -336,7 +336,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkShaderModule> create_shader_module(const VkShaderModuleCreateInfo &info) noexcept {
             VkShaderModule mod = VK_NULL_HANDLE;
             if (vkCreateShaderModule(device_, &info, nullptr, &mod) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateShaderModule failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateShaderModule failed.");
             return mod;
         }
 
@@ -351,7 +351,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkPipelineLayout> create_pipeline_layout(const VkPipelineLayoutCreateInfo &info) noexcept {
             VkPipelineLayout layout = VK_NULL_HANDLE;
             if (vkCreatePipelineLayout(device_, &info, nullptr, &layout) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreatePipelineLayout failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineLayout failed.");
             return layout;
         }
 
@@ -366,7 +366,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkPipelineCache> create_pipeline_cache(const VkPipelineCacheCreateInfo &info) noexcept {
             VkPipelineCache cache = VK_NULL_HANDLE;
             if (vkCreatePipelineCache(device_, &info, nullptr, &cache) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreatePipelineCache failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineCache failed.");
             return cache;
         }
 
@@ -377,17 +377,17 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult merge_pipeline_caches(VkPipelineCache dst,
                                                            span<const VkPipelineCache> srcs) noexcept {
             if (vkMergePipelineCaches(device_, dst, static_cast<u32>(srcs.size()), srcs.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkMergePipelineCaches failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkMergePipelineCaches failed.");
             return {};
         }
 
         [[nodiscard]] RendererExpected<vector<u8>> pipeline_cache_data(VkPipelineCache cache) const {
             usize size = 0;
             if (vkGetPipelineCacheData(device_, cache, &size, nullptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetPipelineCacheData (size) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (size) failed.");
             vector<u8> data(size);
             if (vkGetPipelineCacheData(device_, cache, &size, data.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetPipelineCacheData (read) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (read) failed.");
             return data;
         }
 
@@ -400,7 +400,7 @@ export namespace SFT::Core::Vulkan {
             const VkGraphicsPipelineCreateInfo &info) noexcept {
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device_, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateGraphicsPipelines failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines failed.");
             return pipeline;
         }
 
@@ -409,7 +409,7 @@ export namespace SFT::Core::Vulkan {
             span<const VkGraphicsPipelineCreateInfo> infos) {
             vector<VkPipeline> pipelines(infos.size(), VK_NULL_HANDLE);
             if (vkCreateGraphicsPipelines(device_, cache, static_cast<u32>(infos.size()), infos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateGraphicsPipelines (batch) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines (batch) failed.");
             return pipelines;
         }
 
@@ -418,7 +418,7 @@ export namespace SFT::Core::Vulkan {
             const VkComputePipelineCreateInfo &info) noexcept {
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateComputePipelines(device_, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateComputePipelines failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines failed.");
             return pipeline;
         }
 
@@ -427,7 +427,7 @@ export namespace SFT::Core::Vulkan {
             span<const VkComputePipelineCreateInfo> infos) {
             vector<VkPipeline> pipelines(infos.size(), VK_NULL_HANDLE);
             if (vkCreateComputePipelines(device_, cache, static_cast<u32>(infos.size()), infos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateComputePipelines (batch) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines (batch) failed.");
             return pipelines;
         }
 
@@ -441,7 +441,7 @@ export namespace SFT::Core::Vulkan {
             const VkDescriptorSetLayoutCreateInfo &info) noexcept {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
             if (vkCreateDescriptorSetLayout(device_, &info, nullptr, &layout) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateDescriptorSetLayout failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorSetLayout failed.");
             return layout;
         }
 
@@ -467,7 +467,7 @@ export namespace SFT::Core::Vulkan {
             const VkDescriptorPoolCreateInfo &info) noexcept {
             VkDescriptorPool pool = VK_NULL_HANDLE;
             if (vkCreateDescriptorPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateDescriptorPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorPool failed.");
             return pool;
         }
 
@@ -478,7 +478,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult reset_descriptor_pool(VkDescriptorPool pool,
                                                            VkDescriptorPoolResetFlags flags = 0) noexcept {
             if (vkResetDescriptorPool(device_, pool, flags) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetDescriptorPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetDescriptorPool failed.");
             return {};
         }
 
@@ -490,14 +490,14 @@ export namespace SFT::Core::Vulkan {
             const VkDescriptorSetAllocateInfo &info) {
             vector<VkDescriptorSet> sets(info.descriptorSetCount, VK_NULL_HANDLE);
             if (vkAllocateDescriptorSets(device_, &info, sets.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
             return sets;
         }
 
         [[nodiscard]] RendererResult free_descriptor_sets(VkDescriptorPool pool,
                                                           span<const VkDescriptorSet> sets) noexcept {
             if (vkFreeDescriptorSets(device_, pool, static_cast<u32>(sets.size()), sets.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkFreeDescriptorSets failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkFreeDescriptorSets failed.");
             return {};
         }
 
@@ -518,7 +518,7 @@ export namespace SFT::Core::Vulkan {
             const VkCommandPoolCreateInfo &info) noexcept {
             VkCommandPool pool = VK_NULL_HANDLE;
             if (vkCreateCommandPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateCommandPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateCommandPool failed.");
             return pool;
         }
 
@@ -529,7 +529,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult reset_command_pool(VkCommandPool pool,
                                                         VkCommandPoolResetFlags flags = 0) noexcept {
             if (vkResetCommandPool(device_, pool, flags) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetCommandPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandPool failed.");
             return {};
         }
 
@@ -546,7 +546,7 @@ export namespace SFT::Core::Vulkan {
             const VkCommandBufferAllocateInfo &info) {
             vector<VkCommandBuffer> buffers(info.commandBufferCount, VK_NULL_HANDLE);
             if (vkAllocateCommandBuffers(device_, &info, buffers.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
             return buffers;
         }
 
@@ -557,7 +557,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult reset_command_buffer(VkCommandBuffer buffer,
                                                           VkCommandBufferResetFlags flags = 0) noexcept {
             if (vkResetCommandBuffer(buffer, flags) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetCommandBuffer failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandBuffer failed.");
             return {};
         }
 
@@ -568,7 +568,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkFence> create_fence(const VkFenceCreateInfo &info) noexcept {
             VkFence fence = VK_NULL_HANDLE;
             if (vkCreateFence(device_, &info, nullptr, &fence) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateFence failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateFence failed.");
             return fence;
         }
 
@@ -576,7 +576,7 @@ export namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult reset_fences(span<const VkFence> fences) noexcept {
             if (vkResetFences(device_, static_cast<u32>(fences.size()), fences.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetFences failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetFences failed.");
             return {};
         }
 
@@ -584,7 +584,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult wait_for_fences(span<const VkFence> fences, bool wait_all, u64 timeout_ns) noexcept {
             VkResult res = vkWaitForFences(device_, static_cast<u32>(fences.size()), fences.data(), wait_all ? VK_TRUE : VK_FALSE, timeout_ns);
             if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkWaitForFences failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitForFences failed.");
             return {};
         }
 
@@ -595,7 +595,7 @@ export namespace SFT::Core::Vulkan {
                 return true;
             if (res == VK_NOT_READY)
                 return false;
-            return renderer_error(RendererErrorCode::OperationFailed, "vkGetFenceStatus failed.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetFenceStatus failed.");
         }
 
         // -------------------------------------------------------------------------
@@ -605,7 +605,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkSemaphore> create_semaphore(const VkSemaphoreCreateInfo &info) noexcept {
             VkSemaphore semaphore = VK_NULL_HANDLE;
             if (vkCreateSemaphore(device_, &info, nullptr, &semaphore) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateSemaphore failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSemaphore failed.");
             return semaphore;
         }
 
@@ -617,13 +617,13 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<u64> semaphore_counter_value(VkSemaphore semaphore) const noexcept {
             u64 value = 0;
             if (vkGetSemaphoreCounterValue(device_, semaphore, &value) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetSemaphoreCounterValue failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSemaphoreCounterValue failed.");
             return value;
         }
 
         [[nodiscard]] RendererResult signal_semaphore(const VkSemaphoreSignalInfo &info) noexcept {
             if (vkSignalSemaphore(device_, &info) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkSignalSemaphore failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSignalSemaphore failed.");
             return {};
         }
 
@@ -631,7 +631,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult wait_semaphores(const VkSemaphoreWaitInfo &info, u64 timeout_ns) noexcept {
             VkResult res = vkWaitSemaphores(device_, &info, timeout_ns);
             if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkWaitSemaphores failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitSemaphores failed.");
             return {};
         }
 
@@ -642,7 +642,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkEvent> create_event(const VkEventCreateInfo &info) noexcept {
             VkEvent event = VK_NULL_HANDLE;
             if (vkCreateEvent(device_, &info, nullptr, &event) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateEvent failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateEvent failed.");
             return event;
         }
 
@@ -655,18 +655,18 @@ export namespace SFT::Core::Vulkan {
                 return true;
             if (res == VK_EVENT_RESET)
                 return false;
-            return renderer_error(RendererErrorCode::OperationFailed, "vkGetEventStatus failed.");
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetEventStatus failed.");
         }
 
         [[nodiscard]] RendererResult set_event(VkEvent event) noexcept {
             if (vkSetEvent(device_, event) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkSetEvent failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSetEvent failed.");
             return {};
         }
 
         [[nodiscard]] RendererResult reset_event(VkEvent event) noexcept {
             if (vkResetEvent(device_, event) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkResetEvent failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetEvent failed.");
             return {};
         }
 
@@ -677,7 +677,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<VkQueryPool> create_query_pool(const VkQueryPoolCreateInfo &info) noexcept {
             VkQueryPool pool = VK_NULL_HANDLE;
             if (vkCreateQueryPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateQueryPool failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateQueryPool failed.");
             return pool;
         }
 
@@ -687,7 +687,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult get_query_pool_results(VkQueryPool pool, u32 first_query, u32 query_count, span<u8> data, VkDeviceSize stride, VkQueryResultFlags flags) noexcept {
             VkResult res = vkGetQueryPoolResults(device_, pool, first_query, query_count, data.size_bytes(), data.data(), stride, flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
             return {};
         }
 
@@ -703,7 +703,7 @@ export namespace SFT::Core::Vulkan {
             const VkSwapchainCreateInfoKHR &info) noexcept {
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             if (vkCreateSwapchainKHR(device_, &info, nullptr, &swapchain) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
             return swapchain;
         }
 
@@ -714,10 +714,10 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<vector<VkImage>> swapchain_images(VkSwapchainKHR swapchain) const {
             u32 count = 0;
             if (vkGetSwapchainImagesKHR(device_, swapchain, &count, nullptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
             vector<VkImage> images(count, VK_NULL_HANDLE);
             if (vkGetSwapchainImagesKHR(device_, swapchain, &count, images.data()) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (populate) failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (populate) failed.");
             return images;
         }
 
@@ -726,40 +726,8 @@ export namespace SFT::Core::Vulkan {
             u32 index = 0;
             VkResult res = vkAcquireNextImage2KHR(device_, &info, &index);
             if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkAcquireNextImage2KHR failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkAcquireNextImage2KHR failed.");
             return index;
-        }
-
-        // -------------------------------------------------------------------------
-        // Render Passes (vkCreateRenderPass2 — Vulkan 1.2+)
-        // -------------------------------------------------------------------------
-
-        [[nodiscard]] RendererExpected<VkRenderPass> create_render_pass(
-            const VkRenderPassCreateInfo2 &info) noexcept {
-            VkRenderPass rp = VK_NULL_HANDLE;
-            if (vkCreateRenderPass2(device_, &info, nullptr, &rp) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateRenderPass2 failed.");
-            return rp;
-        }
-
-        void destroy_render_pass(VkRenderPass render_pass) noexcept {
-            vkDestroyRenderPass(device_, render_pass, nullptr);
-        }
-
-        // -------------------------------------------------------------------------
-        // Framebuffers
-        // -------------------------------------------------------------------------
-
-        [[nodiscard]] RendererExpected<VkFramebuffer> create_framebuffer(
-            const VkFramebufferCreateInfo &info) noexcept {
-            VkFramebuffer fb = VK_NULL_HANDLE;
-            if (vkCreateFramebuffer(device_, &info, nullptr, &fb) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateFramebuffer failed.");
-            return fb;
-        }
-
-        void destroy_framebuffer(VkFramebuffer framebuffer) noexcept {
-            vkDestroyFramebuffer(device_, framebuffer, nullptr);
         }
 
         // -------------------------------------------------------------------------

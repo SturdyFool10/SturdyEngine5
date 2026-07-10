@@ -10,12 +10,12 @@ module;
 
 export module Sturdy.Core:VulkanShaderModule;
 
-import :RendererError;
+import :GraphicsBackendError;
 import :ShaderReflection;
 import :ShaderTypes;
 import Sturdy.Foundation;
 
-using SFT::Core::RendererErrorCode;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using std::shared_ptr;
 using std::span;
@@ -121,7 +121,7 @@ export namespace SFT::Core::Vulkan {
             };
             VkShaderModule mod = VK_NULL_HANDLE;
             if (vkCreateShaderModule(device, &info, nullptr, &mod) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateShaderModule failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateShaderModule failed.");
             VulkanShaderModule out;
             out.device_ = device;
             out.module_ = mod;

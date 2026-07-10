@@ -21,11 +21,11 @@ module;
 
 export module Sturdy.Core:VulkanImage;
 
-import :RendererError;
+import :GraphicsBackendError;
 import Sturdy.Foundation;
 
-using SFT::Core::renderer_error;
-using SFT::Core::RendererErrorCode;
+using SFT::Core::graphics_backend_error;
+using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 
@@ -64,7 +64,7 @@ export namespace SFT::Core::Vulkan {
             const VkImageViewCreateInfo &info) noexcept {
             VkImageView view = VK_NULL_HANDLE;
             if (vkCreateImageView(device, &info, nullptr, &view) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImageView failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImageView failed.");
             VulkanImageView out;
             out.device_ = device;
             out.view_ = view;
@@ -108,7 +108,7 @@ export namespace SFT::Core::Vulkan {
             : device_(o.device_), allocator_(o.allocator_), image_(o.image_), allocation_(o.allocation_),
               format_(o.format_), extent_(o.extent_), mip_levels_(o.mip_levels_),
               array_layers_(o.array_layers_), image_type_(o.image_type_),
-              usage_(o.usage_) {
+              usage_(o.usage_), owns_image_(o.owns_image_) {
             o.device_ = VK_NULL_HANDLE;
             o.allocator_ = VK_NULL_HANDLE;
             o.image_ = VK_NULL_HANDLE;
@@ -127,6 +127,7 @@ export namespace SFT::Core::Vulkan {
                 array_layers_ = o.array_layers_;
                 image_type_ = o.image_type_;
                 usage_ = o.usage_;
+                owns_image_ = o.owns_image_;
                 o.device_ = VK_NULL_HANDLE;
                 o.allocator_ = VK_NULL_HANDLE;
                 o.image_ = VK_NULL_HANDLE;
@@ -140,7 +141,7 @@ export namespace SFT::Core::Vulkan {
             const VkImageCreateInfo &info) noexcept {
             VkImage image = VK_NULL_HANDLE;
             if (vkCreateImage(device, &info, nullptr, &image) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkCreateImage failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImage failed.");
             VulkanImage out;
             out.device_ = device;
             out.image_ = image;
@@ -153,6 +154,28 @@ export namespace SFT::Core::Vulkan {
             return out;
         }
 
+        [[nodiscard]] static VulkanImage borrow(
+            VkDevice device,
+            VkImage image,
+            VkFormat format,
+            VkExtent3D extent,
+            VkImageUsageFlags usage,
+            u32 mip_levels = 1,
+            u32 array_layers = 1,
+            VkImageType image_type = VK_IMAGE_TYPE_2D) noexcept {
+            VulkanImage out;
+            out.device_ = device;
+            out.image_ = image;
+            out.format_ = format;
+            out.extent_ = extent;
+            out.mip_levels_ = mip_levels;
+            out.array_layers_ = array_layers;
+            out.image_type_ = image_type;
+            out.usage_ = usage;
+            out.owns_image_ = false;
+            return out;
+        }
+
         [[nodiscard]] static RendererExpected<VulkanImage> create(
             VkDevice device,
             VmaAllocator allocator,
@@ -161,7 +184,7 @@ export namespace SFT::Core::Vulkan {
             VkImage image = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
             if (vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vmaCreateImage failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaCreateImage failed.");
             VulkanImage out;
             out.device_ = device;
             out.allocator_ = allocator;
@@ -207,7 +230,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset = 0) noexcept {
             if (vkBindImageMemory(device_, image_, memory, offset) != VK_SUCCESS)
-                return renderer_error(RendererErrorCode::OperationFailed, "vkBindImageMemory failed.");
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindImageMemory failed.");
             return {};
         }
 
@@ -258,7 +281,7 @@ export namespace SFT::Core::Vulkan {
                 vmaDestroyImage(allocator_, image_, allocation_);
                 allocation_ = VK_NULL_HANDLE;
                 allocator_ = VK_NULL_HANDLE;
-            } else {
+            } else if (owns_image_) {
                 vkDestroyImage(device_, image_, nullptr);
             }
 
@@ -270,6 +293,7 @@ export namespace SFT::Core::Vulkan {
             array_layers_ = 1;
             image_type_ = VK_IMAGE_TYPE_2D;
             usage_ = 0;
+            owns_image_ = true;
         }
 
       private:
@@ -283,6 +307,7 @@ export namespace SFT::Core::Vulkan {
         u32 array_layers_ = 1;
         VkImageType image_type_ = VK_IMAGE_TYPE_2D;
         VkImageUsageFlags usage_ = 0;
+        bool owns_image_ = true;
     };
 
 } // namespace SFT::Core::Vulkan

@@ -20,11 +20,9 @@ import :VulkanAllocator;
 import :VulkanBackend;
 import :VulkanDevice;
 import :VulkanPhysicalDevice;
-import :VulkanPipeline;
 import :VulkanQueue;
-import :VulkanShaderModule;
 import :VulkanSurface;
-import :RendererError;
+import :GraphicsBackendError;
 import :Renderer;
 import :RenderSurface;
 import Sturdy.Foundation;
@@ -72,13 +70,8 @@ namespace SFT::Core::Vulkan {
 
     void VulkanBackend::destroyVulkanResources() noexcept {
         wait_idle();
-        // destroy_all_surfaces() also tears down each surface's per-frame sync/command resources.
+        rhiDevice.reset();
         destroy_all_surfaces();
-        shader_modules_.clear();
-        graphicsPipeline.destroy();
-        pipelinelayout.destroy();
-        vertexBuffer.destroy();
-        indexBuffer.destroy();
         vmaAllocator.destroy();
         logicalDevice.destroy();
         gfxQueue = VulkanQueue{};
@@ -104,7 +97,7 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initVulkan(const RendererCreateInfo &init) {
         if (auto result = this->createVulkanInstance(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
+            return graphics_backend_error(result.error().code,
                                   format("Failed to create Vulkan instance: {}", result.error().message));
         }
 
@@ -122,56 +115,26 @@ namespace SFT::Core::Vulkan {
         VkSurfaceKHR primary_vk_surface = primary->vk_handle();
 
         if (auto result = this->findPhysicalDevice(init, primary_vk_surface); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
+            return graphics_backend_error(result.error().code,
                                   format("Failed to find physical GPU: {}", result.error().message));
         }
 
         if (auto result = this->discoverGraphicsQueue(init, primary_vk_surface); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
+            return graphics_backend_error(result.error().code,
                                   format("Failed to discover a valid graphics queue: {}", result.error().message));
         }
 
         if (auto result = this->createDevice(init, primary_vk_surface); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
+            return graphics_backend_error(result.error().code,
                                   format("Failed to create logical device: {}", result.error().message));
         }
 
         if (auto result = this->initializeVMA(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
+            return graphics_backend_error(result.error().code,
                                   format("Failed to initialize VMA allocator: {}", result.error().message));
         }
 
-        if (auto result = this->createGeometryBuffers(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create geometry buffers: {}", result.error().message));
-        }
-
-        // Re-resolve the surface pointer: the map cannot rehash from any of the calls above
-        // (none of them touch surfaces_), but doing this right before use keeps the pointer
-        // provably valid regardless of future changes to those steps.
-        primary = surface_slot(*surface);
-        if (auto result = this->createSwapchain(init, *primary); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create swapchain: {}", result.error().message));
-        }
-
-        if (auto result = this->createShaders(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create shaders: {}", result.error().message));
-        }
-
-        if (auto result = this->createGraphicsPipeline(init); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create graphics pipeline: {}", result.error().message));
-        }
-
-        // Re-resolve once more before building the primary surface's frame resources — the calls
-        // above (shaders/pipeline) don't touch surfaces_, but this keeps the pointer provably valid.
-        primary = surface_slot(*surface);
-        if (auto result = this->createSurfaceFrameResources(*primary); !result.has_value()) [[unlikely]] {
-            return renderer_error(result.error().code,
-                                  format("Failed to create frame resources: {}", result.error().message));
-        }
+        installRhiBridge();
 
         return surface;
     }
@@ -180,7 +143,7 @@ namespace SFT::Core::Vulkan {
         create_info_ = init;
 
         if (!init.window) [[unlikely]] {
-            return unexpected(RendererError{RendererErrorCode::InitializationFailed,
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend requires a window to create its primary surface."});
         }
 
@@ -193,7 +156,7 @@ namespace SFT::Core::Vulkan {
             const auto error = primary_surface.error();
             destroyVulkanResources();
             initialized_ = false;
-            return renderer_error(error.code,
+            return graphics_backend_error(error.code,
                                   format("Initializing Vulkan has failed: {}", error.message));
         }
 

@@ -9,7 +9,7 @@ module;
 export module Sturdy.Core:VulkanSurface;
 
 import :RenderSurface;
-import :RendererError;
+import :GraphicsBackendError;
 import :VulkanHelpers;
 import :VulkanSwapchain;
 import :VulkanSync;

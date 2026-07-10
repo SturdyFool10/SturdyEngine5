@@ -11,6 +11,8 @@ export module Sturdy.Engine:Engine;
 
 import Sturdy.Foundation;
 import Sturdy.Core;
+import Sturdy.Renderer;
+import Sturdy.RHI;
 import Sturdy.Platform;
 
 using std::optional;
@@ -27,9 +29,9 @@ export namespace SFT::Engine {
         std::filesystem::path shaders_directory = "Shaders";
     };
 
-    // The glue layer. Owns the renderer backend and binds it to Platform windows: the backend owns,
-    // constructs, resizes, and destroys all render surfaces. Future subsystems (audio, physics,
-    // scene) hang here.
+    // The glue layer. Owns the high-level Renderer and binds it to Platform windows. The Renderer
+    // owns backend lifetimes/synchronization/resource records while still exposing low-level escape
+    // hatches for Core backend and RHI access. Future subsystems (audio, physics, scene) hang here.
     class Engine {
       public:
         Engine();
@@ -66,6 +68,10 @@ export namespace SFT::Engine {
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
+        [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept { return renderer_.get(); }
+        [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept { return renderer_.get(); }
+        [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept;
+        [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept;
 
         // Backend-agnostic info about the GPU in use (name, vendor, driver version, ...). Returns
         // nullopt until a successful initialize() has selected a physical device.
@@ -81,7 +87,7 @@ export namespace SFT::Engine {
         void wait_idle() noexcept;
 
       private:
-        unique_ptr<Core::EngineBackend> renderer_backend_;
+        unique_ptr<SFT::Renderer::Renderer> renderer_;
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;
