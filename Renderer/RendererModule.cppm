@@ -94,6 +94,17 @@ export namespace SFT::Renderer {
             bool rhi_swapchain_dirty = true;
         };
 
+        struct RhiTriangleResources {
+            RHI::ShaderModuleHandle vertex_shader{};
+            RHI::ShaderModuleHandle fragment_shader{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::RenderPipelineHandle pipeline{};
+            RHI::BufferHandle vertex_buffer{};
+            RHI::BufferHandle index_buffer{};
+            RHI::Format color_format = RHI::Format::Undefined;
+            u32 index_count = 0;
+        };
+
         [[nodiscard]] WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) noexcept;
         [[nodiscard]] const WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) const noexcept;
         [[nodiscard]] Core::RendererResult ensure_rhi_presentation_resources(WindowSurfaceRecord &record);
@@ -101,6 +112,8 @@ export namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult render_frame_rhi(WindowSurfaceRecord &record,
                                                             const Core::FrameInput &frame);
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
+        [[nodiscard]] Core::RendererResult ensure_rhi_triangle_resources(RHI::Format color_format);
+        void destroy_rhi_triangle_resources() noexcept;
 
         [[nodiscard]] Core::RendererResult try_upload_mesh(MeshResource &mesh);
         [[nodiscard]] Core::RendererResult recover_from_device_loss();
@@ -116,6 +129,7 @@ export namespace SFT::Renderer {
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;
+        RhiTriangleResources rhi_triangle_{};
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

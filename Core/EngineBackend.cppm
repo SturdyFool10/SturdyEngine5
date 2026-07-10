@@ -104,6 +104,15 @@ export namespace SFT::Core {
                 new Backend(ConstructorKey{}, std::forward<Args>(args)...);
             }
         [[nodiscard]]
+        static unique_ptr<EngineBackend> create_erased(Args &&...args) {
+            return unique_ptr<EngineBackend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
+        }
+
+        template <typename Backend, typename... Args>
+            requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
+                new Backend(ConstructorKey{}, std::forward<Args>(args)...);
+            }
+        [[nodiscard]]
         static shared_ptr<Backend> create_shared(Args &&...args) {
             return shared_ptr<Backend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
         }

@@ -16,10 +16,10 @@ using std::string;
 
 export namespace SFT::Foundation::Memory {
 
-    // The engine's allocator, backed by **mimalloc**. `Sturdy.Foundation` installs it as the process
-    // allocator before `main()` (see `Foundation.cppm`), so `new`/`delete` and the STL already route
-    // here — call these functions directly only for raw, sized, or over-aligned allocation, and for the
-    // heap statistics/formatting helpers below.
+    // The engine's explicit allocator, backed by **mimalloc**. The process allocator and global
+    // `new`/`delete` are intentionally left to the platform CRT so system shared libraries keep their
+    // expected allocator ownership. Use these functions for engine-owned raw, sized, or over-aligned
+    // allocations and for the heap statistics/formatting helpers below.
 
     // Unit for byte formatting / conversion.
     enum class ByteUnit {

@@ -100,6 +100,8 @@ namespace SFT::Renderer {
             texture.view = {};
             texture.sampler = {};
         }
+
+        rhi_triangle_ = {};
     }
 
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {

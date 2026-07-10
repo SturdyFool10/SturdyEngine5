@@ -68,12 +68,4 @@ namespace SFT::Foundation::Detail {
 
     static_assert(global_numeric_import_smoke_test());
 
-    // Installs mimalloc as the process allocator the first time this module is loaded, before `main()`
-    // runs — so every allocation in the program (including static initializers in other modules) goes
-    // through it. `[[maybe_unused]]` because the variable exists only for its initializer's side effect.
-    [[maybe_unused]] const bool memory_initialized = []() noexcept {
-        Memory::initialize();
-        return true;
-    }();
-
 } // namespace SFT::Foundation::Detail

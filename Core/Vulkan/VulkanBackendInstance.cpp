@@ -70,12 +70,19 @@ namespace SFT::Core::Vulkan {
             .apiVersion = VULKAN_API_VERSION,
         };
 
-        auto extension_res = init.window->required_vulkan_instance_extensions();
-        if (!extension_res) [[unlikely]] {
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                  "Failed to get Window extensions list for Vulkan");
+        vector<const char *> extensions = init.wsi_extensions;
+        if (extensions.empty()) {
+            if (init.window == nullptr) [[unlikely]] {
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
+                                      "Vulkan instance creation requires WSI extensions or a live window.");
+            }
+            auto extension_res = init.window->required_vulkan_instance_extensions();
+            if (!extension_res) [[unlikely]] {
+                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                      "Failed to get Window extensions list for Vulkan");
+            }
+            extensions = std::move(extension_res.value());
         }
-        vector<const char *> extensions = extension_res.value();
         vector<const char *> requestedLayers{};
 
         // MoltenVK (and other non-conformant "portability" implementations) are hidden from

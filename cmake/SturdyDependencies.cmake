@@ -419,7 +419,6 @@ function(sturdy_fetch_slang)
     sturdy_fetchcontent_declare(slang
         GIT_REPOSITORY https://github.com/shader-slang/slang.git
         GIT_TAG ${STURDY_SLANG_TAG}
-        FIND_PACKAGE_ARGS CONFIG QUIET NAMES Slang slang
     )
     FetchContent_MakeAvailable(slang)
     sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
@@ -742,6 +741,10 @@ function(sturdy_fetch_mimalloc)
     set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_STATIC ON CACHE BOOL "" FORCE)
     set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+    # Keep engine C++ new/delete and Foundation::Memory on mimalloc, but do not export
+    # malloc/free from the executable. Interposing debug mimalloc into system shared
+    # libraries such as SDL3 corrupts allocator ownership during their startup paths.
+    set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_BENCH OFF CACHE BOOL "" FORCE)

@@ -168,7 +168,7 @@ namespace SFT::Core::Vulkan {
 namespace SFT::Core {
 
     unique_ptr<EngineBackend> create_vulkan_backend() {
-        return EngineBackend::create<Vulkan::VulkanBackend>();
+        return EngineBackend::create_erased<Vulkan::VulkanBackend>();
     }
 
 } // namespace SFT::Core

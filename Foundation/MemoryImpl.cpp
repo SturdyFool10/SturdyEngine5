@@ -3,7 +3,6 @@ module;
 #pragma region Imports
 #include <atomic>
 #include <format>
-#include <mimalloc-new-delete.h>
 #include <mimalloc.h>
 #include <string_view>
 

@@ -138,9 +138,12 @@ namespace SFT::Core::Vulkan {
         }
 
         const WindowId window_id = init.window->id();
-        if (surfaces_.contains(window_id)) [[unlikely]] {
+        if (!surfaces_.empty() && surfaces_.contains(window_id)) [[unlikely]] {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "A Vulkan surface already exists for this window."});
+        }
+        if (surfaces_.empty()) {
+            surfaces_.reserve(1);
         }
 
         // Create the platform-specific VkSurfaceKHR.

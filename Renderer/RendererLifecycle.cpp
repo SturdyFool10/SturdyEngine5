@@ -2,10 +2,12 @@ module;
 
 #pragma region Imports
 #include <array>
+#include <cstddef>
 #include <expected>
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #pragma endregion
 
 module Sturdy.Renderer;
@@ -44,10 +46,52 @@ namespace SFT::Renderer {
             return {};
         }
 
+        struct TriangleVertex {
+            f32 position[2];
+            f32 color[3];
+        };
+
+        constexpr char rhi_triangle_shader_source[] = R"slang(
+struct VertexInput {
+    [[vk::location(0)]] float2 position : POSITION;
+    [[vk::location(1)]] float3 color : COLOR0;
+};
+
+struct VertexOutput {
+    float4 position : SV_Position;
+    float3 color : COLOR0;
+};
+
+[shader("vertex")]
+VertexOutput vertexMain(VertexInput input) {
+    VertexOutput output;
+    output.position = float4(input.position, 0.0, 1.0);
+    output.color = input.color;
+    return output;
+}
+
+[shader("fragment")]
+float4 fragmentMain(VertexOutput input) : SV_Target {
+    return float4(input.color, 1.0);
+}
+)slang";
+
+        [[nodiscard]] Core::GraphicsBackendError graphics_error_from_shader(const Core::Slang::ShaderError &error,
+                                                                            const char *operation) {
+            string message = string(operation) + " failed: " + error.message;
+            if (!error.diagnostics.empty()) {
+                message += "\n";
+                message += error.diagnostics;
+            }
+            return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
+        }
+
     } // namespace
 
-    Renderer::Renderer()
-        : graphics_backend_(Core::create_vulkan_backend()) {}
+    Renderer::Renderer() {
+        auto backend = Core::create_vulkan_backend();
+        graphics_backend_.reset(backend.release());
+    }
 
     Renderer::~Renderer() {
         wait_idle();
@@ -228,6 +272,198 @@ namespace SFT::Renderer {
         return recreate_rhi_swapchain(record);
     }
 
+    Core::RendererResult Renderer::ensure_rhi_triangle_resources(RHI::Format color_format) {
+        if (rhi_triangle_.pipeline && rhi_triangle_.vertex_buffer && rhi_triangle_.index_buffer &&
+            rhi_triangle_.color_format == color_format) {
+            return {};
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+
+        destroy_rhi_triangle_resources();
+
+        Core::Slang::ShaderCompiler compiler;
+        Core::Slang::ShaderCompileOptions shader_options{
+            .targets = {Core::Slang::ShaderTarget{}},
+            .entry_points = {
+                Core::Slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = Core::Slang::ShaderStage::Vertex},
+                Core::Slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = Core::Slang::ShaderStage::Fragment},
+            },
+            .search_paths = {},
+            .macros = {},
+            .optimization = Core::Slang::ShaderOptimizationLevel::Default,
+            .allow_glsl_syntax = false,
+            .skip_spirv_validation = false,
+            .enable_effect_annotations = false,
+        };
+        auto shader = compiler.compile(
+            Core::Slang::ShaderSource::from_source("rhi_triangle", rhi_triangle_shader_source, "Renderer/RhiTriangle.slang"),
+            shader_options);
+        if (!shader) {
+            return unexpected(graphics_error_from_shader(shader.error(), "compile RHI triangle shader"));
+        }
+
+        auto vertex_code = shader->entry_point_code("vertexMain");
+        if (!vertex_code) {
+            return unexpected(graphics_error_from_shader(vertex_code.error(), "generate RHI triangle vertex shader bytecode"));
+        }
+        auto fragment_code = shader->entry_point_code("fragmentMain");
+        if (!fragment_code) {
+            return unexpected(graphics_error_from_shader(fragment_code.error(), "generate RHI triangle fragment shader bytecode"));
+        }
+
+        auto vertex_shader = device->create_shader_module(RHI::ShaderModuleDesc{
+            .language = RHI::ShaderLanguage::SpirV,
+            .code = span<const std::byte>{vertex_code->bytes.data(), vertex_code->bytes.size()},
+            .label = "renderer triangle vertex shader",
+        });
+        if (!vertex_shader) {
+            return unexpected(graphics_error_from_rhi(vertex_shader.error(), "create RHI triangle vertex shader"));
+        }
+        rhi_triangle_.vertex_shader = *vertex_shader;
+
+        auto fragment_shader = device->create_shader_module(RHI::ShaderModuleDesc{
+            .language = RHI::ShaderLanguage::SpirV,
+            .code = span<const std::byte>{fragment_code->bytes.data(), fragment_code->bytes.size()},
+            .label = "renderer triangle fragment shader",
+        });
+        if (!fragment_shader) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(fragment_shader.error(), "create RHI triangle fragment shader"));
+        }
+        rhi_triangle_.fragment_shader = *fragment_shader;
+
+        auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
+            .bind_group_layouts = {},
+            .push_constant_ranges = {},
+            .label = "renderer triangle pipeline layout",
+        });
+        if (!pipeline_layout) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(pipeline_layout.error(), "create RHI triangle pipeline layout"));
+        }
+        rhi_triangle_.pipeline_layout = *pipeline_layout;
+
+        const array<RHI::VertexAttribute, 2> vertex_attributes{
+            RHI::VertexAttribute{
+                .format = RHI::VertexFormat::Float32x2,
+                .offset = static_cast<u32>(offsetof(TriangleVertex, position)),
+                .shader_location = 0,
+            },
+            RHI::VertexAttribute{
+                .format = RHI::VertexFormat::Float32x3,
+                .offset = static_cast<u32>(offsetof(TriangleVertex, color)),
+                .shader_location = 1,
+            },
+        };
+        const RHI::VertexBufferLayout vertex_layout{
+            .stride = sizeof(TriangleVertex),
+            .step_mode = RHI::VertexStepMode::Vertex,
+            .attributes = span<const RHI::VertexAttribute>{vertex_attributes.data(), vertex_attributes.size()},
+        };
+        const RHI::ColorTargetState color_target{
+            .format = color_format,
+            .blend_enable = false,
+            .write_mask = RHI::ColorWriteMask::All,
+        };
+        const RHI::RenderPipelineDesc pipeline_desc{
+            .layout = rhi_triangle_.pipeline_layout,
+            .vertex = RHI::ShaderEntry{.module = rhi_triangle_.vertex_shader, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
+            .fragment = RHI::ShaderEntry{.module = rhi_triangle_.fragment_shader, .entry_point = "fragmentMain", .stage = RHI::ShaderStage::Fragment},
+            .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
+            .topology = RHI::PrimitiveTopology::TriangleList,
+            .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
+            .color_targets = span<const RHI::ColorTargetState>{&color_target, 1},
+            .label = "renderer triangle pipeline",
+        };
+        auto pipeline = device->create_render_pipeline(pipeline_desc);
+        if (!pipeline) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(pipeline.error(), "create RHI triangle pipeline"));
+        }
+        rhi_triangle_.pipeline = *pipeline;
+        rhi_triangle_.color_format = color_format;
+
+        constexpr array<TriangleVertex, 3> vertices{
+            TriangleVertex{{0.0f, -0.55f}, {1.0f, 0.0f, 0.0f}},
+            TriangleVertex{{0.55f, 0.45f}, {0.0f, 1.0f, 0.0f}},
+            TriangleVertex{{-0.55f, 0.45f}, {0.0f, 0.0f, 1.0f}},
+        };
+        constexpr array<u32, 3> indices{0, 1, 2};
+
+        auto vertex_buffer = device->create_buffer(RHI::BufferDesc{
+            .size = static_cast<u64>(vertices.size() * sizeof(TriangleVertex)),
+            .usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferDst,
+            .memory = RHI::MemoryLocation::DeviceLocal,
+            .label = "renderer triangle vertex buffer",
+        });
+        if (!vertex_buffer) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(vertex_buffer.error(), "create RHI triangle vertex buffer"));
+        }
+        rhi_triangle_.vertex_buffer = *vertex_buffer;
+
+        if (auto written = device->write_buffer(
+                rhi_triangle_.vertex_buffer,
+                0,
+                std::as_bytes(span<const TriangleVertex>{vertices.data(), vertices.size()}));
+            !written) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(written.error(), "upload RHI triangle vertex buffer"));
+        }
+
+        auto index_buffer = device->create_buffer(RHI::BufferDesc{
+            .size = static_cast<u64>(indices.size() * sizeof(u32)),
+            .usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferDst,
+            .memory = RHI::MemoryLocation::DeviceLocal,
+            .label = "renderer triangle index buffer",
+        });
+        if (!index_buffer) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(index_buffer.error(), "create RHI triangle index buffer"));
+        }
+        rhi_triangle_.index_buffer = *index_buffer;
+
+        if (auto written = device->write_buffer(
+                rhi_triangle_.index_buffer,
+                0,
+                std::as_bytes(span<const u32>{indices.data(), indices.size()}));
+            !written) {
+            destroy_rhi_triangle_resources();
+            return unexpected(graphics_error_from_rhi(written.error(), "upload RHI triangle index buffer"));
+        }
+        rhi_triangle_.index_count = static_cast<u32>(indices.size());
+        return {};
+    }
+
+    void Renderer::destroy_rhi_triangle_resources() noexcept {
+        if (RHI::RhiDevice *device = rhi_device()) {
+            if (rhi_triangle_.index_buffer) {
+                device->destroy_buffer(rhi_triangle_.index_buffer);
+            }
+            if (rhi_triangle_.vertex_buffer) {
+                device->destroy_buffer(rhi_triangle_.vertex_buffer);
+            }
+            if (rhi_triangle_.pipeline) {
+                device->destroy_render_pipeline(rhi_triangle_.pipeline);
+            }
+            if (rhi_triangle_.pipeline_layout) {
+                device->destroy_pipeline_layout(rhi_triangle_.pipeline_layout);
+            }
+            if (rhi_triangle_.fragment_shader) {
+                device->destroy_shader_module(rhi_triangle_.fragment_shader);
+            }
+            if (rhi_triangle_.vertex_shader) {
+                device->destroy_shader_module(rhi_triangle_.vertex_shader);
+            }
+        }
+        rhi_triangle_ = {};
+    }
+
     Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record) {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -305,6 +541,10 @@ namespace SFT::Renderer {
         if (!record.rhi_swapchain) {
             return {};
         }
+        if (Core::RendererResult triangle_resources = ensure_rhi_triangle_resources(RHI::Format::BGRA8UnormSrgb);
+            !triangle_resources.has_value()) {
+            return triangle_resources;
+        }
 
         auto acquired = device->acquire_next_texture(record.rhi_swapchain);
         if (!acquired) {
@@ -349,6 +589,19 @@ namespace SFT::Renderer {
         if (!pass) {
             return unexpected(graphics_error_from_rhi(pass.error(), "begin RHI render pass"));
         }
+        (*pass)->set_pipeline(rhi_triangle_.pipeline);
+        (*pass)->set_viewport(RHI::Viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<f32>(extent.width),
+            .height = static_cast<f32>(extent.height),
+            .min_depth = 0.0f,
+            .max_depth = 1.0f,
+        });
+        (*pass)->set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height});
+        (*pass)->set_vertex_buffer(0, rhi_triangle_.vertex_buffer);
+        (*pass)->set_index_buffer(rhi_triangle_.index_buffer, RHI::IndexFormat::Uint32);
+        (*pass)->draw_indexed(RHI::DrawIndexedArgs{.index_count = rhi_triangle_.index_count});
         (*pass)->end();
 
         const RHI::TextureBarrier to_present{

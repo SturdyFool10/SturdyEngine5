@@ -68,8 +68,8 @@ export namespace SFT::Engine {
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
-        [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept { return renderer_.get(); }
-        [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept { return renderer_.get(); }
+        [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept { return &renderer_; }
+        [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept { return &renderer_; }
         [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept;
 
@@ -87,7 +87,7 @@ export namespace SFT::Engine {
         void wait_idle() noexcept;
 
       private:
-        unique_ptr<SFT::Renderer::Renderer> renderer_;
+        SFT::Renderer::Renderer renderer_;
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;

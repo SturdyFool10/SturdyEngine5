@@ -135,7 +135,9 @@ namespace SFT::Core::Vulkan {
 #if defined(__linux__)
         switch (desc.system) {
             case rhi::WindowSystem::Xlib: {
-                if (vkCreateXlibSurfaceKHR == nullptr) {
+                const auto create_xlib_surface = reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(
+                    vkGetInstanceProcAddr(instance_, "vkCreateXlibSurfaceKHR"));
+                if (create_xlib_surface == nullptr) {
                     return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                           "create_surface: VK_KHR_xlib_surface is not enabled or loaded.");
                 }
@@ -144,13 +146,15 @@ namespace SFT::Core::Vulkan {
                     .dpy = static_cast<Display *>(desc.display),
                     .window = static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(desc.window)),
                 };
-                if (vkCreateXlibSurfaceKHR(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
+                if (create_xlib_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
                     return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateXlibSurfaceKHR failed.");
                 }
                 break;
             }
             case rhi::WindowSystem::Xcb: {
-                if (vkCreateXcbSurfaceKHR == nullptr) {
+                const auto create_xcb_surface = reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(
+                    vkGetInstanceProcAddr(instance_, "vkCreateXcbSurfaceKHR"));
+                if (create_xcb_surface == nullptr) {
                     return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                           "create_surface: VK_KHR_xcb_surface is not enabled or loaded.");
                 }
@@ -159,13 +163,15 @@ namespace SFT::Core::Vulkan {
                     .connection = static_cast<xcb_connection_t *>(desc.display),
                     .window = static_cast<xcb_window_t>(reinterpret_cast<std::uintptr_t>(desc.window)),
                 };
-                if (vkCreateXcbSurfaceKHR(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
+                if (create_xcb_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
                     return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateXcbSurfaceKHR failed.");
                 }
                 break;
             }
             case rhi::WindowSystem::Wayland: {
-                if (vkCreateWaylandSurfaceKHR == nullptr) {
+                const auto create_wayland_surface = reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(
+                    vkGetInstanceProcAddr(instance_, "vkCreateWaylandSurfaceKHR"));
+                if (create_wayland_surface == nullptr) {
                     return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                           "create_surface: VK_KHR_wayland_surface is not enabled or loaded.");
                 }
@@ -174,7 +180,7 @@ namespace SFT::Core::Vulkan {
                     .display = static_cast<wl_display *>(desc.display),
                     .surface = static_cast<wl_surface *>(desc.window),
                 };
-                if (vkCreateWaylandSurfaceKHR(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
+                if (create_wayland_surface(instance_, &info, nullptr, &surface) != VK_SUCCESS) {
                     return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "create_surface: vkCreateWaylandSurfaceKHR failed.");
                 }
                 break;

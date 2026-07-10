@@ -27,11 +27,16 @@ export namespace SFT::Runtime {
     // POSIX — and for the Windows console entry point — the shell/CRT has already tokenized and
     // unquoted the command line, so this is a faithful copy with no further parsing required.
     [[nodiscard]] inline CliArgs args_from_argv(int argc, char **argv) {
-        if (argc <= 0 || argv == nullptr)
-            return {};
-        return std::span(argv, static_cast<size_t>(argc))
-             | std::views::transform([](const char *arg) { return string(arg != nullptr ? arg : ""); })
-             | std::ranges::to<CliArgs>();
+        CliArgs args;
+        if (argc <= 0 || argv == nullptr) {
+            return args;
+        }
+
+        args.reserve(static_cast<size_t>(argc));
+        for (int i = 0; i < argc; ++i) {
+            args.emplace_back(argv[i] != nullptr ? argv[i] : "");
+        }
+        return args;
     }
 
 #if defined(STURDY_PLATFORM_WINDOWS)

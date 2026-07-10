@@ -1,7 +1,6 @@
 module;
 
 #pragma region Imports
-#include <cstddef>
 #include <expected>
 #include <span>
 #include <string>
@@ -133,6 +132,8 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_all_resources() noexcept {
+        destroy_rhi_triangle_resources();
+
         for (MeshResource &resource : meshes_) {
             if (resource.alive) {
                 destroy_mesh(resource.handle);

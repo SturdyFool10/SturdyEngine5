@@ -42,7 +42,8 @@ namespace SFT::Engine {
         }
         window_ = std::move(*window);
 
-        auto surface = engine_.initialize(*window_);
+        EngineConfig engine_config{};
+        auto surface = engine_.initialize(*window_, engine_config);
         if (!surface) {
             Foundation::log_error("Failed to initialize engine: " + surface.error().message);
             return false;
