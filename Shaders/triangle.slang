@@ -1,7 +1,6 @@
-// Vertex-buffer-fed shader: position/color come from a bound vertex buffer (see
-// Core/Vulkan/VulkanVertex.cppm) rather than being hardcoded here. Locations are pinned explicitly
-// to match VulkanVertex.cppm's VkVertexInputAttributeDescription array exactly (position at 0,
-// color at 1) rather than relying on the compiler's default attribute-ordering behavior.
+// Vertex-buffer-fed RHI shader: position/color come from the renderer's bound RHI vertex buffer.
+// Locations are pinned explicitly to match the RHI vertex input layout (position at 0, color at 1)
+// rather than relying on compiler default attribute ordering.
 struct VertexInput {
     [[vk::location(0)]] float2 position : POSITION;
     [[vk::location(1)]] float3 color : COLOR0;

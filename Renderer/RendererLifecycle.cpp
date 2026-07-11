@@ -51,30 +51,7 @@ namespace SFT::Renderer {
             f32 color[3];
         };
 
-        constexpr char rhi_triangle_shader_source[] = R"slang(
-struct VertexInput {
-    [[vk::location(0)]] float2 position : POSITION;
-    [[vk::location(1)]] float3 color : COLOR0;
-};
 
-struct VertexOutput {
-    float4 position : SV_Position;
-    float3 color : COLOR0;
-};
-
-[shader("vertex")]
-VertexOutput vertexMain(VertexInput input) {
-    VertexOutput output;
-    output.position = float4(input.position, 0.0, 1.0);
-    output.color = input.color;
-    return output;
-}
-
-[shader("fragment")]
-float4 fragmentMain(VertexOutput input) : SV_Target {
-    return float4(input.color, 1.0);
-}
-)slang";
 
         [[nodiscard]] Core::GraphicsBackendError graphics_error_from_shader(const Core::Slang::ShaderError &error,
                                                                             const char *operation) {
@@ -301,7 +278,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
             .enable_effect_annotations = false,
         };
         auto shader = compiler.compile(
-            Core::Slang::ShaderSource::from_source("rhi_triangle", rhi_triangle_shader_source, "Renderer/RhiTriangle.slang"),
+            Core::Slang::ShaderSource::from_file("Shaders/triangle.slang", "triangle"),
             shader_options);
         if (!shader) {
             return unexpected(graphics_error_from_shader(shader.error(), "compile RHI triangle shader"));
