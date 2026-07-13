@@ -7,6 +7,7 @@ module;
 #include <span>
 #include <string_view>
 #include <vector>
+#include <glm/mat4x4.hpp>
 #pragma endregion
 
 export module Sturdy.Renderer:Renderer;
@@ -17,6 +18,7 @@ import Sturdy.RHI;
 import Sturdy.Platform;
 import :Mesh;
 import :Material;
+import :Scene;
 import :ReflectionBinding;
 import :Resources;
 import :RenderGraph;
@@ -51,6 +53,10 @@ export namespace SFT::Renderer {
 
         [[nodiscard]] Core::RendererResult render_frame(Core::RenderSurfaceHandle surface,
                                                         const Core::FrameInput &frame);
+
+        // High-level scene/view entry point. Game/editor code submits a camera and renderable list; the
+        // renderer validates handles and lowers it into the existing per-frame render-list path.
+        [[nodiscard]] Core::RendererResult render_frame(const RenderFrameDesc &desc);
 
         // Queues one mesh/material pair for the next render_frame() call. This is the renderer-level draw
         // submission seam: higher layers stay out of RHI details, while the renderer can sort/batch these
@@ -187,6 +193,9 @@ export namespace SFT::Renderer {
         struct RenderItem {
             MeshHandle mesh{};
             MaterialInstanceHandle material{};
+            glm::mat4 world_transform{1.0f};
+            u64 stable_id = 0;
+            u32 sort_key = 0;
         };
 
         struct DebugSceneResources {
@@ -319,6 +328,7 @@ export namespace SFT::Renderer {
         vector<MaterialInstanceResource> material_instances_;
         TextureHandle default_white_texture_{};
         vector<RenderItem> frame_draws_;
+        glm::mat4 frame_view_projection_{1.0f};
         // Lazily created on the first poll_shader_hot_reload() over the `Shaders/` tree; primed so the
         // first poll reports only edits made after the engine started.
         optional<Core::Slang::ShaderWatcher> shader_watcher_;
@@ -333,6 +343,7 @@ export namespace SFT::Renderer {
         DebugSceneResources debug_scene_{};
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
+        bool debug_fallback_enabled_ = true;
     };
 
 } // namespace SFT::Renderer

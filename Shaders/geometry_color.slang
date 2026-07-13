@@ -13,10 +13,18 @@ struct VertexOutput {
     float4 color : COLOR0;
 };
 
+struct SceneDrawConstants {
+    float4x4 view_projection;
+    float4x4 model;
+};
+
+[[vk::push_constant]] ConstantBuffer<SceneDrawConstants> scene_draw;
+
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    output.position = float4(input.position, 1.0);
+    float4 world_position = mul(scene_draw.model, float4(input.position, 1.0));
+    output.position = mul(scene_draw.view_projection, world_position);
     output.color = input.color;
     return output;
 }

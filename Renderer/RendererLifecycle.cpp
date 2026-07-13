@@ -2,16 +2,19 @@ module;
 
 #pragma region Imports
 #include <array>
+#include <cstddef>
 #include <expected>
 #include <optional>
 #include <span>
 #include <string>
 #include <utility>
+#include <glm/mat4x4.hpp>
 #pragma endregion
 
 module Sturdy.Renderer;
 
 import :Renderer;
+import :Scene;
 import :RenderGraph;
 import Sturdy.Foundation;
 import Sturdy.Core;
@@ -162,6 +165,47 @@ namespace SFT::Renderer {
         return {};
     }
 
+    Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
+        const bool previous_debug_fallback = debug_fallback_enabled_;
+        const glm::mat4 previous_view_projection = frame_view_projection_;
+        debug_fallback_enabled_ = false;
+        frame_view_projection_ = desc.view.camera.projection * desc.view.camera.view;
+        frame_draws_.clear();
+
+        for (const SceneRenderable &renderable : desc.view.renderables) {
+            if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
+                continue;
+            }
+            if (mesh(renderable.mesh) == nullptr) {
+                debug_fallback_enabled_ = previous_debug_fallback;
+                frame_view_projection_ = previous_view_projection;
+                frame_draws_.clear();
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Scene renderable references an unknown mesh.");
+            }
+            if (material_instance(renderable.material) == nullptr) {
+                debug_fallback_enabled_ = previous_debug_fallback;
+                frame_view_projection_ = previous_view_projection;
+                frame_draws_.clear();
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Scene renderable references an unknown material instance.");
+            }
+            frame_draws_.push_back(RenderItem{
+                .mesh = renderable.mesh,
+                .material = renderable.material,
+                .world_transform = renderable.world_transform,
+                .stable_id = renderable.stable_id,
+                .sort_key = renderable.sort_key,
+            });
+        }
+
+        Core::RendererResult result = render_frame(desc.surface, desc.frame);
+        frame_draws_.clear();
+        frame_view_projection_ = previous_view_projection;
+        debug_fallback_enabled_ = previous_debug_fallback;
+        return result;
+    }
+
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
         WindowSurfaceRecord *record = window_surface(surface);
@@ -175,7 +219,7 @@ namespace SFT::Renderer {
         // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
         poll_shader_hot_reload();
 
-        if (frame_draws_.empty()) {
+        if (frame_draws_.empty() && debug_fallback_enabled_) {
             if (Core::RendererResult debug_resources = ensure_debug_scene_resources(); !debug_resources.has_value()) {
                 return debug_resources;
             }
@@ -352,6 +396,13 @@ namespace SFT::Renderer {
             return unexpected(pipeline.error());
         }
         pass.set_pipeline(*pipeline);
+
+        const SceneDrawConstants draw_constants{
+            .view_projection = frame_view_projection_,
+            .model = item.world_transform,
+        };
+        pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
+                                std::as_bytes(span<const SceneDrawConstants>{&draw_constants, 1}));
 
         if (!material_resource->frames.empty()) {
             const u32 frame_slot = static_cast<u32>(frame_index % material_resource->frames.size());

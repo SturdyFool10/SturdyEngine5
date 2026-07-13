@@ -121,8 +121,10 @@ export namespace SFT::Renderer {
             for (const slang::ShaderDescriptorRangeReflection &range : set.ranges) {
                 optional<RHI::BindingType> binding_type = to_rhi_binding_type(range.type);
                 if (!binding_type) {
-                    Foundation::log_warn("ReflectionBinding: skipping unsupported binding (set {}, binding {}) — no RHI descriptor for this kind.",
-                                          set.space, range.binding);
+                    if (range.type != slang::ShaderBindingType::PushConstant) {
+                        Foundation::log_warn("ReflectionBinding: skipping unsupported binding (set {}, binding {}) — no RHI descriptor for this kind.",
+                                              set.space, range.binding);
+                    }
                     continue;
                 }
                 const bool is_bindless = range.count == 0;
@@ -137,7 +139,9 @@ export namespace SFT::Renderer {
                                  : RHI::BindingFlags::None,
                 });
             }
-            layouts.push_back(std::move(generated));
+            if (!generated.entries.empty()) {
+                layouts.push_back(std::move(generated));
+            }
         }
         return layouts;
     }

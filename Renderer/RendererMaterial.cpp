@@ -21,6 +21,7 @@ module;
 module Sturdy.Renderer;
 
 import :Renderer;
+import :Scene;
 import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
@@ -206,9 +207,14 @@ namespace SFT::Renderer {
             resource.bind_group_layout_sets.push_back(layout.set);
         }
 
+        const RHI::PushConstantRange scene_draw_constants{
+            .stages = RHI::ShaderStage::Vertex,
+            .offset = 0,
+            .size = scene_draw_push_constant_size,
+        };
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
             .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{resource.bind_group_layouts.data(), resource.bind_group_layouts.size()},
-            .push_constant_ranges = {},
+            .push_constant_ranges = span<const RHI::PushConstantRange>{&scene_draw_constants, 1},
             .label = "material pipeline layout",
         });
         if (!pipeline_layout) {

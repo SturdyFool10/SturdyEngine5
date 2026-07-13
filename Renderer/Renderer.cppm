@@ -10,5 +10,6 @@ export import :Mesh;
 export import :ReflectionBinding;
 export import :Resources;
 export import :Material;
+export import :Scene;
 export import :RenderGraph;
 export import :Renderer;
