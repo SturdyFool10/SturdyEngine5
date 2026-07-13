@@ -43,6 +43,7 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept override;
         [[nodiscard]] const RHI::RhiDevice *rhi_device() const noexcept override;
+        [[nodiscard]] RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface) override;
         [[nodiscard]] optional<GpuInfo> gpu_info() const override;
         void wait_idle() noexcept override;
         // end EngineBackend Compliance Functions

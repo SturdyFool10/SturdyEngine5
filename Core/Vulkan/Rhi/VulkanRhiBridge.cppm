@@ -8,6 +8,7 @@ module;
 #include <expected>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -27,6 +28,7 @@ import :VulkanDevice;
 import :VulkanImage;
 import :VulkanPhysicalDevice;
 import :VulkanPipeline;
+import :VulkanNativeAccessExtension;
 import :VulkanQueryPool;
 import :VulkanQueue;
 import :VulkanRhiResourcePool;
@@ -53,8 +55,11 @@ namespace SFT::Core::Vulkan {
                               const VulkanPhysicalDevice &physical_device,
                               VulkanDevice &logical_device,
                               VulkanQueue &graphics_queue,
+                              VulkanQueue *compute_queue,
+                              VulkanQueue *transfer_queue,
                               VulkanAllocator &allocator,
-                              rhi::FeatureNegotiationReport feature_report);
+                              rhi::FeatureNegotiationReport feature_report,
+                              bool enable_native_access_extension = false);
 
         // ── Introspection ──
         [[nodiscard]] rhi::BackendType backend_type() const noexcept override;
@@ -118,6 +123,7 @@ namespace SFT::Core::Vulkan {
         void destroy_render_bundle(rhi::RenderBundleHandle handle) noexcept override;
         [[nodiscard]] rhi::RhiResult submit(const rhi::SubmitDesc &desc) override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHandle> create_surface(const rhi::SurfaceDesc &desc) override;
+        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHandle> import_surface(VkSurfaceKHR surface);
         void destroy_surface(rhi::SurfaceHandle handle) noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SwapchainHandle> create_swapchain(const rhi::SwapchainDesc &desc) override;
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
@@ -182,6 +188,7 @@ namespace SFT::Core::Vulkan {
         struct CommandBufferRecord {
             VulkanCommandPool pool;
             VulkanCommandBuffer command_buffer;
+            rhi::QueueLane queue{};
         };
 
         struct RenderBundleRecord {
@@ -196,6 +203,7 @@ namespace SFT::Core::Vulkan {
 
         struct SurfaceRecord {
             VkSurfaceKHR surface = VK_NULL_HANDLE;
+            bool owns_surface = true;
         };
 
         struct SwapchainRecord {
@@ -228,6 +236,9 @@ namespace SFT::Core::Vulkan {
                                   std::string("Vulkan RHI bridge cannot run ") + operation + ": device resources are not ready.");
         }
         [[nodiscard]] static std::unexpected<rhi::RhiError> rhi_error_from_graphics(const GraphicsBackendError &error);
+        [[nodiscard]] VulkanQueue *queue_for_lane(rhi::QueueLane lane) const noexcept;
+        [[nodiscard]] u32 queue_family_for_lane(rhi::QueueLane lane) const noexcept;
+        [[nodiscard]] rhi::RhiResult validate_queue_lane(rhi::QueueLane lane, const char *operation) const;
 
         // Stages `data` into a transient host-visible buffer, then blocking-copies it into
         // `destination` at `offset` via a one-shot command buffer on the graphics queue. The backend's
@@ -273,6 +284,14 @@ namespace SFT::Core::Vulkan {
         VulkanCommandPool upload_command_pool_;
         VulkanFence upload_fence_;
         std::mutex upload_mutex_;
+
+        // Appended after the original bridge state to avoid shifting resource-pool offsets across module
+        // implementation units while the project is still using fragile C++23 module/BMI generation.
+        VulkanQueue *compute_queue_ = nullptr;
+        VulkanQueue *transfer_queue_ = nullptr;
+        // Populated only when the app opted in (RendererFeatureRequest::enable_native_access_extension);
+        // returned by extension_interface() when the caller requests VulkanNativeAccessExtension::id().
+        std::optional<VulkanNativeAccessExtension> native_access_extension_;
     };
 
 } // namespace SFT::Core::Vulkan

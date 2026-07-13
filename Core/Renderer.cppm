@@ -54,6 +54,12 @@ export namespace SFT::Core {
         RHI::FeatureSet required_rhi_features{};
         RHI::FeatureSet optional_rhi_features{};
         u32 desired_frames_in_flight = 2;
+        // Opt-in escape hatch (Vulkan backend: VulkanNativeAccessExtension, see Core/Vulkan/Rhi/) —
+        // exposes the raw VkInstance/VkPhysicalDevice/VkDevice/VkQueue/VkCommandBuffer for callers who
+        // need to interoperate with vendor SDKs (FSR2/DLSS/XeSS) or Vulkan capabilities RHI hasn't
+        // modeled yet. Off by default: using the returned handles bypasses RHI's tracking guarantees
+        // for whatever the caller does with them, so it must be requested explicitly, never implied.
+        b8 enable_native_access_extension = false;
     };
 
     struct RendererCreateInfo {

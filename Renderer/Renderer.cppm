@@ -7,5 +7,8 @@ export import Sturdy.Core;
 export import :Handles;
 export import :Geometry;
 export import :Mesh;
+export import :ReflectionBinding;
 export import :Resources;
+export import :Material;
+export import :RenderGraph;
 export import :Renderer;

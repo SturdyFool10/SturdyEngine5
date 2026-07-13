@@ -195,12 +195,20 @@ namespace SFT::Core::Vulkan {
                               "create_surface: raw-native Vulkan RHI surfaces are not compiled into this platform build.");
 #endif
 
-        return surfaces_.insert(SurfaceRecord{.surface = surface});
+        return surfaces_.insert(SurfaceRecord{.surface = surface, .owns_surface = true});
+    }
+
+    rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface) {
+        if (surface == VK_NULL_HANDLE) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                  "import_surface: cannot import a null VkSurfaceKHR.");
+        }
+        return surfaces_.insert(SurfaceRecord{.surface = surface, .owns_surface = false});
     }
 
     void VulkanRhiDeviceBridge::destroy_surface(rhi::SurfaceHandle handle) noexcept {
         SurfaceRecord *record = surfaces_.find(handle);
-        if (record != nullptr && record->surface != VK_NULL_HANDLE) {
+        if (record != nullptr && record->surface != VK_NULL_HANDLE && record->owns_surface) {
             vkDestroySurfaceKHR(instance_, record->surface, nullptr);
         }
         surfaces_.erase(handle);

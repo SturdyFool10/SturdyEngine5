@@ -20,6 +20,7 @@ import :VulkanCommandBuffer;
 import :VulkanCommandPool;
 import :VulkanDevice;
 import :VulkanImage;
+import :VulkanNativeAccessExtension;
 import :VulkanPipeline;
 import :VulkanQueryPool;
 import :VulkanRendering;
@@ -114,15 +115,17 @@ namespace SFT::Core::Vulkan {
         }
 
         [[nodiscard]] VkBufferMemoryBarrier2 to_vk_buffer_barrier(const rhi::BufferBarrier &barrier,
-                                                                  VkBuffer buffer) noexcept {
+                                                                  VkBuffer buffer,
+                                                                  u32 src_queue_family,
+                                                                  u32 dst_queue_family) noexcept {
             return VkBufferMemoryBarrier2{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
                 .srcStageMask = to_vk(barrier.src_stage),
                 .srcAccessMask = to_vk(barrier.src_access),
                 .dstStageMask = to_vk(barrier.dst_stage),
                 .dstAccessMask = to_vk(barrier.dst_access),
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .srcQueueFamilyIndex = src_queue_family,
+                .dstQueueFamilyIndex = dst_queue_family,
                 .buffer = buffer,
                 .offset = barrier.offset,
                 .size = barrier.size == 0 ? VK_WHOLE_SIZE : barrier.size,
@@ -131,7 +134,9 @@ namespace SFT::Core::Vulkan {
 
         [[nodiscard]] VkImageMemoryBarrier2 to_vk_image_barrier(const rhi::TextureBarrier &barrier,
                                                                 VkImage image,
-                                                                rhi::Format format) noexcept {
+                                                                rhi::Format format,
+                                                                u32 src_queue_family,
+                                                                u32 dst_queue_family) noexcept {
             return VkImageMemoryBarrier2{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
                 .srcStageMask = to_vk(barrier.src_stage),
@@ -140,8 +145,8 @@ namespace SFT::Core::Vulkan {
                 .dstAccessMask = to_vk(barrier.dst_access),
                 .oldLayout = to_vk(barrier.old_layout),
                 .newLayout = to_vk(barrier.new_layout),
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .srcQueueFamilyIndex = src_queue_family,
+                .dstQueueFamilyIndex = dst_queue_family,
                 .image = image,
                 .subresourceRange = to_vk_range(barrier.range, aspect_for_format(format)),
             };
@@ -438,6 +443,10 @@ namespace SFT::Core::Vulkan {
         VulkanRhiCommandEncoder(VulkanRhiDeviceBridge &bridge, VulkanRhiDeviceBridge::CommandBufferRecord &&record)
             : VulkanRhiEncoderCommon(bridge, record_.command_buffer), record_(std::move(record)) {}
 
+        // Backs VulkanNativeAccessExtension::native_command_buffer() — the only place the concrete
+        // encoder type is visible outside this translation unit is through that dynamic_cast.
+        [[nodiscard]] VkCommandBuffer native_vk_command_buffer() const noexcept { return command_buffer_.vk_handle(); }
+
         rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> begin_render_pass(const rhi::RenderPassDesc &desc) override {
             RenderingInfo rendering;
             rendering.set_render_area(to_vk_rect(desc.render_area)).set_view_mask(desc.view_mask);
@@ -705,6 +714,21 @@ namespace SFT::Core::Vulkan {
                                        desc.width, desc.height, desc.depth);
         }
         void barrier(span<const rhi::GlobalBarrier> global_barriers, span<const rhi::BufferBarrier> buffer_barriers, span<const rhi::TextureBarrier> texture_barriers) override {
+            auto ownership_families = [&](const rhi::QueueOwnershipTransfer &ownership) noexcept {
+                struct Families { u32 src = VK_QUEUE_FAMILY_IGNORED; u32 dst = VK_QUEUE_FAMILY_IGNORED; } families;
+                if (!ownership.enabled) {
+                    return families;
+                }
+                families.src = bridge_.queue_family_for_lane(ownership.src);
+                families.dst = bridge_.queue_family_for_lane(ownership.dst);
+                if (families.src == VK_QUEUE_FAMILY_IGNORED || families.dst == VK_QUEUE_FAMILY_IGNORED ||
+                    families.src == families.dst) {
+                    families.src = VK_QUEUE_FAMILY_IGNORED;
+                    families.dst = VK_QUEUE_FAMILY_IGNORED;
+                }
+                return families;
+            };
+
             vector<VkMemoryBarrier2> memory;
             vector<VkBufferMemoryBarrier2> buffers;
             vector<VkImageMemoryBarrier2> images;
@@ -716,12 +740,14 @@ namespace SFT::Core::Vulkan {
             }
             for (const rhi::BufferBarrier &barrier : buffer_barriers) {
                 if (VulkanBuffer *record = buffer(barrier.buffer)) {
-                    buffers.push_back(to_vk_buffer_barrier(barrier, record->vk_handle()));
+                    const auto families = ownership_families(barrier.ownership);
+                    buffers.push_back(to_vk_buffer_barrier(barrier, record->vk_handle(), families.src, families.dst));
                 }
             }
             for (const rhi::TextureBarrier &barrier : texture_barriers) {
                 if (auto *record = texture(barrier.texture)) {
-                    images.push_back(to_vk_image_barrier(barrier, record->image.vk_handle(), record->format));
+                    const auto families = ownership_families(barrier.ownership);
+                    images.push_back(to_vk_image_barrier(barrier, record->image.vk_handle(), record->format, families.src, families.dst));
                 }
             }
             command_buffer_.pipeline_barrier2(memory, buffers, images);
@@ -843,8 +869,20 @@ namespace SFT::Core::Vulkan {
         if (logical_device_ == nullptr || graphics_queue_ == nullptr) {
             return device_not_ready<unique_ptr<rhi::CommandEncoder>>("create_command_encoder");
         }
+        if (desc.queue.queue != rhi::QueueClass::Graphics && desc.queue.queue != rhi::QueueClass::Compute &&
+            desc.queue.queue != rhi::QueueClass::Transfer) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_command_encoder: Vulkan sparse/video queues do not support RHI command-buffer recording yet.");
+        }
+        if (auto queue_valid = validate_queue_lane(desc.queue, "create_command_encoder"); !queue_valid.has_value()) {
+            return rhi::rhi_error(queue_valid.error().code, queue_valid.error().message);
+        }
+        VulkanQueue *queue = queue_for_lane(desc.queue);
+        if (queue == nullptr) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "create_command_encoder: queue lane is not available.");
+        }
 
-        auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), graphics_queue_->family_index());
+        auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), queue->family_index());
         if (!pool) {
             return rhi_error_from_graphics(pool.error());
         }
@@ -860,7 +898,7 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(began.error());
         }
 
-        CommandBufferRecord record{std::move(*pool), std::move(*command_buffer)};
+        CommandBufferRecord record{std::move(*pool), std::move(*command_buffer), desc.queue};
         return unique_ptr<rhi::CommandEncoder>(make_unique<VulkanRhiCommandEncoder>(*this, std::move(record)));
     }
 
@@ -913,6 +951,15 @@ namespace SFT::Core::Vulkan {
 
     void VulkanRhiDeviceBridge::destroy_render_bundle(rhi::RenderBundleHandle handle) noexcept {
         render_bundles_.erase(handle);
+    }
+
+    // Defined here, not in VulkanNativeAccessExtension.cppm: VulkanRhiCommandEncoder is a
+    // module-implementation-unit-local type, only nameable from within this translation unit.
+    VkCommandBuffer VulkanNativeAccessExtension::native_command_buffer(const rhi::CommandEncoder &encoder) const noexcept {
+        if (const auto *vulkan_encoder = dynamic_cast<const VulkanRhiCommandEncoder *>(&encoder)) {
+            return vulkan_encoder->native_vk_command_buffer();
+        }
+        return VK_NULL_HANDLE;
     }
 
 } // namespace SFT::Core::Vulkan

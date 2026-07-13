@@ -63,7 +63,17 @@ export namespace SFT::RHI {
         // queues itself. Lanes may still share a native queue unless the matching async feature is
         // enabled, so queue overlap should be treated as capability, not as a timing guarantee.
         u32 lane_count = 1;
-        bool dedicated = false; // true when this class maps to a native queue/family not used by Graphics
+
+        // Queues in the same physical group are known to alias the same underlying execution resource
+        // (for example Vulkan classes mapped onto one queue family, Metal/WebGPU single-queue aliases,
+        // or D3D12 queues implemented on the same engine). Different groups are allowed to overlap, but
+        // only `likely_parallel_with_graphics` / Feature::Async* should be used as a scheduling promise.
+        u32 physical_group = 0;
+        bool likely_parallel_with_graphics = false;
+
+        // true when this class maps to a native queue/family/engine not used by Graphics. Dedicated is
+        // a topology fact; `likely_parallel_with_graphics` is the scheduler-facing performance hint.
+        bool dedicated = false;
         const char *label = nullptr;
     };
 

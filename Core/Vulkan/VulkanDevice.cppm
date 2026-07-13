@@ -38,6 +38,15 @@ export namespace SFT::Core::Vulkan {
             optional<u32> present_queue_family{};
             optional<u32> compute_queue_family{};
             optional<u32> transfer_queue_family{};
+            optional<u32> sparse_queue_family{};
+            optional<u32> video_decode_queue_family{};
+            optional<u32> video_encode_queue_family{};
+            u32 graphics_queue_count = 1;
+            u32 compute_queue_count = 1;
+            u32 transfer_queue_count = 1;
+            u32 sparse_queue_count = 1;
+            u32 video_decode_queue_count = 1;
+            u32 video_encode_queue_count = 1;
             span<const char *> extensions{};
             // Optional pNext chain for VkDeviceCreateInfo — use to pass
             // VkPhysicalDeviceFeatures2 and any feature structs.
@@ -56,7 +65,16 @@ export namespace SFT::Core::Vulkan {
               graphics_queue_(std::move(o.graphics_queue_)),
               present_queue_(std::move(o.present_queue_)),
               compute_queue_(std::move(o.compute_queue_)),
-              transfer_queue_(std::move(o.transfer_queue_)) {
+              transfer_queue_(std::move(o.transfer_queue_)),
+              sparse_queue_(std::move(o.sparse_queue_)),
+              video_decode_queue_(std::move(o.video_decode_queue_)),
+              video_encode_queue_(std::move(o.video_encode_queue_)),
+              graphics_queue_lanes_(std::move(o.graphics_queue_lanes_)),
+              compute_queue_lanes_(std::move(o.compute_queue_lanes_)),
+              transfer_queue_lanes_(std::move(o.transfer_queue_lanes_)),
+              sparse_queue_lanes_(std::move(o.sparse_queue_lanes_)),
+              video_decode_queue_lanes_(std::move(o.video_decode_queue_lanes_)),
+              video_encode_queue_lanes_(std::move(o.video_encode_queue_lanes_)) {
             o.device_ = VK_NULL_HANDLE;
             o.physical_device_ = VK_NULL_HANDLE;
         }
@@ -70,6 +88,15 @@ export namespace SFT::Core::Vulkan {
                 present_queue_ = std::move(o.present_queue_);
                 compute_queue_ = std::move(o.compute_queue_);
                 transfer_queue_ = std::move(o.transfer_queue_);
+                sparse_queue_ = std::move(o.sparse_queue_);
+                video_decode_queue_ = std::move(o.video_decode_queue_);
+                video_encode_queue_ = std::move(o.video_encode_queue_);
+                graphics_queue_lanes_ = std::move(o.graphics_queue_lanes_);
+                compute_queue_lanes_ = std::move(o.compute_queue_lanes_);
+                transfer_queue_lanes_ = std::move(o.transfer_queue_lanes_);
+                sparse_queue_lanes_ = std::move(o.sparse_queue_lanes_);
+                video_decode_queue_lanes_ = std::move(o.video_decode_queue_lanes_);
+                video_encode_queue_lanes_ = std::move(o.video_encode_queue_lanes_);
                 o.device_ = VK_NULL_HANDLE;
                 o.physical_device_ = VK_NULL_HANDLE;
             }
@@ -82,29 +109,54 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] static RendererExpected<VulkanDevice> create(
             VkPhysicalDevice physical,
             const DeviceCreateDesc &desc) noexcept {
-            // Collect unique queue family indices.
-            vector<u32> families;
-            auto push_unique = [&](optional<u32> fam) {
-                if (fam && !std::ranges::contains(families, *fam))
-                    families.push_back(*fam);
-            };
-            push_unique(desc.graphics_queue_family);
-            push_unique(desc.present_queue_family);
-            push_unique(desc.compute_queue_family);
-            push_unique(desc.transfer_queue_family);
+            u32 family_count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
+            vector<VkQueueFamilyProperties> family_properties(family_count);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, family_properties.data());
 
-            const float priority = 1.0f;
-            auto queue_infos = families
-                             | std::views::transform([&priority](u32 fam) {
-                                   return VkDeviceQueueCreateInfo{
-                                       .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                                       .pNext = nullptr,
-                                       .queueFamilyIndex = fam,
-                                       .queueCount = 1,
-                                       .pQueuePriorities = &priority,
-                                   };
-                               })
-                             | std::ranges::to<vector>();
+            struct FamilyRequest {
+                u32 family = 0;
+                u32 count = 1;
+            };
+            vector<FamilyRequest> families;
+            auto max_count_for = [&](u32 family) noexcept -> u32 {
+                return family < family_properties.size() ? family_properties[family].queueCount : 1u;
+            };
+            auto push_family = [&](optional<u32> fam, u32 requested_count) {
+                if (!fam) {
+                    return;
+                }
+                const u32 count = std::max(1u, std::min(requested_count, max_count_for(*fam)));
+                auto it = std::ranges::find(families, *fam, &FamilyRequest::family);
+                if (it == families.end()) {
+                    families.push_back(FamilyRequest{*fam, count});
+                } else {
+                    it->count = std::max(it->count, count);
+                }
+            };
+            push_family(desc.graphics_queue_family, desc.graphics_queue_count);
+            push_family(desc.present_queue_family, 1);
+            push_family(desc.compute_queue_family, desc.compute_queue_count);
+            push_family(desc.transfer_queue_family, desc.transfer_queue_count);
+            push_family(desc.sparse_queue_family, desc.sparse_queue_count);
+            push_family(desc.video_decode_queue_family, desc.video_decode_queue_count);
+            push_family(desc.video_encode_queue_family, desc.video_encode_queue_count);
+
+            vector<vector<float>> priorities;
+            priorities.reserve(families.size());
+            vector<VkDeviceQueueCreateInfo> queue_infos;
+            queue_infos.reserve(families.size());
+            for (const FamilyRequest &family : families) {
+                vector<float> family_priorities(family.count, 1.0f);
+                priorities.push_back(std::move(family_priorities));
+                queue_infos.push_back(VkDeviceQueueCreateInfo{
+                    .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                    .pNext = nullptr,
+                    .queueFamilyIndex = family.family,
+                    .queueCount = family.count,
+                    .pQueuePriorities = priorities.back().data(),
+                });
+            }
 
             VkDeviceCreateInfo create_info{
                 .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -128,6 +180,21 @@ export namespace SFT::Core::Vulkan {
                 vkGetDeviceQueue(vk_device, *fam, 0, &q);
                 return VulkanQueue(q, *fam);
             };
+            auto get_queue_lanes = [&](optional<u32> fam) -> vector<VulkanQueue> {
+                vector<VulkanQueue> lanes;
+                if (!fam) {
+                    return lanes;
+                }
+                const auto it = std::ranges::find(families, *fam, &FamilyRequest::family);
+                const u32 count = it == families.end() ? 1u : it->count;
+                lanes.reserve(count);
+                for (u32 i = 0; i < count; ++i) {
+                    VkQueue q = VK_NULL_HANDLE;
+                    vkGetDeviceQueue(vk_device, *fam, i, &q);
+                    lanes.emplace_back(q, *fam);
+                }
+                return lanes;
+            };
 
             VulkanDevice out;
             out.device_ = vk_device;
@@ -136,6 +203,15 @@ export namespace SFT::Core::Vulkan {
             out.present_queue_ = get_queue(desc.present_queue_family);
             out.compute_queue_ = get_queue(desc.compute_queue_family);
             out.transfer_queue_ = get_queue(desc.transfer_queue_family);
+            out.sparse_queue_ = get_queue(desc.sparse_queue_family);
+            out.video_decode_queue_ = get_queue(desc.video_decode_queue_family);
+            out.video_encode_queue_ = get_queue(desc.video_encode_queue_family);
+            out.graphics_queue_lanes_ = get_queue_lanes(desc.graphics_queue_family);
+            out.compute_queue_lanes_ = get_queue_lanes(desc.compute_queue_family);
+            out.transfer_queue_lanes_ = get_queue_lanes(desc.transfer_queue_family);
+            out.sparse_queue_lanes_ = get_queue_lanes(desc.sparse_queue_family);
+            out.video_decode_queue_lanes_ = get_queue_lanes(desc.video_decode_queue_family);
+            out.video_encode_queue_lanes_ = get_queue_lanes(desc.video_encode_queue_family);
             return out;
         }
 
@@ -151,6 +227,15 @@ export namespace SFT::Core::Vulkan {
         [[nodiscard]] optional<VulkanQueue> &present_queue() noexcept { return present_queue_; }
         [[nodiscard]] optional<VulkanQueue> &compute_queue() noexcept { return compute_queue_; }
         [[nodiscard]] optional<VulkanQueue> &transfer_queue() noexcept { return transfer_queue_; }
+        [[nodiscard]] optional<VulkanQueue> &sparse_queue() noexcept { return sparse_queue_; }
+        [[nodiscard]] optional<VulkanQueue> &video_decode_queue() noexcept { return video_decode_queue_; }
+        [[nodiscard]] optional<VulkanQueue> &video_encode_queue() noexcept { return video_encode_queue_; }
+        [[nodiscard]] vector<VulkanQueue> &graphics_queue_lanes() noexcept { return graphics_queue_lanes_; }
+        [[nodiscard]] vector<VulkanQueue> &compute_queue_lanes() noexcept { return compute_queue_lanes_; }
+        [[nodiscard]] vector<VulkanQueue> &transfer_queue_lanes() noexcept { return transfer_queue_lanes_; }
+        [[nodiscard]] vector<VulkanQueue> &sparse_queue_lanes() noexcept { return sparse_queue_lanes_; }
+        [[nodiscard]] vector<VulkanQueue> &video_decode_queue_lanes() noexcept { return video_decode_queue_lanes_; }
+        [[nodiscard]] vector<VulkanQueue> &video_encode_queue_lanes() noexcept { return video_encode_queue_lanes_; }
 
         void wait_idle() noexcept {
             if (device_ != VK_NULL_HANDLE)
@@ -167,6 +252,15 @@ export namespace SFT::Core::Vulkan {
             present_queue_.reset();
             compute_queue_.reset();
             transfer_queue_.reset();
+            sparse_queue_.reset();
+            video_decode_queue_.reset();
+            video_encode_queue_.reset();
+            graphics_queue_lanes_.clear();
+            compute_queue_lanes_.clear();
+            transfer_queue_lanes_.clear();
+            sparse_queue_lanes_.clear();
+            video_decode_queue_lanes_.clear();
+            video_encode_queue_lanes_.clear();
         }
 
         // -------------------------------------------------------------------------
@@ -770,6 +864,15 @@ export namespace SFT::Core::Vulkan {
         optional<VulkanQueue> present_queue_{};
         optional<VulkanQueue> compute_queue_{};
         optional<VulkanQueue> transfer_queue_{};
+        optional<VulkanQueue> sparse_queue_{};
+        optional<VulkanQueue> video_decode_queue_{};
+        optional<VulkanQueue> video_encode_queue_{};
+        vector<VulkanQueue> graphics_queue_lanes_;
+        vector<VulkanQueue> compute_queue_lanes_;
+        vector<VulkanQueue> transfer_queue_lanes_;
+        vector<VulkanQueue> sparse_queue_lanes_;
+        vector<VulkanQueue> video_decode_queue_lanes_;
+        vector<VulkanQueue> video_encode_queue_lanes_;
     };
 
 } // namespace SFT::Core::Vulkan

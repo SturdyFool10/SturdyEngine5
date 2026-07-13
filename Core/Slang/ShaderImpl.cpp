@@ -545,12 +545,14 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = normalize_slang_int(type_layout->getBindingRangeFirstDescriptorRangeIndex(range_index));
             range.descriptor_range_count = normalize_slang_int(type_layout->getBindingRangeDescriptorRangeCount(range_index));
             range.count = normalize_slang_int(type_layout->getBindingRangeBindingCount(range_index));
-            // Only image/texel-buffer ranges carry an image format. Slang's
-            // getBindingRangeImageFormat unconditionally dereferences the range's leaf variable,
-            // which is null for non-resource ranges (e.g. varying input/output) — so querying it
-            // for those would segfault inside Slang. Guard by binding type.
-            if (range.type == ShaderBindingType::Texture || range.type == ShaderBindingType::MutableTexture ||
-                range.type == ShaderBindingType::TypedBuffer || range.type == ShaderBindingType::MutableTypedBuffer) {
+            // Only *storage* image/texel-buffer ranges carry a decorated image format, and only those
+            // have a non-null leaf variable inside Slang. getBindingRangeImageFormat unconditionally
+            // dereferences that leaf variable (`leafVar->findModifier<FormatAttribute>()` in
+            // slang-reflection-api.cpp), so calling it for a *sampled* Texture/TypedBuffer — whose leaf
+            // var is null — segfaults inside Slang. Restrict the query to the mutable (RW) kinds; sampled
+            // textures have no storage format to report anyway.
+            if (range.type == ShaderBindingType::MutableTexture ||
+                range.type == ShaderBindingType::MutableTypedBuffer) {
                 range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
             }
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);

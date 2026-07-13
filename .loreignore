@@ -7,6 +7,9 @@
 # Agent coordination metadata
 agent_collaboration.md
 
+# Architecture/design-doc scratch space (see plans/README.md) — working notes, not shipped docs.
+/plans/
+
 # Build directories
 build/
 out/

@@ -5,12 +5,14 @@ module;
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <algorithm>
 #include <utility>
 #pragma endregion
 
 module Sturdy.Core;
 
 import :VulkanDevice;
+import :VulkanPhysicalDevice;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
 import :VulkanSampler;
@@ -26,6 +28,18 @@ namespace SFT::Core::Vulkan {
             return device_not_ready<rhi::SamplerHandle>("create_sampler");
         }
 
+        // Anisotropy is a Vulkan device feature: enabling it on a sampler is only valid when the
+        // feature was turned on at device creation (VulkanBackend enables it whenever supported).
+        // The RHI documents max_anisotropy as ">1 requests that ratio, clamped to the device limit",
+        // so honor that clamp here rather than passing an over-range value straight to a validation error.
+        const bool anisotropy_available = physical_device_ != nullptr &&
+                                          physical_device_->features().samplerAnisotropy == VK_TRUE;
+        const bool use_anisotropy = anisotropy_available && desc.max_anisotropy > 1.0f;
+        const f32 max_anisotropy = use_anisotropy
+                                       ? std::min(desc.max_anisotropy,
+                                                  physical_device_->properties().limits.maxSamplerAnisotropy)
+                                       : 1.0f;
+
         const VkSamplerCreateInfo info{
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             .magFilter = to_vk(desc.mag_filter),
@@ -35,8 +49,8 @@ namespace SFT::Core::Vulkan {
             .addressModeV = to_vk(desc.address_v),
             .addressModeW = to_vk(desc.address_w),
             .mipLodBias = desc.mip_lod_bias,
-            .anisotropyEnable = desc.max_anisotropy > 0.0f ? VK_TRUE : VK_FALSE,
-            .maxAnisotropy = desc.max_anisotropy,
+            .anisotropyEnable = use_anisotropy ? VK_TRUE : VK_FALSE,
+            .maxAnisotropy = max_anisotropy,
             .compareEnable = desc.compare_enable ? VK_TRUE : VK_FALSE,
             .compareOp = to_vk(desc.compare),
             .minLod = desc.min_lod,

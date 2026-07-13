@@ -58,6 +58,8 @@ namespace SFT::Engine {
         // format. shaders_ outlives this call, so the non-owning span stays valid.
         renderer_info.uncompiled_shaders = shaders_;
 
+        Foundation::log_info("[szdiag] Engine TU sees sizeof(Renderer)={} &renderer_={}",
+                             sizeof(SFT::Renderer::Renderer), static_cast<const void *>(&renderer_));
         auto surface = renderer_.initialize(renderer_info);
         if (!surface) {
             return unexpected(surface.error());

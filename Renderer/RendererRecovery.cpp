@@ -101,7 +101,29 @@ namespace SFT::Renderer {
             texture.sampler = {};
         }
 
-        rhi_triangle_ = {};
+        for (MaterialTemplateResource &material_template : material_templates_) {
+            material_template.vertex_module = {};
+            material_template.fragment_module = {};
+            material_template.bind_group_layouts.clear();
+            material_template.bind_group_layout_sets.clear();
+            material_template.pipeline_layout = {};
+            material_template.pipeline_variants.clear();
+        }
+        for (MaterialInstanceResource &material_instance : material_instances_) {
+            for (MaterialInstanceFrame &frame : material_instance.frames) {
+                frame.uniform_buffer = {};
+                frame.bind_groups.clear();
+                frame.uniform_dirty = true;
+                frame.bind_groups_dirty = true;
+            }
+        }
+
+        // The old device is gone — drop every in-flight frame slot's handles (command buffers, fences,
+        // deferred transients) without destroying them; the fresh device starts the ring over.
+        frames_in_flight_.clear();
+
+        frame_draws_.clear();
+        debug_scene_ = {};
     }
 
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {

@@ -18,4 +18,6 @@ export import :VulkanBackend;
 #endif
 export import :Shader;
 export import :ShaderDiscovery;
+export import :ShaderVariant;
+export import :ShaderWatcher;
 #pragma endregion

@@ -27,10 +27,25 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    namespace {
+
+        [[nodiscard]] constexpr bool same_queue_lane(rhi::QueueLane lhs, rhi::QueueLane rhs) noexcept {
+            return lhs.queue == rhs.queue && lhs.index == rhs.index;
+        }
+
+    } // namespace
+
     rhi::RhiResult VulkanRhiDeviceBridge::submit(const rhi::SubmitDesc &desc) {
         if (graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run submit: device resources are not ready.");
+        }
+        if (auto queue_valid = validate_queue_lane(desc.queue, "submit"); !queue_valid.has_value()) {
+            return queue_valid;
+        }
+        VulkanQueue *queue = queue_for_lane(desc.queue);
+        if (queue == nullptr) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "submit: queue lane is not available.");
         }
 
         vector<VkCommandBufferSubmitInfo> command_buffers;
@@ -39,6 +54,10 @@ namespace SFT::Core::Vulkan {
             CommandBufferRecord *record = command_buffers_.find(handle);
             if (record == nullptr) {
                 return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "submit: unknown command buffer handle.");
+            }
+            if (!same_queue_lane(record->queue, desc.queue)) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "submit: command buffer was recorded for a different queue lane than SubmitDesc::queue.");
             }
             command_buffers.push_back(record->command_buffer.submit_info());
         }
@@ -100,7 +119,7 @@ namespace SFT::Core::Vulkan {
             .pSignalSemaphoreInfos = signals.empty() ? nullptr : signals.data(),
         };
 
-        if (auto submitted = graphics_queue_->submit(span{&submit_info, 1}, fence); !submitted) {
+        if (auto submitted = queue->submit(span{&submit_info, 1}, fence); !submitted) {
             return rhi_error_from_graphics(submitted.error());
         }
         return {};

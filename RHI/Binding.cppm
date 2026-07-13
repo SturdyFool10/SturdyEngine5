@@ -2,11 +2,13 @@ module;
 
 #pragma region Imports
 #include <span>
+#include <type_traits>
 #pragma endregion
 
 export module Sturdy.RHI:Binding;
 
 import Sturdy.Foundation;
+import :Flags;
 import :Handles;
 import :Shader;
 
@@ -32,9 +34,32 @@ export namespace SFT::RHI {
         InputAttachment,
     };
 
+    // Descriptor-indexing flags for one bind-group layout slot — the difference between a plain array
+    // binding (`count` fixed, every element written before use) and a true bindless table. A bitmask
+    // (see :Flags); each bit is gated by a device feature the caller must have enabled:
+    //   - PartiallyBound          — not every element need be written before the descriptor set is
+    //                               used, as long as the shader only accesses written ones
+    //                               (Feature::DescriptorBindingPartiallyBound). The core of a bindless
+    //                               texture table whose slots fill in over time.
+    //   - UpdateAfterBind         — the descriptor may be updated after the set is bound and even while
+    //                               command buffers referencing it are pending, so long as the update
+    //                               doesn't race the exact element in flight
+    //                               (Feature::DescriptorBindingSampledImageUpdateAfterBind et al.).
+    //                               Forces the layout/pool onto the update-after-bind path.
+    //   - VariableDescriptorCount — `count` is the *maximum*; the actual size is chosen at
+    //                               bind-group-allocation time (Feature::DescriptorBindingVariableCount).
+    //                               Must be the last binding in its set. Pairs with a runtime-sized
+    //                               (`Texture2D t[]`) array in the shader.
+    enum class BindingFlags : u32 {
+        None = 0,
+        PartiallyBound = 1u << 0,
+        UpdateAfterBind = 1u << 1,
+        VariableDescriptorCount = 1u << 2,
+    };
+
     // One slot in a bind-group layout: its `binding` index, what it holds, which stages see it, and
-    // how many array elements it has (`count > 1` is an array binding; the first step toward
-    // bindless is a very large count). `has_dynamic_offset` marks a uniform/storage buffer whose
+    // how many array elements it has (`count > 1` is an array binding; a bindless table is a large
+    // `count` plus `BindingFlags`). `has_dynamic_offset` marks a uniform/storage buffer whose
     // offset is supplied at bind time (see BindGroupEntry / the render-pass encoder's set_bind_group).
     struct BindGroupLayoutEntry {
         u32 binding = 0;
@@ -42,11 +67,19 @@ export namespace SFT::RHI {
         ShaderStage visibility = ShaderStage::None;
         u32 count = 1;
         bool has_dynamic_offset = false;
+        // Descriptor-indexing flags for this slot (bindless). None for an ordinary binding. When any
+        // entry in a layout carries UpdateAfterBind, the whole layout and any pool allocating from it
+        // move onto the update-after-bind path; a VariableDescriptorCount entry must be the layout's
+        // last binding, and its `count` is the maximum array size.
+        BindingFlags flags = BindingFlags::None;
         // Only for BindingType::InputAttachment: which render-pass attachment (its index among the
         // pass's color attachments, or `all_remaining` for the depth/stencil attachment) this slot
         // reads. Ignored for every other binding type.
         u32 input_attachment_index = 0;
     };
+
+    template <>
+    struct enable_flag_ops<BindingFlags> : std::true_type {};
 
     // The shape of one bind group (one descriptor set): the entries a pipeline expects at a given
     // set index. `entries` is non-owning — the backend consumes it during

@@ -45,8 +45,27 @@ namespace SFT::Core::Vulkan {
             array_layers = desc.extent.depth_or_layers;
         }
 
+        // The RHI carries no explicit "cube" or "3D-sliceable" bit on TextureDesc, so infer the
+        // image-creation flags that let create_texture_view later expose the view types the RHI
+        // advertises (ViewCube/ViewCubeArray, and 2D/2DArray slices of a 3D texture). Both flags are
+        // strictly capability-additive — a flagged image still supports every view a plain one does —
+        // and each inference exactly matches its Vulkan validity rule, so setting it is never wrong:
+        //   • CUBE_COMPATIBLE requires a 2D, square image with a multiple-of-6 (>= 6) layer count.
+        //   • 2D_ARRAY_COMPATIBLE requires a 3D image.
+        // Without this, creating a cubemap (shadow cubes, IBL/environment maps) or rendering into an
+        // individual slice of a volume texture was impossible through the RHI.
+        VkImageCreateFlags create_flags = 0;
+        if (desc.dimension == rhi::TextureDimension::Dim2D && array_layers >= 6 && array_layers % 6 == 0 &&
+            extent.width == extent.height) {
+            create_flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        }
+        if (desc.dimension == rhi::TextureDimension::Dim3D) {
+            create_flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
+        }
+
         const VkImageCreateInfo image_info{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .flags = create_flags,
             .imageType = to_vk(desc.dimension),
             .format = to_vk(desc.format),
             .extent = extent,

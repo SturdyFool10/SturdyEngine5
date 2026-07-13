@@ -23,6 +23,7 @@ module Sturdy.Core;
 
 import :VulkanBackend;
 import :VulkanConstants;
+import :VulkanRhiBridge;
 import :VulkanHelpers;
 import :VulkanSurface;
 import :VulkanSwapchain;
@@ -57,6 +58,10 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroySurface(VulkanSurface &surface) noexcept {
+        if (surface.rhi_surface() && rhiDevice) {
+            rhiDevice->destroy_surface(surface.rhi_surface());
+            surface.clear_rhi_surface();
+        }
         surface.destroy(vulkan_instance);
     }
 
@@ -190,6 +195,35 @@ namespace SFT::Core::Vulkan {
                              init.framebuffer_extent.width,
                              init.framebuffer_extent.height);
         return RenderSurfaceHandle{window_id};
+    }
+
+    RendererExpected<RHI::SurfaceHandle> VulkanBackend::rhi_surface_for(RenderSurfaceHandle handle) {
+        VulkanSurface *surface = surface_slot(handle);
+        if (surface == nullptr || !surface->is_active()) [[unlikely]] {
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
+                                                  "Cannot get an RHI surface for an unknown or inactive Vulkan surface."});
+        }
+        if (surface->rhi_surface()) {
+            return surface->rhi_surface();
+        }
+        if (!rhiDevice) [[unlikely]] {
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
+                                                  "Vulkan RHI bridge is not initialized."});
+        }
+
+        auto *bridge = dynamic_cast<VulkanRhiDeviceBridge *>(rhiDevice.get());
+        if (bridge == nullptr) [[unlikely]] {
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
+                                                  "Vulkan backend RHI device is not the Vulkan bridge."});
+        }
+
+        auto imported = bridge->import_surface(surface->vk_handle());
+        if (!imported) {
+            return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
+                                                  imported.error().message});
+        }
+        surface->set_rhi_surface(*imported);
+        return *imported;
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::create_window_surface(Window &window, u32 desired_frames_in_flight) {

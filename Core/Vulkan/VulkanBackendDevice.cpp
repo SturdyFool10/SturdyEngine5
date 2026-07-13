@@ -19,6 +19,7 @@ module;
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <string>
 #include <vector>
 #pragma endregion
@@ -37,6 +38,7 @@ import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::format;
+using std::optional;
 using std::string;
 using std::vector;
 
@@ -53,6 +55,31 @@ namespace SFT::Core::Vulkan {
                 out += RHI::feature_name(feature);
             });
             return out.empty() ? string{"none"} : out;
+        }
+
+        [[nodiscard]] u32 available_queue_count(const VulkanPhysicalDevice &device, optional<u32> family) noexcept {
+            if (!family || *family >= device.queue_families().size()) {
+                return 0;
+            }
+            return device.queue_families()[*family].queueCount;
+        }
+
+        [[nodiscard]] u32 preferred_lane_count(const VulkanPhysicalDevice &device, optional<u32> family) noexcept {
+            const u32 count = available_queue_count(device, family);
+            return count == 0 ? 0 : std::min(2u, count);
+        }
+
+        [[nodiscard]] optional<u32> find_dedicated_queue_family(const VulkanPhysicalDevice &device,
+                                                               VkQueueFlags required,
+                                                               VkQueueFlags forbidden) noexcept {
+            const auto &families = device.queue_families();
+            for (u32 i = 0; i < static_cast<u32>(families.size()); ++i) {
+                const VkQueueFlags flags = families[i].queueFlags;
+                if ((flags & required) == required && (flags & forbidden) == 0 && families[i].queueCount > 0) {
+                    return i;
+                }
+            }
+            return {};
         }
 
     } // namespace
@@ -159,8 +186,45 @@ namespace SFT::Core::Vulkan {
         if (this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
             supported_rhi_features.set(RHI::Feature::RayQuery);
         }
-        if (init.features.prefer_async_compute && this->physicalDevice.find_compute_queue_family().has_value()) {
+        const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
+        const auto probed_dedicated_compute_family = find_dedicated_queue_family(
+            this->physicalDevice, VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT);
+        auto probed_dedicated_transfer_family = find_dedicated_queue_family(
+            this->physicalDevice, VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
+        if (!probed_dedicated_transfer_family.has_value()) {
+            // Some GPUs expose a distinct async compute family that also supports transfer, but no pure
+            // DMA/copy family. It is still useful for RHI Transfer work because it is distinct from graphics.
+            probed_dedicated_transfer_family = find_dedicated_queue_family(
+                this->physicalDevice, VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT);
+        }
+        const auto probed_sparse_family = this->physicalDevice.find_sparse_binding_queue_family();
+        const auto probed_video_decode_family = this->physicalDevice.find_video_decode_queue_family();
+        const auto probed_video_encode_family = this->physicalDevice.find_video_encode_queue_family();
+        const bool supports_async_compute_queue = probed_gfx_family.has_value() && probed_dedicated_compute_family.has_value() &&
+                                                  *probed_dedicated_compute_family != *probed_gfx_family;
+        const bool supports_async_transfer_queue = probed_gfx_family.has_value() && probed_dedicated_transfer_family.has_value() &&
+                                                   *probed_dedicated_transfer_family != *probed_gfx_family;
+        const bool supports_sparse_queue = supportedFeatures.features.sparseBinding && probed_sparse_family.has_value();
+        const bool supports_video_decode_queue = this->physicalDevice.supports_extension(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME) &&
+                                                 this->physicalDevice.supports_extension(VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME) &&
+                                                 probed_video_decode_family.has_value();
+        const bool supports_video_encode_queue = this->physicalDevice.supports_extension(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME) &&
+                                                 this->physicalDevice.supports_extension(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME) &&
+                                                 probed_video_encode_family.has_value();
+        if (supports_async_compute_queue) {
             supported_rhi_features.set(RHI::Feature::AsyncCompute);
+        }
+        if (supports_async_transfer_queue) {
+            supported_rhi_features.set(RHI::Feature::AsyncTransfer);
+        }
+        if (supports_sparse_queue) {
+            supported_rhi_features.set(RHI::Feature::SparseBinding);
+        }
+        if (supports_video_decode_queue) {
+            supported_rhi_features.set(RHI::Feature::VideoDecodeQueue);
+        }
+        if (supports_video_encode_queue) {
+            supported_rhi_features.set(RHI::Feature::VideoEncodeQueue);
         }
 
         RHI::FeatureSet required_rhi_features = init.features.required_rhi_features |
@@ -177,8 +241,20 @@ namespace SFT::Core::Vulkan {
                 .set(RHI::Feature::AccelerationStructures)
                 .set(RHI::Feature::BufferDeviceAddress);
         }
-        if (init.features.prefer_async_compute) {
+        if (supports_async_compute_queue) {
             optional_rhi_features.set(RHI::Feature::AsyncCompute);
+        }
+        if (supports_async_transfer_queue) {
+            optional_rhi_features.set(RHI::Feature::AsyncTransfer);
+        }
+        if (supports_sparse_queue) {
+            optional_rhi_features.set(RHI::Feature::SparseBinding);
+        }
+        if (supports_video_decode_queue) {
+            optional_rhi_features.set(RHI::Feature::VideoDecodeQueue);
+        }
+        if (supports_video_encode_queue) {
+            optional_rhi_features.set(RHI::Feature::VideoEncodeQueue);
         }
 
         feature_report_ = RHI::negotiate_features(supported_rhi_features, required_rhi_features, optional_rhi_features);
@@ -228,11 +304,37 @@ namespace SFT::Core::Vulkan {
             .shaderDrawParameters = VK_TRUE,
         };
         VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features11};
+        // Anisotropic filtering: enable whenever the device supports it, so the RHI sampler path can
+        // honor SamplerDesc::max_anisotropy (clamped to the device limit at create_sampler time).
+        // Near-universal on real GPUs; guarded because portability-subset implementations may lack it.
+        if (supportedFeatures.features.samplerAnisotropy) {
+            features.features.samplerAnisotropy = VK_TRUE;
+        }
 
         // Discover queue families. Graphics was already verified by discoverGraphicsQueue;
         // present may share the same index — VulkanDevice::create() deduplicates automatically.
         auto gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         auto present_family = this->physicalDevice.find_present_queue_family(primary_surface);
+        optional<u32> compute_family = enabled_rhi_features.has(RHI::Feature::AsyncCompute)
+            ? probed_dedicated_compute_family
+            : optional<u32>{};
+        optional<u32> transfer_family = enabled_rhi_features.has(RHI::Feature::AsyncTransfer)
+            ? probed_dedicated_transfer_family
+            : optional<u32>{};
+        optional<u32> sparse_family = enabled_rhi_features.has(RHI::Feature::SparseBinding)
+            ? probed_sparse_family
+            : optional<u32>{};
+        optional<u32> video_decode_family = enabled_rhi_features.has(RHI::Feature::VideoDecodeQueue)
+            ? probed_video_decode_family
+            : optional<u32>{};
+        optional<u32> video_encode_family = enabled_rhi_features.has(RHI::Feature::VideoEncodeQueue)
+            ? probed_video_encode_family
+            : optional<u32>{};
+        if (compute_family.has_value() && transfer_family.has_value() && *compute_family == *transfer_family) {
+            // VulkanDevice wraps queue handles with per-wrapper mutexes. If transfer aliases the compute
+            // queue family, request/retrieve it once and let the RHI bridge map Transfer to computeQueue.
+            transfer_family.reset();
+        }
 
         // Extensions: swapchain (required for presentation) + calibrated timestamps
         // (Vulkan 1.4 core, needed for anchoring GPU timer to wall clock).
@@ -242,6 +344,15 @@ namespace SFT::Core::Vulkan {
         };
         if (enable_mesh_shader) {
             extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+        }
+        if (video_decode_family.has_value() || video_encode_family.has_value()) {
+            extensions.push_back(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME);
+        }
+        if (video_decode_family.has_value()) {
+            extensions.push_back(VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME);
+        }
+        if (video_encode_family.has_value()) {
+            extensions.push_back(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME);
         }
 
         // The Vulkan spec requires enabling VK_KHR_portability_subset on any device that
@@ -254,6 +365,17 @@ namespace SFT::Core::Vulkan {
         VulkanDevice::DeviceCreateDesc desc{
             .graphics_queue_family = gfx_family,
             .present_queue_family = present_family,
+            .compute_queue_family = compute_family,
+            .transfer_queue_family = transfer_family,
+            .sparse_queue_family = sparse_family,
+            .video_decode_queue_family = video_decode_family,
+            .video_encode_queue_family = video_encode_family,
+            .graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family),
+            .compute_queue_count = preferred_lane_count(this->physicalDevice, compute_family),
+            .transfer_queue_count = preferred_lane_count(this->physicalDevice, transfer_family),
+            .sparse_queue_count = preferred_lane_count(this->physicalDevice, sparse_family),
+            .video_decode_queue_count = preferred_lane_count(this->physicalDevice, video_decode_family),
+            .video_encode_queue_count = preferred_lane_count(this->physicalDevice, video_encode_family),
             .extensions = extensions,
             .features_pnext = &features,
         };
@@ -277,6 +399,37 @@ namespace SFT::Core::Vulkan {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "Failed to get a graphics queue for drawing graphics");
         }
         this->gfxQueue = std::move(*device_graphics_queue);
+
+        if (compute_family.has_value()) {
+            if (!this->logicalDevice.compute_queue().has_value()) [[unlikely]] {
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "Failed to get a dedicated compute queue.");
+            }
+            Foundation::log_info("Dedicated Vulkan compute queue selected: family={}", *compute_family);
+        }
+
+        if (transfer_family.has_value()) {
+            if (!this->logicalDevice.transfer_queue().has_value()) [[unlikely]] {
+                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "Failed to get a dedicated transfer queue.");
+            }
+            Foundation::log_info("Dedicated Vulkan transfer queue selected: family={} lanes={}", *transfer_family,
+                                 this->logicalDevice.transfer_queue_lanes().size());
+        }
+        if (compute_family.has_value()) {
+            Foundation::log_info("Vulkan compute queue lanes={}", this->logicalDevice.compute_queue_lanes().size());
+        }
+        Foundation::log_info("Vulkan graphics queue lanes={}", this->logicalDevice.graphics_queue_lanes().size());
+        if (sparse_family.has_value()) {
+            Foundation::log_info("Vulkan sparse queue selected: family={} lanes={}", *sparse_family,
+                                 this->logicalDevice.sparse_queue_lanes().size());
+        }
+        if (video_decode_family.has_value()) {
+            Foundation::log_info("Vulkan video decode queue selected: family={} lanes={}", *video_decode_family,
+                                 this->logicalDevice.video_decode_queue_lanes().size());
+        }
+        if (video_encode_family.has_value()) {
+            Foundation::log_info("Vulkan video encode queue selected: family={} lanes={}", *video_encode_family,
+                                 this->logicalDevice.video_encode_queue_lanes().size());
+        }
         return {};
     }
 

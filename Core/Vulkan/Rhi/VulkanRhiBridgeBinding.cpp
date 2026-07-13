@@ -34,7 +34,11 @@ namespace SFT::Core::Vulkan {
         }
 
         vector<VkDescriptorSetLayoutBinding> bindings;
+        vector<VkDescriptorBindingFlags> binding_flags;
         bindings.reserve(desc.entries.size());
+        binding_flags.reserve(desc.entries.size());
+        bool any_binding_flags = false;
+        bool any_update_after_bind = false;
         for (const rhi::BindGroupLayoutEntry &entry : desc.entries) {
             bindings.push_back(VkDescriptorSetLayoutBinding{
                 .binding = entry.binding,
@@ -43,9 +47,32 @@ namespace SFT::Core::Vulkan {
                 .stageFlags = to_vk(entry.visibility),
                 .pImmutableSamplers = nullptr,
             });
+            const VkDescriptorBindingFlags vk_flags = to_vk(entry.flags);
+            binding_flags.push_back(vk_flags);
+            any_binding_flags = any_binding_flags || vk_flags != 0;
+            any_update_after_bind = any_update_after_bind ||
+                                    rhi::has_any(entry.flags, rhi::BindingFlags::UpdateAfterBind);
         }
 
-        auto layout = VulkanDescriptorSetLayout::create_from_bindings(logical_device_->vk_handle(), bindings);
+        // A layout with any bindless descriptor-indexing flag needs the flags chained through pNext;
+        // update-after-bind additionally requires the matching create-flag (and an update-after-bind
+        // pool at bind-group time — see create_bind_group below).
+        const VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+            .pNext = nullptr,
+            .bindingCount = static_cast<u32>(binding_flags.size()),
+            .pBindingFlags = binding_flags.empty() ? nullptr : binding_flags.data(),
+        };
+        const VkDescriptorSetLayoutCreateInfo layout_info{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = any_binding_flags ? &binding_flags_info : nullptr,
+            .flags = any_update_after_bind
+                         ? static_cast<VkDescriptorSetLayoutCreateFlags>(VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT)
+                         : 0u,
+            .bindingCount = static_cast<u32>(bindings.size()),
+            .pBindings = bindings.empty() ? nullptr : bindings.data(),
+        };
+        auto layout = VulkanDescriptorSetLayout::create(logical_device_->vk_handle(), layout_info);
         if (!layout) {
             return rhi_error_from_graphics(layout.error());
         }
@@ -90,12 +117,34 @@ namespace SFT::Core::Vulkan {
             pool_sizes.push_back(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1});
         }
 
-        auto pool = VulkanDescriptorPool::create_from_sizes(logical_device_->vk_handle(), pool_sizes, 1);
+        // Mirror the layout's bindless requirements onto its pool/allocation: an update-after-bind
+        // layout can only be allocated from an update-after-bind pool, and a variable-count final
+        // binding's actual size is chosen here (we use the layout's declared count as the size).
+        bool needs_update_after_bind = false;
+        bool has_variable_count = false;
+        u32 variable_count = 0;
+        for (const rhi::BindGroupLayoutEntry &entry : layout_record->entries) {
+            if (rhi::has_any(entry.flags, rhi::BindingFlags::UpdateAfterBind)) {
+                needs_update_after_bind = true;
+            }
+            if (rhi::has_any(entry.flags, rhi::BindingFlags::VariableDescriptorCount)) {
+                has_variable_count = true;
+                variable_count = entry.count;
+            }
+        }
+        const VkDescriptorPoolCreateFlags pool_flags =
+            needs_update_after_bind
+                ? static_cast<VkDescriptorPoolCreateFlags>(VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT)
+                : 0u;
+
+        auto pool = VulkanDescriptorPool::create_from_sizes(logical_device_->vk_handle(), pool_sizes, 1, pool_flags);
         if (!pool) {
             return rhi_error_from_graphics(pool.error());
         }
 
-        auto set = pool->allocate_one(layout_record->layout.vk_handle());
+        auto set = has_variable_count
+                       ? pool->allocate_one(layout_record->layout.vk_handle(), variable_count)
+                       : pool->allocate_one(layout_record->layout.vk_handle());
         if (!set) {
             return rhi_error_from_graphics(set.error());
         }

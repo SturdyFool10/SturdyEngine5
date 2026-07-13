@@ -132,7 +132,45 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_all_resources() noexcept {
-        destroy_rhi_triangle_resources();
+        destroy_debug_scene_resources();
+        frame_draws_.clear();
+
+        for (MaterialInstanceResource &resource : material_instances_) {
+            if (resource.alive) {
+                destroy_material_instance_gpu(resource);
+                resource = {};
+            }
+        }
+        material_instances_.clear();
+        for (MaterialTemplateResource &resource : material_templates_) {
+            if (resource.alive) {
+                destroy_material_template_gpu(resource);
+                resource = {};
+            }
+        }
+        material_templates_.clear();
+
+        if (RHI::RhiDevice *device = rhi_device()) {
+            for (RHI::BindGroupHandle group : frame_transient_bind_groups_) {
+                if (group) {
+                    device->destroy_bind_group(group);
+                }
+            }
+        }
+        frame_transient_bind_groups_.clear();
+
+        // Reclaim every in-flight frame slot and destroy its (reusable) fence. Safe: teardown runs after
+        // the destructor's wait_idle(), so no slot's GPU work is still pending.
+        if (RHI::RhiDevice *device = rhi_device()) {
+            for (FrameInFlight &slot : frames_in_flight_) {
+                reclaim_frame_slot(slot);
+                if (slot.fence) {
+                    device->destroy_fence(slot.fence);
+                }
+            }
+        }
+        frames_in_flight_.clear();
+        destroy_tonemap_resources();
 
         for (MeshResource &resource : meshes_) {
             if (resource.alive) {

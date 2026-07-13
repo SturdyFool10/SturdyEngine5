@@ -251,6 +251,14 @@ export namespace SFT::Core::Vulkan {
         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     }
 
+    [[nodiscard]] constexpr VkDescriptorBindingFlags to_vk(rhi::BindingFlags flags) noexcept {
+        VkDescriptorBindingFlags out = 0;
+        if (rhi::has_any(flags, rhi::BindingFlags::PartiallyBound)) out |= VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+        if (rhi::has_any(flags, rhi::BindingFlags::UpdateAfterBind)) out |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        if (rhi::has_any(flags, rhi::BindingFlags::VariableDescriptorCount)) out |= VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+        return out;
+    }
+
     [[nodiscard]] constexpr VkPrimitiveTopology to_vk(rhi::PrimitiveTopology topology) noexcept {
         switch (topology) {
             case rhi::PrimitiveTopology::PointList: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;

@@ -17,6 +17,7 @@ import :VulkanCommandPool;
 import :VulkanCommandBuffer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
+import Sturdy.RHI;
 
 using SFT::Core::Extent2D;
 using SFT::Core::RenderSurfaceDescriptor;
@@ -64,11 +65,12 @@ export namespace SFT::Core::Vulkan {
 
         VulkanSurface(VulkanSurface &&o) noexcept
             : window_(o.window_), descriptor_(o.descriptor_), extent_(o.extent_),
-              vk_surface_(o.vk_surface_), swapchain_(std::move(o.swapchain_)), frames_in_flight_(o.frames_in_flight_),
+              vk_surface_(o.vk_surface_), rhi_surface_(o.rhi_surface_), swapchain_(std::move(o.swapchain_)), frames_in_flight_(o.frames_in_flight_),
               active_(o.active_), swapchain_dirty_(o.swapchain_dirty_),
               frames_(std::move(o.frames_)), frame_timeline_(std::move(o.frame_timeline_)),
               frame_cursor_(o.frame_cursor_), next_signal_value_(o.next_signal_value_) {
             o.vk_surface_ = VK_NULL_HANDLE;
+            o.rhi_surface_ = {};
             o.active_ = false;
             o.frame_cursor_ = 0;
             o.next_signal_value_ = 0;
@@ -80,6 +82,7 @@ export namespace SFT::Core::Vulkan {
                 descriptor_ = o.descriptor_;
                 extent_ = o.extent_;
                 vk_surface_ = o.vk_surface_;
+                rhi_surface_ = o.rhi_surface_;
                 swapchain_ = std::move(o.swapchain_);
                 frames_in_flight_ = o.frames_in_flight_;
                 active_ = o.active_;
@@ -89,6 +92,7 @@ export namespace SFT::Core::Vulkan {
                 frame_cursor_ = o.frame_cursor_;
                 next_signal_value_ = o.next_signal_value_;
                 o.vk_surface_ = VK_NULL_HANDLE;
+                o.rhi_surface_ = {};
                 o.active_ = false;
                 o.frame_cursor_ = 0;
                 o.next_signal_value_ = 0;
@@ -97,6 +101,9 @@ export namespace SFT::Core::Vulkan {
         }
 
         [[nodiscard]] VkSurfaceKHR vk_handle() const noexcept { return vk_surface_; }
+        [[nodiscard]] RHI::SurfaceHandle rhi_surface() const noexcept { return rhi_surface_; }
+        void set_rhi_surface(RHI::SurfaceHandle surface) noexcept { rhi_surface_ = surface; }
+        void clear_rhi_surface() noexcept { rhi_surface_ = {}; }
         [[nodiscard]] bool is_active() const noexcept { return active_; }
         [[nodiscard]] const RenderSurfaceDescriptor &descriptor() const noexcept { return descriptor_; }
         [[nodiscard]] Extent2D extent() const noexcept { return extent_; }
@@ -178,6 +185,7 @@ export namespace SFT::Core::Vulkan {
                 vkDestroySurfaceKHR(instance, vk_surface_, nullptr);
                 vk_surface_ = VK_NULL_HANDLE;
             }
+            rhi_surface_ = {};
             window_ = nullptr;
             descriptor_ = {};
             extent_ = {};
@@ -191,6 +199,7 @@ export namespace SFT::Core::Vulkan {
         RenderSurfaceDescriptor descriptor_{};
         Extent2D extent_{};
         VkSurfaceKHR vk_surface_ = VK_NULL_HANDLE;
+        RHI::SurfaceHandle rhi_surface_{};
         VulkanSwapchain swapchain_{};
         u32 frames_in_flight_ = 2;
         bool active_ = false;
