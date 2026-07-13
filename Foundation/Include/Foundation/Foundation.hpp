@@ -7,6 +7,7 @@
 #include <Foundation/Constants.hpp>
 #include <Foundation/NumericConcepts.hpp>
 #include <Foundation/Math.hpp>
+#include <Foundation/Color.hpp>
 #include <Foundation/UString.hpp>
 #include <Foundation/Iter.hpp>
 #include <Foundation/Embed.hpp>
