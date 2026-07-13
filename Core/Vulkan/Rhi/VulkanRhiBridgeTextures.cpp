@@ -18,6 +18,8 @@ module;
 #include <utility>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanAllocator;
@@ -25,7 +27,6 @@ import :VulkanDevice;
 import :VulkanImage;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 namespace SFT::Core::Vulkan {

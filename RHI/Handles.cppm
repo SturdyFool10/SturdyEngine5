@@ -1,8 +1,8 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 export module Sturdy.RHI:Handles;
 
-import Sturdy.Foundation;
 
 export namespace SFT::RHI {
 

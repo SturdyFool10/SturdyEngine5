@@ -3,6 +3,7 @@
 // demo render path uses is a different, source-file-keyed concern and not what this generic RHI entry
 // point is for.
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -15,7 +16,6 @@ module Sturdy.Core;
 
 import :VulkanDevice;
 import :VulkanRhiBridge;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 namespace SFT::Core::Vulkan {

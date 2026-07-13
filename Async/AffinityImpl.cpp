@@ -1,6 +1,4 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -22,13 +20,7 @@ module;
 #include <sched.h>
 #endif
 #endif
-#pragma endregion
-
-module Sturdy.Async;
-
-import :Affinity;
-import :Task;
-import :Mutex;
+#include <Async/Affinity.hpp>
 
 using std::unique_lock;
 using std::unique_ptr;

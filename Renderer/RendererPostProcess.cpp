@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -17,7 +18,6 @@ module Sturdy.Renderer;
 
 import :Renderer;
 import :ReflectionBinding;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 
@@ -47,7 +47,8 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_tonemap_resources() {
-        if (tonemap_.ready) {
+        auto guard = tonemap_.lock();
+        if (guard->ready) {
             return {};
         }
         RHI::RhiDevice *device = rhi_device();
@@ -67,11 +68,11 @@ namespace SFT::Renderer {
         if (!shader) {
             return unexpected(tonemap_error("compile tonemap shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }
-        tonemap_.shader = *shader;
-        tonemap_.vertex_entry_point = "vertexMain";
-        tonemap_.fragment_entry_point = "fragmentMain";
+        guard->shader = *shader;
+        guard->vertex_entry_point = "vertexMain";
+        guard->fragment_entry_point = "fragmentMain";
 
-        auto vertex_code = tonemap_.shader.entry_point_code(tonemap_.vertex_entry_point);
+        auto vertex_code = guard->shader.entry_point_code(guard->vertex_entry_point);
         if (!vertex_code) {
             return unexpected(tonemap_error("generate tonemap vertex bytecode failed: " + vertex_code.error().message));
         }
@@ -83,11 +84,11 @@ namespace SFT::Renderer {
         if (!vertex_module) {
             return unexpected(graphics_error_from_rhi(vertex_module.error(), "create tonemap vertex module"));
         }
-        tonemap_.vertex_module = *vertex_module;
+        guard->vertex_module = *vertex_module;
 
-        auto fragment_code = tonemap_.shader.entry_point_code(tonemap_.fragment_entry_point);
+        auto fragment_code = guard->shader.entry_point_code(guard->fragment_entry_point);
         if (!fragment_code) {
-            destroy_tonemap_resources();
+            destroy_tonemap_resources_locked(*guard);
             return unexpected(tonemap_error("generate tonemap fragment bytecode failed: " + fragment_code.error().message));
         }
         auto fragment_module = device->create_shader_module(RHI::ShaderModuleDesc{
@@ -96,13 +97,13 @@ namespace SFT::Renderer {
             .label = "tonemap fragment module",
         });
         if (!fragment_module) {
-            destroy_tonemap_resources();
+            destroy_tonemap_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(fragment_module.error(), "create tonemap fragment module"));
         }
-        tonemap_.fragment_module = *fragment_module;
+        guard->fragment_module = *fragment_module;
 
         // Bind-group + pipeline layouts, generated from the shader's (Texture2D + SamplerState) bindings.
-        const slang::ShaderReflection &reflection = tonemap_.shader.reflection();
+        const slang::ShaderReflection &reflection = guard->shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
         for (const GeneratedBindGroupLayout &layout : generated) {
             auto handle = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
@@ -110,27 +111,27 @@ namespace SFT::Renderer {
                 .label = "tonemap bind group layout",
             });
             if (!handle) {
-                destroy_tonemap_resources();
+                destroy_tonemap_resources_locked(*guard);
                 return unexpected(graphics_error_from_rhi(handle.error(), "create tonemap bind group layout"));
             }
-            tonemap_.bind_group_layouts.push_back(*handle);
-            tonemap_.bind_group_layout_sets.push_back(layout.set);
+            guard->bind_group_layouts.push_back(*handle);
+            guard->bind_group_layout_sets.push_back(layout.set);
         }
-        if (tonemap_.bind_group_layouts.empty()) {
-            destroy_tonemap_resources();
+        if (guard->bind_group_layouts.empty()) {
+            destroy_tonemap_resources_locked(*guard);
             return unexpected(tonemap_error("tonemap shader produced no bind-group layout (expected a texture + sampler)."));
         }
 
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
-            .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{tonemap_.bind_group_layouts.data(), tonemap_.bind_group_layouts.size()},
+            .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{guard->bind_group_layouts.data(), guard->bind_group_layouts.size()},
             .push_constant_ranges = {},
             .label = "tonemap pipeline layout",
         });
         if (!pipeline_layout) {
-            destroy_tonemap_resources();
+            destroy_tonemap_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(pipeline_layout.error(), "create tonemap pipeline layout"));
         }
-        tonemap_.pipeline_layout = *pipeline_layout;
+        guard->pipeline_layout = *pipeline_layout;
 
         auto sampler = device->create_sampler(RHI::SamplerDesc{
             .min_filter = RHI::Filter::Linear,
@@ -143,12 +144,12 @@ namespace SFT::Renderer {
             .label = "tonemap scene sampler",
         });
         if (!sampler) {
-            destroy_tonemap_resources();
+            destroy_tonemap_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(sampler.error(), "create tonemap sampler"));
         }
-        tonemap_.sampler = *sampler;
+        guard->sampler = *sampler;
 
-        tonemap_.ready = true;
+        guard->ready = true;
         return {};
     }
 
@@ -156,7 +157,9 @@ namespace SFT::Renderer {
         if (Core::RendererResult ready = ensure_tonemap_resources(); !ready) {
             return unexpected(ready.error());
         }
-        for (const TonemapPipelineVariant &variant : tonemap_.pipeline_variants) {
+
+        auto guard = tonemap_.lock();
+        for (const TonemapPipelineVariant &variant : guard->pipeline_variants) {
             if (variant.color_format == color_format) {
                 return variant.pipeline;
             }
@@ -170,9 +173,9 @@ namespace SFT::Renderer {
         const RHI::ColorTargetState color_target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
         // No vertex buffers (fullscreen triangle from SV_VertexID) and no depth attachment.
         const RHI::RenderPipelineDesc desc{
-            .layout = tonemap_.pipeline_layout,
-            .vertex = RHI::ShaderEntry{.module = tonemap_.vertex_module, .entry_point = tonemap_.vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
-            .fragment = RHI::ShaderEntry{.module = tonemap_.fragment_module, .entry_point = tonemap_.fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment},
+            .layout = guard->pipeline_layout,
+            .vertex = RHI::ShaderEntry{.module = guard->vertex_module, .entry_point = guard->vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
+            .fragment = RHI::ShaderEntry{.module = guard->fragment_module, .entry_point = guard->fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment},
             .vertex_buffers = {},
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
@@ -184,12 +187,12 @@ namespace SFT::Renderer {
         if (!pipeline) {
             return unexpected(graphics_error_from_rhi(pipeline.error(), "create tonemap pipeline"));
         }
-        tonemap_.pipeline_variants.push_back(TonemapPipelineVariant{.color_format = color_format, .pipeline = *pipeline});
+        guard->pipeline_variants.push_back(TonemapPipelineVariant{.color_format = color_format, .pipeline = *pipeline});
         return *pipeline;
     }
 
     Core::RendererResult Renderer::record_tonemap(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
-                                                  RHI::Format color_format) {
+                                                  RHI::Format color_format, vector<RHI::BindGroupHandle> &transient_bind_groups) {
         auto pipeline = tonemap_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -199,8 +202,9 @@ namespace SFT::Renderer {
             return unexpected(tonemap_error("Cannot record the tonemap pass without a device and scene texture."));
         }
 
-        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(tonemap_.shader.reflection(),
-                                                                                       reflected_stage_mask(tonemap_.shader.reflection()));
+        auto guard = tonemap_.lock();
+        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(guard->shader.reflection(),
+                                                                                       reflected_stage_mask(guard->shader.reflection()));
         if (generated.empty()) {
             return unexpected(tonemap_error("tonemap shader reflection produced no bind-group layout."));
         }
@@ -221,24 +225,24 @@ namespace SFT::Renderer {
         if (!has_image_binding || !has_sampler_binding) {
             return unexpected(tonemap_error("tonemap shader reflection did not produce one sampled texture and one sampler."));
         }
-        const usize layout_index = bind_group_layout_index_for_set(tonemap_.bind_group_layout_sets, layout.set);
-        if (layout_index >= tonemap_.bind_group_layouts.size()) {
+        const usize layout_index = bind_group_layout_index_for_set(guard->bind_group_layout_sets, layout.set);
+        if (layout_index >= guard->bind_group_layouts.size()) {
             return unexpected(tonemap_error("tonemap shader reflection set has no generated bind-group layout."));
         }
         const array<RHI::BindGroupEntry, 2> entries{
             RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
-            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = tonemap_.sampler},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = guard->sampler},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = tonemap_.bind_group_layouts[layout_index],
+            .layout = guard->bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "tonemap scene bind group",
         });
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create tonemap bind group"));
         }
-        // Freed after the frame fence retires (destroy_all_resources / the per-frame cleanup path).
-        frame_transient_bind_groups_.push_back(*bind_group);
+        // Freed after the frame fence retires (this frame's FrameInFlight slot).
+        transient_bind_groups.push_back(*bind_group);
 
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(layout.set, *bind_group);
@@ -247,32 +251,37 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_tonemap_resources() noexcept {
+        auto guard = tonemap_.lock();
+        destroy_tonemap_resources_locked(*guard);
+    }
+
+    void Renderer::destroy_tonemap_resources_locked(TonemapResources &resources) noexcept {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
-            tonemap_ = {};
+            resources = {};
             return;
         }
-        for (const TonemapPipelineVariant &variant : tonemap_.pipeline_variants) {
+        for (const TonemapPipelineVariant &variant : resources.pipeline_variants) {
             if (variant.pipeline) {
                 device->destroy_render_pipeline(variant.pipeline);
             }
         }
-        if (tonemap_.sampler) {
-            device->destroy_sampler(tonemap_.sampler);
+        if (resources.sampler) {
+            device->destroy_sampler(resources.sampler);
         }
-        if (tonemap_.pipeline_layout) {
-            device->destroy_pipeline_layout(tonemap_.pipeline_layout);
+        if (resources.pipeline_layout) {
+            device->destroy_pipeline_layout(resources.pipeline_layout);
         }
-        for (RHI::BindGroupLayoutHandle layout : tonemap_.bind_group_layouts) {
+        for (RHI::BindGroupLayoutHandle layout : resources.bind_group_layouts) {
             device->destroy_bind_group_layout(layout);
         }
-        if (tonemap_.fragment_module) {
-            device->destroy_shader_module(tonemap_.fragment_module);
+        if (resources.fragment_module) {
+            device->destroy_shader_module(resources.fragment_module);
         }
-        if (tonemap_.vertex_module) {
-            device->destroy_shader_module(tonemap_.vertex_module);
+        if (resources.vertex_module) {
+            device->destroy_shader_module(resources.vertex_module);
         }
-        tonemap_ = {};
+        resources = {};
     }
 
 } // namespace SFT::Renderer

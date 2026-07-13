@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.RHI:Error;
 
-import Sturdy.Foundation;
 
 using std::expected;
 using std::string;

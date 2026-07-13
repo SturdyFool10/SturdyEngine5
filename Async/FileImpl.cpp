@@ -1,6 +1,4 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
@@ -10,13 +8,7 @@ module;
 #include <span>
 #include <string>
 #include <vector>
-#pragma endregion
-
-module Sturdy.Async;
-
-import :File;
-import :IoError;
-import Sturdy.Foundation;
+#include <Async/File.hpp>
 
 using std::expected;
 using std::ifstream;

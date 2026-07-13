@@ -24,6 +24,8 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanAllocator;
@@ -34,7 +36,6 @@ import :VulkanPhysicalDevice;
 import :VulkanQueue;
 import :GraphicsBackendError;
 import :Renderer;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::format;

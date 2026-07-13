@@ -1,11 +1,14 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <expected>
 #include <optional>
 #include <span>
+#include <utility>
 #include <string>
 #include <utility>
 #include <glm/mat4x4.hpp>
@@ -16,12 +19,13 @@ module Sturdy.Renderer;
 import :Renderer;
 import :Scene;
 import :RenderGraph;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 import Sturdy.Platform;
 
 using std::array;
+using std::chrono::duration;
+using std::chrono::steady_clock;
 using std::optional;
 using std::span;
 using std::string;
@@ -31,7 +35,25 @@ namespace SFT::Renderer {
 
     namespace {
 
+        constexpr f64 renderer_stage_hitch_threshold_seconds = 0.050;
+        constexpr f64 swapchain_resize_settle_seconds = 0.075;
 
+        class ScopedRendererStageTimer {
+          public:
+            explicit ScopedRendererStageTimer(const char *stage) noexcept
+                : stage_(stage), start_(steady_clock::now()) {}
+
+            ~ScopedRendererStageTimer() noexcept {
+                const f64 seconds = duration<f64>(steady_clock::now() - start_).count();
+                if (seconds >= renderer_stage_hitch_threshold_seconds) {
+                    Foundation::log_warn("Renderer stage '{}' took {}", stage_, Foundation::human_readable_time(seconds));
+                }
+            }
+
+          private:
+            const char *stage_;
+            steady_clock::time_point start_;
+        };
 
         [[nodiscard]] Core::Extent2D framebuffer_extent(Platform::Windowing::Window &window) {
             if (auto size = window.framebuffer_size()) {
@@ -54,10 +76,7 @@ namespace SFT::Renderer {
 
     } // namespace
 
-    Renderer::Renderer() {
-        auto backend = Core::create_vulkan_backend();
-        graphics_backend_.reset(backend.release());
-    }
+    Renderer::Renderer() = default;
 
     Renderer::~Renderer() {
         wait_idle();
@@ -71,6 +90,9 @@ namespace SFT::Renderer {
                                                         "Renderer is already initialized."});
         }
         if (!graphics_backend_) {
+            graphics_backend_ = Core::create_vulkan_backend();
+        }
+        if (!graphics_backend_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::InitializationFailed,
                                                         "No graphics backend is available."});
         }
@@ -82,19 +104,27 @@ namespace SFT::Renderer {
 
         initialized_ = true;
         recovery_create_info_ = create_info;
-        window_surfaces_.clear();
-        window_surfaces_.push_back(WindowSurfaceRecord{
-            .window = create_info.window,
-            .surface = *surface,
-            .desired_frames_in_flight = create_info.features.desired_frames_in_flight,
-            .presentation = create_info.features.presentation,
-            .primary = true,
-        });
+        {
+            auto guard = window_surfaces_.lock();
+            guard->clear();
+            guard->push_back(std::make_unique<WindowSurfaceRecord>(WindowSurfaceRecord{
+                .window = create_info.window,
+                .surface = *surface,
+                .desired_frames_in_flight = create_info.features.desired_frames_in_flight,
+                .presentation = create_info.features.presentation,
+                .primary = true,
+                .frames_in_flight = {},
+            }));
+        }
         capabilities_ = graphics_backend_->capabilities();
 
         if (create_info.window != nullptr) {
-            if (Core::RendererResult rhi_resources = ensure_rhi_presentation_resources(window_surfaces_.back());
-                !rhi_resources.has_value()) {
+            WindowSurfaceRecord *record = window_surface(*surface);
+            Core::RendererResult rhi_resources = record != nullptr
+                ? ensure_rhi_presentation_resources(*record)
+                : Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                               "Primary window surface vanished immediately after registration.");
+            if (!rhi_resources.has_value()) {
                 destroy_window_surface(*surface);
                 initialized_ = false;
                 return unexpected(rhi_resources.error());
@@ -116,14 +146,23 @@ namespace SFT::Renderer {
             return unexpected(surface.error());
         }
 
-        window_surfaces_.push_back(WindowSurfaceRecord{
-            .window = &window,
-            .surface = *surface,
-            .desired_frames_in_flight = desired_frames_in_flight,
-            .presentation = Core::PresentationSettings{},
-            .primary = false,
-        });
-        if (Core::RendererResult rhi_resources = ensure_rhi_presentation_resources(window_surfaces_.back());
+        {
+            auto guard = window_surfaces_.lock();
+            guard->push_back(std::make_unique<WindowSurfaceRecord>(WindowSurfaceRecord{
+                .window = &window,
+                .surface = *surface,
+                .desired_frames_in_flight = desired_frames_in_flight,
+                .presentation = Core::PresentationSettings{},
+                .primary = false,
+                .frames_in_flight = {},
+            }));
+        }
+        WindowSurfaceRecord *record = window_surface(*surface);
+        if (record == nullptr) {
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
+                                                          "Window surface vanished immediately after registration."});
+        }
+        if (Core::RendererResult rhi_resources = ensure_rhi_presentation_resources(*record);
             !rhi_resources.has_value()) {
             destroy_window_surface(*surface);
             return unexpected(rhi_resources.error());
@@ -132,13 +171,14 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
-        for (auto it = window_surfaces_.begin(); it != window_surfaces_.end(); ++it) {
-            if (it->surface == surface) {
-                destroy_rhi_presentation_resources(*it);
+        auto guard = window_surfaces_.lock();
+        for (auto it = guard->begin(); it != guard->end(); ++it) {
+            if ((*it)->surface == surface) {
+                destroy_rhi_presentation_resources(**it);
                 if (graphics_backend_) {
                     graphics_backend_->destroy_window_surface(surface);
                 }
-                window_surfaces_.erase(it);
+                guard->erase(it);
                 break;
             }
         }
@@ -179,43 +219,31 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
-        const bool previous_debug_fallback = debug_fallback_enabled_;
-        const glm::mat4 previous_view_projection = frame_view_projection_;
-        const CameraView previous_camera = frame_camera_;
-        const SceneLighting previous_lighting = frame_lighting_;
-        const DeferredTargetFormats previous_deferred_formats = deferred_formats_;
-        debug_fallback_enabled_ = false;
-        frame_camera_ = desc.view.camera;
-        frame_lighting_ = desc.view.lighting;
-        deferred_formats_ = desc.view.deferred_formats;
-        frame_view_projection_ = desc.view.camera.projection * desc.view.camera.view;
-        frame_draws_.clear();
+        // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
+        // templates before recording. Cheap when nothing changed (a directory stat); the reload path
+        // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
+        poll_shader_hot_reload();
 
+        FrameSubmission submission{};
+        submission.camera = desc.view.camera;
+        submission.lighting = desc.view.lighting;
+        submission.deferred_formats = desc.view.deferred_formats;
+        submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
+
+        submission.draws.reserve(desc.view.renderables.size());
         for (const SceneRenderable &renderable : desc.view.renderables) {
             if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
                 continue;
             }
             if (mesh(renderable.mesh) == nullptr) {
-                debug_fallback_enabled_ = previous_debug_fallback;
-                frame_view_projection_ = previous_view_projection;
-                frame_camera_ = previous_camera;
-                frame_lighting_ = previous_lighting;
-                deferred_formats_ = previous_deferred_formats;
-                frame_draws_.clear();
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Scene renderable references an unknown mesh.");
             }
             if (material_instance(renderable.material) == nullptr) {
-                debug_fallback_enabled_ = previous_debug_fallback;
-                frame_view_projection_ = previous_view_projection;
-                frame_camera_ = previous_camera;
-                frame_lighting_ = previous_lighting;
-                deferred_formats_ = previous_deferred_formats;
-                frame_draws_.clear();
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Scene renderable references an unknown material instance.");
             }
-            frame_draws_.push_back(RenderItem{
+            submission.draws.push_back(RenderItem{
                 .mesh = renderable.mesh,
                 .material = renderable.material,
                 .world_transform = renderable.world_transform,
@@ -224,76 +252,75 @@ namespace SFT::Renderer {
             });
         }
 
-        Core::RendererResult result = render_frame(desc.surface, desc.frame);
-        frame_draws_.clear();
-        frame_view_projection_ = previous_view_projection;
-        frame_camera_ = previous_camera;
-        frame_lighting_ = previous_lighting;
-        deferred_formats_ = previous_deferred_formats;
-        debug_fallback_enabled_ = previous_debug_fallback;
-        return result;
+        return render_frame_dispatch(desc.surface, desc.frame, submission);
     }
 
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
+        // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
+        // templates before recording. Cheap when nothing changed (a directory stat); the reload path
+        // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
+        poll_shader_hot_reload();
+
+        // Legacy path for the public submit_draw() API — see frame_draws_'s doc comment on why this is
+        // the only caller left that still touches it.
+        FrameSubmission submission{};
+        submission.draws = std::move(frame_draws_);
+        frame_draws_.clear();
+
+        if (submission.draws.empty()) {
+            if (Core::RendererResult debug_resources = ensure_debug_scene_resources(); !debug_resources.has_value()) {
+                return debug_resources;
+            }
+            auto guard = debug_scene_.lock();
+            submission.draws.push_back(RenderItem{.mesh = guard->mesh, .material = guard->material_instance});
+        }
+
+        return render_frame_dispatch(surface, frame, submission);
+    }
+
+    Core::RendererResult Renderer::render_frame_dispatch(Core::RenderSurfaceHandle surface,
+                                                          const Core::FrameInput &frame,
+                                                          FrameSubmission &submission) {
         WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer surface is not registered.");
         }
 
-        // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
-        // templates before recording. Cheap when nothing changed (a directory stat); the reload path
-        // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
-        poll_shader_hot_reload();
-
-        if (frame_draws_.empty() && debug_fallback_enabled_) {
-            if (Core::RendererResult debug_resources = ensure_debug_scene_resources(); !debug_resources.has_value()) {
-                return debug_resources;
-            }
-            frame_draws_.push_back(RenderItem{.mesh = debug_scene_.mesh, .material = debug_scene_.material_instance});
-        }
-
-        auto submit_frame = [&]() -> Core::RendererResult {
-            return render_frame_rhi(*record, frame);
-        };
-
-        Core::RendererResult result = submit_frame();
+        Core::RendererResult result = render_frame_rhi(*record, frame, submission);
         if (result.has_value() || result.error().code != Core::GraphicsBackendErrorCode::DeviceLost) {
-            frame_draws_.clear();
             return result;
         }
 
         Core::RendererResult recovery = recover_from_device_loss();
         if (!recovery.has_value()) {
-            frame_draws_.clear();
             return recovery;
         }
 
         record = window_surface(surface);
         if (record == nullptr) {
-            frame_draws_.clear();
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer surface is unavailable after device-loss recovery.");
         }
-        Core::RendererResult retry = render_frame_rhi(*record, frame);
-        frame_draws_.clear();
-        return retry;
+        return render_frame_rhi(*record, frame, submission);
     }
 
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
-        for (WindowSurfaceRecord &record : window_surfaces_) {
-            if (record.surface == surface) {
-                return &record;
+        auto guard = window_surfaces_.lock();
+        for (auto &record : *guard) {
+            if (record->surface == surface) {
+                return record.get();
             }
         }
         return nullptr;
     }
 
     const Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) const noexcept {
-        for (const WindowSurfaceRecord &record : window_surfaces_) {
-            if (record.surface == surface) {
-                return &record;
+        auto guard = window_surfaces_.lock();
+        for (auto &record : *guard) {
+            if (record->surface == surface) {
+                return record.get();
             }
         }
         return nullptr;
@@ -330,12 +357,13 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_debug_scene_resources() {
-        if (mesh(debug_scene_.mesh) != nullptr && material_template(debug_scene_.material_template) != nullptr &&
-            material_instance(debug_scene_.material_instance) != nullptr) {
+        auto guard = debug_scene_.lock();
+        if (mesh(guard->mesh) != nullptr && material_template(guard->material_template) != nullptr &&
+            material_instance(guard->material_instance) != nullptr) {
             return {};
         }
 
-        destroy_debug_scene_resources();
+        destroy_debug_scene_resources_locked(*guard);
 
         // Source-backed so a live edit to the deferred G-buffer shader hot-reloads the triangle
         // (poll_shader_hot_reload() at the top of render_frame drives it).
@@ -358,14 +386,14 @@ namespace SFT::Renderer {
         if (!material_template_handle) {
             return unexpected(material_template_handle.error());
         }
-        debug_scene_.material_template = *material_template_handle;
+        guard->material_template = *material_template_handle;
 
-        auto material_instance_handle = create_material_instance(debug_scene_.material_template, "renderer debug vertex-color material");
+        auto material_instance_handle = create_material_instance(guard->material_template, "renderer debug vertex-color material");
         if (!material_instance_handle) {
-            destroy_debug_scene_resources();
+            destroy_debug_scene_resources_locked(*guard);
             return unexpected(material_instance_handle.error());
         }
-        debug_scene_.material_instance = *material_instance_handle;
+        guard->material_instance = *material_instance_handle;
 
         constexpr array<GeometryVertex, 3> vertices{
             GeometryVertex{.position = {0.0f, -0.55f, 0.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
@@ -377,31 +405,37 @@ namespace SFT::Renderer {
                                        span<const u32>{indices.data(), indices.size()},
                                        "renderer debug triangle mesh");
         if (!mesh_handle) {
-            destroy_debug_scene_resources();
+            destroy_debug_scene_resources_locked(*guard);
             return unexpected(mesh_handle.error());
         }
-        debug_scene_.mesh = *mesh_handle;
+        guard->mesh = *mesh_handle;
         return {};
     }
 
     void Renderer::destroy_debug_scene_resources() noexcept {
-        if (debug_scene_.mesh) {
-            destroy_mesh(debug_scene_.mesh);
+        auto guard = debug_scene_.lock();
+        destroy_debug_scene_resources_locked(*guard);
+    }
+
+    void Renderer::destroy_debug_scene_resources_locked(DebugSceneResources &scene) noexcept {
+        if (scene.mesh) {
+            destroy_mesh(scene.mesh);
         }
-        if (debug_scene_.material_instance) {
-            destroy_material_instance(debug_scene_.material_instance);
+        if (scene.material_instance) {
+            destroy_material_instance(scene.material_instance);
         }
-        if (debug_scene_.material_template) {
-            destroy_material_template(debug_scene_.material_template);
+        if (scene.material_template) {
+            destroy_material_template(scene.material_template);
         }
-        debug_scene_ = {};
+        scene = {};
     }
 
     Core::RendererResult Renderer::record_render_item(RHI::RenderPassEncoder &pass,
                                                       const RenderItem &item,
                                                       span<const RHI::Format> color_formats,
                                                       RHI::Format depth_format,
-                                                      u64 frame_index) {
+                                                      u64 frame_index,
+                                                      const glm::mat4 &view_projection) {
         MeshResource *mesh_resource = mesh(item.mesh);
         if (mesh_resource == nullptr || !mesh_resource->gpu_resident || !mesh_resource->vertex_buffer) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -426,7 +460,7 @@ namespace SFT::Renderer {
         pass.set_pipeline(*pipeline);
 
         const SceneDrawConstants draw_constants{
-            .view_projection = frame_view_projection_,
+            .view_projection = view_projection,
             .model = item.world_transform,
         };
         pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
@@ -497,7 +531,8 @@ namespace SFT::Renderer {
         return {};
     }
 
-    Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index) {
+    Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index,
+                                                          optional<Core::Extent2D> known_extent) {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -507,12 +542,12 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot create an RHI swapchain without an RHI surface.");
         }
-        if (record.window == nullptr) {
+        if (!known_extent && record.window == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot create an RHI swapchain without a live window.");
         }
 
-        const Core::Extent2D extent = framebuffer_extent(*record.window);
+        const Core::Extent2D extent = known_extent ? *known_extent : framebuffer_extent(*record.window);
         if (extent.is_zero()) {
             record.rhi_swapchain_dirty = true;
             return {};
@@ -554,9 +589,9 @@ namespace SFT::Renderer {
         record.rhi_swapchain_dirty = false;
         if (old_swapchain || old_depth_texture || old_depth_view) {
             FrameInFlight *retire_after = nullptr;
-            if (!frames_in_flight_.empty()) {
+            if (!record.frames_in_flight.empty()) {
                 const u64 retire_index = frame_index > 0 ? frame_index - 1 : frame_index;
-                retire_after = &frames_in_flight_[retire_index % frames_in_flight_.size()];
+                retire_after = &record.frames_in_flight[retire_index % record.frames_in_flight.size()];
             }
 
             if (retire_after != nullptr) {
@@ -586,7 +621,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::render_frame_rhi(WindowSurfaceRecord &record,
-                                                    const Core::FrameInput &frame) {
+                                                    const Core::FrameInput &frame,
+                                                    FrameSubmission &submission) {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -595,12 +631,16 @@ namespace SFT::Renderer {
 
         // N-buffered in-flight ring, keyed by frame_index so it tracks the material system's per-frame
         // UBO slot (frame_index % N). (Re)size on the first frame or after a capability change (device-loss
-        // recovery clears the ring).
+        // recovery clears the ring). Lives on the window's own record, not a Renderer-wide member, since
+        // each window has its own swapchain and therefore its own frame-in-flight lifetime.
         const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
-        if (frames_in_flight_.size() != frame_count) {
-            frames_in_flight_.assign(frame_count, FrameInFlight{});
+        if (record.frames_in_flight.size() != frame_count) {
+            for (FrameInFlight &old_slot : record.frames_in_flight) {
+                destroy_frame_deferred_targets(old_slot);
+            }
+            record.frames_in_flight.assign(frame_count, FrameInFlight{});
         }
-        FrameInFlight &slot = frames_in_flight_[frame.frame_index % frame_count];
+        FrameInFlight &slot = record.frames_in_flight[frame.frame_index % frame_count];
 
         // Backpressure — the one sanctioned per-frame CPU wait (plans/async-submission-model.md). Waits on
         // the *specific* frame that last used this ring slot (frame_count frames ago), never a full-device
@@ -608,8 +648,11 @@ namespace SFT::Renderer {
         // frame's command buffer / transient targets / bind groups are safe to reclaim and its material
         // UBO slot is free to overwrite.
         if (slot.submitted) {
-            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
-                return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
+            {
+                ScopedRendererStageTimer timer{"wait in-flight frame fence"};
+                if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
+                    return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
+                }
             }
             if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
                 return unexpected(graphics_error_from_rhi(reset.error(), "reset in-flight frame fence"));
@@ -629,14 +672,53 @@ namespace SFT::Renderer {
             return resources;
         }
 
-        const Core::Extent2D extent = record.window != nullptr ? framebuffer_extent(*record.window) : Core::Extent2D{};
+        // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
+        // this tick — see Application::render_managed_window), never by re-querying the Window object
+        // here: this runs on the render thread, which must never touch a Window directly once a separate
+        // window-event thread may be pumping it concurrently.
+        const Core::Extent2D extent{frame.framebuffer_width, frame.framebuffer_height};
         if (extent.is_zero()) {
             return {};
         }
-        if (record.rhi_swapchain_dirty || extent.width != record.swapchain_extent.width ||
-            extent.height != record.swapchain_extent.height) {
-            if (Core::RendererResult recreated = recreate_rhi_swapchain(record, frame.frame_index); !recreated.has_value()) {
-                return recreated;
+        Core::Extent2D render_extent = extent;
+        const bool size_changed = extent.width != record.swapchain_extent.width ||
+            extent.height != record.swapchain_extent.height;
+        const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
+        bool defer_size_recreate_this_frame = false;
+        if (should_recreate) {
+            // During live resize, Linux/Wayland can deliver many intermediate extents. Rebuilding for
+            // each one can make vkCreateSwapchainKHR block inside the WSI/compositor path for hundreds
+            // of milliseconds. If we already have a swapchain and only the size is changing, wait until
+            // the extent has been stable for a tiny window, then rebuild once for the coalesced size.
+            if (record.rhi_swapchain && size_changed) {
+                const steady_clock::time_point now = steady_clock::now();
+                const bool new_pending_extent = record.pending_swapchain_extent.width != extent.width ||
+                    record.pending_swapchain_extent.height != extent.height;
+                if (new_pending_extent) {
+                    record.pending_swapchain_extent = extent;
+                    record.pending_swapchain_extent_since = now;
+                    defer_size_recreate_this_frame = true;
+                } else {
+                    const f64 stable_seconds = duration<f64>(now - record.pending_swapchain_extent_since).count();
+                    defer_size_recreate_this_frame = stable_seconds < swapchain_resize_settle_seconds;
+                }
+
+                if (defer_size_recreate_this_frame) {
+                    // Keep rendering/presenting the old swapchain while the compositor is still sending
+                    // intermediate resize extents. The window manager scales/composites the old image, which
+                    // is visually smoother than presenting nothing and avoids repeatedly blocking in WSI.
+                    render_extent = record.swapchain_extent;
+                }
+            }
+
+            if (!defer_size_recreate_this_frame) {
+                ScopedRendererStageTimer timer{"recreate swapchain"};
+                if (Core::RendererResult recreated = recreate_rhi_swapchain(record, frame.frame_index, extent); !recreated.has_value()) {
+                    return recreated;
+                }
+                record.pending_swapchain_extent = {};
+                record.pending_swapchain_extent_since = {};
+                render_extent = record.swapchain_extent;
             }
         }
         if (!record.rhi_swapchain) {
@@ -645,8 +727,11 @@ namespace SFT::Renderer {
         if (Core::RendererResult depth_resources = ensure_rhi_depth_resources(record); !depth_resources.has_value()) {
             return depth_resources;
         }
-        if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index); !scene_gpu_data.has_value()) {
+        if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index, submission); !scene_gpu_data.has_value()) {
             return scene_gpu_data;
+        }
+        if (Core::RendererResult deferred_targets = ensure_frame_deferred_targets(slot, render_extent, submission.deferred_formats); !deferred_targets.has_value()) {
+            return deferred_targets;
         }
 
         // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
@@ -654,7 +739,7 @@ namespace SFT::Renderer {
         if (Core::RendererResult deferred_lighting_ready = ensure_deferred_lighting_resources(); !deferred_lighting_ready.has_value()) {
             return deferred_lighting_ready;
         }
-        if (auto lighting_pipeline = deferred_lighting_pipeline_for(deferred_formats_.lighting); !lighting_pipeline) {
+        if (auto lighting_pipeline = deferred_lighting_pipeline_for(submission.deferred_formats.lighting); !lighting_pipeline) {
             return unexpected(lighting_pipeline.error());
         }
         if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
@@ -664,7 +749,10 @@ namespace SFT::Renderer {
             return unexpected(tonemap_pipeline.error());
         }
 
-        auto acquired = device->acquire_next_texture(record.rhi_swapchain);
+        auto acquired = [&]() {
+            ScopedRendererStageTimer timer{"acquire swapchain texture"};
+            return device->acquire_next_texture(record.rhi_swapchain);
+        }();
         if (!acquired) {
             if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
                 return {};
@@ -689,7 +777,7 @@ namespace SFT::Renderer {
             .texture = texture.texture,
             .default_view = texture.view,
             .format = RHI::Format::BGRA8UnormSrgb,
-            .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1},
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -698,47 +786,43 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::None,
             .label = "swapchain color",
         });
-        const RHI::Extent3D frame_extent{.width = extent.width, .height = extent.height, .depth_or_layers = 1};
-        const RenderGraphTextureHandle gbuffer_albedo = graph.create_texture(RenderGraphTextureDesc{
-            .format = deferred_formats_.albedo,
+        const RHI::Extent3D frame_extent{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1};
+        const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.gbuffer_albedo,
+            .default_view = slot.deferred_targets.gbuffer_albedo_view,
+            .format = submission.deferred_formats.albedo,
             .extent = frame_extent,
-            .mip_levels = 1,
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer albedo",
         });
-        const RenderGraphTextureHandle gbuffer_normal = graph.create_texture(RenderGraphTextureDesc{
-            .format = deferred_formats_.normal,
+        const RenderGraphTextureHandle gbuffer_normal = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.gbuffer_normal,
+            .default_view = slot.deferred_targets.gbuffer_normal_view,
+            .format = submission.deferred_formats.normal,
             .extent = frame_extent,
-            .mip_levels = 1,
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer normal",
         });
-        const RenderGraphTextureHandle gbuffer_material = graph.create_texture(RenderGraphTextureDesc{
-            .format = deferred_formats_.material,
+        const RenderGraphTextureHandle gbuffer_material = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.gbuffer_material,
+            .default_view = slot.deferred_targets.gbuffer_material_view,
+            .format = submission.deferred_formats.material,
             .extent = frame_extent,
-            .mip_levels = 1,
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer material",
         });
         // HDR deferred lighting target: tonemap samples this instead of the swapchain seeing geometry directly.
-        const RenderGraphTextureHandle scene_lighting = graph.create_texture(RenderGraphTextureDesc{
-            .format = deferred_formats_.lighting,
+        const RenderGraphTextureHandle scene_lighting = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.scene_lighting,
+            .default_view = slot.deferred_targets.scene_lighting_view,
+            .format = submission.deferred_formats.lighting,
             .extent = frame_extent,
-            .mip_levels = 1,
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -783,27 +867,28 @@ namespace SFT::Renderer {
                 .depth_store_op = RHI::StoreOp::Store,
                 .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
             })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height})
-            .set_execute([this, &record, extent, frame](RenderGraphContext &context) -> Core::RendererResult {
+            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+            .set_execute([this, &record, &submission, render_extent, frame](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
                     .y = 0.0f,
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(render_extent.width),
+                    .height = static_cast<f32>(render_extent.height),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                 const array<RHI::Format, 3> gbuffer_formats{
-                    deferred_formats_.albedo,
-                    deferred_formats_.normal,
-                    deferred_formats_.material,
+                    submission.deferred_formats.albedo,
+                    submission.deferred_formats.normal,
+                    submission.deferred_formats.material,
                 };
-                for (const RenderItem &item : frame_draws_) {
+                for (const RenderItem &item : submission.draws) {
                     if (Core::RendererResult recorded = record_render_item(pass, item,
                                                                           span<const RHI::Format>{gbuffer_formats.data(), gbuffer_formats.size()},
-                                                                          record.depth_format, frame.frame_index);
+                                                                          record.depth_format, frame.frame_index,
+                                                                          submission.view_projection);
                         !recorded.has_value()) {
                         return recorded;
                     }
@@ -833,22 +918,23 @@ namespace SFT::Renderer {
                 .stages = RHI::PipelineStage::FragmentShader,
                 .access = RHI::AccessFlags::ShaderRead,
             })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height})
-            .set_execute([this, extent, gbuffer_albedo, gbuffer_normal, gbuffer_material](RenderGraphContext &context) -> Core::RendererResult {
+            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+            .set_execute([this, &submission, render_extent, gbuffer_albedo, gbuffer_normal, gbuffer_material](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
                     .y = 0.0f,
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(render_extent.width),
+                    .height = static_cast<f32>(render_extent.height),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                 const RenderGraphTextureAccess albedo = context.texture(gbuffer_albedo);
                 const RenderGraphTextureAccess normal = context.texture(gbuffer_normal);
                 const RenderGraphTextureAccess material = context.texture(gbuffer_material);
-                return record_deferred_lighting(pass, albedo.default_view, normal.default_view, material.default_view, deferred_formats_.lighting);
+                return record_deferred_lighting(pass, albedo.default_view, normal.default_view, material.default_view,
+                                                submission.deferred_formats.lighting, submission.transient_bind_groups);
             });
 
         // Tonemap post-process: sample HDR deferred lighting and resolve it to the swapchain.
@@ -864,24 +950,27 @@ namespace SFT::Renderer {
                 .stages = RHI::PipelineStage::FragmentShader,
                 .access = RHI::AccessFlags::ShaderRead,
             })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height})
-            .set_execute([this, extent, scene_lighting](RenderGraphContext &context) -> Core::RendererResult {
+            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+            .set_execute([this, &submission, render_extent, scene_lighting](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
                     .y = 0.0f,
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(render_extent.width),
+                    .height = static_cast<f32>(render_extent.height),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.width, .height = extent.height});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                 const RenderGraphTextureAccess source = context.texture(scene_lighting);
-                return record_tonemap(pass, source.default_view, swapchain_format);
+                return record_tonemap(pass, source.default_view, swapchain_format, submission.transient_bind_groups);
             });
 
-        if (Core::RendererResult graph_result = graph.execute(*device, **encoder); !graph_result.has_value()) {
-            return graph_result;
+        {
+            ScopedRendererStageTimer timer{"execute render graph"};
+            if (Core::RendererResult graph_result = graph.execute(*device, **encoder); !graph_result.has_value()) {
+                return graph_result;
+            }
         }
 
         auto command_buffer = (*encoder)->finish();
@@ -901,10 +990,13 @@ namespace SFT::Renderer {
             .flags = RHI::SubmitFlags::OneShot,
             .label = "renderer frame submit",
         };
-        if (auto submitted = device->submit(submit_desc); !submitted) {
-            graph.destroy_transient_resources(*device);
-            device->destroy_command_buffer(*command_buffer);
-            return unexpected(graphics_error_from_rhi(submitted.error(), "submit RHI frame"));
+        {
+            ScopedRendererStageTimer timer{"submit RHI frame"};
+            if (auto submitted = device->submit(submit_desc); !submitted) {
+                graph.destroy_transient_resources(*device);
+                device->destroy_command_buffer(*command_buffer);
+                return unexpected(graphics_error_from_rhi(submitted.error(), "submit RHI frame"));
+            }
         }
 
         // The frame is now in flight. Hand its GPU resources to the ring slot for fence-gated cleanup —
@@ -912,11 +1004,13 @@ namespace SFT::Renderer {
         // this slot comes round, after its fence has signaled.
         slot.command_buffer = *command_buffer;
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
-        slot.transient_bind_groups = std::move(frame_transient_bind_groups_);
-        frame_transient_bind_groups_.clear();
+        slot.transient_bind_groups = std::move(submission.transient_bind_groups);
         slot.submitted = true;
 
-        auto presented = device->present(RHI::PresentDesc{.texture = texture, .label = "renderer present"});
+        auto presented = [&]() {
+            ScopedRendererStageTimer timer{"present RHI frame"};
+            return device->present(RHI::PresentDesc{.texture = texture, .label = "renderer present"});
+        }();
         if (!presented) {
             if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
                 record.rhi_swapchain_dirty = true;
@@ -927,6 +1021,113 @@ namespace SFT::Renderer {
             record.rhi_swapchain_dirty = true;
         }
         return {};
+    }
+
+    Core::RendererResult Renderer::ensure_frame_deferred_targets(FrameInFlight &slot,
+                                                                  Core::Extent2D extent,
+                                                                  const DeferredTargetFormats &formats) {
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+        const bool matches = slot.deferred_targets.gbuffer_albedo &&
+            slot.deferred_targets.extent.width == extent.width &&
+            slot.deferred_targets.extent.height == extent.height &&
+            slot.deferred_targets.formats.albedo == formats.albedo &&
+            slot.deferred_targets.formats.normal == formats.normal &&
+            slot.deferred_targets.formats.material == formats.material &&
+            slot.deferred_targets.formats.lighting == formats.lighting;
+        if (matches) {
+            return {};
+        }
+
+        destroy_frame_deferred_targets(slot);
+
+        auto create_target = [&](RHI::Format format, const char *label) -> Core::RendererExpected<std::pair<RHI::TextureHandle, RHI::TextureViewHandle>> {
+            auto texture = device->create_texture(RHI::TextureDesc{
+                .dimension = RHI::TextureDimension::Dim2D,
+                .format = format,
+                .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+                .mip_levels = 1,
+                .samples = RHI::SampleCount::X1,
+                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                .label = label,
+            });
+            if (!texture) {
+                return unexpected(graphics_error_from_rhi(texture.error(), label));
+            }
+            auto view = device->create_texture_view(RHI::TextureViewDesc{
+                .texture = *texture,
+                .view_type = RHI::TextureViewType::View2D,
+                .label = label,
+            });
+            if (!view) {
+                device->destroy_texture(*texture);
+                return unexpected(graphics_error_from_rhi(view.error(), label));
+            }
+            return std::pair<RHI::TextureHandle, RHI::TextureViewHandle>{*texture, *view};
+        };
+
+        auto albedo = create_target(formats.albedo, "persistent deferred gbuffer albedo");
+        if (!albedo) return unexpected(albedo.error());
+        auto normal = create_target(formats.normal, "persistent deferred gbuffer normal");
+        if (!normal) {
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(normal.error());
+        }
+        auto material = create_target(formats.material, "persistent deferred gbuffer material");
+        if (!material) {
+            device->destroy_texture_view(normal->second);
+            device->destroy_texture(normal->first);
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(material.error());
+        }
+        auto lighting = create_target(formats.lighting, "persistent deferred scene lighting");
+        if (!lighting) {
+            device->destroy_texture_view(material->second);
+            device->destroy_texture(material->first);
+            device->destroy_texture_view(normal->second);
+            device->destroy_texture(normal->first);
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(lighting.error());
+        }
+
+        slot.deferred_targets = FrameDeferredTargets{
+            .extent = extent,
+            .formats = formats,
+            .gbuffer_albedo = albedo->first,
+            .gbuffer_albedo_view = albedo->second,
+            .gbuffer_normal = normal->first,
+            .gbuffer_normal_view = normal->second,
+            .gbuffer_material = material->first,
+            .gbuffer_material_view = material->second,
+            .scene_lighting = lighting->first,
+            .scene_lighting_view = lighting->second,
+        };
+        return {};
+    }
+
+    void Renderer::destroy_frame_deferred_targets(FrameInFlight &slot) noexcept {
+        RHI::RhiDevice *device = rhi_device();
+        if (device != nullptr) {
+            auto destroy_target = [device](RHI::TextureHandle texture, RHI::TextureViewHandle view) noexcept {
+                if (view) {
+                    device->destroy_texture_view(view);
+                }
+                if (texture) {
+                    device->destroy_texture(texture);
+                }
+            };
+            destroy_target(slot.deferred_targets.gbuffer_albedo, slot.deferred_targets.gbuffer_albedo_view);
+            destroy_target(slot.deferred_targets.gbuffer_normal, slot.deferred_targets.gbuffer_normal_view);
+            destroy_target(slot.deferred_targets.gbuffer_material, slot.deferred_targets.gbuffer_material_view);
+            destroy_target(slot.deferred_targets.scene_lighting, slot.deferred_targets.scene_lighting_view);
+        }
+        slot.deferred_targets = {};
     }
 
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
@@ -980,14 +1181,14 @@ namespace SFT::Renderer {
         slot.command_buffer = {};
     }
 
-    void Renderer::drain_frames_in_flight() noexcept {
+    void Renderer::drain_frames_in_flight(WindowSurfaceRecord &record) noexcept {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return;
         }
         // Sanctioned heavy wait (teardown / swapchain rebuild), never the per-frame path.
         device->wait_idle();
-        for (FrameInFlight &slot : frames_in_flight_) {
+        for (FrameInFlight &slot : record.frames_in_flight) {
             if (slot.submitted) {
                 reclaim_frame_slot(slot, true);
                 slot.submitted = false;
@@ -1004,6 +1205,23 @@ namespace SFT::Renderer {
 
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
         if (RHI::RhiDevice *device = rhi_device()) {
+            // Per-window teardown is allowed to stall. The window is about to disappear, so first make
+            // every submitted frame for this surface complete and reclaim frame-owned command buffers,
+            // transient targets, and retired swapchains. Without this, Wayland WSI objects backing
+            // presented swapchain images can still be attached when SDL destroys the wl_surface, producing
+            // "mesa vk display queue ... destroyed while proxies still attached" warnings.
+            drain_frames_in_flight(record);
+            for (FrameInFlight &slot : record.frames_in_flight) {
+                reclaim_frame_slot(slot, true);
+                destroy_frame_deferred_targets(slot);
+                if (slot.fence) {
+                    device->destroy_fence(slot.fence);
+                    slot.fence = {};
+                }
+                slot.submitted = false;
+            }
+            record.frames_in_flight.clear();
+
             if (record.depth_view) {
                 device->destroy_texture_view(record.depth_view);
             }

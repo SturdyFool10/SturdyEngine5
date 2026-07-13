@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -11,7 +12,6 @@ module;
 export module Sturdy.Core:VulkanCommandBuffer;
 
 import :GraphicsBackendError;
-import Sturdy.Foundation;
 
 using SFT::Core::graphics_backend_error;
 using SFT::Core::GraphicsBackendErrorCode;

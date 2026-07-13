@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include <format>
 #include <vulkan/vulkan_core.h>
@@ -7,7 +8,6 @@ module;
 export module Sturdy.Core:VulkanHelpers;
 
 import :RenderSurface;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using SFT::Core::SurfaceProvider;

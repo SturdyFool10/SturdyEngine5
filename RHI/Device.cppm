@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -9,7 +10,6 @@ module;
 
 export module Sturdy.RHI:Device;
 
-import Sturdy.Foundation;
 import :Error;
 import :Types;
 import :Handles;

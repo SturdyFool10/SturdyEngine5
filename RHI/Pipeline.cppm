@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -7,7 +8,6 @@ module;
 
 export module Sturdy.RHI:Pipeline;
 
-import Sturdy.Foundation;
 import :Flags;
 import :Types;
 import :Handles;

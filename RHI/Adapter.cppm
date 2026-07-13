@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <memory>
@@ -9,7 +10,6 @@ module;
 
 export module Sturdy.RHI:Adapter;
 
-import Sturdy.Foundation;
 import :Error;
 import :Features;
 import :Extensions;

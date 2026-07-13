@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -10,7 +11,6 @@ module;
 module Sturdy.Renderer;
 
 import :Renderer;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 
@@ -132,6 +132,12 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_all_resources() noexcept {
+        if (shader_hot_reload_poll_) {
+            (void)shader_hot_reload_poll_->wait();
+            shader_hot_reload_poll_.reset();
+        }
+        shader_watcher_.reset();
+
         destroy_debug_scene_resources();
         frame_draws_.clear();
         destroy_scene_gpu_resources();
@@ -151,26 +157,6 @@ namespace SFT::Renderer {
         }
         material_templates_.clear();
 
-        if (RHI::RhiDevice *device = rhi_device()) {
-            for (RHI::BindGroupHandle group : frame_transient_bind_groups_) {
-                if (group) {
-                    device->destroy_bind_group(group);
-                }
-            }
-        }
-        frame_transient_bind_groups_.clear();
-
-        // Reclaim every in-flight frame slot and destroy its (reusable) fence. Safe: teardown runs after
-        // the destructor's wait_idle(), so no slot's GPU work is still pending.
-        if (RHI::RhiDevice *device = rhi_device()) {
-            for (FrameInFlight &slot : frames_in_flight_) {
-                reclaim_frame_slot(slot, true);
-                if (slot.fence) {
-                    device->destroy_fence(slot.fence);
-                }
-            }
-        }
-        frames_in_flight_.clear();
         destroy_tonemap_resources();
         destroy_deferred_lighting_resources();
 
@@ -198,8 +184,23 @@ namespace SFT::Renderer {
             resource = {};
         }
         textures_.clear();
-        for (WindowSurfaceRecord &record : window_surfaces_) {
-            destroy_rhi_presentation_resources(record);
+
+        // Reclaim every window's in-flight frame slots and destroy each slot's (reusable) fence, then the
+        // window's presentation resources. Safe: teardown runs after the destructor's wait_idle(), so no
+        // slot's GPU work is still pending.
+        auto window_surfaces_guard = window_surfaces_.lock();
+        for (auto &record : *window_surfaces_guard) {
+            if (RHI::RhiDevice *device = rhi_device()) {
+                for (FrameInFlight &slot : record->frames_in_flight) {
+                    reclaim_frame_slot(slot, true);
+                    destroy_frame_deferred_targets(slot);
+                    if (slot.fence) {
+                        device->destroy_fence(slot.fence);
+                    }
+                }
+            }
+            record->frames_in_flight.clear();
+            destroy_rhi_presentation_resources(*record);
         }
     }
 

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #include <optional>
 #include <string>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.RHI:HdrDisplay;
 
-import Sturdy.Foundation;
 import :Swapchain;
 
 using std::optional;

@@ -50,6 +50,7 @@ sturdy_add_package(Platform
 
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::Async
         ${_sturdy_platform_windowing_deps}
         Sturdy::GLM
 

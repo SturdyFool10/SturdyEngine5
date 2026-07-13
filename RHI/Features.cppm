@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <bitset>
@@ -7,7 +8,6 @@ module;
 
 export module Sturdy.RHI:Features;
 
-import Sturdy.Foundation;
 
 export namespace SFT::RHI {
 

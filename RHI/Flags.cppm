@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <type_traits>
@@ -6,7 +7,6 @@ module;
 
 export module Sturdy.RHI:Flags;
 
-import Sturdy.Foundation;
 
 export namespace SFT::RHI {
 

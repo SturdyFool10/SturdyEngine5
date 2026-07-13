@@ -1,6 +1,8 @@
+module;
+#include <Foundation/Foundation.hpp>
+
 export module Sturdy.Core:RenderSurface;
 
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 export namespace SFT::Core {

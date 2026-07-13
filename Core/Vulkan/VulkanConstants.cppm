@@ -1,11 +1,11 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #pragma endregion
 
 export module Sturdy.Core:VulkanConstants;
 
-import Sturdy.Foundation;
 
 export namespace SFT::Core::Vulkan {
 

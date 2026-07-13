@@ -1,6 +1,4 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -10,14 +8,9 @@ module;
 #include <random>
 #include <thread>
 #include <vector>
-#pragma endregion
+#include <Async/Scheduler.hpp>
+#include <Async/Mutex.hpp>
 
-module Sturdy.Async;
-
-import :Scheduler;
-import :Task;
-import :Mutex;
-import Sturdy.Foundation;
 
 using std::condition_variable;
 using std::deque;
@@ -83,6 +76,7 @@ namespace SFT::Async {
             std::atomic<u32> pending_count{0}; // hint for idle workers; correctness never depends on it
             std::mutex wake_mutex;
             condition_variable wake_cv;
+            SchedulerConfig config{};
         };
 
         Pool &pool() noexcept {
@@ -93,56 +87,101 @@ namespace SFT::Async {
         // -1 on any thread that isn't a scheduler worker (the main thread, an app thread, ...).
         thread_local i32 t_worker_index = -1;
 
+        [[nodiscard]] unique_ptr<Detail::TaskBase> try_take_task(Pool &p, u32 index, mt19937 &rng) noexcept {
+            unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back();
+            if (!task) {
+                task = p.injector.steal();
+            }
+            if (!task && p.deques.size() > 1) {
+                const auto worker_total = static_cast<u32>(p.deques.size());
+                uniform_int_distribution<u32> pick_victim(0, worker_total - 1);
+                for (u32 attempt = 0; attempt < worker_total && !task; ++attempt) {
+                    const u32 victim = pick_victim(rng);
+                    if (victim != index) {
+                        task = p.deques[victim]->steal();
+                    }
+                }
+            }
+            return task;
+        }
+
         void worker_loop(u32 index) noexcept {
             t_worker_index = static_cast<i32>(index);
             Pool &p = pool();
             mt19937 rng(random_device{}());
+            u32 idle_spins = 0;
+            u32 idle_yields = 0;
 
             while (p.running.load(std::memory_order_acquire)) {
-                unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back();
-                if (!task) {
-                    task = p.injector.steal();
-                }
-                if (!task && p.deques.size() > 1) {
-                    const auto worker_total = static_cast<u32>(p.deques.size());
-                    uniform_int_distribution<u32> pick_victim(0, worker_total - 1);
-                    for (u32 attempt = 0; attempt < worker_total && !task; ++attempt) {
-                        const u32 victim = pick_victim(rng);
-                        if (victim != index) {
-                            task = p.deques[victim]->steal();
-                        }
-                    }
-                }
+                unique_ptr<Detail::TaskBase> task = try_take_task(p, index, rng);
 
                 if (task) {
+                    idle_spins = 0;
+                    idle_yields = 0;
                     task->execute();
                     p.pending_count.fetch_sub(1, std::memory_order_acq_rel);
                     continue;
                 }
 
-                // Nothing anywhere right now — sleep briefly rather than spinning. The predicate is
-                // re-checked on every loop iteration regardless, so a missed wakeup (the classic
-                // condition_variable pitfall) only costs up to this timeout, never correctness.
+                const SchedulerConfig config = p.config;
+                if (idle_spins < config.idle_spin_iterations) {
+                    ++idle_spins;
+                    std::atomic_signal_fence(std::memory_order_seq_cst);
+                    continue;
+                }
+                if (idle_yields < config.idle_yield_iterations) {
+                    ++idle_yields;
+                    std::this_thread::yield();
+                    continue;
+                }
+
+                // Nothing anywhere right now — sleep briefly after a spin/yield grace period. The
+                // predicate is re-checked on every loop iteration regardless, so a missed wakeup only
+                // costs up to this timeout, never correctness.
                 unique_lock<std::mutex> idle_lock(p.wake_mutex);
-                p.wake_cv.wait_for(idle_lock, std::chrono::milliseconds(1), [&p]() {
+                p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), [&p]() {
                     return !p.running.load(std::memory_order_acquire) || p.pending_count.load(std::memory_order_acquire) > 0;
                 });
+                idle_spins = 0;
+                idle_yields = 0;
             }
         }
 
     } // namespace
 
     void Scheduler::initialize(u32 worker_count) noexcept {
+        SchedulerConfig config{};
+        config.worker_count = worker_count;
+        initialize(config);
+    }
+
+    void Scheduler::initialize_low_latency(u32 worker_count) noexcept {
+        SchedulerConfig config{};
+        config.worker_count = worker_count;
+        config.idle_spin_iterations = 1024;
+        config.idle_yield_iterations = 128;
+        config.idle_sleep_microseconds = 50;
+        config.notify_all_on_enqueue = false;
+        initialize(config);
+    }
+
+    void Scheduler::initialize(const SchedulerConfig &config) noexcept {
         Pool &p = pool();
         if (p.running.exchange(true, std::memory_order_acq_rel)) {
             return;
         }
 
-        if (worker_count == 0) {
+        SchedulerConfig active_config = config;
+        if (active_config.worker_count == 0) {
             const u32 hardware_threads = thread::hardware_concurrency();
-            worker_count = hardware_threads > 1 ? hardware_threads - 1 : 1;
+            active_config.worker_count = hardware_threads > 1 ? hardware_threads - 1 : 1;
         }
+        if (active_config.idle_sleep_microseconds == 0) {
+            active_config.idle_sleep_microseconds = 1;
+        }
+        p.config = active_config;
 
+        const u32 worker_count = active_config.worker_count;
         p.deques.reserve(worker_count);
         for (u32 i = 0; i < worker_count; ++i) {
             p.deques.push_back(make_unique<WorkerDeque>());
@@ -153,7 +192,11 @@ namespace SFT::Async {
             p.threads.emplace_back(worker_loop, i);
         }
 
-        Foundation::log_info("Async::Scheduler started {} worker thread(s).", worker_count);
+        Foundation::log_info("Async::Scheduler started {} worker thread(s) [spin={}, yield={}, sleep={}us].",
+                             worker_count,
+                             active_config.idle_spin_iterations,
+                             active_config.idle_yield_iterations,
+                             active_config.idle_sleep_microseconds);
     }
 
     void Scheduler::shutdown() noexcept {
@@ -195,7 +238,11 @@ namespace SFT::Async {
         }
 
         p.pending_count.fetch_add(1, std::memory_order_acq_rel);
-        p.wake_cv.notify_one();
+        if (p.config.notify_all_on_enqueue) {
+            p.wake_cv.notify_all();
+        } else {
+            p.wake_cv.notify_one();
+        }
     }
 
 } // namespace SFT::Async

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <glm/vec4.hpp>
@@ -6,7 +7,6 @@ module;
 
 export module Sturdy.RHI:Types;
 
-import Sturdy.Foundation;
 
 export namespace SFT::RHI {
 

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -15,7 +16,6 @@ module;
 module Sturdy.Renderer;
 
 import :Renderer;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 

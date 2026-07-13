@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -7,7 +8,6 @@ module;
 
 export module Sturdy.Core:Licenses;
 
-import Sturdy.Foundation;
 
 using std::span;
 using std::string_view;

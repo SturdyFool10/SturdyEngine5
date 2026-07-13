@@ -9,6 +9,8 @@ module;
 #include <utility>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanDevice;
@@ -16,7 +18,6 @@ import :VulkanPhysicalDevice;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
 import :VulkanSampler;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 namespace SFT::Core::Vulkan {

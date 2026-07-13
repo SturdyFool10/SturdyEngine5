@@ -19,6 +19,8 @@ module;
 #include <SDL3/SDL_vulkan.h>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanBackend;
@@ -30,7 +32,6 @@ import :VulkanSwapchain;
 import :GraphicsBackendError;
 import :Renderer;
 import :RenderSurface;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using SFT::Platform::Windowing::Window;

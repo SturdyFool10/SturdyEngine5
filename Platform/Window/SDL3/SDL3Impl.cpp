@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <SDL3/SDL.h>
@@ -19,7 +20,6 @@ module;
 module Sturdy.Platform.SDL3;
 
 import :Window;
-import Sturdy.Foundation;
 
 using std::bad_alloc;
 using std::expected;
@@ -155,12 +155,13 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
-    // SDL event watcher used to render from inside platform resize/move paths that can otherwise starve
-    // the normal main loop. On Windows this is EXPOSED during the modal move/resize loop; on Linux/Wayland
-    // the critical signal is the resize/pixel-size event itself.
+    // SDL event watcher used only for platforms whose native move/resize modal loop can starve the normal
+    // main loop. Linux/Wayland/X11 resize events keep flowing through SDL_PollEvent; rendering directly from
+    // this watch there can re-enter the renderer while pump_events() is still processing and can force a
+    // swapchain rebuild for every intermediate resize event.
     bool SDLCALL SDL3Window::sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept {
-        if (event->type == SDL_EVENT_WINDOW_EXPOSED || event->type == SDL_EVENT_WINDOW_RESIZED ||
-            event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+#if defined(_WIN32)
+        if (event->type == SDL_EVENT_WINDOW_EXPOSED) {
             auto *self = static_cast<SDL3Window *>(userdata);
             if (self->window_ && SDL_GetWindowID(self->window_) == event->window.windowID) {
                 if (self->repaint_callback_) {
@@ -168,6 +169,10 @@ namespace SFT::Platform::Windowing::SDL3 {
                 }
             }
         }
+#else
+        (void)userdata;
+        (void)event;
+#endif
         return true;
     }
 
@@ -333,7 +338,6 @@ namespace SFT::Platform::Windowing::SDL3 {
         i32 event_count = 0;
         i32 close_event_count = 0;
         i32 queued_event_count = 0;
-        bool yield_to_renderer = false;
         constexpr i32 max_events_per_pump = 128;
 
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
@@ -380,10 +384,6 @@ namespace SFT::Platform::Windowing::SDL3 {
                     target->pending_resize_ = window_event.resize;
                     target->events_.push_back(window_event);
                     ++queued_event_count;
-                    yield_to_renderer = target == this;
-                }
-                if (yield_to_renderer) {
-                    break;
                 }
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {

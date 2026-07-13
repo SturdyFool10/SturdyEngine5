@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #include <span>
@@ -7,7 +8,6 @@ module;
 export module Sturdy.Core:VulkanQueryPool;
 
 import :GraphicsBackendError;
-import Sturdy.Foundation;
 
 using SFT::Core::graphics_backend_error;
 using SFT::Core::GraphicsBackendErrorCode;

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <string>
@@ -7,7 +8,6 @@ module;
 
 export module Sturdy.Renderer:Resources;
 
-import Sturdy.Foundation;
 import Sturdy.RHI;
 import :Handles;
 import :Geometry;

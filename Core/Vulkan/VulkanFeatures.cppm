@@ -28,9 +28,10 @@ module;
 #include <span>
 #include <string_view>
 
+#include <Foundation/Foundation.hpp>
+
 export module Sturdy.Core:VulkanFeatures;
 
-import Sturdy.Foundation;
 
 using std::array;
 using std::span;

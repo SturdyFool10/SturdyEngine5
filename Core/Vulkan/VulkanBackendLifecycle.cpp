@@ -14,6 +14,9 @@ module;
 #include <optional>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+#include <RHI/Threading.hpp>
+
 module Sturdy.Core;
 
 import :VulkanAllocator;
@@ -25,7 +28,6 @@ import :VulkanSurface;
 import :GraphicsBackendError;
 import :Renderer;
 import :RenderSurface;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using std::format;
@@ -41,6 +43,25 @@ namespace SFT::Core::Vulkan {
 
     RendererCapabilities VulkanBackend::capabilities() const noexcept {
         return capabilities_;
+    }
+
+    RHI::RenderThreadingCapabilities VulkanBackend::render_threading_capabilities() const noexcept {
+        return RHI::RenderThreadingCapabilities{
+            .backend_allows_dedicated_render_thread = true,
+            // Vulkan supports multithreaded command recording when each recording thread owns its command
+            // pool/command buffers and externally-synchronized objects are not concurrently touched. Keep
+            // this false until the RHI bridge has explicit per-thread command pools and resource-destruction
+            // ownership; CPU scene prep can still use Async workers today.
+            .backend_allows_parallel_command_recording = false,
+            .platform_allows_threads = RHI::compile_time_rhi_multithreading_allowed,
+            .requires_graphics_calls_on_owner_thread = true,
+            .recommended_mode = RHI::choose_render_threading_mode(RHI::RenderThreadingCapabilities{
+                .backend_allows_dedicated_render_thread = true,
+                .backend_allows_parallel_command_recording = false,
+                .platform_allows_threads = RHI::compile_time_rhi_multithreading_allowed,
+                .requires_graphics_calls_on_owner_thread = true,
+            }),
+        };
     }
 
     optional<GpuInfo> VulkanBackend::gpu_info() const {

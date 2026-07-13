@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <string>
@@ -7,7 +8,6 @@ module;
 
 export module Sturdy.Core:ShaderTypes;
 
-import Sturdy.Foundation;
 
 using std::string;
 using std::vector;

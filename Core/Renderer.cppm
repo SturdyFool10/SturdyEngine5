@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.Core:Renderer;
 
-import Sturdy.Foundation;
 import Sturdy.Platform;
 import Sturdy.RHI;
 import :ShaderDiscovery;

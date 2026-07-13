@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #pragma endregion
@@ -6,7 +7,6 @@ module;
 export module Sturdy.Core:VulkanSync;
 
 import :GraphicsBackendError;
-import Sturdy.Foundation;
 
 using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;

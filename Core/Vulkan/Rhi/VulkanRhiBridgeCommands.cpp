@@ -13,6 +13,8 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanBuffer;
@@ -26,7 +28,6 @@ import :VulkanQueryPool;
 import :VulkanRendering;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::array;

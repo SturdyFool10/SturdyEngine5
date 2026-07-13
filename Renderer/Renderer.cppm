@@ -1,6 +1,8 @@
+module;
+#include <Foundation/Foundation.hpp>
+
 export module Sturdy.Renderer;
 
-export import Sturdy.Foundation;
 export import Sturdy.RHI;
 export import Sturdy.Core;
 

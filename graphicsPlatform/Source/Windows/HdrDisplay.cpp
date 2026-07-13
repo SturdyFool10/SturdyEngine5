@@ -1,3 +1,4 @@
+#include <Foundation/Foundation.hpp>
 #include <graphicsPlatform/GraphicsPlatform.hpp>
 
 #ifndef NOMINMAX

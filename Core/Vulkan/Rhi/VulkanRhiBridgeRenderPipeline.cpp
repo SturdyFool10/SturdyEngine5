@@ -11,13 +11,14 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanDevice;
 import :VulkanPipeline;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::vector;

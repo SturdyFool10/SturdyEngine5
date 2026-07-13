@@ -1,18 +1,22 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <chrono>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <span>
 #include <string_view>
 #include <vector>
 #include <glm/mat4x4.hpp>
+#include <Async/Async.hpp>
 #pragma endregion
 
 export module Sturdy.Renderer:Renderer;
 
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 import Sturdy.Platform;
@@ -23,6 +27,7 @@ import :ReflectionBinding;
 import :Resources;
 import :RenderGraph;
 
+using std::chrono::steady_clock;
 using std::optional;
 using std::span;
 using std::string_view;
@@ -147,9 +152,9 @@ export namespace SFT::Renderer {
         // wait_idle() first (the one sanctioned reload-time stall — see plans/async-submission-model.md).
         [[nodiscard]] Core::RendererResult reload_material_template(MaterialTemplateHandle handle);
 
-        // Dev-time shader hot-reload driver: mtime-polls the `Shaders/` tree and reloads every source-
-        // backed material template whose `.slang` file changed since the last call. Returns how many
-        // templates were reloaded this tick (0 in the common no-edit case). Cheap to call once per frame.
+        // Dev-time shader hot-reload driver: periodically mtime-polls the `Shaders/` tree and reloads
+        // every source-backed material template whose `.slang` file changed since the last scan. Returns
+        // how many templates were reloaded this tick (0 in the common no-edit / throttled case).
         usize poll_shader_hot_reload();
 
         void destroy_material_template(MaterialTemplateHandle handle) noexcept;
@@ -179,6 +184,37 @@ export namespace SFT::Renderer {
         void destroy_all_resources() noexcept;
 
       private:
+        // One in-flight frame's deferred-cleanup bundle (see plans/async-submission-model.md). The async
+        // model records + submits a frame and moves on without waiting; the GPU resources that frame still
+        // references — its command buffer, the render graph's transient targets, and any bind groups minted
+        // while recording — can't be freed until that frame's fence retires. They live here until this ring
+        // slot is reused max_frames_in_flight frames later, at which point its fence is guaranteed signaled.
+        struct FrameDeferredTargets {
+            Core::Extent2D extent{};
+            DeferredTargetFormats formats{};
+            RHI::TextureHandle gbuffer_albedo{};
+            RHI::TextureViewHandle gbuffer_albedo_view{};
+            RHI::TextureHandle gbuffer_normal{};
+            RHI::TextureViewHandle gbuffer_normal_view{};
+            RHI::TextureHandle gbuffer_material{};
+            RHI::TextureViewHandle gbuffer_material_view{};
+            RHI::TextureHandle scene_lighting{};
+            RHI::TextureViewHandle scene_lighting_view{};
+        };
+
+        struct FrameInFlight {
+            RHI::FenceHandle fence{};
+            RHI::CommandBufferHandle command_buffer{};
+            vector<RHI::TextureHandle> transient_textures;
+            vector<RHI::TextureViewHandle> transient_texture_views;
+            vector<RHI::BindGroupHandle> transient_bind_groups;
+            vector<RHI::SwapchainHandle> retired_swapchains;
+            vector<RHI::TextureHandle> retired_presentation_textures;
+            vector<RHI::TextureViewHandle> retired_presentation_texture_views;
+            FrameDeferredTargets deferred_targets{};
+            bool submitted = false;
+        };
+
         struct WindowSurfaceRecord {
             Platform::Windowing::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
@@ -192,6 +228,13 @@ export namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
+            Core::Extent2D pending_swapchain_extent{};
+            steady_clock::time_point pending_swapchain_extent_since{};
+            // Ring of N = desired_frames_in_flight (well, capabilities_.max_frames_in_flight — see
+            // render_frame_rhi) deferred-cleanup slots, one per window: each window has its own swapchain
+            // and therefore its own frame-in-flight lifetime, so this can never be a Renderer-wide
+            // member if two windows are to render concurrently without racing on each other's fences.
+            vector<FrameInFlight> frames_in_flight;
         };
 
         struct RenderItem {
@@ -200,6 +243,21 @@ export namespace SFT::Renderer {
             glm::mat4 world_transform{1.0f};
             u64 stable_id = 0;
             u32 sort_key = 0;
+        };
+
+        // Fully call-local replacement for what used to be six Renderer-wide "current frame" member
+        // fields (frame_draws_/frame_camera_/frame_view_projection_/frame_lighting_/deferred_formats_/
+        // frame_transient_bind_groups_) — those raced directly when two windows rendered concurrently
+        // (one clearing frame_draws_ while another's render graph was still reading it mid-recording).
+        // Callers build one of these on the stack and thread it by reference through render_frame_rhi()
+        // and everything it calls.
+        struct FrameSubmission {
+            vector<RenderItem> draws;
+            glm::mat4 view_projection{1.0f};
+            CameraView camera{};
+            SceneLighting lighting{};
+            DeferredTargetFormats deferred_formats{};
+            vector<RHI::BindGroupHandle> transient_bind_groups;
         };
 
         struct DebugSceneResources {
@@ -247,54 +305,68 @@ export namespace SFT::Renderer {
             bool ready = false;
         };
 
-        // One in-flight frame's deferred-cleanup bundle (see plans/async-submission-model.md). The async
-        // model records + submits a frame and moves on without waiting; the GPU resources that frame still
-        // references — its command buffer, the render graph's transient targets, and any bind groups minted
-        // while recording — can't be freed until that frame's fence retires. They live here until this ring
-        // slot is reused max_frames_in_flight frames later, at which point its fence is guaranteed signaled.
-        struct FrameInFlight {
-            RHI::FenceHandle fence{};
-            RHI::CommandBufferHandle command_buffer{};
-            vector<RHI::TextureHandle> transient_textures;
-            vector<RHI::TextureViewHandle> transient_texture_views;
-            vector<RHI::BindGroupHandle> transient_bind_groups;
-            vector<RHI::SwapchainHandle> retired_swapchains;
-            vector<RHI::TextureHandle> retired_presentation_textures;
-            vector<RHI::TextureViewHandle> retired_presentation_texture_views;
-            bool submitted = false;
-        };
-
         struct SceneFrameGpuResources {
             RHI::BufferHandle view_buffer{};
             RHI::BufferHandle object_buffer{};
             usize object_capacity = 0;
         };
 
+        struct ShaderHotReloadPollResult {
+            std::shared_ptr<Core::Slang::ShaderWatcher> watcher;
+            vector<Core::Slang::ShaderChange> changes;
+        };
+
+        // Briefly locks window_surfaces_ to find the record matching `surface`, then returns the (stable,
+        // heap-allocated) raw pointer with the lock released. Matches the same "caller-owns-lifetime,
+        // lock only protects the container's own structure" contract VulkanRhiResourcePool documents.
         [[nodiscard]] WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) noexcept;
         [[nodiscard]] const WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) const noexcept;
         [[nodiscard]] Core::RendererResult ensure_rhi_presentation_resources(WindowSurfaceRecord &record);
-        [[nodiscard]] Core::RendererResult recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index = 0);
+        // `known_extent`, when given, skips querying the Window directly — render_frame_rhi's per-frame
+        // hot path already has a fresh extent from FrameInput and must never touch the Window itself
+        // (see render_frame_rhi's own comment on this). Left unset, this queries the window directly,
+        // which is only ever exercised from the cold-start path (ensure_rhi_presentation_resources during
+        // create_window_surface/initialize(), single-threaded, before any concurrent rendering begins).
+        [[nodiscard]] Core::RendererResult recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index = 0,
+                                                                   optional<Core::Extent2D> known_extent = std::nullopt);
         [[nodiscard]] Core::RendererResult ensure_rhi_depth_resources(WindowSurfaceRecord &record);
+        // Looks up `surface`, calls render_frame_rhi(), and on a DeviceLost error runs the recover-then-
+        // retry-once sequence, re-resolving the record afterward (recovery may have rebuilt it).
+        [[nodiscard]] Core::RendererResult render_frame_dispatch(Core::RenderSurfaceHandle surface,
+                                                                  const Core::FrameInput &frame,
+                                                                  FrameSubmission &submission);
         [[nodiscard]] Core::RendererResult render_frame_rhi(WindowSurfaceRecord &record,
-                                                            const Core::FrameInput &frame);
+                                                            const Core::FrameInput &frame,
+                                                            FrameSubmission &submission);
         // Destroys one in-flight frame slot's deferred GPU resources (command buffer, transient graph
         // targets, transient bind groups) but NOT its reusable fence. The caller must have already
         // ensured the slot's fence signaled — this only destroys, it never waits.
         void reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation = false) noexcept;
-        // Waits for every submitted in-flight frame to finish, then reclaims its resources. The
-        // sanctioned heavy wait for teardown / swapchain rebuild — NOT the per-frame path. Leaves each
-        // slot's fence allocated but reset (unsignaled) so the ring is immediately reusable.
-        void drain_frames_in_flight() noexcept;
+        [[nodiscard]] Core::RendererResult ensure_frame_deferred_targets(FrameInFlight &slot,
+                                                                         Core::Extent2D extent,
+                                                                         const DeferredTargetFormats &formats);
+        void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
+        // Waits for every submitted in-flight frame (of one window's ring) to finish, then reclaims its
+        // resources. The sanctioned heavy wait for teardown / swapchain rebuild — NOT the per-frame path.
+        // Leaves each slot's fence allocated but reset (unsignaled) so the ring is immediately reusable.
+        void drain_frames_in_flight(WindowSurfaceRecord &record) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
-        [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index);
+        [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
         void destroy_scene_gpu_resources() noexcept;
+        // Lazy-build-once-and-cache, guarded by lazy_resource_mutex_ internally so concurrent first-use
+        // from two windows' render calls can't double-build or corrupt the cache.
         [[nodiscard]] Core::RendererResult ensure_debug_scene_resources();
         void destroy_debug_scene_resources() noexcept;
+        // Caller must already hold debug_scene_'s guard — used by ensure_debug_scene_resources() itself
+        // (which holds it for its whole check-then-build body) to avoid double-locking a non-recursive
+        // Async::Mutex.
+        void destroy_debug_scene_resources_locked(DebugSceneResources &scene) noexcept;
         [[nodiscard]] Core::RendererResult record_render_item(RHI::RenderPassEncoder &pass,
                                                               const RenderItem &item,
                                                               span<const RHI::Format> color_formats,
                                                               RHI::Format depth_format,
-                                                              u64 frame_index);
+                                                              u64 frame_index,
+                                                              const glm::mat4 &view_projection);
 
         [[nodiscard]] Core::RendererResult try_upload_mesh(MeshResource &mesh);
 
@@ -329,26 +401,41 @@ export namespace SFT::Renderer {
         void destroy_material_instance_gpu(MaterialInstanceResource &resource) noexcept;
 
         // ── Deferred lighting and fullscreen tonemap post-processes ──
+        // Both ensure_*/*_pipeline_for() pairs are lazy-build-once-and-cache, guarded by their own
+        // Async::Mutex (deferred_lighting_/tonemap_) for the same reason as debug_scene_.
         [[nodiscard]] Core::RendererResult ensure_deferred_lighting_resources();
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> deferred_lighting_pipeline_for(RHI::Format color_format);
         [[nodiscard]] Core::RendererResult record_deferred_lighting(RHI::RenderPassEncoder &pass,
                                                                     RHI::TextureViewHandle albedo_view,
                                                                     RHI::TextureViewHandle normal_view,
                                                                     RHI::TextureViewHandle material_view,
-                                                                    RHI::Format color_format);
+                                                                    RHI::Format color_format,
+                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_deferred_lighting_resources() noexcept;
+        // Caller must already hold deferred_lighting_'s guard — see destroy_debug_scene_resources_locked.
+        void destroy_deferred_lighting_resources_locked(DeferredLightingResources &resources) noexcept;
 
         // Lazily compiles Shaders/fullscreen_tonemap.slang and builds its reflection-derived layouts +
         // sampler (once). Builds/caches the render pipeline for one swapchain color format. Records the
         // fullscreen draw sampling `source_view` into the currently-bound render pass; the bind group it
-        // mints is stashed in frame_transient_bind_groups_ and freed after the frame fence retires.
+        // mints is appended to `transient_bind_groups` (the caller's FrameSubmission) and freed after the
+        // frame fence retires.
         [[nodiscard]] Core::RendererResult ensure_tonemap_resources();
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> tonemap_pipeline_for(RHI::Format color_format);
         [[nodiscard]] Core::RendererResult record_tonemap(RHI::RenderPassEncoder &pass,
                                                           RHI::TextureViewHandle source_view,
-                                                          RHI::Format color_format);
+                                                          RHI::Format color_format,
+                                                          vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_tonemap_resources() noexcept;
+        // Caller must already hold tonemap_'s guard — see destroy_debug_scene_resources_locked.
+        void destroy_tonemap_resources_locked(TonemapResources &resources) noexcept;
 
+        // Rebuilds the whole backend + every window surface's presentation resources. Holds the
+        // window_surfaces_ Async::Mutex for the structural parts of the rebuild; recovering_from_device_loss_
+        // guards against re-entrant recovery calls. A window's render racing a concurrent recovery rebuild
+        // of its own record's fields is an accepted, documented scope boundary (recovery is the rare/
+        // exceptional path) — same stance as VulkanRhiResourcePool's "destroying a resource still
+        // referenced by in-flight work is caller error, not something the lock needs to catch".
         [[nodiscard]] Core::RendererResult recover_from_device_loss();
         [[nodiscard]] Core::RendererResult rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                             const char *reason);
@@ -359,7 +446,12 @@ export namespace SFT::Renderer {
 
         unique_ptr<Core::EngineBackend> graphics_backend_;
         Core::RendererCreateInfo recovery_create_info_{};
-        vector<WindowSurfaceRecord> window_surfaces_;
+        // Async::Mutex<T> physically hides the vector behind lock() — every accessor gets a MutexGuard,
+        // so there's no way to touch window_surfaces_ without holding the lock (unlike a plain vector +
+        // separately-declared mutex, which relies on every call site remembering to lock it). unique_ptr
+        // elements so a WindowSurfaceRecord's address stays stable across push_back/erase — a render call
+        // only needs the lock for the brief lookup, then keeps using the (stable) pointer unlocked.
+        mutable Async::Mutex<vector<unique_ptr<WindowSurfaceRecord>>> window_surfaces_;
         Core::RendererCapabilities capabilities_{};
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
@@ -367,28 +459,34 @@ export namespace SFT::Renderer {
         vector<MaterialTemplateResource> material_templates_;
         vector<MaterialInstanceResource> material_instances_;
         TextureHandle default_white_texture_{};
+        // Legacy accumulator for the public submit_draw() API + the plain render_frame(surface, frame)
+        // fallback overload only — never touched by the RenderFrameDesc path (which uses a fully
+        // call-local FrameSubmission instead) and, per today's Engine::render(), never exercised
+        // concurrently with another window's render once the demo scene is up.
         vector<RenderItem> frame_draws_;
-        glm::mat4 frame_view_projection_{1.0f};
-        CameraView frame_camera_{};
-        SceneLighting frame_lighting_{};
-        DeferredTargetFormats deferred_formats_{};
         vector<SceneFrameGpuResources> scene_frame_resources_;
-        // Lazily created on the first poll_shader_hot_reload() over the `Shaders/` tree; primed so the
-        // first poll reports only edits made after the engine started.
-        optional<Core::Slang::ShaderWatcher> shader_watcher_;
-        DeferredLightingResources deferred_lighting_{};
-        TonemapResources tonemap_{};
-        // Bind groups minted while recording the current frame (e.g. the tonemap pass's scene sampler),
-        // destroyed once the frame fence retires — safe because the per-frame path waits on that fence.
-        vector<RHI::BindGroupHandle> frame_transient_bind_groups_;
-        // Ring of N = max_frames_in_flight deferred-cleanup slots; indexed by FrameInput::frame_index so
-        // it stays in lockstep with the material system's per-frame UBO slotting (frame_index % N). See
-        // plans/async-submission-model.md.
-        vector<FrameInFlight> frames_in_flight_;
-        DebugSceneResources debug_scene_{};
+        // Lazily created by the first async poll over the `Shaders/` tree; primed so the first poll
+        // reports only edits made after the engine started. Polling is throttled and runs on Async workers
+        // because the watcher recursively stats the shader tree and project roots can live on slow filesystems.
+        std::shared_ptr<Core::Slang::ShaderWatcher> shader_watcher_;
+        optional<Async::TaskHandle<ShaderHotReloadPollResult>> shader_hot_reload_poll_;
+        steady_clock::time_point next_shader_hot_reload_poll_{};
+        // Each lazy-build-once-and-cache resource gets its own Async::Mutex, same rationale as
+        // window_surfaces_ above — ensure_*()/​*_pipeline_for() hold the guard for their whole
+        // check-then-build body, so concurrent first-use from two windows' render calls can't double-build
+        // or corrupt the cache. Each is fast once warm, so this only ever serializes the rare cold-start/
+        // new-variant path, never per-frame recording or submission.
+        Async::Mutex<DeferredLightingResources> deferred_lighting_;
+        Async::Mutex<TonemapResources> tonemap_;
+        // material_pipeline_for()'s per-template pipeline_variants cache can't use the same Async::Mutex<T>
+        // pattern as above: MaterialTemplateResource lives by value inside vector<MaterialTemplateResource>
+        // material_templates_, and Async::Mutex<T> deletes move/copy, which would make the whole resource
+        // (and therefore the vector) non-movable. A plain mutex covering just this one cache is the
+        // exception here, not the rule.
+        std::mutex material_pipeline_mutex_;
+        Async::Mutex<DebugSceneResources> debug_scene_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
-        bool debug_fallback_enabled_ = true;
     };
 
 } // namespace SFT::Renderer

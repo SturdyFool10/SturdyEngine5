@@ -1,10 +1,8 @@
-module;
-
-#pragma region Imports
 #include <atomic>
 #include <format>
 #include <mimalloc.h>
 #include <string_view>
+#include <Foundation/Foundation.hpp>
 
 #if defined(__linux__)
     #include <cstdio>
@@ -16,13 +14,6 @@ module;
 #elif defined(__APPLE__)
     #include <mach/mach.h>
 #endif
-#pragma endregion
-
-module Sturdy.Foundation;
-
-import :Memory;
-import :Log;
-import :Types;
 
 using SFT::Foundation::f64, SFT::Foundation::u32, SFT::Foundation::usize;
 using std::atomic;

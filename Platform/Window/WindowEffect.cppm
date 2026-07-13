@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <string_view>
@@ -6,7 +7,6 @@ module;
 
 export module Sturdy.Platform:WindowEffect;
 
-import Sturdy.Foundation;
 
 using std::string_view;
 

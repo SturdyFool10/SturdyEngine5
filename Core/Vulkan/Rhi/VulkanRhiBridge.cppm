@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -34,7 +35,6 @@ import :VulkanQueue;
 import :VulkanRhiResourcePool;
 import :VulkanSampler;
 import :VulkanSync;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::span;

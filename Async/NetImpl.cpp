@@ -1,6 +1,4 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <cstddef>
 #include <expected>
 #include <span>
@@ -20,13 +18,7 @@ module;
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
-#pragma endregion
-
-module Sturdy.Async;
-
-import :Net;
-import :IoError;
-import Sturdy.Foundation;
+#include <Async/Net.hpp>
 
 using std::expected;
 using std::span;

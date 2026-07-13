@@ -1,7 +1,8 @@
+#include <Foundation/Foundation.hpp>
+#include <Runtime/Cli.hpp>
+
 #pragma region Imports
 import Sturdy.Engine;
-import Sturdy.Foundation;
-import Sturdy.Runtime.Cli;
 #pragma endregion
 
 using SFT::Engine::Application;

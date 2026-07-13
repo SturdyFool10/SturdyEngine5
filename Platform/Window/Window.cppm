@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <atomic>
@@ -14,7 +15,6 @@ module;
 
 export module Sturdy.Platform:Window;
 
-import Sturdy.Foundation;
 
 export import :WindowError;
 export import :WindowGeometry;

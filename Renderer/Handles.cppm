@@ -1,11 +1,11 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #pragma endregion
 
 export module Sturdy.Renderer:Handles;
 
-import Sturdy.Foundation;
 
 export namespace SFT::Renderer {
 

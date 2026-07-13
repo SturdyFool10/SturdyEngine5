@@ -27,6 +27,8 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanDevice;
@@ -37,7 +39,6 @@ import :VulkanRhiBridge;
 import :VulkanRhiConvert;
 import :VulkanSwapchain;
 import :VulkanSync;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::span;

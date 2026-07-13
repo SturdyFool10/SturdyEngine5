@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <GLFW/glfw3.h>
@@ -15,7 +16,6 @@ module;
 module Sturdy.Platform.GLFW;
 
 import :Window;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using std::bad_alloc;

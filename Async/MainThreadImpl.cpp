@@ -1,15 +1,9 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <deque>
 #include <functional>
 #include <utility>
-#pragma endregion
-
-module Sturdy.Async;
-
-import :MainThread;
-import :Mutex;
+#include <Async/MainThread.hpp>
+#include <Async/Mutex.hpp>
 
 using std::deque;
 using std::function;

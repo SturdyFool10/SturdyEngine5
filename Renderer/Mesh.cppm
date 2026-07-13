@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -12,7 +13,6 @@ module;
 
 export module Sturdy.Renderer:Mesh;
 
-import Sturdy.Foundation;
 import Sturdy.Core;
 import :Handles;
 import :Geometry;

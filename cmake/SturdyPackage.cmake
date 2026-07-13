@@ -107,15 +107,32 @@ function(sturdy_add_package package_name)
 
   set(_auto_module_interfaces)
   set(_auto_module_implementations)
+  set(_sturdy_named_module_sources)
   foreach(_module IN LISTS _auto_modules)
     file(READ "${_module}" _module_contents LIMIT 4096)
     if(_module_contents MATCHES
         "(^|[\r\n])[ \t]*export[ \t]+module[ \t]+")
       list(APPEND _auto_module_interfaces "${_module}")
+      list(APPEND _sturdy_named_module_sources "${_module}")
     else()
       list(APPEND _auto_module_implementations "${_module}")
+      if(_module_contents MATCHES
+          "(^|[\r\n])[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_.:]*[ \t]*;")
+        list(APPEND _sturdy_named_module_sources "${_module}")
+      endif()
     endif()
   endforeach()
+
+  foreach(_source IN LISTS _auto_sources STURDY_PACKAGE_SOURCES)
+    if(_source MATCHES "\\.(cc|cpp|cxx)$")
+      file(READ "${_source}" _source_contents LIMIT 4096)
+      if(_source_contents MATCHES
+          "(^|[\r\n])[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_.:]*[ \t]*;")
+        list(APPEND _sturdy_named_module_sources "${_source}")
+      endif()
+    endif()
+  endforeach()
+  list(REMOVE_DUPLICATES _sturdy_named_module_sources)
 
   set(_all_sources
     ${_auto_sources}
@@ -149,6 +166,17 @@ function(sturdy_add_package package_name)
             OPTIMIZE_DEPENDENCIES ON
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
+
+    # Clang ThinLTO currently miscompiles some C++20 named-module TUs in Dist: objects that cross
+    # module boundaries can corrupt the process heap before the first spdlog allocation. Keep IPO/LTO
+    # enabled globally, but compile named-module translation units as native objects so LTO still covers
+    # ordinary .cpp/.cxx files and third-party code.
+    if(STURDY_ENABLE_LTO AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND _sturdy_named_module_sources)
+      set_source_files_properties(${_sturdy_named_module_sources}
+        PROPERTIES
+          COMPILE_OPTIONS "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:Dist>>:-fno-lto>"
+      )
+    endif()
 
     # thirdparty/licenses/ is regenerated (and gitignored), so make sure it's populated before
     # this target's compiler invocations rather than only when CMake happens to reconfigure.

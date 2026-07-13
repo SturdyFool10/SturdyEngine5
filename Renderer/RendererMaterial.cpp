@@ -1,14 +1,17 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <expected>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -16,17 +19,18 @@ module;
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <Async/Async.hpp>
 #pragma endregion
 
 module Sturdy.Renderer;
 
 import :Renderer;
 import :Scene;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 
 using std::array;
+using std::chrono::steady_clock;
 using std::optional;
 using std::span;
 using std::string;
@@ -409,26 +413,48 @@ namespace SFT::Renderer {
     }
 
     usize Renderer::poll_shader_hot_reload() {
-        if (!shader_watcher_) {
-            // Primed: the first poll after this reports only edits made after the engine started.
-            shader_watcher_.emplace(std::filesystem::path{"Shaders"});
-        }
+        using namespace std::chrono_literals;
+
         usize reloaded = 0;
-        for (const slang::ShaderChange &change : shader_watcher_->poll()) {
-            for (MaterialTemplateResource &tmpl : material_templates_) {
-                if (!tmpl.alive || !tmpl.hot_reloadable) {
-                    continue;
-                }
-                if (!same_shader_file(tmpl.variant_cache.source().path, change.path)) {
-                    continue;
-                }
-                if (Core::RendererResult result = reload_material_template(tmpl.handle); result) {
-                    ++reloaded;
-                } else {
-                    Foundation::log_error("Shader hot-reload of '{}' failed: {}", change.path, result.error().message);
+        if (shader_hot_reload_poll_ && shader_hot_reload_poll_->is_done()) {
+            ShaderHotReloadPollResult poll_result = shader_hot_reload_poll_->wait();
+            shader_hot_reload_poll_.reset();
+            shader_watcher_ = std::move(poll_result.watcher);
+
+            for (const slang::ShaderChange &change : poll_result.changes) {
+                for (MaterialTemplateResource &tmpl : material_templates_) {
+                    if (!tmpl.alive || !tmpl.hot_reloadable) {
+                        continue;
+                    }
+                    if (!same_shader_file(tmpl.variant_cache.source().path, change.path)) {
+                        continue;
+                    }
+                    if (Core::RendererResult result = reload_material_template(tmpl.handle); result) {
+                        ++reloaded;
+                    } else {
+                        Foundation::log_error("Shader hot-reload of '{}' failed: {}", change.path, result.error().message);
+                    }
                 }
             }
         }
+
+        const steady_clock::time_point now = steady_clock::now();
+        if (!shader_hot_reload_poll_ &&
+            (next_shader_hot_reload_poll_ == steady_clock::time_point{} || now >= next_shader_hot_reload_poll_)) {
+            next_shader_hot_reload_poll_ = now + 250ms;
+            auto watcher = shader_watcher_;
+            shader_hot_reload_poll_ = Async::Scheduler::spawn([watcher = std::move(watcher)]() mutable {
+                ShaderHotReloadPollResult result{};
+                result.watcher = std::move(watcher);
+                if (!result.watcher) {
+                    // Primed: the first real poll reports only edits made after the engine started.
+                    result.watcher = std::make_shared<slang::ShaderWatcher>(std::filesystem::path{"Shaders"});
+                }
+                result.changes = result.watcher->poll();
+                return result;
+            });
+        }
+
         return reloaded;
     }
 
@@ -437,6 +463,10 @@ namespace SFT::Renderer {
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
+        // See material_pipeline_mutex_'s doc comment (RendererModule.cppm) for why this is a plain mutex
+        // rather than an Async::Mutex<T> like the other lazy caches: pipeline_variants lives inside a
+        // MaterialTemplateResource stored by value in vector<MaterialTemplateResource>.
+        std::lock_guard<std::mutex> lock(material_pipeline_mutex_);
         for (const MaterialPipelineVariant &variant : material_template.pipeline_variants) {
             if (variant.depth_format == depth_format && variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {

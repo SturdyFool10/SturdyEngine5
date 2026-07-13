@@ -1,4 +1,6 @@
 module;
+#include <Foundation/Foundation.hpp>
+#include <RHI/Threading.hpp>
 
 #pragma region Imports
 #include <concepts>
@@ -9,7 +11,6 @@ module;
 
 export module Sturdy.Core:EngineBackend;
 
-import Sturdy.Foundation;
 import Sturdy.Platform;
 import Sturdy.RHI;
 import :GraphicsBackendError;
@@ -75,6 +76,14 @@ export namespace SFT::Core {
 
         // What this backend can actually do, populated during initialize().
         [[nodiscard]] virtual RendererCapabilities capabilities() const noexcept = 0;
+
+        // Runtime threading envelope for this backend/API/platform combination. Vulkan permits host-side
+        // multithreading, but many objects are externally synchronized: VkQueue, VkCommandPool, descriptor
+        // pools/sets in some operations, and object destruction must not race uses. Backends should only
+        // advertise parallel command recording once they provide per-thread command pools and ownership.
+        [[nodiscard]] virtual RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept {
+            return RHI::RenderThreadingCapabilities{};
+        }
 
         // RHI escape hatch for high-level renderer systems that need API-agnostic low-level access.
         // Backends return nullptr until the RHI bridge is initialized or when no RHI bridge exists yet.

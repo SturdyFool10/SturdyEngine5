@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 export module Sturdy.Platform:WindowConfig;
 

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <optional>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.Renderer:ReflectionBinding;
 
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 

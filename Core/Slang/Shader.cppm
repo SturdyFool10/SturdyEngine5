@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <memory>
@@ -8,7 +9,6 @@ module;
 export module Sturdy.Core:Shader;
 
 #pragma region Imports
-import Sturdy.Foundation;
 
 // Re-export all Slang sub-partitions so callers that import :Shader or Sturdy.Core get
 // the full shader API without importing each partition individually.

@@ -1,8 +1,8 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 export module Sturdy.Platform:WindowEvent;
 
-import Sturdy.Foundation;
 import :WindowGeometry;
 
 export namespace SFT::Platform::Windowing {

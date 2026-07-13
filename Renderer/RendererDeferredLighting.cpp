@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -46,7 +47,8 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_deferred_lighting_resources() {
-        if (deferred_lighting_.ready) {
+        auto guard = deferred_lighting_.lock();
+        if (guard->ready) {
             return {};
         }
         RHI::RhiDevice *device = rhi_device();
@@ -66,11 +68,11 @@ namespace SFT::Renderer {
         if (!shader) {
             return unexpected(deferred_lighting_error("compile deferred lighting shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }
-        deferred_lighting_.shader = *shader;
-        deferred_lighting_.vertex_entry_point = "vertexMain";
-        deferred_lighting_.fragment_entry_point = "fragmentMain";
+        guard->shader = *shader;
+        guard->vertex_entry_point = "vertexMain";
+        guard->fragment_entry_point = "fragmentMain";
 
-        auto vertex_code = deferred_lighting_.shader.entry_point_code(deferred_lighting_.vertex_entry_point);
+        auto vertex_code = guard->shader.entry_point_code(guard->vertex_entry_point);
         if (!vertex_code) {
             return unexpected(deferred_lighting_error("generate deferred lighting vertex bytecode failed: " + vertex_code.error().message));
         }
@@ -82,11 +84,11 @@ namespace SFT::Renderer {
         if (!vertex_module) {
             return unexpected(graphics_error_from_rhi(vertex_module.error(), "create deferred lighting vertex module"));
         }
-        deferred_lighting_.vertex_module = *vertex_module;
+        guard->vertex_module = *vertex_module;
 
-        auto fragment_code = deferred_lighting_.shader.entry_point_code(deferred_lighting_.fragment_entry_point);
+        auto fragment_code = guard->shader.entry_point_code(guard->fragment_entry_point);
         if (!fragment_code) {
-            destroy_deferred_lighting_resources();
+            destroy_deferred_lighting_resources_locked(*guard);
             return unexpected(deferred_lighting_error("generate deferred lighting fragment bytecode failed: " + fragment_code.error().message));
         }
         auto fragment_module = device->create_shader_module(RHI::ShaderModuleDesc{
@@ -95,12 +97,12 @@ namespace SFT::Renderer {
             .label = "deferred lighting fragment module",
         });
         if (!fragment_module) {
-            destroy_deferred_lighting_resources();
+            destroy_deferred_lighting_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(fragment_module.error(), "create deferred lighting fragment module"));
         }
-        deferred_lighting_.fragment_module = *fragment_module;
+        guard->fragment_module = *fragment_module;
 
-        const slang::ShaderReflection &reflection = deferred_lighting_.shader.reflection();
+        const slang::ShaderReflection &reflection = guard->shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
         for (const GeneratedBindGroupLayout &layout : generated) {
             auto handle = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
@@ -108,27 +110,27 @@ namespace SFT::Renderer {
                 .label = "deferred lighting bind group layout",
             });
             if (!handle) {
-                destroy_deferred_lighting_resources();
+                destroy_deferred_lighting_resources_locked(*guard);
                 return unexpected(graphics_error_from_rhi(handle.error(), "create deferred lighting bind group layout"));
             }
-            deferred_lighting_.bind_group_layouts.push_back(*handle);
-            deferred_lighting_.bind_group_layout_sets.push_back(layout.set);
+            guard->bind_group_layouts.push_back(*handle);
+            guard->bind_group_layout_sets.push_back(layout.set);
         }
-        if (deferred_lighting_.bind_group_layouts.empty()) {
-            destroy_deferred_lighting_resources();
+        if (guard->bind_group_layouts.empty()) {
+            destroy_deferred_lighting_resources_locked(*guard);
             return unexpected(deferred_lighting_error("deferred lighting shader produced no bind-group layout."));
         }
 
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
-            .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{deferred_lighting_.bind_group_layouts.data(), deferred_lighting_.bind_group_layouts.size()},
+            .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{guard->bind_group_layouts.data(), guard->bind_group_layouts.size()},
             .push_constant_ranges = {},
             .label = "deferred lighting pipeline layout",
         });
         if (!pipeline_layout) {
-            destroy_deferred_lighting_resources();
+            destroy_deferred_lighting_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(pipeline_layout.error(), "create deferred lighting pipeline layout"));
         }
-        deferred_lighting_.pipeline_layout = *pipeline_layout;
+        guard->pipeline_layout = *pipeline_layout;
 
         auto sampler = device->create_sampler(RHI::SamplerDesc{
             .min_filter = RHI::Filter::Nearest,
@@ -141,12 +143,12 @@ namespace SFT::Renderer {
             .label = "deferred lighting gbuffer sampler",
         });
         if (!sampler) {
-            destroy_deferred_lighting_resources();
+            destroy_deferred_lighting_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(sampler.error(), "create deferred lighting sampler"));
         }
-        deferred_lighting_.sampler = *sampler;
+        guard->sampler = *sampler;
 
-        deferred_lighting_.ready = true;
+        guard->ready = true;
         return {};
     }
 
@@ -154,7 +156,9 @@ namespace SFT::Renderer {
         if (Core::RendererResult ready = ensure_deferred_lighting_resources(); !ready) {
             return unexpected(ready.error());
         }
-        for (const DeferredLightingPipelineVariant &variant : deferred_lighting_.pipeline_variants) {
+
+        auto guard = deferred_lighting_.lock();
+        for (const DeferredLightingPipelineVariant &variant : guard->pipeline_variants) {
             if (variant.color_format == color_format) {
                 return variant.pipeline;
             }
@@ -167,9 +171,9 @@ namespace SFT::Renderer {
 
         const RHI::ColorTargetState color_target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
         const RHI::RenderPipelineDesc desc{
-            .layout = deferred_lighting_.pipeline_layout,
-            .vertex = RHI::ShaderEntry{.module = deferred_lighting_.vertex_module, .entry_point = deferred_lighting_.vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
-            .fragment = RHI::ShaderEntry{.module = deferred_lighting_.fragment_module, .entry_point = deferred_lighting_.fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment},
+            .layout = guard->pipeline_layout,
+            .vertex = RHI::ShaderEntry{.module = guard->vertex_module, .entry_point = guard->vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
+            .fragment = RHI::ShaderEntry{.module = guard->fragment_module, .entry_point = guard->fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment},
             .vertex_buffers = {},
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
@@ -181,7 +185,7 @@ namespace SFT::Renderer {
         if (!pipeline) {
             return unexpected(graphics_error_from_rhi(pipeline.error(), "create deferred lighting pipeline"));
         }
-        deferred_lighting_.pipeline_variants.push_back(DeferredLightingPipelineVariant{.color_format = color_format, .pipeline = *pipeline});
+        guard->pipeline_variants.push_back(DeferredLightingPipelineVariant{.color_format = color_format, .pipeline = *pipeline});
         return *pipeline;
     }
 
@@ -189,7 +193,8 @@ namespace SFT::Renderer {
                                                             RHI::TextureViewHandle albedo_view,
                                                             RHI::TextureViewHandle normal_view,
                                                             RHI::TextureViewHandle material_view,
-                                                            RHI::Format color_format) {
+                                                            RHI::Format color_format,
+                                                            vector<RHI::BindGroupHandle> &transient_bind_groups) {
         auto pipeline = deferred_lighting_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -199,8 +204,9 @@ namespace SFT::Renderer {
             return unexpected(deferred_lighting_error("Cannot record deferred lighting without a device and valid G-buffer views."));
         }
 
-        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(deferred_lighting_.shader.reflection(),
-                                                                                       reflected_stage_mask(deferred_lighting_.shader.reflection()));
+        auto guard = deferred_lighting_.lock();
+        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(guard->shader.reflection(),
+                                                                                       reflected_stage_mask(guard->shader.reflection()));
         if (generated.empty()) {
             return unexpected(deferred_lighting_error("deferred lighting shader reflection produced no bind-group layout."));
         }
@@ -219,25 +225,25 @@ namespace SFT::Renderer {
         if (image_bindings.size() < 3 || !has_sampler_binding) {
             return unexpected(deferred_lighting_error("deferred lighting shader reflection did not produce three sampled textures and one sampler."));
         }
-        const usize layout_index = bind_group_layout_index_for_set(deferred_lighting_.bind_group_layout_sets, layout.set);
-        if (layout_index >= deferred_lighting_.bind_group_layouts.size()) {
+        const usize layout_index = bind_group_layout_index_for_set(guard->bind_group_layout_sets, layout.set);
+        if (layout_index >= guard->bind_group_layouts.size()) {
             return unexpected(deferred_lighting_error("deferred lighting shader reflection set has no generated bind-group layout."));
         }
         const array<RHI::BindGroupEntry, 4> entries{
             RHI::BindGroupEntry{.binding = image_bindings[0], .texture_view = albedo_view},
             RHI::BindGroupEntry{.binding = image_bindings[1], .texture_view = normal_view},
             RHI::BindGroupEntry{.binding = image_bindings[2], .texture_view = material_view},
-            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = deferred_lighting_.sampler},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = guard->sampler},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = deferred_lighting_.bind_group_layouts[layout_index],
+            .layout = guard->bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "deferred lighting gbuffer bind group",
         });
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create deferred lighting bind group"));
         }
-        frame_transient_bind_groups_.push_back(*bind_group);
+        transient_bind_groups.push_back(*bind_group);
 
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(layout.set, *bind_group);
@@ -246,32 +252,37 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_deferred_lighting_resources() noexcept {
+        auto guard = deferred_lighting_.lock();
+        destroy_deferred_lighting_resources_locked(*guard);
+    }
+
+    void Renderer::destroy_deferred_lighting_resources_locked(DeferredLightingResources &resources) noexcept {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
-            deferred_lighting_ = {};
+            resources = {};
             return;
         }
-        for (const DeferredLightingPipelineVariant &variant : deferred_lighting_.pipeline_variants) {
+        for (const DeferredLightingPipelineVariant &variant : resources.pipeline_variants) {
             if (variant.pipeline) {
                 device->destroy_render_pipeline(variant.pipeline);
             }
         }
-        if (deferred_lighting_.sampler) {
-            device->destroy_sampler(deferred_lighting_.sampler);
+        if (resources.sampler) {
+            device->destroy_sampler(resources.sampler);
         }
-        if (deferred_lighting_.pipeline_layout) {
-            device->destroy_pipeline_layout(deferred_lighting_.pipeline_layout);
+        if (resources.pipeline_layout) {
+            device->destroy_pipeline_layout(resources.pipeline_layout);
         }
-        for (RHI::BindGroupLayoutHandle layout : deferred_lighting_.bind_group_layouts) {
+        for (RHI::BindGroupLayoutHandle layout : resources.bind_group_layouts) {
             device->destroy_bind_group_layout(layout);
         }
-        if (deferred_lighting_.fragment_module) {
-            device->destroy_shader_module(deferred_lighting_.fragment_module);
+        if (resources.fragment_module) {
+            device->destroy_shader_module(resources.fragment_module);
         }
-        if (deferred_lighting_.vertex_module) {
-            device->destroy_shader_module(deferred_lighting_.vertex_module);
+        if (resources.vertex_module) {
+            device->destroy_shader_module(resources.vertex_module);
         }
-        deferred_lighting_ = {};
+        resources = {};
     }
 
 } // namespace SFT::Renderer

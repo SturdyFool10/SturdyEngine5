@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -15,7 +16,6 @@ module;
 
 export module Sturdy.RHI:Selection;
 
-import Sturdy.Foundation;
 import :Error;
 import :Flags;
 import :Features;

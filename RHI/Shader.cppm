@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.RHI:Shader;
 
-import Sturdy.Foundation;
 import :Flags;
 import :Handles;
 

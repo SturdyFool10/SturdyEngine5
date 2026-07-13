@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -18,7 +19,6 @@ module;
 
 export module Sturdy.Core:VulkanRhiConvert;
 
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 // Translation between the API-agnostic Sturdy.RHI vocabulary and concrete Vulkan enums/flags. Kept in

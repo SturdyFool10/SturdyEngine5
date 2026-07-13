@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -7,6 +8,7 @@ module;
 #include <span>
 #include <vector>
 #include <glm/vec4.hpp>
+#include <Async/Async.hpp>
 #pragma endregion
 
 module Sturdy.Renderer;
@@ -27,7 +29,7 @@ namespace SFT::Renderer {
         }
     } // namespace
 
-    Core::RendererResult Renderer::prepare_scene_gpu_data(u64 frame_index) {
+    Core::RendererResult Renderer::prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission) {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
@@ -53,11 +55,11 @@ namespace SFT::Renderer {
             resources.view_buffer = *buffer;
         }
 
-        if (!resources.object_buffer || resources.object_capacity < frame_draws_.size()) {
+        if (!resources.object_buffer || resources.object_capacity < submission.draws.size()) {
             if (resources.object_buffer) {
                 device->destroy_buffer(resources.object_buffer);
             }
-            resources.object_capacity = std::max<usize>(frame_draws_.size(), 1);
+            resources.object_capacity = std::max<usize>(submission.draws.size(), 1);
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = static_cast<u64>(resources.object_capacity * sizeof(SceneObjectGpuData)),
                 .usage = RHI::BufferUsage::Storage,
@@ -73,14 +75,14 @@ namespace SFT::Renderer {
         }
 
         const SceneViewGpuData view_data{
-            .view = frame_camera_.view,
-            .projection = frame_camera_.projection,
-            .view_projection = frame_view_projection_,
-            .camera_world_position_near = glm::vec4{frame_camera_.world_position, frame_camera_.near_plane},
-            .ambient_radiance_exposure = glm::vec4{frame_lighting_.ambient_radiance, frame_lighting_.exposure},
-            .far_fov_object_count_time = glm::vec4{frame_camera_.far_plane,
-                                                   frame_camera_.vertical_fov_radians,
-                                                   static_cast<f32>(frame_draws_.size()),
+            .view = submission.camera.view,
+            .projection = submission.camera.projection,
+            .view_projection = submission.view_projection,
+            .camera_world_position_near = glm::vec4{submission.camera.world_position, submission.camera.near_plane},
+            .ambient_radiance_exposure = glm::vec4{submission.lighting.ambient_radiance, submission.lighting.exposure},
+            .far_fov_object_count_time = glm::vec4{submission.camera.far_plane,
+                                                   submission.camera.vertical_fov_radians,
+                                                   static_cast<f32>(submission.draws.size()),
                                                    0.0f},
         };
         if (auto written = device->write_buffer(resources.view_buffer, 0,
@@ -88,21 +90,53 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(written.error(), "upload scene view buffer"));
         }
 
-        if (frame_draws_.empty()) {
+        if (submission.draws.empty()) {
             return {};
         }
 
-        std::vector<SceneObjectGpuData> objects;
-        objects.reserve(frame_draws_.size());
-        for (const RenderItem &item : frame_draws_) {
-            objects.push_back(SceneObjectGpuData{
-                .model = item.world_transform,
-                .previous_model = item.world_transform,
-                .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
-                                                       static_cast<f32>(item.sort_key),
-                                                       1.0f,
-                                                       0.0f},
-            });
+        std::vector<SceneObjectGpuData> objects(submission.draws.size());
+        constexpr usize async_object_packing_threshold = 512;
+        const u32 worker_count = Async::Scheduler::worker_count();
+        if (submission.draws.size() >= async_object_packing_threshold && worker_count > 1) {
+            const usize chunk_count = std::min<usize>(worker_count, submission.draws.size());
+            const usize chunk_size = (submission.draws.size() + chunk_count - 1) / chunk_count;
+            std::vector<Async::TaskHandle<void>> tasks;
+            tasks.reserve(chunk_count);
+            for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+                const usize begin = chunk * chunk_size;
+                const usize end = std::min(submission.draws.size(), begin + chunk_size);
+                if (begin >= end) {
+                    continue;
+                }
+                tasks.push_back(Async::Scheduler::spawn([&submission, &objects, begin, end]() {
+                    for (usize i = begin; i < end; ++i) {
+                        const RenderItem &item = submission.draws[i];
+                        objects[i] = SceneObjectGpuData{
+                            .model = item.world_transform,
+                            .previous_model = item.world_transform,
+                            .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
+                                                                   static_cast<f32>(item.sort_key),
+                                                                   1.0f,
+                                                                   0.0f},
+                        };
+                    }
+                }));
+            }
+            for (const Async::TaskHandle<void> &task : tasks) {
+                task.wait();
+            }
+        } else {
+            for (usize i = 0; i < submission.draws.size(); ++i) {
+                const RenderItem &item = submission.draws[i];
+                objects[i] = SceneObjectGpuData{
+                    .model = item.world_transform,
+                    .previous_model = item.world_transform,
+                    .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
+                                                           static_cast<f32>(item.sort_key),
+                                                           1.0f,
+                                                           0.0f},
+                };
+            }
         }
         if (auto written = device->write_buffer(resources.object_buffer, 0,
                                                 std::as_bytes(span<const SceneObjectGpuData>{objects.data(), objects.size()})); !written) {

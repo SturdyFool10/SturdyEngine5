@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <slang-com-ptr.h>
@@ -26,7 +27,6 @@ import :ShaderError;
 import :ShaderSource;
 import :ShaderTypes;
 import :ShaderReflection;
-import Sturdy.Foundation;
 
 using std::bad_alloc;
 using std::exception;

@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <memory>
@@ -11,7 +12,6 @@ module;
 
 export module Sturdy.RHI:Backend;
 
-import Sturdy.Foundation;
 import :Error;
 import :Device;  // BackendType, backend_type_name
 import :Adapter; // RhiInstance, InstanceDesc

@@ -1,8 +1,8 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 export module Sturdy.RHI:Swapchain;
 
-import Sturdy.Foundation;
 import :Types;
 import :Handles;
 import :Resources;

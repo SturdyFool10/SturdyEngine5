@@ -1,9 +1,8 @@
-module;
-
-#pragma region Imports
+#include <Foundation/Foundation.hpp>
 #include <cstddef>
 #include <string>
 #include <utility>
+#include <Runtime/Cli.hpp>
 
 #if defined(STURDY_PLATFORM_WINDOWS)
 #include <cwchar>
@@ -13,13 +12,6 @@ module;
 #include <windows.h>
 #include <shellapi.h> // CommandLineToArgvW
 #endif
-#pragma endregion
-
-// Module implementation unit for Sturdy.Runtime.Cli. Kept as a .cpp (a plain implementation unit,
-// "module X;" with no export) so it is compiled as a normal translation unit — the .cppm extension
-// is mapped to a module *interface* by the build and would reject this. Keeping <windows.h> here,
-// out of the interface's global module fragment, prevents it leaking into importers such as main.cpp.
-module Sturdy.Runtime.Cli;
 
 #if defined(STURDY_PLATFORM_WINDOWS)
 

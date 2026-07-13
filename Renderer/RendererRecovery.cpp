@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -9,7 +10,6 @@ module;
 module Sturdy.Renderer;
 
 import :Renderer;
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 import Sturdy.Platform;
@@ -38,7 +38,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                     const char *reason) {
-        if (!initialized_ || create_info.window == nullptr || window_surfaces_.empty()) {
+        if (!initialized_ || create_info.window == nullptr || window_surfaces_.lock()->empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Cannot rebuild graphics backend before renderer initialization state is available.");
         }
@@ -66,32 +66,36 @@ namespace SFT::Renderer {
             });
         }
 
-        for (WindowSurfaceRecord &record : window_surfaces_) {
-            record.rhi_surface = {};
-            record.rhi_swapchain = {};
-            record.depth_texture = {};
-            record.depth_view = {};
-            record.swapchain_extent = {};
-            record.rhi_swapchain_dirty = true;
-            if (record.primary) {
-                record.surface = *primary;
-                continue;
-            }
-            if (record.window == nullptr) {
-                continue;
-            }
+        {
+            auto guard = window_surfaces_.lock();
+            for (auto &record_ptr : *guard) {
+                WindowSurfaceRecord &record = *record_ptr;
+                record.rhi_surface = {};
+                record.rhi_swapchain = {};
+                record.depth_texture = {};
+                record.depth_view = {};
+                record.swapchain_extent = {};
+                record.rhi_swapchain_dirty = true;
+                if (record.primary) {
+                    record.surface = *primary;
+                    continue;
+                }
+                if (record.window == nullptr) {
+                    continue;
+                }
 
-            Core::RendererExpected<Core::RenderSurfaceHandle> recreated =
-                graphics_backend_->create_window_surface(*record.window, record.desired_frames_in_flight);
-            if (!recreated) {
-                recovering_from_device_loss_ = false;
-                initialized_ = false;
-                return unexpected(Core::GraphicsBackendError{
-                    .code = recreated.error().code,
-                    .message = string("Failed to recreate renderer window surface for ") + reason + ": " + recreated.error().message,
-                });
+                Core::RendererExpected<Core::RenderSurfaceHandle> recreated =
+                    graphics_backend_->create_window_surface(*record.window, record.desired_frames_in_flight);
+                if (!recreated) {
+                    recovering_from_device_loss_ = false;
+                    initialized_ = false;
+                    return unexpected(Core::GraphicsBackendError{
+                        .code = recreated.error().code,
+                        .message = string("Failed to recreate renderer window surface for ") + reason + ": " + recreated.error().message,
+                    });
+                }
+                record.surface = *recreated;
             }
-            record.surface = *recreated;
         }
 
         capabilities_ = graphics_backend_->capabilities();
@@ -138,13 +142,18 @@ namespace SFT::Renderer {
 
         // The old device is gone — drop every in-flight frame slot's handles (command buffers, fences,
         // deferred transients) and scene GPU buffers without destroying them; the fresh device starts over.
-        frames_in_flight_.clear();
+        {
+            auto guard = window_surfaces_.lock();
+            for (auto &record : *guard) {
+                record->frames_in_flight.clear();
+            }
+        }
         scene_frame_resources_.clear();
-        deferred_lighting_ = {};
-        tonemap_ = {};
+        *deferred_lighting_.lock() = {};
+        *tonemap_.lock() = {};
 
         frame_draws_.clear();
-        debug_scene_ = {};
+        *debug_scene_.lock() = {};
     }
 
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {

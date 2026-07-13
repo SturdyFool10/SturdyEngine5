@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <concepts>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.Core:ShaderSource;
 
-import Sturdy.Foundation;
 
 using std::convertible_to;
 using std::string;

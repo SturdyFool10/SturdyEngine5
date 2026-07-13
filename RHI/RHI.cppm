@@ -44,6 +44,9 @@
 // Growing toward "complete" is a method, not a single commit: every new capability is added as base,
 // or as a `Feature` + its vocabulary, and adding a new graphics API only ever *appends* enum values
 // and backend mappings — the shapes above never have to change to accommodate it.
+module;
+#include <Foundation/Foundation.hpp>
+
 export module Sturdy.RHI;
 
 export import :Error;

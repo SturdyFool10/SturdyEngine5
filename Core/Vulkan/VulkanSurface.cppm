@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #include <algorithm>
@@ -15,7 +16,6 @@ import :VulkanSwapchain;
 import :VulkanSync;
 import :VulkanCommandPool;
 import :VulkanCommandBuffer;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 import Sturdy.RHI;
 

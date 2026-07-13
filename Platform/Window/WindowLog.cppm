@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <spdlog/spdlog.h>
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.Platform:WindowLog;
 
-import Sturdy.Foundation;
 
 export namespace SFT::Platform::Windowing::Detail {
 

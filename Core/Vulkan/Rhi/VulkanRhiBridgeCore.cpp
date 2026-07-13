@@ -16,6 +16,8 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :GraphicsBackendError;
@@ -29,7 +31,6 @@ import :VulkanQueue;
 import :VulkanRhiBridge;
 import :VulkanRhiConvert;
 import :VulkanSync;
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 namespace SFT::Core::Vulkan {

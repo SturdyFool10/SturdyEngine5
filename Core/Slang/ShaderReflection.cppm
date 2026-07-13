@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <array>
@@ -9,7 +10,6 @@ module;
 
 export module Sturdy.Core:ShaderReflection;
 
-import Sturdy.Foundation;
 import :ShaderTypes;
 
 using std::array;

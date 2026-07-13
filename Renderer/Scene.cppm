@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -9,7 +10,6 @@ module;
 
 export module Sturdy.Renderer:Scene;
 
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.RHI;
 import :Handles;

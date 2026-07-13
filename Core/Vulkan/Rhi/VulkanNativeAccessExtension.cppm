@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -8,7 +9,6 @@ module;
 
 export module Sturdy.Core:VulkanNativeAccessExtension;
 
-import Sturdy.Foundation;
 import Sturdy.RHI;
 
 export namespace SFT::Core::Vulkan {

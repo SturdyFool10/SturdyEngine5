@@ -13,13 +13,14 @@ module;
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Core;
 
 import :VulkanBackend;
 import :VulkanConstants;
 import :GraphicsBackendError;
 import :Renderer;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 
 using std::format;

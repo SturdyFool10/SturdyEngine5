@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <filesystem>
@@ -11,7 +12,6 @@ module;
 
 export module Sturdy.Engine:Engine;
 
-import Sturdy.Foundation;
 import Sturdy.Core;
 import Sturdy.Renderer;
 import Sturdy.RHI;

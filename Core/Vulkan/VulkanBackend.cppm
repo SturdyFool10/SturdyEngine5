@@ -1,4 +1,6 @@
 module;
+#include <Foundation/Foundation.hpp>
+#include <RHI/Threading.hpp>
 #pragma region Imports
 #include <memory>
 #include <optional>
@@ -17,7 +19,6 @@ import :VulkanDevice;
 import :VulkanQueue;
 import :VulkanSurface;
 import :VulkanPhysicalDevice;
-import Sturdy.Foundation;
 import Sturdy.Platform;
 import Sturdy.RHI;
 
@@ -41,6 +42,7 @@ export namespace SFT::Core::Vulkan {
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
         void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept override;
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
+        [[nodiscard]] RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept override;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept override;
         [[nodiscard]] const RHI::RhiDevice *rhi_device() const noexcept override;
         [[nodiscard]] RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface) override;

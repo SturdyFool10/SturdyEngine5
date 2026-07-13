@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstdint>
@@ -20,7 +21,6 @@ module;
 
 module Sturdy.Platform;
 
-import Sturdy.Foundation;
 import :WindowError;
 import :WindowConfig;
 import :WindowEffect;

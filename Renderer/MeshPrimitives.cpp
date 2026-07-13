@@ -20,11 +20,12 @@ module;
 #include <glm/vec3.hpp>
 #pragma endregion
 
+#include <Foundation/Foundation.hpp>
+
 module Sturdy.Renderer;
 
 import :Mesh;
 import :Geometry;
-import Sturdy.Foundation;
 import Sturdy.Core;
 
 using std::span;

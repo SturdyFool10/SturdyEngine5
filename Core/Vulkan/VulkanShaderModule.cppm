@@ -1,4 +1,5 @@
 module;
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #include <cstddef>
@@ -13,7 +14,6 @@ export module Sturdy.Core:VulkanShaderModule;
 import :GraphicsBackendError;
 import :ShaderReflection;
 import :ShaderTypes;
-import Sturdy.Foundation;
 
 using SFT::Core::GraphicsBackendErrorCode;
 using SFT::Core::RendererExpected;
