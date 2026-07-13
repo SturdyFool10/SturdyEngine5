@@ -433,9 +433,13 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
-        MaterialTemplateResource &material_template, RHI::Format color_format, RHI::Format depth_format) {
+        MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format) {
+        if (color_formats.empty()) {
+            return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
+        }
         for (const MaterialPipelineVariant &variant : material_template.pipeline_variants) {
-            if (variant.color_format == color_format && variant.depth_format == depth_format) {
+            if (variant.depth_format == depth_format && variant.color_formats.size() == color_formats.size() &&
+                std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
             }
         }
@@ -451,7 +455,11 @@ namespace SFT::Renderer {
             .step_mode = RHI::VertexStepMode::Vertex,
             .attributes = span<const RHI::VertexAttribute>{attributes.data(), attributes.size()},
         };
-        const RHI::ColorTargetState color_target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
+        vector<RHI::ColorTargetState> color_targets;
+        color_targets.reserve(color_formats.size());
+        for (RHI::Format color_format : color_formats) {
+            color_targets.push_back(RHI::ColorTargetState{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All});
+        }
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = RHI::DepthStencilState{
@@ -472,7 +480,7 @@ namespace SFT::Renderer {
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
             .depth_stencil = depth_stencil,
-            .color_targets = span<const RHI::ColorTargetState>{&color_target, 1},
+            .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
             .label = "material pipeline",
         };
         auto pipeline = device->create_render_pipeline(desc);
@@ -480,7 +488,7 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(pipeline.error(), "create material pipeline"));
         }
         material_template.pipeline_variants.push_back(MaterialPipelineVariant{
-            .color_format = color_format,
+            .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
             .pipeline = *pipeline,
         });

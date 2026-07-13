@@ -155,12 +155,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
-    // SDL event watcher fired by SDL_PushEvent during the Windows move/resize modal loop.
-    // SDL3 installs a WM_TIMER on WM_ENTERSIZEMOVE that calls SDL_SendWindowEvent(EXPOSED),
-    // which goes through SDL_PushEvent and triggers this watcher synchronously on the main
-    // thread — even while SDL_PollEvent is otherwise blocked inside DefWindowProc's modal loop.
+    // SDL event watcher used to render from inside platform resize/move paths that can otherwise starve
+    // the normal main loop. On Windows this is EXPOSED during the modal move/resize loop; on Linux/Wayland
+    // the critical signal is the resize/pixel-size event itself.
     bool SDLCALL SDL3Window::sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept {
-        if (event->type == SDL_EVENT_WINDOW_EXPOSED) {
+        if (event->type == SDL_EVENT_WINDOW_EXPOSED || event->type == SDL_EVENT_WINDOW_RESIZED ||
+            event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
             auto *self = static_cast<SDL3Window *>(userdata);
             if (self->window_ && SDL_GetWindowID(self->window_) == event->window.windowID) {
                 if (self->repaint_callback_) {
@@ -333,8 +333,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         i32 event_count = 0;
         i32 close_event_count = 0;
         i32 queued_event_count = 0;
+        bool yield_to_renderer = false;
+        constexpr i32 max_events_per_pump = 128;
 
-        while (SDL_PollEvent(&event)) {
+        while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
             ++event_count;
             if (event.type == SDL_EVENT_QUIT) [[unlikely]] {
                 for (auto &[registered_id, registered_window] : sdl_window_registry()) {
@@ -378,6 +380,10 @@ namespace SFT::Platform::Windowing::SDL3 {
                     target->pending_resize_ = window_event.resize;
                     target->events_.push_back(window_event);
                     ++queued_event_count;
+                    yield_to_renderer = target == this;
+                }
+                if (yield_to_renderer) {
+                    break;
                 }
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {

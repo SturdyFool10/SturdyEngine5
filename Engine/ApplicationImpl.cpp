@@ -62,8 +62,11 @@ namespace SFT::Engine {
 
         auto last = high_resolution_clock::now();
         auto last_memory_log = last;
+        auto last_title_update = last;
         constexpr f64 memory_log_interval_seconds = 1.0;
+        constexpr f64 title_update_interval_seconds = 0.25;
         u64 frame_index = 0;
+        u32 consecutive_render_errors = 0;
         usize peak_resident_bytes = 0;
 
         // Render one frame. Extracted so it can be called both from the normal loop and from
@@ -110,17 +113,30 @@ namespace SFT::Engine {
                 last_memory_log = now;
             }
 
-            const std::string title = std::format("SturdyEngine 5 Frame Time: {}, FPS: {:.0f}",
-                                                   Foundation::human_readable_time(delta_seconds),
-                                                   1.0 / delta_seconds);
-            if (auto result = window_->set_title(title.c_str()); !result) {
-                Foundation::log_error("Failed to set window title: {}", result.error().message);
+            if (duration<f64>(now - last_title_update).count() >= title_update_interval_seconds) {
+                const std::string title = std::format("SturdyEngine 5 Frame Time: {}, FPS: {:.0f}",
+                                                       Foundation::human_readable_time(delta_seconds),
+                                                       1.0 / delta_seconds);
+                if (auto result = window_->set_title(title.c_str()); !result) {
+                    Foundation::log_error("Failed to set window title: {}", result.error().message);
+                }
+                last_title_update = now;
             }
 
-            if (auto result = engine_.render(*surface_, Core::FrameInput{delta_seconds, frame_index}); !result) {
-                Foundation::log_error("Render error: " + result.error().message);
+            if (auto result = engine_.render(*surface_, Core::FrameInput{
+                                  .delta_seconds = delta_seconds,
+                                  .frame_index = frame_index,
+                                  .framebuffer_width = framebuffer.width,
+                                  .framebuffer_height = framebuffer.height,
+                              }); !result) {
+                ++consecutive_render_errors;
+                if (consecutive_render_errors == 1 || consecutive_render_errors % 120 == 0) {
+                    Foundation::log_error("Render error: " + result.error().message);
+                }
+            } else {
+                consecutive_render_errors = 0;
+                ++frame_index;
             }
-            ++frame_index;
         };
 
         // On Windows, dragging the title bar or resizing enters a modal message loop inside

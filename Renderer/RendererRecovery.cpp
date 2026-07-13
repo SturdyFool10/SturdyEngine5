@@ -3,6 +3,7 @@ module;
 #pragma region Imports
 #include <expected>
 #include <string>
+#include <vector>
 #pragma endregion
 
 module Sturdy.Renderer;
@@ -15,6 +16,7 @@ import Sturdy.Platform;
 
 using std::string;
 using std::unexpected;
+using std::vector;
 
 namespace SFT::Renderer {
 
@@ -23,17 +25,26 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Renderer is already recovering from GPU device loss.");
         }
+        return rebuild_backend_from_create_info(recovery_create_info_, "GPU device loss");
+    }
 
-        if (!initialized_ || recovery_create_info_.window == nullptr || window_surfaces_.empty()) {
+    Core::RendererResult Renderer::reconfigure_backend(const Core::RendererCreateInfo &create_info) {
+        if (recovering_from_device_loss_) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer is already rebuilding its graphics backend.");
+        }
+        return rebuild_backend_from_create_info(create_info, "runtime settings change");
+    }
+
+    Core::RendererResult Renderer::rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
+                                                                    const char *reason) {
+        if (!initialized_ || create_info.window == nullptr || window_surfaces_.empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
-                                                "Cannot recover from GPU device loss before renderer initialization state is available.");
+                                                "Cannot rebuild graphics backend before renderer initialization state is available.");
         }
 
         recovering_from_device_loss_ = true;
-
-        // Device-lost teardown cannot safely call RHI destroy_* for renderer-owned resources: the old
-        // logical device is invalid. Drop the high-level GPU handles first, then release the backend and
-        // rebuild a fresh one from the retained creation/window state.
+        wait_idle();
         invalidate_gpu_resource_handles_no_destroy();
         graphics_backend_.reset();
         graphics_backend_ = Core::create_vulkan_backend();
@@ -41,20 +52,27 @@ namespace SFT::Renderer {
             recovering_from_device_loss_ = false;
             initialized_ = false;
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::InitializationFailed,
-                                                "Failed to create a replacement graphics backend after GPU device loss.");
+                                                string("Failed to create a replacement graphics backend for ") + reason + ".");
         }
 
+        recovery_create_info_ = create_info;
         Core::RendererExpected<Core::RenderSurfaceHandle> primary = graphics_backend_->initialize(recovery_create_info_);
         if (!primary) {
             recovering_from_device_loss_ = false;
             initialized_ = false;
             return unexpected(Core::GraphicsBackendError{
                 .code = primary.error().code,
-                .message = string("Failed to reinitialize graphics backend after GPU device loss: ") + primary.error().message,
+                .message = string("Failed to reinitialize graphics backend for ") + reason + ": " + primary.error().message,
             });
         }
 
         for (WindowSurfaceRecord &record : window_surfaces_) {
+            record.rhi_surface = {};
+            record.rhi_swapchain = {};
+            record.depth_texture = {};
+            record.depth_view = {};
+            record.swapchain_extent = {};
+            record.rhi_swapchain_dirty = true;
             if (record.primary) {
                 record.surface = *primary;
                 continue;
@@ -70,7 +88,7 @@ namespace SFT::Renderer {
                 initialized_ = false;
                 return unexpected(Core::GraphicsBackendError{
                     .code = recreated.error().code,
-                    .message = string("Failed to recreate renderer window surface after GPU device loss: ") + recreated.error().message,
+                    .message = string("Failed to recreate renderer window surface for ") + reason + ": " + recreated.error().message,
                 });
             }
             record.surface = *recreated;
@@ -119,8 +137,11 @@ namespace SFT::Renderer {
         }
 
         // The old device is gone — drop every in-flight frame slot's handles (command buffers, fences,
-        // deferred transients) without destroying them; the fresh device starts the ring over.
+        // deferred transients) and scene GPU buffers without destroying them; the fresh device starts over.
         frames_in_flight_.clear();
+        scene_frame_resources_.clear();
+        deferred_lighting_ = {};
+        tonemap_ = {};
 
         frame_draws_.clear();
         debug_scene_ = {};
@@ -137,8 +158,55 @@ namespace SFT::Renderer {
             }
         }
 
-        // Texture/material GPU restoration will be added when texture/material creation owns enough
-        // source data to recreate their RHI objects. Materials are CPU-side records today.
+        for (MaterialTemplateResource &material_template : material_templates_) {
+            if (!material_template.alive) {
+                continue;
+            }
+            material_template.vertex_entry_point.clear();
+            material_template.fragment_entry_point.clear();
+            material_template.has_fragment = false;
+            material_template.bind_group_layouts.clear();
+            material_template.bind_group_layout_sets.clear();
+            material_template.pipeline_variants.clear();
+            material_template.uniform_block_size = 0;
+            material_template.uniform_set = 0;
+            material_template.uniform_binding = 0;
+            material_template.has_uniform_block = false;
+            material_template.parameters.clear();
+            material_template.texture_slots.clear();
+            Core::RendererResult built = build_material_template_gpu(material_template, material_template.shader);
+            if (!built.has_value()) {
+                return built;
+            }
+        }
+
+        for (MaterialInstanceResource &instance : material_instances_) {
+            if (!instance.alive) {
+                continue;
+            }
+            MaterialTemplateResource *tmpl = material_template(instance.material_template);
+            if (tmpl == nullptr) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Cannot restore material instance after backend rebuild: template is missing.");
+            }
+            const vector<byte> previous_uniforms = instance.uniform_values;
+            const vector<MaterialTextureBinding> previous_textures = instance.textures;
+            instance.frames.clear();
+            Core::RendererResult initialized = initialize_material_instance_state(instance, *tmpl);
+            if (!initialized.has_value()) {
+                return initialized;
+            }
+            if (previous_uniforms.size() == instance.uniform_values.size()) {
+                instance.uniform_values = previous_uniforms;
+            }
+            if (previous_textures.size() == instance.textures.size()) {
+                instance.textures = previous_textures;
+            }
+            for (MaterialInstanceFrame &frame : instance.frames) {
+                frame.uniform_dirty = true;
+                frame.bind_groups_dirty = true;
+            }
+        }
         return {};
     }
 

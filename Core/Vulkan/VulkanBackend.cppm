@@ -57,6 +57,8 @@ export namespace SFT::Core::Vulkan {
         RendererResult createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult initializeVMA(const RendererCreateInfo &init);
         void installRhiBridge();
+        [[nodiscard]] bool hdr_swapchain_colorspace_enabled() const noexcept { return hdr_swapchain_colorspace_enabled_; }
+        [[nodiscard]] bool hdr_metadata_enabled() const noexcept { return hdr_metadata_enabled_; }
 
       private:
         friend class ::SFT::Core::EngineBackend;
@@ -95,6 +97,8 @@ export namespace SFT::Core::Vulkan {
         VulkanQueue gfxQueue;
         VulkanAllocator vmaAllocator;
         RHI::FeatureNegotiationReport feature_report_{};
+        bool hdr_swapchain_colorspace_enabled_ = false;
+        bool hdr_metadata_enabled_ = false;
         std::unique_ptr<RHI::RhiDevice> rhiDevice;
     };
 

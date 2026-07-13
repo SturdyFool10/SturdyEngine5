@@ -68,12 +68,22 @@ namespace SFT::Core::Vulkan {
                                                  VulkanQueue *transfer_queue,
                                                  VulkanAllocator &allocator,
                                                  rhi::FeatureNegotiationReport feature_report,
-                                                 bool enable_native_access_extension)
+                                                 bool enable_native_access_extension,
+                                                 bool hdr_swapchain_colorspace_enabled,
+                                                 bool hdr_metadata_enabled)
         : backend_(&backend), instance_(instance), physical_device_(&physical_device),
           logical_device_(&logical_device), graphics_queue_(&graphics_queue), allocator_(&allocator),
-          feature_report_(feature_report), enabled_features_(feature_report_.enabled_features()) {
+          feature_report_(feature_report), enabled_features_(feature_report_.enabled_features()),
+          hdr_swapchain_colorspace_enabled_(hdr_swapchain_colorspace_enabled),
+          hdr_metadata_enabled_(hdr_metadata_enabled) {
         compute_queue_ = compute_queue;
         transfer_queue_ = transfer_queue;
+        if (hdr_swapchain_colorspace_enabled_) {
+            enabled_extensions_.push_back(rhi::ExtensionId{"vulkan", "VK_EXT_swapchain_colorspace", 1});
+        }
+        if (hdr_metadata_enabled_) {
+            enabled_extensions_.push_back(rhi::ExtensionId{"vulkan", "VK_EXT_hdr_metadata", 1});
+        }
         if (enable_native_access_extension) {
             native_access_extension_.emplace(
                 instance_, physical_device_->vk_handle(), logical_device_->vk_handle(), graphics_queue_->vk_handle(), this,
@@ -311,7 +321,8 @@ namespace SFT::Core::Vulkan {
         static_cast<void>(rhiDevice.release());
         rhiDevice = std::make_unique<VulkanRhiDeviceBridge>(*this, vulkan_instance, physicalDevice, logicalDevice, gfxQueue,
                                                             compute_queue, transfer_queue, vmaAllocator, feature_report_,
-                                                            static_cast<bool>(create_info_.features.enable_native_access_extension));
+                                                            static_cast<bool>(create_info_.features.enable_native_access_extension),
+                                                            hdr_swapchain_colorspace_enabled_, hdr_metadata_enabled_);
     }
 
 } // namespace SFT::Core::Vulkan

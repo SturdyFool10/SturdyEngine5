@@ -63,6 +63,7 @@ export import :Queries;
 export import :Execution;
 export import :Command;
 export import :Swapchain;
+export import :HdrDisplay;
 export import :Device;
 export import :Adapter;
 export import :Backend;

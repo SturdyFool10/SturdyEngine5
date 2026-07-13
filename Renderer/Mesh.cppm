@@ -7,6 +7,7 @@ module;
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #pragma endregion
 
 export module Sturdy.Renderer:Mesh;
@@ -113,6 +114,11 @@ export namespace SFT::Renderer {
         [[nodiscard]] span<const u32> indices() const noexcept { return indices_; }
         [[nodiscard]] const string &label() const noexcept { return label_; }
         void set_label(string label) noexcept { label_ = std::move(label); }
+        void set_vertex_color(const glm::vec4 &color) noexcept {
+            for (GeometryVertex &vertex : vertices_) {
+                vertex.color = color;
+            }
+        }
 
         // False until this exact Mesh (or a copy sharing its handle) has been uploaded via
         // Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading

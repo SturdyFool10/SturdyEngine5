@@ -50,6 +50,9 @@ export namespace SFT::Renderer {
 
         void destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept;
         void on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept;
+        [[nodiscard]] Core::RendererResult set_presentation_settings(Core::RenderSurfaceHandle surface,
+                                                                     const Core::PresentationSettings &settings);
+        [[nodiscard]] Core::RendererResult reconfigure_backend(const Core::RendererCreateInfo &create_info);
 
         [[nodiscard]] Core::RendererResult render_frame(Core::RenderSurfaceHandle surface,
                                                         const Core::FrameInput &frame);
@@ -186,6 +189,7 @@ export namespace SFT::Renderer {
             RHI::Format depth_format = RHI::Format::D32Float;
             Core::Extent2D swapchain_extent{};
             u32 desired_frames_in_flight = 2;
+            Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
         };
@@ -225,6 +229,24 @@ export namespace SFT::Renderer {
             bool ready = false;
         };
 
+        struct DeferredLightingPipelineVariant {
+            RHI::Format color_format = RHI::Format::Undefined;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+        struct DeferredLightingResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle fragment_module{};
+            std::string vertex_entry_point;
+            std::string fragment_entry_point;
+            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            std::vector<u32> bind_group_layout_sets;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            std::vector<DeferredLightingPipelineVariant> pipeline_variants;
+            bool ready = false;
+        };
+
         // One in-flight frame's deferred-cleanup bundle (see plans/async-submission-model.md). The async
         // model records + submits a frame and moves on without waiting; the GPU resources that frame still
         // references — its command buffer, the render graph's transient targets, and any bind groups minted
@@ -236,34 +258,41 @@ export namespace SFT::Renderer {
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
             vector<RHI::BindGroupHandle> transient_bind_groups;
+            vector<RHI::SwapchainHandle> retired_swapchains;
+            vector<RHI::TextureHandle> retired_presentation_textures;
+            vector<RHI::TextureViewHandle> retired_presentation_texture_views;
             bool submitted = false;
         };
 
-        // The HDR intermediate the scene renders into before the tonemap pass resolves it to the
-        // swapchain. RGBA16Float so lighting output can exceed [0,1] (the whole point of a tonemap step).
-        static constexpr RHI::Format scene_color_format = RHI::Format::RGBA16Float;
+        struct SceneFrameGpuResources {
+            RHI::BufferHandle view_buffer{};
+            RHI::BufferHandle object_buffer{};
+            usize object_capacity = 0;
+        };
 
         [[nodiscard]] WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) noexcept;
         [[nodiscard]] const WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) const noexcept;
         [[nodiscard]] Core::RendererResult ensure_rhi_presentation_resources(WindowSurfaceRecord &record);
-        [[nodiscard]] Core::RendererResult recreate_rhi_swapchain(WindowSurfaceRecord &record);
+        [[nodiscard]] Core::RendererResult recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index = 0);
         [[nodiscard]] Core::RendererResult ensure_rhi_depth_resources(WindowSurfaceRecord &record);
         [[nodiscard]] Core::RendererResult render_frame_rhi(WindowSurfaceRecord &record,
                                                             const Core::FrameInput &frame);
         // Destroys one in-flight frame slot's deferred GPU resources (command buffer, transient graph
         // targets, transient bind groups) but NOT its reusable fence. The caller must have already
         // ensured the slot's fence signaled — this only destroys, it never waits.
-        void reclaim_frame_slot(FrameInFlight &slot) noexcept;
+        void reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation = false) noexcept;
         // Waits for every submitted in-flight frame to finish, then reclaims its resources. The
         // sanctioned heavy wait for teardown / swapchain rebuild — NOT the per-frame path. Leaves each
         // slot's fence allocated but reset (unsignaled) so the ring is immediately reusable.
         void drain_frames_in_flight() noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
+        [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index);
+        void destroy_scene_gpu_resources() noexcept;
         [[nodiscard]] Core::RendererResult ensure_debug_scene_resources();
         void destroy_debug_scene_resources() noexcept;
         [[nodiscard]] Core::RendererResult record_render_item(RHI::RenderPassEncoder &pass,
                                                               const RenderItem &item,
-                                                              RHI::Format color_format,
+                                                              span<const RHI::Format> color_formats,
                                                               RHI::Format depth_format,
                                                               u64 frame_index);
 
@@ -280,7 +309,7 @@ export namespace SFT::Renderer {
         [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_white_texture();
         // Lazily builds + caches the render pipeline for one attachment configuration on a template.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> material_pipeline_for(
-            MaterialTemplateResource &material_template, RHI::Format color_format, RHI::Format depth_format);
+            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format);
         // Ensures instance frame slot `frame_slot`'s UBO reflects the CPU value block and its per-set
         // bind groups exist/are rebuilt, then returns the bind groups to bind (index == set order).
         [[nodiscard]] Core::RendererExpected<span<const RHI::BindGroupHandle>> prepare_material_frame(
@@ -299,7 +328,16 @@ export namespace SFT::Renderer {
         void destroy_material_template_gpu(MaterialTemplateResource &resource) noexcept;
         void destroy_material_instance_gpu(MaterialInstanceResource &resource) noexcept;
 
-        // ── Fullscreen tonemap post-process (see :RenderGraph, plans/deferred-pipeline.md) ──
+        // ── Deferred lighting and fullscreen tonemap post-processes ──
+        [[nodiscard]] Core::RendererResult ensure_deferred_lighting_resources();
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> deferred_lighting_pipeline_for(RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_deferred_lighting(RHI::RenderPassEncoder &pass,
+                                                                    RHI::TextureViewHandle albedo_view,
+                                                                    RHI::TextureViewHandle normal_view,
+                                                                    RHI::TextureViewHandle material_view,
+                                                                    RHI::Format color_format);
+        void destroy_deferred_lighting_resources() noexcept;
+
         // Lazily compiles Shaders/fullscreen_tonemap.slang and builds its reflection-derived layouts +
         // sampler (once). Builds/caches the render pipeline for one swapchain color format. Records the
         // fullscreen draw sampling `source_view` into the currently-bound render pass; the bind group it
@@ -312,6 +350,8 @@ export namespace SFT::Renderer {
         void destroy_tonemap_resources() noexcept;
 
         [[nodiscard]] Core::RendererResult recover_from_device_loss();
+        [[nodiscard]] Core::RendererResult rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
+                                                                            const char *reason);
         [[nodiscard]] Core::RendererResult restore_gpu_resources_after_recovery();
         void invalidate_gpu_resource_handles_no_destroy() noexcept;
         [[nodiscard]] static Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error,
@@ -329,9 +369,14 @@ export namespace SFT::Renderer {
         TextureHandle default_white_texture_{};
         vector<RenderItem> frame_draws_;
         glm::mat4 frame_view_projection_{1.0f};
+        CameraView frame_camera_{};
+        SceneLighting frame_lighting_{};
+        DeferredTargetFormats deferred_formats_{};
+        vector<SceneFrameGpuResources> scene_frame_resources_;
         // Lazily created on the first poll_shader_hot_reload() over the `Shaders/` tree; primed so the
         // first poll reports only edits made after the engine started.
         optional<Core::Slang::ShaderWatcher> shader_watcher_;
+        DeferredLightingResources deferred_lighting_{};
         TonemapResources tonemap_{};
         // Bind groups minted while recording the current frame (e.g. the tonemap pass's scene sampler),
         // destroyed once the frame fence retires — safe because the per-frame path waits on that fence.

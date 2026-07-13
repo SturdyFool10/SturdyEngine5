@@ -338,6 +338,7 @@ namespace SFT::Core::Vulkan {
 
         // Extensions: swapchain (required for presentation) + calibrated timestamps
         // (Vulkan 1.4 core, needed for anchoring GPU timer to wall clock).
+        hdr_metadata_enabled_ = false;
         vector<const char *> extensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
@@ -353,6 +354,11 @@ namespace SFT::Core::Vulkan {
         }
         if (video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME);
+        }
+        if (static_cast<bool>(init.features.presentation.hdr_enabled) &&
+            this->physicalDevice.supports_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME)) {
+            extensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+            hdr_metadata_enabled_ = true;
         }
 
         // The Vulkan spec requires enabling VK_KHR_portability_subset on any device that

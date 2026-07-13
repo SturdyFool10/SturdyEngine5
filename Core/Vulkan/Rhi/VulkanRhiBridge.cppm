@@ -59,7 +59,9 @@ namespace SFT::Core::Vulkan {
                               VulkanQueue *transfer_queue,
                               VulkanAllocator &allocator,
                               rhi::FeatureNegotiationReport feature_report,
-                              bool enable_native_access_extension = false);
+                              bool enable_native_access_extension = false,
+                              bool hdr_swapchain_colorspace_enabled = false,
+                              bool hdr_metadata_enabled = false);
 
         // ── Introspection ──
         [[nodiscard]] rhi::BackendType backend_type() const noexcept override;
@@ -260,6 +262,8 @@ namespace SFT::Core::Vulkan {
         rhi::FeatureProperties feature_properties_{};
         vector<rhi::QueueInfo> queue_infos_{};
         vector<rhi::ExtensionId> enabled_extensions_{};
+        bool hdr_swapchain_colorspace_enabled_ = false;
+        bool hdr_metadata_enabled_ = false;
 
         VulkanRhiResourcePool<rhi::BufferHandle, BufferRecord> buffers_;
         VulkanRhiResourcePool<rhi::TextureHandle, TextureRecord> textures_;

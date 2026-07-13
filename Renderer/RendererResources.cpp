@@ -134,6 +134,7 @@ namespace SFT::Renderer {
     void Renderer::destroy_all_resources() noexcept {
         destroy_debug_scene_resources();
         frame_draws_.clear();
+        destroy_scene_gpu_resources();
 
         for (MaterialInstanceResource &resource : material_instances_) {
             if (resource.alive) {
@@ -163,7 +164,7 @@ namespace SFT::Renderer {
         // the destructor's wait_idle(), so no slot's GPU work is still pending.
         if (RHI::RhiDevice *device = rhi_device()) {
             for (FrameInFlight &slot : frames_in_flight_) {
-                reclaim_frame_slot(slot);
+                reclaim_frame_slot(slot, true);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);
                 }
@@ -171,6 +172,7 @@ namespace SFT::Renderer {
         }
         frames_in_flight_.clear();
         destroy_tonemap_resources();
+        destroy_deferred_lighting_resources();
 
         for (MeshResource &resource : meshes_) {
             if (resource.alive) {
@@ -282,6 +284,7 @@ namespace SFT::Renderer {
             case RHI::RhiErrorCode::DeviceLost: code = Core::GraphicsBackendErrorCode::DeviceLost; break;
             case RHI::RhiErrorCode::SurfaceLost: code = Core::GraphicsBackendErrorCode::SurfaceLost; break;
             case RHI::RhiErrorCode::InvalidArgument:
+            case RHI::RhiErrorCode::NotReady:
             case RHI::RhiErrorCode::OperationFailed:
                 code = Core::GraphicsBackendErrorCode::OperationFailed;
                 break;

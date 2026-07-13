@@ -2,10 +2,10 @@
 // The renderer's material pipeline feeds position/normal/uv/color at locations 0..3.
 // This pass-through shader is useful for debug geometry and as the simplest material baseline.
 struct VertexInput {
-    [[vk::location(0)]] float3 position : POSITION;
-    [[vk::location(1)]] float3 normal : NORMAL;
-    [[vk::location(2)]] float2 uv : TEXCOORD0;
-    [[vk::location(3)]] float4 color : COLOR0;
+    float3 position : POSITION;
+    float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR0;
 };
 
 struct VertexOutput {
@@ -18,13 +18,13 @@ struct SceneDrawConstants {
     float4x4 model;
 };
 
-[[vk::push_constant]] ConstantBuffer<SceneDrawConstants> scene_draw;
+[[push_constant]] ConstantBuffer<SceneDrawConstants> scene_draw;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    float4 world_position = mul(scene_draw.model, float4(input.position, 1.0));
-    output.position = mul(scene_draw.view_projection, world_position);
+    float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
+    output.position = mul(world_position, scene_draw.view_projection);
     output.color = input.color;
     return output;
 }

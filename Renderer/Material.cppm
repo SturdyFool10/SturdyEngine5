@@ -96,7 +96,7 @@ export namespace SFT::Renderer {
     // A render pipeline built for one attachment configuration. Materials cache these lazily because a
     // dynamic-rendering pipeline bakes in its color/depth formats (see :Material's pipeline_for()).
     struct MaterialPipelineVariant {
-        RHI::Format color_format = RHI::Format::Undefined;
+        vector<RHI::Format> color_formats;
         RHI::Format depth_format = RHI::Format::Undefined;
         RHI::RenderPipelineHandle pipeline{};
     };

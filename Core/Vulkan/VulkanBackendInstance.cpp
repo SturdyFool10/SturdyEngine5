@@ -8,6 +8,7 @@ module;
 #include "volk.h"
 
 #include <algorithm>
+#include <format>
 #include <string_view>
 #include <vector>
 #pragma endregion
@@ -21,6 +22,7 @@ import :Renderer;
 import Sturdy.Foundation;
 import Sturdy.Platform;
 
+using std::format;
 using std::string_view;
 using std::vector;
 
@@ -107,6 +109,8 @@ namespace SFT::Core::Vulkan {
             return supported;
         };
 
+        hdr_swapchain_colorspace_enabled_ = false;
+
         VkInstanceCreateFlags instance_flags = 0;
         if (add_supported_extension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
             instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
@@ -116,6 +120,15 @@ namespace SFT::Core::Vulkan {
         add_supported_extension("VK_KHR_xcb_surface");
         add_supported_extension("VK_KHR_wayland_surface");
 #endif
+
+        if (static_cast<bool>(init.features.presentation.hdr_enabled)) {
+            hdr_swapchain_colorspace_enabled_ = add_supported_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+            if (!hdr_swapchain_colorspace_enabled_) {
+                return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
+                                              format("HDR presentation requires Vulkan instance extension {}.",
+                                                     VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
+            }
+        }
 
 #ifdef DEBUG
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);

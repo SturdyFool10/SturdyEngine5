@@ -35,6 +35,15 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
+
+        [[nodiscard]] usize bind_group_layout_index_for_set(span<const u32> sets, u32 set) noexcept {
+            for (usize i = 0; i < sets.size(); ++i) {
+                if (sets[i] == set) {
+                    return i;
+                }
+            }
+            return sets.size();
+        }
     } // namespace
 
     Core::RendererResult Renderer::ensure_tonemap_resources() {
@@ -190,13 +199,38 @@ namespace SFT::Renderer {
             return unexpected(tonemap_error("Cannot record the tonemap pass without a device and scene texture."));
         }
 
-        // The shader declares the scene texture at binding 0 and its sampler at binding 1, both in set 0.
+        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(tonemap_.shader.reflection(),
+                                                                                       reflected_stage_mask(tonemap_.shader.reflection()));
+        if (generated.empty()) {
+            return unexpected(tonemap_error("tonemap shader reflection produced no bind-group layout."));
+        }
+        const GeneratedBindGroupLayout &layout = generated.front();
+        u32 image_binding = 0;
+        u32 sampler_binding = 0;
+        bool has_image_binding = false;
+        bool has_sampler_binding = false;
+        for (const RHI::BindGroupLayoutEntry &entry : layout.entries) {
+            if (entry.type == RHI::BindingType::SampledTexture && !has_image_binding) {
+                image_binding = entry.binding;
+                has_image_binding = true;
+            } else if (entry.type == RHI::BindingType::Sampler && !has_sampler_binding) {
+                sampler_binding = entry.binding;
+                has_sampler_binding = true;
+            }
+        }
+        if (!has_image_binding || !has_sampler_binding) {
+            return unexpected(tonemap_error("tonemap shader reflection did not produce one sampled texture and one sampler."));
+        }
+        const usize layout_index = bind_group_layout_index_for_set(tonemap_.bind_group_layout_sets, layout.set);
+        if (layout_index >= tonemap_.bind_group_layouts.size()) {
+            return unexpected(tonemap_error("tonemap shader reflection set has no generated bind-group layout."));
+        }
         const array<RHI::BindGroupEntry, 2> entries{
-            RHI::BindGroupEntry{.binding = 0, .texture_view = source_view},
-            RHI::BindGroupEntry{.binding = 1, .sampler = tonemap_.sampler},
+            RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = tonemap_.sampler},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = tonemap_.bind_group_layouts.front(),
+            .layout = tonemap_.bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "tonemap scene bind group",
         });
@@ -207,7 +241,7 @@ namespace SFT::Renderer {
         frame_transient_bind_groups_.push_back(*bind_group);
 
         pass.set_pipeline(*pipeline);
-        pass.set_bind_group(tonemap_.bind_group_layout_sets.front(), *bind_group);
+        pass.set_bind_group(layout.set, *bind_group);
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};
     }

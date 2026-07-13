@@ -20,7 +20,9 @@ module;
 #endif
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -39,6 +41,7 @@ import Sturdy.Foundation;
 import Sturdy.RHI;
 
 using std::span;
+using std::string;
 using std::vector;
 
 namespace SFT::Core::Vulkan {
@@ -59,20 +62,60 @@ namespace SFT::Core::Vulkan {
 
         [[nodiscard]] VkPresentModeKHR choose_present_mode(span<const VkPresentModeKHR> modes,
                                                            rhi::PresentMode requested) noexcept {
+            const auto supported = [modes](VkPresentModeKHR mode) noexcept {
+                return std::ranges::contains(modes, mode);
+            };
+
             const VkPresentModeKHR preferred = present_mode_to_vk(requested);
-            if (std::ranges::contains(modes, preferred)) {
+            if (supported(preferred)) {
                 return preferred;
             }
+
+            switch (requested) {
+                case rhi::PresentMode::Immediate:
+                    if (supported(VK_PRESENT_MODE_FIFO_RELAXED_KHR)) return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+                    if (supported(VK_PRESENT_MODE_MAILBOX_KHR)) return VK_PRESENT_MODE_MAILBOX_KHR;
+                    break;
+                case rhi::PresentMode::Mailbox:
+                    if (supported(VK_PRESENT_MODE_FIFO_RELAXED_KHR)) return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+                    break;
+                case rhi::PresentMode::FifoRelaxed:
+                case rhi::PresentMode::Fifo:
+                    break;
+            }
+
             return VK_PRESENT_MODE_FIFO_KHR;
         }
 
-        [[nodiscard]] VkSurfaceFormatKHR choose_surface_format(span<const VkSurfaceFormatKHR> formats,
-                                                               rhi::Format requested) noexcept {
+        [[nodiscard]] VkColorSpaceKHR color_space_to_vk(rhi::ColorSpace color_space) noexcept {
+            switch (color_space) {
+                case rhi::ColorSpace::SrgbNonlinear: return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+                case rhi::ColorSpace::Hdr10St2084: return VK_COLOR_SPACE_HDR10_ST2084_EXT;
+            }
+            return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        }
+
+        [[nodiscard]] bool is_hdr_color_space(rhi::ColorSpace color_space) noexcept {
+            return color_space == rhi::ColorSpace::Hdr10St2084;
+        }
+
+        [[nodiscard]] std::optional<VkSurfaceFormatKHR> choose_surface_format(span<const VkSurfaceFormatKHR> formats,
+                                                                              rhi::Format requested,
+                                                                              rhi::ColorSpace requested_color_space) noexcept {
             const VkFormat preferred = SFT::Core::Vulkan::to_vk(requested);
+            const VkColorSpaceKHR preferred_color_space = color_space_to_vk(requested_color_space);
             for (const VkSurfaceFormatKHR &format : formats) {
-                if (format.format == preferred && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                if (format.format == preferred && format.colorSpace == preferred_color_space) {
                     return format;
                 }
+            }
+            if (is_hdr_color_space(requested_color_space)) {
+                for (const VkSurfaceFormatKHR &format : formats) {
+                    if (format.colorSpace == preferred_color_space) {
+                        return format;
+                    }
+                }
+                return std::nullopt;
             }
             for (const VkSurfaceFormatKHR &format : formats) {
                 if (format.format == preferred) {
@@ -101,6 +144,35 @@ namespace SFT::Core::Vulkan {
                 case rhi::CompositeAlphaMode::Auto: return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
             }
             return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        }
+
+        [[nodiscard]] const char *vk_result_name(VkResult result) noexcept {
+            switch (result) {
+                case VK_SUCCESS: return "VK_SUCCESS";
+                case VK_NOT_READY: return "VK_NOT_READY";
+                case VK_TIMEOUT: return "VK_TIMEOUT";
+                case VK_EVENT_SET: return "VK_EVENT_SET";
+                case VK_EVENT_RESET: return "VK_EVENT_RESET";
+                case VK_INCOMPLETE: return "VK_INCOMPLETE";
+                case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+                case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+                case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+                case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+                case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+                case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+                case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+                case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+                case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+                case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+                case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+                case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+                case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+                case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+                case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+                case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+                case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
+                default: return "unknown VkResult";
+            }
         }
 
         [[nodiscard]] VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkCompositeAlphaFlagsKHR supported,
@@ -249,7 +321,16 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(modes.error());
         }
 
-        const VkSurfaceFormatKHR format = choose_surface_format(*formats, desc.format);
+        if (is_hdr_color_space(desc.color_space) && !hdr_swapchain_colorspace_enabled_) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_swapchain: HDR color-space requested but VK_EXT_swapchain_colorspace was not enabled.");
+        }
+        const auto selected_format = choose_surface_format(*formats, desc.format, desc.color_space);
+        if (!selected_format) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_swapchain: surface does not expose a Vulkan HDR10/ST2084 swapchain format.");
+        }
+        const VkSurfaceFormatKHR format = *selected_format;
         const VkExtent2D extent{
             .width = desc.width != 0 ? desc.width : caps->currentExtent.width,
             .height = desc.height != 0 ? desc.height : caps->currentExtent.height,
@@ -283,6 +364,23 @@ namespace SFT::Core::Vulkan {
         auto swapchain = VulkanSwapchain::create(logical_device_->vk_handle(), info);
         if (!swapchain) {
             return rhi_error_from_graphics(swapchain.error());
+        }
+
+        if (desc.color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
+            const VkHdrMetadataEXT metadata{
+                .sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT,
+                .pNext = nullptr,
+                .displayPrimaryRed = VkXYColorEXT{.x = 0.680f, .y = 0.320f},
+                .displayPrimaryGreen = VkXYColorEXT{.x = 0.265f, .y = 0.690f},
+                .displayPrimaryBlue = VkXYColorEXT{.x = 0.150f, .y = 0.060f},
+                .whitePoint = VkXYColorEXT{.x = 0.3127f, .y = 0.3290f},
+                .maxLuminance = 1000.0f,
+                .minLuminance = 0.001f,
+                .maxContentLightLevel = 1000.0f,
+                .maxFrameAverageLightLevel = 400.0f,
+            };
+            const VkSwapchainKHR swapchain_handle = swapchain->vk_handle();
+            vkSetHdrMetadataEXT(logical_device_->vk_handle(), 1, &swapchain_handle, &metadata);
         }
 
         SwapchainRecord record{};
@@ -368,7 +466,7 @@ namespace SFT::Core::Vulkan {
         VkAcquireNextImageInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
             .swapchain = record->swapchain.vk_handle(),
-            .timeout = UINT64_MAX,
+            .timeout = 1'000'000ull,
             .semaphore = record->image_available_semaphores[semaphore_index].vk_handle(),
             .fence = VK_NULL_HANDLE,
             .deviceMask = 1,
@@ -381,8 +479,15 @@ namespace SFT::Core::Vulkan {
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
             return rhi::rhi_error(rhi::RhiErrorCode::SurfaceLost, "acquire_next_texture: swapchain surface is out of date or lost.");
         }
+        if (result == VK_NOT_READY || result == VK_TIMEOUT) {
+            return rhi::rhi_error(rhi::RhiErrorCode::NotReady,
+                                  string("acquire_next_texture: no swapchain image was ready before the acquire timeout (") +
+                                      vk_result_name(result) + ").");
+        }
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "acquire_next_texture: vkAcquireNextImage2KHR failed.");
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                  string("acquire_next_texture: vkAcquireNextImage2KHR failed with ") +
+                                      vk_result_name(result) + " (" + std::to_string(static_cast<int>(result)) + ").");
         }
 
         record->image_available_signal_indices[image_index] = semaphore_index;

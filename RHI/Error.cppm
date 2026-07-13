@@ -35,6 +35,9 @@ export namespace SFT::RHI {
         // The presentation surface became invalid (window closed/resized out from under us); the
         // swapchain must be recreated before presenting again.
         SurfaceLost,
+        // A non-blocking or short-timeout operation has no result available yet. Callers may skip this
+        // frame and try again without treating it as a device or surface failure.
+        NotReady,
         // A handle/descriptor handed to the backend was malformed or referred to a destroyed
         // resource — a caller-side bug rather than a device condition.
         InvalidArgument,

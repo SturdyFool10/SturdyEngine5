@@ -4,12 +4,14 @@ module;
 #include <span>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #pragma endregion
 
 export module Sturdy.Renderer:Scene;
 
 import Sturdy.Foundation;
 import Sturdy.Core;
+import Sturdy.RHI;
 import :Handles;
 
 using std::span;
@@ -45,6 +47,18 @@ export namespace SFT::Renderer {
         f32 exposure = 1.0f;
     };
 
+    // Default transient target layout for the deferred path, expressed in RHI formats so the render graph
+    // can create everything through dynamic rendering. The first implementation still shades through the
+    // simple geometry path, but these defaults establish the G-buffer contract future material variants
+    // should target: albedo, world/view normal, material properties, HDR lighting, and depth.
+    struct DeferredTargetFormats {
+        RHI::Format albedo = RHI::Format::RGBA8Unorm;
+        RHI::Format normal = RHI::Format::RGBA16Float;
+        RHI::Format material = RHI::Format::RGBA8Unorm;
+        RHI::Format lighting = RHI::Format::RGBA16Float;
+        RHI::Format depth = RHI::Format::D32Float;
+    };
+
     // One camera's view of a scene. The immediate goal is a high-level submission seam; future renderer
     // passes can hang culling settings, shadow views, fog/sky, reflection probes, and post-process volumes
     // off this structure without exposing RHI details to game code.
@@ -53,6 +67,7 @@ export namespace SFT::Renderer {
         SceneLighting lighting{};
         span<const SceneRenderable> renderables{};
         u32 visibility_mask = ~0u;
+        DeferredTargetFormats deferred_formats{};
         const char *debug_label = nullptr;
     };
 
@@ -72,5 +87,26 @@ export namespace SFT::Renderer {
     };
 
     inline constexpr u32 scene_draw_push_constant_size = sizeof(SceneDrawConstants);
+
+    // GPU-facing per-view payload for deferred rendering. This becomes the stable set-0 view buffer used
+    // by G-buffer, lighting, shadow, and post-processing passes; fields are vec4/mat4 aligned so the same
+    // layout maps cleanly to GLSL/HLSL/Slang constant-buffer rules.
+    struct SceneViewGpuData {
+        glm::mat4 view{1.0f};
+        glm::mat4 projection{1.0f};
+        glm::mat4 view_projection{1.0f};
+        glm::vec4 camera_world_position_near{0.0f, 0.0f, 0.0f, 0.01f};
+        glm::vec4 ambient_radiance_exposure{0.02f, 0.02f, 0.02f, 1.0f};
+        glm::vec4 far_fov_object_count_time{1000.0f, 1.0471975512f, 0.0f, 0.0f};
+    };
+
+    // GPU-facing per-object table entry. Deferred geometry passes can index this by draw/instance id, and
+    // GPU culling can compact/reorder these entries before indirect submission without changing material
+    // instances or mesh resources.
+    struct SceneObjectGpuData {
+        glm::mat4 model{1.0f};
+        glm::mat4 previous_model{1.0f};
+        glm::vec4 id_sort_visibility_flags{0.0f, 0.0f, 0.0f, 0.0f};
+    };
 
 } // namespace SFT::Renderer

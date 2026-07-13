@@ -55,11 +55,17 @@ export namespace SFT::RHI {
         Inherit,
     };
 
+    enum class ColorSpace : u32 {
+        SrgbNonlinear,
+        Hdr10St2084,
+    };
+
     struct SwapchainDesc {
         SurfaceHandle surface{};
         u32 width = 0;
         u32 height = 0;
         Format format = Format::BGRA8UnormSrgb;
+        ColorSpace color_space = ColorSpace::SrgbNonlinear;
         PresentMode present_mode = PresentMode::Fifo;
         // How the swapchain image will be used by renderer code. ColorAttachment is the normal final
         // render target; TransferSrc/TransferDst cover screenshots, blit-based compositors, and debug copies.

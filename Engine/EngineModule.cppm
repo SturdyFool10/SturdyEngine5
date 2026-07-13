@@ -5,6 +5,8 @@ module;
 #include <memory>
 #include <optional>
 #include <vector>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #pragma endregion
 
 export module Sturdy.Engine:Engine;
@@ -16,7 +18,6 @@ import Sturdy.RHI;
 import Sturdy.Platform;
 
 using std::optional;
-using std::unique_ptr;
 using std::vector;
 
 export namespace SFT::Engine {
@@ -65,6 +66,15 @@ export namespace SFT::Engine {
         // including resize-to-zero (minimized). The backend queries extent and rebuilds lazily.
         void on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept;
 
+        // Runtime presentation policy for a surface: apps can expose this as vsync / low-latency / tearing
+        // options. Changing it marks the swapchain dirty and applies on the next rendered frame.
+        Core::RendererResult set_presentation_settings(Core::RenderSurfaceHandle surface,
+                                                       const Core::PresentationSettings &settings);
+
+        [[nodiscard]] Core::RendererExpected<Core::RuntimeSettingsChangeResult>
+        apply_runtime_settings(Core::RenderSurfaceHandle primary_surface,
+                               const EngineConfig &settings);
+
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
@@ -87,10 +97,26 @@ export namespace SFT::Engine {
         void wait_idle() noexcept;
 
       private:
+        struct DemoSceneResources {
+            SFT::Renderer::MaterialTemplateHandle material_template{};
+            SFT::Renderer::MaterialInstanceHandle material_instance{};
+            SFT::Renderer::MeshHandle floor{};
+            SFT::Renderer::MeshHandle sphere{};
+            SFT::Renderer::MeshHandle cube{};
+            SFT::Renderer::MeshHandle torus{};
+            SFT::Renderer::MeshHandle cone{};
+            bool ready = false;
+        };
+
+        Core::RendererResult create_demo_scene();
+
         SFT::Renderer::Renderer renderer_;
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;
+        DemoSceneResources demo_scene_{};
+        EngineConfig config_{};
+        Platform::Windowing::Window *primary_window_ = nullptr;
         bool initialized_ = false;
     };
 

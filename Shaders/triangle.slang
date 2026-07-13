@@ -2,8 +2,8 @@
 // Locations are pinned explicitly to match the RHI vertex input layout (position at 0, color at 1)
 // rather than relying on compiler default attribute ordering.
 struct VertexInput {
-    [[vk::location(0)]] float2 position : POSITION;
-    [[vk::location(1)]] float3 color : COLOR0;
+    float2 position : POSITION;
+    float3 color : COLOR0;
 };
 
 struct VertexOutput {

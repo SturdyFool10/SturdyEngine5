@@ -45,6 +45,32 @@ export namespace SFT::Core {
         u32 max_frames_in_flight = 2;
     };
 
+    enum class RuntimeSettingApplyMode : u8 {
+        NoChange,
+        HotApplied,
+        SurfaceRecreated,
+        DeviceRecreated,
+        BackendRecreated,
+        Unsupported,
+    };
+
+    struct RuntimeSettingsChangeResult {
+        RuntimeSettingApplyMode mode = RuntimeSettingApplyMode::NoChange;
+        string message;
+    };
+
+    struct PresentationSettings {
+        // True prefers non-tearing presentation. Mailbox is the default because it keeps vsync while
+        // dropping stale frames, which gives smoother resize/latency than strict FIFO when supported.
+        b8 vsync = true;
+        RHI::PresentMode present_mode = RHI::PresentMode::Mailbox;
+        // Requests an HDR-capable presentation path. Backends should rebuild the swapchain/device as needed
+        // and report Unsupported only when the OS/display/API genuinely cannot expose HDR.
+        b8 hdr_enabled = false;
+        // 0 = renderer/backend chooses. Non-zero is clamped by the backend/surface capabilities.
+        u32 swapchain_image_count = 0;
+    };
+
     // The engine asks for what it wants; the backend grants what it can and reports truth via
     // RendererCapabilities and RHI's FeatureNegotiationReport. Requesting raytracing does not
     // guarantee it unless the feature is also placed in `required_rhi_features`.
@@ -54,6 +80,7 @@ export namespace SFT::Core {
         RHI::FeatureSet required_rhi_features{};
         RHI::FeatureSet optional_rhi_features{};
         u32 desired_frames_in_flight = 2;
+        PresentationSettings presentation{};
         // Opt-in escape hatch (Vulkan backend: VulkanNativeAccessExtension, see Core/Vulkan/Rhi/) —
         // exposes the raw VkInstance/VkPhysicalDevice/VkDevice/VkQueue/VkCommandBuffer for callers who
         // need to interoperate with vendor SDKs (FSR2/DLSS/XeSS) or Vulkan capabilities RHI hasn't
@@ -79,11 +106,14 @@ export namespace SFT::Core {
         span<const Slang::UnCompiledShader> uncompiled_shaders;
     };
 
-    // Per-frame payload from the engine to the backend. Grows into camera/scene/render-list
-    // as the renderer matures; the backend owns everything downstream.
+    // Per-frame payload from the engine to the backend. Timing and drawable resolution live here so
+    // high-level cameras/post effects can build projection and screen-space constants from the same
+    // framebuffer extent the backend will render into.
     struct FrameInput {
         f64 delta_seconds = 0.0;
         u64 frame_index = 0;
+        u32 framebuffer_width = 0;
+        u32 framebuffer_height = 0;
     };
 
 } // namespace SFT::Core

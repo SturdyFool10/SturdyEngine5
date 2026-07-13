@@ -22,8 +22,8 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     return output;
 }
 
-[[vk::binding(0, 0)]] Texture2D<float4> sceneColor;
-[[vk::binding(1, 0)]] SamplerState sceneSampler;
+Texture2D<float4> sceneColor;
+SamplerState sceneSampler;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
