@@ -2,13 +2,14 @@
 #include <Runtime/Cli.hpp>
 
 #pragma region Imports
-import Sturdy.Engine;
+#include <Engine/Engine.hpp>
 #pragma endregion
 
 using SFT::Engine::Application;
 using SFT::Runtime::CliArgs;
 
 namespace {
+
     // Shared body for both entry points below — take the already-parsed arguments, then construct,
     // initialize, and run the application. Each entry point is responsible only for turning its
     // platform-specific input into a CliArgs (see Sturdy.Runtime.Cli).

@@ -34,6 +34,15 @@ set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
 set(STURDY_BOX3D_TAG "v0.1.0" CACHE STRING "Box3D git tag to fetch.")
 set(STURDY_CLAY_TAG "v0.14" CACHE STRING "Clay git tag to fetch.")
+# msdfgen-core has no dependency on FreeType/PNG/Skia — those only gate msdfgen-ext (font loading)
+# and the msdfgen-standalone CLI, neither of which this engine uses: HarfBuzz's hb-draw already
+# supplies glyph outlines directly (see Text/Outline.cppm), so msdfgen only ever consumes shapes
+# built from those, never loads a font itself.
+set(STURDY_MSDFGEN_TAG "v1.13" CACHE STRING "msdfgen git tag to fetch.")
+# stb (github.com/nothings/stb) ships no releases/tags — pinning a known-good commit is the
+# standard way to consume it. Only stb_image.h is used (decoding the PNG blobs HarfBuzz's
+# hb-ot-color API returns for bitmap-format color emoji glyphs — CBDT/sbix).
+set(STURDY_STB_TAG "31c1ad37456438565541f4919958214b6e762fb4" CACHE STRING "stb git commit to fetch.")
 # Microsoft's official, MIT-licensed native D3D12/DXGI headers (no NuGet/.NET tooling involved —
 # plain C/C++ headers only). Only fetched when STURDY_OS is Windows.
 set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2" CACHE STRING "DirectX-Headers git tag to fetch.")
@@ -149,6 +158,8 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_slang()
         sturdy_fetch_box3d()
         sturdy_fetch_clay()
+        sturdy_fetch_msdfgen()
+        sturdy_fetch_stb_image()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
@@ -172,6 +183,8 @@ function(sturdy_configure_dependencies)
         sturdy_find_slang()
         find_package(box3d CONFIG REQUIRED)
         sturdy_find_clay()
+        find_package(msdfgen CONFIG REQUIRED)
+        sturdy_find_stb_image()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
@@ -842,6 +855,60 @@ function(sturdy_fetch_clay)
     sturdy_register_license(clay "${clay_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_msdfgen)
+    # msdfgen is Chlumsky's multi-channel signed distance field generator — the reference
+    # implementation the Text package's SDF/MSDF glyph rasterizer is built on
+    # (plans/text-rendering-sdf-atlas.md). Only msdfgen-core is needed: it turns a vector shape
+    # (contours of line/quadratic/cubic segments, exactly what HarfBuzz's hb-draw outline
+    # extraction produces) into a distance field with no external dependencies of its own.
+    # msdfgen-ext (font loading via FreeType, PNG/Skia support) and the msdfgen-standalone CLI are
+    # both unnecessary and disabled — this engine never asks msdfgen to load a font itself.
+    set(MSDFGEN_CORE_ONLY ON CACHE BOOL "" FORCE)
+    set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
+    set(MSDFGEN_USE_OPENMP OFF CACHE BOOL "" FORCE)
+    set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
+    set(MSDFGEN_INSTALL OFF CACHE BOOL "" FORCE)
+    set(MSDFGEN_DYNAMIC_RUNTIME OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(msdfgen
+        GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
+        GIT_TAG ${STURDY_MSDFGEN_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(msdfgen)
+    sturdy_mark_dependency_targets_exclude_from_all(msdfgen msdfgen::msdfgen-core msdfgen-core)
+    sturdy_register_license(msdfgen "${msdfgen_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_stb_image)
+    # stb_image.h is a single header with no CMakeLists.txt of its own — wire up the include
+    # directory by hand, same shape as sturdy_fetch_clay().
+    sturdy_fetchcontent_declare(stb
+        GIT_REPOSITORY https://github.com/nothings/stb.git
+        GIT_TAG ${STURDY_STB_TAG}
+    )
+    FetchContent_MakeAvailable(stb)
+
+    if(NOT TARGET stb_image)
+        add_library(stb_image INTERFACE)
+        target_include_directories(stb_image INTERFACE "${stb_SOURCE_DIR}")
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(stb_image)
+    sturdy_register_license(stb "${stb_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_stb_image)
+    find_path(STURDY_STB_INCLUDE_DIR NAMES stb_image.h)
+    if(NOT STURDY_STB_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find stb_image.h. Install stb or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+
+    if(NOT TARGET stb_image)
+        add_library(stb_image INTERFACE)
+        target_include_directories(stb_image INTERFACE "${STURDY_STB_INCLUDE_DIR}")
+    endif()
+endfunction()
+
 function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::GLM
         glm::glm
@@ -911,6 +978,17 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::clay
         clay
+    )
+
+    sturdy_alias_existing_target(Sturdy::MsdfGen
+        msdfgen::msdfgen-core
+        msdfgen-core
+        msdfgen::msdfgen
+        msdfgen
+    )
+
+    sturdy_alias_existing_target(Sturdy::StbImage
+        stb_image
     )
 endfunction()
 

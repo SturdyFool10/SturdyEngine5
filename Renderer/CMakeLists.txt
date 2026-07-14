@@ -6,6 +6,7 @@ sturdy_add_package(Renderer
         Sturdy::Platform
         Sturdy::Async
         Sturdy::GLM
+        Sturdy::Text
 
     DEBUG_PUBLIC_DEPS
 )

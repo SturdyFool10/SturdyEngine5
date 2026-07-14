@@ -108,6 +108,11 @@ float3 safeNormalizeOr(float3 v, float3 fallback) {
 float max3(float3 v) { return max(max(v.x, v.y), v.z); }
 float min3(float3 v) { return min(min(v.x, v.y), v.z); }
 
+// The middle of three values (not the mean) — MSDF text sampling collapses a 3-channel distance
+// field to one scalar this way (msdfgen's own reference reconstruction), which is what keeps MSDF
+// antialiasing free of color fringing: the median is a distance value, never a per-channel color.
+float median3(float3 v) { return max(min(v.x, v.y), min(max(v.x, v.y), v.z)); }
+
 // -------------------------------------------------------------------------------------------------
 // Fullscreen triangle helpers
 // -------------------------------------------------------------------------------------------------
