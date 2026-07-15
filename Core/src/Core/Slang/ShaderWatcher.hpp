@@ -48,40 +48,16 @@ namespace SFT::Core::Slang {
     // tick and reloads on later ones.
     class ShaderWatcher {
       public:
-        explicit ShaderWatcher(fs::path directory, bool prime = true) : directory_(std::move(directory)) {
-            if (prime) {
-                error_code ec;
-                scan(directory_, [this](const fs::path &path, fs::file_time_type mtime) {
-                    mtimes_.emplace(path.string(), mtime);
-                });
-            }
-        }
+        explicit ShaderWatcher(fs::path directory, bool prime = true);
 
-        [[nodiscard]] const fs::path &directory() const noexcept { return directory_; }
-        [[nodiscard]] usize tracked_count() const noexcept { return mtimes_.size(); }
+        [[nodiscard]] const fs::path &directory() const noexcept;
+        [[nodiscard]] usize tracked_count() const noexcept;
 
         // Re-stat the tree and return everything whose mtime changed or that appeared since the last
         // poll. Deleted files are dropped from tracking silently (a shader that no longer exists can't be
         // reloaded). A missing/unreadable directory yields an empty result rather than erroring — this is
         // a best-effort dev feature, never a hard failure in the frame loop.
-        [[nodiscard]] vector<ShaderChange> poll() {
-            vector<ShaderChange> changes;
-            unordered_map<string, fs::file_time_type> next;
-
-            scan(directory_, [&](const fs::path &path, fs::file_time_type mtime) {
-                const string key = path.string();
-                next.emplace(key, mtime);
-                const auto previous = mtimes_.find(key);
-                if (previous == mtimes_.end()) {
-                    changes.push_back(ShaderChange{.path = key, .added = true});
-                } else if (previous->second != mtime) {
-                    changes.push_back(ShaderChange{.path = key, .added = false});
-                }
-            });
-
-            mtimes_ = std::move(next);
-            return changes;
-        }
+        [[nodiscard]] vector<ShaderChange> poll();
 
       private:
         // Visit every regular `.slang` file under `root` (recursively), calling `visit(path, mtime)`.

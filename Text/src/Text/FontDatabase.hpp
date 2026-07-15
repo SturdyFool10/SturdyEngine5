@@ -41,42 +41,13 @@ namespace SFT::Text {
 
     namespace Detail {
 
-        [[nodiscard]] inline string read_name(hb_face_t *face, hb_ot_name_id_t name_id) {
-            // hb_ot_name_get_utf8 follows HarfBuzz's snprintf-style idiom: the return value is the
-            // *full* string length regardless of truncation, while `text_size` is IN (buffer
-            // capacity) / OUT (bytes actually written) — a zero-capacity probe call still reports
-            // the true length via the return value, even though it writes nothing.
-            unsigned int probe_capacity = 0;
-            const unsigned int full_length = hb_ot_name_get_utf8(face, name_id, HB_LANGUAGE_INVALID, &probe_capacity, nullptr);
-            if (full_length == 0) {
-                return {};
-            }
-            string text(full_length, '\0');
-            unsigned int capacity = full_length + 1; // + room for the trailing NUL hb writes
-            text.resize(capacity);
-            hb_ot_name_get_utf8(face, name_id, HB_LANGUAGE_INVALID, &capacity, text.data());
-            text.resize(std::min(capacity, full_length));
-            return text;
-        }
+        [[nodiscard]] string read_name(hb_face_t *face, hb_ot_name_id_t name_id);
 
-        [[nodiscard]] inline bool contains_ci(string_view haystack, string_view needle) noexcept {
-            auto it = std::ranges::search(haystack, needle, [](char a, char b) {
-                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
-            });
-            return !it.empty();
-        }
+        [[nodiscard]] bool contains_ci(string_view haystack, string_view needle) noexcept;
 
-        [[nodiscard]] inline bool equals_ci(string_view a, string_view b) noexcept {
-            return std::ranges::equal(a, b, [](char x, char y) {
-                return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-            });
-        }
+        [[nodiscard]] bool equals_ci(string_view a, string_view b) noexcept;
 
-        [[nodiscard]] inline bool has_font_extension(const std::filesystem::path &path) noexcept {
-            string extension = path.extension().string();
-            std::ranges::transform(extension, extension.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
-            return extension == ".ttf" || extension == ".otf" || extension == ".ttc" || extension == ".otc";
-        }
+        [[nodiscard]] bool has_font_extension(const std::filesystem::path &path) noexcept;
 
     } // namespace Detail
 
@@ -86,93 +57,22 @@ namespace SFT::Text {
     // exist is skipped, not an error — callers typically pass OS-reported directories
     // (Platform::font_search_directories(), see Platform/Fonts.cppm) that may not all exist on
     // every machine. A file that fails to parse as a font is skipped, not fatal to the scan.
-    [[nodiscard]] inline vector<FontFaceInfo> discover_fonts(span<const string> search_directories) {
-        vector<FontFaceInfo> faces;
-        namespace fs = std::filesystem;
-
-        for (const string &directory : search_directories) {
-            std::error_code walk_error;
-            fs::recursive_directory_iterator it(directory, fs::directory_options::skip_permission_denied, walk_error);
-            if (walk_error) {
-                continue;
-            }
-            for (const auto &entry : it) {
-                if (!entry.is_regular_file() || !Detail::has_font_extension(entry.path())) {
-                    continue;
-                }
-
-                std::ifstream file(entry.path(), std::ios::binary | std::ios::ate);
-                if (!file) {
-                    continue;
-                }
-                const std::streamsize size = file.tellg();
-                if (size <= 0) {
-                    continue;
-                }
-                file.seekg(0);
-                vector<std::byte> bytes(static_cast<usize>(size));
-                if (!file.read(reinterpret_cast<char *>(bytes.data()), size)) {
-                    continue;
-                }
-
-                auto font = Font::load(span<const std::byte>{bytes.data(), bytes.size()});
-                if (!font) {
-                    continue;
-                }
-
-                const string family = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_FAMILY);
-                if (family.empty()) {
-                    continue;
-                }
-                const string subfamily = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_SUBFAMILY);
-
-                faces.push_back(FontFaceInfo{
-                    .family = family,
-                    .subfamily = subfamily,
-                    .bold = Detail::contains_ci(subfamily, "Bold") || Detail::contains_ci(subfamily, "Black") ||
-                            Detail::contains_ci(subfamily, "Heavy"),
-                    .italic = Detail::contains_ci(subfamily, "Italic") || Detail::contains_ci(subfamily, "Oblique"),
-                    .file_path = entry.path().string(),
-                    .face_index = 0,
-                });
-            }
-        }
-        return faces;
-    }
+    [[nodiscard]] vector<FontFaceInfo> discover_fonts(span<const string> search_directories);
 
     // A queryable index over discovered faces, built once (discovery walks a lot of files — not
     // something to redo per lookup).
     class FontDatabase {
       public:
         FontDatabase() noexcept = default;
-        explicit FontDatabase(vector<FontFaceInfo> faces) : faces_(std::move(faces)) {}
+        explicit FontDatabase(vector<FontFaceInfo> faces);
 
-        [[nodiscard]] static FontDatabase create(span<const string> search_directories) {
-            return FontDatabase(discover_fonts(search_directories));
-        }
+        [[nodiscard]] static FontDatabase create(span<const string> search_directories);
 
-        [[nodiscard]] span<const FontFaceInfo> faces() const noexcept { return faces_; }
+        [[nodiscard]] span<const FontFaceInfo> faces() const noexcept;
 
         // Best-effort match: exact case-insensitive family name, closest bold/italic combination
         // (prefers an exact style match, then falls back to whatever that family has).
-        [[nodiscard]] optional<string> find(string_view family, bool bold = false, bool italic = false) const {
-            const FontFaceInfo *best = nullptr;
-            int best_score = -1;
-            for (const FontFaceInfo &face : faces_) {
-                if (!Detail::equals_ci(face.family, family)) {
-                    continue;
-                }
-                const int score = (face.bold == bold ? 1 : 0) + (face.italic == italic ? 1 : 0);
-                if (score > best_score) {
-                    best_score = score;
-                    best = &face;
-                }
-            }
-            if (best == nullptr) {
-                return std::nullopt;
-            }
-            return best->file_path;
-        }
+        [[nodiscard]] optional<string> find(string_view family, bool bold = false, bool italic = false) const;
 
       private:
         vector<FontFaceInfo> faces_;

@@ -109,32 +109,22 @@ namespace SFT::Renderer {
         [[nodiscard]] static Mesh plane(const PlaneParams &params = {}, const char *label = nullptr);
         [[nodiscard]] static Mesh torus(const TorusParams &params = {}, const char *label = nullptr);
 
-        [[nodiscard]] span<const GeometryVertex> vertices() const noexcept { return vertices_; }
-        [[nodiscard]] span<const u32> indices() const noexcept { return indices_; }
-        [[nodiscard]] const string &label() const noexcept { return label_; }
-        void set_label(string label) noexcept { label_ = std::move(label); }
-        void set_vertex_color(const glm::vec4 &color) noexcept {
-            for (GeometryVertex &vertex : vertices_) {
-                vertex.color = color;
-            }
-        }
+        [[nodiscard]] span<const GeometryVertex> vertices() const noexcept;
+        [[nodiscard]] span<const u32> indices() const noexcept;
+        [[nodiscard]] const string &label() const noexcept;
+        void set_label(string label) noexcept;
+        void set_vertex_color(const glm::vec4 &color) noexcept;
 
         // False until this exact Mesh (or a copy sharing its handle) has been uploaded via
         // Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading
         // does not move the data off the CPU, it just also puts a copy on the GPU.
-        [[nodiscard]] bool is_gpu_resident() const noexcept { return gpu_resident_; }
-        [[nodiscard]] MeshHandle gpu_handle() const noexcept { return handle_; }
+        [[nodiscard]] bool is_gpu_resident() const noexcept;
+        [[nodiscard]] MeshHandle gpu_handle() const noexcept;
 
       private:
         friend class Renderer;
-        void mark_uploaded(MeshHandle handle) noexcept {
-            handle_ = handle;
-            gpu_resident_ = true;
-        }
-        void mark_evicted() noexcept {
-            handle_ = {};
-            gpu_resident_ = false;
-        }
+        void mark_uploaded(MeshHandle handle) noexcept;
+        void mark_evicted() noexcept;
 
         vector<GeometryVertex> vertices_;
         vector<u32> indices_;

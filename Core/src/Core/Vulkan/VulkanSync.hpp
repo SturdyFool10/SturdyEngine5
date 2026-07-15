@@ -18,77 +18,30 @@ namespace SFT::Core::Vulkan {
     class VulkanFence {
       public:
         VulkanFence() = default;
-        ~VulkanFence() { destroy(); }
+        ~VulkanFence();
 
         VulkanFence(const VulkanFence &) = delete;
         VulkanFence &operator=(const VulkanFence &) = delete;
 
-        VulkanFence(VulkanFence &&o) noexcept : device_(o.device_), fence_(o.fence_) {
-            o.device_ = VK_NULL_HANDLE;
-            o.fence_ = VK_NULL_HANDLE;
-        }
-        VulkanFence &operator=(VulkanFence &&o) noexcept {
-            if (this != &o) {
-                destroy();
-                device_ = o.device_;
-                fence_ = o.fence_;
-                o.device_ = VK_NULL_HANDLE;
-                o.fence_ = VK_NULL_HANDLE;
-            }
-            return *this;
-        }
+        VulkanFence(VulkanFence &&o) noexcept;
+        VulkanFence &operator=(VulkanFence &&o) noexcept;
 
         [[nodiscard]] static RendererExpected<VulkanFence> create(
             VkDevice device,
-            bool signaled = false) noexcept {
-            VkFenceCreateInfo info{
-                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = signaled ? VK_FENCE_CREATE_SIGNALED_BIT : VkFenceCreateFlags{0},
-            };
-            VkFence fence = VK_NULL_HANDLE;
-            if (vkCreateFence(device, &info, nullptr, &fence) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateFence failed.");
-            VulkanFence out;
-            out.device_ = device;
-            out.fence_ = fence;
-            return out;
-        }
+            bool signaled = false) noexcept;
 
-        [[nodiscard]] VkFence vk_handle() const noexcept { return fence_; }
-        [[nodiscard]] bool is_valid() const noexcept { return fence_ != VK_NULL_HANDLE; }
+        [[nodiscard]] VkFence vk_handle() const noexcept;
+        [[nodiscard]] bool is_valid() const noexcept;
 
         // Returns true if signaled, false if not ready.
-        [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept {
-            VkResult res = vkGetFenceStatus(device_, fence_);
-            if (res == VK_SUCCESS)
-                return true;
-            if (res == VK_NOT_READY)
-                return false;
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetFenceStatus failed.");
-        }
+        [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept;
 
         // Returns success for both VK_SUCCESS and VK_TIMEOUT.
-        [[nodiscard]] RendererResult wait(u64 timeout_ns = UINT64_MAX) noexcept {
-            VkResult res = vkWaitForFences(device_, 1, &fence_, VK_TRUE, timeout_ns);
-            if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitForFences failed.");
-            return {};
-        }
+        [[nodiscard]] RendererResult wait(u64 timeout_ns = UINT64_MAX) noexcept;
 
-        [[nodiscard]] RendererResult reset() noexcept {
-            if (vkResetFences(device_, 1, &fence_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetFences failed.");
-            return {};
-        }
+        [[nodiscard]] RendererResult reset() noexcept;
 
-        void destroy() noexcept {
-            if (fence_ == VK_NULL_HANDLE)
-                return;
-            vkDestroyFence(device_, fence_, nullptr);
-            fence_ = VK_NULL_HANDLE;
-            device_ = VK_NULL_HANDLE;
-        }
+        void destroy() noexcept;
 
       private:
         VkDevice device_ = VK_NULL_HANDLE;
@@ -100,125 +53,44 @@ namespace SFT::Core::Vulkan {
     class VulkanSemaphore {
       public:
         VulkanSemaphore() = default;
-        ~VulkanSemaphore() { destroy(); }
+        ~VulkanSemaphore();
 
         VulkanSemaphore(const VulkanSemaphore &) = delete;
         VulkanSemaphore &operator=(const VulkanSemaphore &) = delete;
 
-        VulkanSemaphore(VulkanSemaphore &&o) noexcept
-            : device_(o.device_), semaphore_(o.semaphore_), type_(o.type_) {
-            o.device_ = VK_NULL_HANDLE;
-            o.semaphore_ = VK_NULL_HANDLE;
-        }
-        VulkanSemaphore &operator=(VulkanSemaphore &&o) noexcept {
-            if (this != &o) {
-                destroy();
-                device_ = o.device_;
-                semaphore_ = o.semaphore_;
-                type_ = o.type_;
-                o.device_ = VK_NULL_HANDLE;
-                o.semaphore_ = VK_NULL_HANDLE;
-            }
-            return *this;
-        }
+        VulkanSemaphore(VulkanSemaphore &&o) noexcept;
+        VulkanSemaphore &operator=(VulkanSemaphore &&o) noexcept;
 
-        [[nodiscard]] static RendererExpected<VulkanSemaphore> create_binary(VkDevice device) noexcept {
-            return create(device, VK_SEMAPHORE_TYPE_BINARY, 0);
-        }
+        [[nodiscard]] static RendererExpected<VulkanSemaphore> create_binary(VkDevice device) noexcept;
 
         [[nodiscard]] static RendererExpected<VulkanSemaphore> create_timeline(
             VkDevice device,
-            u64 initial_value = 0) noexcept {
-            return create(device, VK_SEMAPHORE_TYPE_TIMELINE, initial_value);
-        }
+            u64 initial_value = 0) noexcept;
 
-        [[nodiscard]] VkSemaphore vk_handle() const noexcept { return semaphore_; }
-        [[nodiscard]] bool is_valid() const noexcept { return semaphore_ != VK_NULL_HANDLE; }
-        [[nodiscard]] VkSemaphoreType type() const noexcept { return type_; }
-        [[nodiscard]] bool is_timeline() const noexcept { return type_ == VK_SEMAPHORE_TYPE_TIMELINE; }
+        [[nodiscard]] VkSemaphore vk_handle() const noexcept;
+        [[nodiscard]] bool is_valid() const noexcept;
+        [[nodiscard]] VkSemaphoreType type() const noexcept;
+        [[nodiscard]] bool is_timeline() const noexcept;
 
         // Timeline semaphore operations — undefined behaviour on a binary semaphore.
-        [[nodiscard]] RendererExpected<u64> counter_value() const noexcept {
-            u64 value = 0;
-            if (vkGetSemaphoreCounterValue(device_, semaphore_, &value) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSemaphoreCounterValue failed.");
-            return value;
-        }
+        [[nodiscard]] RendererExpected<u64> counter_value() const noexcept;
 
-        [[nodiscard]] RendererResult signal(u64 value) noexcept {
-            VkSemaphoreSignalInfo info{
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO,
-                .pNext = nullptr,
-                .semaphore = semaphore_,
-                .value = value,
-            };
-            if (vkSignalSemaphore(device_, &info) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSignalSemaphore failed.");
-            return {};
-        }
+        [[nodiscard]] RendererResult signal(u64 value) noexcept;
 
         // Returns success for both VK_SUCCESS and VK_TIMEOUT.
-        [[nodiscard]] RendererResult wait(u64 value, u64 timeout_ns = UINT64_MAX) noexcept {
-            VkSemaphoreWaitInfo info{
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .semaphoreCount = 1,
-                .pSemaphores = &semaphore_,
-                .pValues = &value,
-            };
-            VkResult res = vkWaitSemaphores(device_, &info, timeout_ns);
-            if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitSemaphores failed.");
-            return {};
-        }
+        [[nodiscard]] RendererResult wait(u64 value, u64 timeout_ns = UINT64_MAX) noexcept;
 
         // Builds this semaphore's wait/signal entry for a VkSubmitInfo2. value is ignored by the
         // driver for binary semaphores — only pass a meaningful one for a timeline semaphore.
-        [[nodiscard]] VkSemaphoreSubmitInfo submit_info(VkPipelineStageFlags2 stage, u64 value = 0) const noexcept {
-            return VkSemaphoreSubmitInfo{
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-                .pNext = nullptr,
-                .semaphore = semaphore_,
-                .value = value,
-                .stageMask = stage,
-                .deviceIndex = 0,
-            };
-        }
+        [[nodiscard]] VkSemaphoreSubmitInfo submit_info(VkPipelineStageFlags2 stage, u64 value = 0) const noexcept;
 
-        void destroy() noexcept {
-            if (semaphore_ == VK_NULL_HANDLE)
-                return;
-            vkDestroySemaphore(device_, semaphore_, nullptr);
-            semaphore_ = VK_NULL_HANDLE;
-            device_ = VK_NULL_HANDLE;
-        }
+        void destroy() noexcept;
 
       private:
         [[nodiscard]] static RendererExpected<VulkanSemaphore> create(
             VkDevice device,
             VkSemaphoreType type,
-            u64 initial_value) noexcept {
-            VkSemaphoreTypeCreateInfo type_info{
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-                .pNext = nullptr,
-                .semaphoreType = type,
-                .initialValue = initial_value,
-            };
-            VkSemaphoreCreateInfo info{
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-                .pNext = &type_info,
-                .flags = 0,
-            };
-            VkSemaphore sem = VK_NULL_HANDLE;
-            if (vkCreateSemaphore(device, &info, nullptr, &sem) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSemaphore failed.");
-            VulkanSemaphore out;
-            out.device_ = device;
-            out.semaphore_ = sem;
-            out.type_ = type;
-            return out;
-        }
+            u64 initial_value) noexcept;
 
         VkDevice device_ = VK_NULL_HANDLE;
         VkSemaphore semaphore_ = VK_NULL_HANDLE;
@@ -234,72 +106,26 @@ namespace SFT::Core::Vulkan {
     class VulkanEvent {
       public:
         VulkanEvent() = default;
-        ~VulkanEvent() { destroy(); }
+        ~VulkanEvent();
 
         VulkanEvent(const VulkanEvent &) = delete;
         VulkanEvent &operator=(const VulkanEvent &) = delete;
 
-        VulkanEvent(VulkanEvent &&o) noexcept : device_(o.device_), event_(o.event_) {
-            o.device_ = VK_NULL_HANDLE;
-            o.event_ = VK_NULL_HANDLE;
-        }
-        VulkanEvent &operator=(VulkanEvent &&o) noexcept {
-            if (this != &o) {
-                destroy();
-                device_ = o.device_;
-                event_ = o.event_;
-                o.device_ = VK_NULL_HANDLE;
-                o.event_ = VK_NULL_HANDLE;
-            }
-            return *this;
-        }
+        VulkanEvent(VulkanEvent &&o) noexcept;
+        VulkanEvent &operator=(VulkanEvent &&o) noexcept;
 
         [[nodiscard]] static RendererExpected<VulkanEvent> create(VkDevice device,
-                                                                  bool device_only = true) noexcept {
-            VkEventCreateInfo info{
-                .sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = device_only ? VK_EVENT_CREATE_DEVICE_ONLY_BIT : VkEventCreateFlags{0},
-            };
-            VkEvent event = VK_NULL_HANDLE;
-            if (vkCreateEvent(device, &info, nullptr, &event) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateEvent failed.");
-            VulkanEvent out;
-            out.device_ = device;
-            out.event_ = event;
-            return out;
-        }
+                                                                  bool device_only = true) noexcept;
 
-        [[nodiscard]] VkEvent vk_handle() const noexcept { return event_; }
-        [[nodiscard]] bool is_valid() const noexcept { return event_ != VK_NULL_HANDLE; }
+        [[nodiscard]] VkEvent vk_handle() const noexcept;
+        [[nodiscard]] bool is_valid() const noexcept;
 
         // Host-side operations — only valid for a non-`device_only` event.
-        [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept {
-            VkResult res = vkGetEventStatus(device_, event_);
-            if (res == VK_EVENT_SET)
-                return true;
-            if (res == VK_EVENT_RESET)
-                return false;
-            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetEventStatus failed.");
-        }
-        [[nodiscard]] RendererResult set() noexcept {
-            if (vkSetEvent(device_, event_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSetEvent failed.");
-            return {};
-        }
-        [[nodiscard]] RendererResult reset() noexcept {
-            if (vkResetEvent(device_, event_) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetEvent failed.");
-            return {};
-        }
+        [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept;
+        [[nodiscard]] RendererResult set() noexcept;
+        [[nodiscard]] RendererResult reset() noexcept;
 
-        void destroy() noexcept {
-            if (event_ == VK_NULL_HANDLE)
-                return;
-            vkDestroyEvent(device_, event_, nullptr);
-            event_ = VK_NULL_HANDLE;
-            device_ = VK_NULL_HANDLE;
-        }
+        void destroy() noexcept;
 
       private:
         VkDevice device_ = VK_NULL_HANDLE;

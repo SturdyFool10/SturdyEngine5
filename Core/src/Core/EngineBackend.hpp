@@ -80,23 +80,17 @@ namespace SFT::Core {
         // multithreading, but many objects are externally synchronized: VkQueue, VkCommandPool, descriptor
         // pools/sets in some operations, and object destruction must not race uses. Backends should only
         // advertise parallel command recording once they provide per-thread command pools and ownership.
-        [[nodiscard]] virtual RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept {
-            return RHI::RenderThreadingCapabilities{};
-        }
+        [[nodiscard]] virtual RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept;
 
         // RHI escape hatch for high-level renderer systems that need API-agnostic low-level access.
         // Backends return nullptr until the RHI bridge is initialized or when no RHI bridge exists yet.
-        [[nodiscard]] virtual RHI::RhiDevice *rhi_device() noexcept { return nullptr; }
-        [[nodiscard]] virtual const RHI::RhiDevice *rhi_device() const noexcept { return nullptr; }
+        [[nodiscard]] virtual RHI::RhiDevice *rhi_device() noexcept;
+        [[nodiscard]] virtual const RHI::RhiDevice *rhi_device() const noexcept;
 
         // Returns the RHI presentation surface paired with a backend-owned render surface. The backend,
         // not the Renderer, owns translating a window-provider surface (SDL/GLFW/native) into the concrete
         // API object, so higher layers do not create duplicate platform surfaces from raw native handles.
-        [[nodiscard]] virtual RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface) {
-            (void)surface;
-            return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
-                                          "This graphics backend does not expose RHI presentation surfaces.");
-        }
+        [[nodiscard]] virtual RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface);
 
         // Backend-agnostic description of the GPU currently in use (name, vendor, driver version,
         // ...) as plain strings/integers — no graphics-API types leak out. Returns nullopt until a

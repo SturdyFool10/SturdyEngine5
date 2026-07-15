@@ -40,15 +40,8 @@ namespace SFT::RHI {
                supported.version >= requested.version;
     }
 
-    [[nodiscard]] inline bool contains_extension(span<const ExtensionId> supported,
-                                                 ExtensionId requested) noexcept {
-        for (ExtensionId extension : supported) {
-            if (extension_matches(extension, requested)) {
-                return true;
-            }
-        }
-        return false;
-    }
+    [[nodiscard]] bool contains_extension(span<const ExtensionId> supported,
+                                                 ExtensionId requested) noexcept;
 
     // Base class for extension-specific typed interfaces. A dedicated extension partition can derive
     // from this with first-class RHI descriptors/commands for one backend/vendor feature; the device

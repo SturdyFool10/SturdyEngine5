@@ -162,13 +162,9 @@ namespace SFT::RHI {
 
         // Convenience over `enabled_features().has(feature)` — the guard at the point of use, e.g.
         // `if (device.is_enabled(Feature::RayTracingPipeline)) { ...trace... } else { ...raster... }`.
-        [[nodiscard]] bool is_enabled(Feature feature) const noexcept {
-            return enabled_features().has(feature);
-        }
+        [[nodiscard]] bool is_enabled(Feature feature) const noexcept;
 
-        [[nodiscard]] bool is_extension_enabled(ExtensionId extension) const noexcept {
-            return contains_extension(enabled_extensions(), extension);
-        }
+        [[nodiscard]] bool is_extension_enabled(ExtensionId extension) const noexcept;
 
         // Returns an extension-specific typed interface when `extension` is enabled, otherwise nullptr.
         // This is the RHI-level escape hatch for API/vendor features that are intentionally outside the
@@ -251,9 +247,7 @@ namespace SFT::RHI {
         // encoders/bundles; each returned encoder is single-threaded. Finished command buffers are
         // immutable handles and may be submitted from any thread, with per-queue serialization handled
         // by the backend.
-        [[nodiscard]] RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder() {
-            return create_command_encoder(CommandEncoderDesc{});
-        }
+        [[nodiscard]] RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder();
         [[nodiscard]] virtual RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder(
             const CommandEncoderDesc &desc) = 0;
         virtual void destroy_command_buffer(CommandBufferHandle handle) noexcept = 0;
@@ -262,11 +256,7 @@ namespace SFT::RHI {
             const RenderBundleDesc &desc) = 0;
         virtual void destroy_render_bundle(RenderBundleHandle handle) noexcept = 0;
 
-        [[nodiscard]] RhiResult submit(span<const CommandBufferHandle> command_buffers) {
-            SubmitDesc desc;
-            desc.command_buffers = command_buffers;
-            return submit(desc);
-        }
+        [[nodiscard]] RhiResult submit(span<const CommandBufferHandle> command_buffers);
         [[nodiscard]] virtual RhiResult submit(const SubmitDesc &desc) = 0;
 
         // ── Presentation ──

@@ -50,78 +50,30 @@ namespace SFT::Core::Slang {
         ShaderVariantKey() = default;
 
         // Build a key from an explicit define list (order irrelevant — normalised on construction).
-        ShaderVariantKey(std::initializer_list<ShaderMacro> defines) {
-            for (const ShaderMacro &define : defines) {
-                set(define.name, define.value);
-            }
-        }
+        ShaderVariantKey(std::initializer_list<ShaderMacro> defines);
 
         // Define `name` to `value` (defaults to "1"). Re-defining an existing name overwrites its value.
         // Returns `*this` so calls chain.
-        ShaderVariantKey &set(string name, string value = "1") {
-            const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
-                                             [](const ShaderMacro &macro, const string &key) { return macro.name < key; });
-            if (it != defines_.end() && it->name == name) {
-                it->value = std::move(value);
-            } else {
-                defines_.insert(it, ShaderMacro{std::move(name), std::move(value)});
-            }
-            return *this;
-        }
+        ShaderVariantKey &set(string name, string value = "1");
 
         // Removes `name` if defined. No-op if it isn't. Returns `*this`.
-        ShaderVariantKey &unset(string_view name) {
-            const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
-                                             [](const ShaderMacro &macro, string_view key) { return macro.name < key; });
-            if (it != defines_.end() && it->name == name) {
-                defines_.erase(it);
-            }
-            return *this;
-        }
+        ShaderVariantKey &unset(string_view name);
 
-        [[nodiscard]] bool has(string_view name) const noexcept {
-            const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
-                                             [](const ShaderMacro &macro, string_view key) { return macro.name < key; });
-            return it != defines_.end() && it->name == name;
-        }
+        [[nodiscard]] bool has(string_view name) const noexcept;
 
-        [[nodiscard]] bool empty() const noexcept { return defines_.empty(); }
-        [[nodiscard]] const vector<ShaderMacro> &defines() const noexcept { return defines_; }
+        [[nodiscard]] bool empty() const noexcept;
+        [[nodiscard]] const vector<ShaderMacro> &defines() const noexcept;
 
         // The defines as `ShaderMacro`s, ready to splice into `ShaderCompileOptions::macros`.
-        [[nodiscard]] const vector<ShaderMacro> &to_macros() const noexcept { return defines_; }
+        [[nodiscard]] const vector<ShaderMacro> &to_macros() const noexcept;
 
         // A stable, human-readable identity: `"ALPHA_TEST=1;MAX_LIGHTS=8;SKINNED=1"` (sorted, so it is a
         // canonical fingerprint of the permutation). Used both as the cache key and for logs/debugging.
-        [[nodiscard]] string canonical() const {
-            string out;
-            for (const ShaderMacro &define : defines_) {
-                if (!out.empty()) {
-                    out.push_back(';');
-                }
-                out.append(define.name);
-                out.push_back('=');
-                out.append(define.value);
-            }
-            return out;
-        }
+        [[nodiscard]] string canonical() const;
 
         // 64-bit FNV-1a of `canonical()` — a cheap content hash for coarse keying/logging. The cache keys
         // on `canonical()` directly (collision-free), so this is a convenience, not the cache's identity.
-        [[nodiscard]] u64 hash() const noexcept {
-            u64 value = 0xcbf29ce484222325ull;
-            for (const ShaderMacro &define : defines_) {
-                for (const char c : define.name) {
-                    value = (value ^ static_cast<u8>(c)) * 0x100000001b3ull;
-                }
-                value = (value ^ static_cast<u8>('=')) * 0x100000001b3ull;
-                for (const char c : define.value) {
-                    value = (value ^ static_cast<u8>(c)) * 0x100000001b3ull;
-                }
-                value = (value ^ static_cast<u8>(';')) * 0x100000001b3ull;
-            }
-            return value;
-        }
+        [[nodiscard]] u64 hash() const noexcept;
 
         [[nodiscard]] friend bool operator==(const ShaderVariantKey &a, const ShaderVariantKey &b) noexcept {
             if (a.defines_.size() != b.defines_.size()) {
@@ -154,53 +106,29 @@ namespace SFT::Core::Slang {
       public:
         ShaderVariantCache() = default;
 
-        ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {})
-            : compiler_(std::move(compiler)), source_(std::move(source)), base_options_(std::move(base_options)) {}
+        ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {});
 
-        [[nodiscard]] const ShaderSource &source() const noexcept { return source_; }
-        [[nodiscard]] const ShaderCompileOptions &base_options() const noexcept { return base_options_; }
+        [[nodiscard]] const ShaderSource &source() const noexcept;
+        [[nodiscard]] const ShaderCompileOptions &base_options() const noexcept;
 
         // Point the cache at fresh source (e.g. a hot-reloaded file) and drop every compiled permutation,
         // so the next `get_or_compile()` recompiles against the new code.
-        void set_source(ShaderSource source) {
-            source_ = std::move(source);
-            variants_.clear();
-        }
+        void set_source(ShaderSource source);
 
         // Drop every compiled permutation without changing the source — used to force a recompile after
         // an edit to the same file, or to reclaim memory.
-        void invalidate() noexcept { variants_.clear(); }
+        void invalidate() noexcept;
 
-        [[nodiscard]] usize size() const noexcept { return variants_.size(); }
-        [[nodiscard]] bool contains(const ShaderVariantKey &key) const {
-            return variants_.find(key.canonical()) != variants_.end();
-        }
+        [[nodiscard]] usize size() const noexcept;
+        [[nodiscard]] bool contains(const ShaderVariantKey &key) const;
 
         // The compiled `Shader` for `key`, compiling+caching it on the first request. Errors are not
         // cached — a fix-and-retry after a failed compile recompiles rather than returning the stale
         // failure. Compiling with an empty source returns `OperationFailed`.
-        [[nodiscard]] ShaderExpected<Shader> get_or_compile(const ShaderVariantKey &key) {
-            const string canonical = key.canonical();
-            if (const auto it = variants_.find(canonical); it != variants_.end()) {
-                return it->second;
-            }
-
-            ShaderCompileOptions options = base_options_;
-            options.macros.reserve(options.macros.size() + key.defines().size());
-            for (const ShaderMacro &define : key.to_macros()) {
-                options.macros.push_back(define);
-            }
-
-            ShaderExpected<Shader> compiled = compiler_.compile(source_, options);
-            if (!compiled) {
-                return compiled;
-            }
-            const auto [inserted, _] = variants_.emplace(canonical, std::move(*compiled));
-            return inserted->second;
-        }
+        [[nodiscard]] ShaderExpected<Shader> get_or_compile(const ShaderVariantKey &key);
 
         // Convenience for the common "no defines" base permutation.
-        [[nodiscard]] ShaderExpected<Shader> get_or_compile_base() { return get_or_compile(ShaderVariantKey{}); }
+        [[nodiscard]] ShaderExpected<Shader> get_or_compile_base();
 
       private:
         ShaderCompiler compiler_{};

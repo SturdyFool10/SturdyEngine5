@@ -21,20 +21,10 @@ namespace SFT::Platform::Windowing {
     [[nodiscard]] bool operating_system_may_support_window_effect(WindowEffectKind effect) noexcept;
     [[nodiscard]] WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept;
 
-    [[nodiscard]] inline expected<void, WindowError> window_result_from_effect_result(WindowEffectResult result) noexcept {
-        if (result.succeeded()) [[likely]] {
-            return {};
-        }
+    [[nodiscard]] expected<void, WindowError> window_result_from_effect_result(WindowEffectResult result) noexcept;
 
-        return unexpected(WindowError{WindowErrorCode::OperationFailed, result.details.empty() ? string_view{"Window effect failed."} : result.details});
-    }
+    [[nodiscard]] expected<void, WindowError> set_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept;
 
-    [[nodiscard]] inline expected<void, WindowError> set_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
-        return window_result_from_effect_result(enable_native_window_effect(handle, effect));
-    }
-
-    [[nodiscard]] inline expected<void, WindowError> set_native_window_blur_enabled(NativeWindowHandle handle, bool enabled) noexcept {
-        return set_native_window_effect(handle, WindowEffect::blur(enabled));
-    }
+    [[nodiscard]] expected<void, WindowError> set_native_window_blur_enabled(NativeWindowHandle handle, bool enabled) noexcept;
 
 } // namespace SFT::Platform::Windowing

@@ -63,28 +63,13 @@ namespace SFT::RHI {
     class BackendRegistry {
       public:
         // Adds (or replaces, if the same BackendType is already present) a backend.
-        void register_backend(const BackendRegistration &registration) {
-            for (BackendRegistration &existing : backends_) {
-                if (existing.backend == registration.backend) {
-                    existing = registration;
-                    return;
-                }
-            }
-            backends_.push_back(registration);
-        }
+        void register_backend(const BackendRegistration &registration);
 
-        [[nodiscard]] span<const BackendRegistration> backends() const noexcept { return backends_; }
-        [[nodiscard]] bool empty() const noexcept { return backends_.empty(); }
-        [[nodiscard]] bool is_available(BackendType backend) const noexcept { return find(backend) != nullptr; }
+        [[nodiscard]] span<const BackendRegistration> backends() const noexcept;
+        [[nodiscard]] bool empty() const noexcept;
+        [[nodiscard]] bool is_available(BackendType backend) const noexcept;
 
-        [[nodiscard]] const BackendRegistration *find(BackendType backend) const noexcept {
-            for (const BackendRegistration &registration : backends_) {
-                if (registration.backend == backend) {
-                    return &registration;
-                }
-            }
-            return nullptr;
-        }
+        [[nodiscard]] const BackendRegistration *find(BackendType backend) const noexcept;
 
         // The first available backend in `priority`, else the first registered backend, else nullopt.
         [[nodiscard]] optional<BackendType> preferred_backend(
@@ -102,33 +87,17 @@ namespace SFT::RHI {
 
         // Mints an instance for `backend`. Fails with `Unsupported` if that backend isn't registered.
         [[nodiscard]] RhiExpected<unique_ptr<RhiInstance>> create_instance(
-            BackendType backend, const InstanceDesc &desc) const {
-            const BackendRegistration *registration = find(backend);
-            if (registration == nullptr || registration->create_instance == nullptr) {
-                return rhi_error(RhiErrorCode::Unsupported,
-                                 string("No RHI backend registered for ") + backend_type_name(backend));
-            }
-            return registration->create_instance(desc);
-        }
+            BackendType backend, const InstanceDesc &desc) const;
 
         // Mints an instance for the preferred available backend.
         [[nodiscard]] RhiExpected<unique_ptr<RhiInstance>> create_preferred_instance(
-            const InstanceDesc &desc) const {
-            optional<BackendType> backend = preferred_backend();
-            if (!backend.has_value()) {
-                return rhi_error(RhiErrorCode::Unsupported, "No RHI graphics backend is registered.");
-            }
-            return create_instance(*backend, desc);
-        }
+            const InstanceDesc &desc) const;
 
       private:
         vector<BackendRegistration> backends_;
     };
 
     // A backend's display name, using its registration's `name` when set or `backend_type_name()`.
-    [[nodiscard]] inline string_view backend_display_name(const BackendRegistration &registration) noexcept {
-        return registration.name.empty() ? string_view{backend_type_name(registration.backend)}
-                                         : registration.name;
-    }
+    [[nodiscard]] string_view backend_display_name(const BackendRegistration &registration) noexcept;
 
 } // namespace SFT::RHI

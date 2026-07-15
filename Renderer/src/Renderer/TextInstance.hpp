@@ -28,13 +28,25 @@ namespace SFT::Renderer {
     // counter-clockwise) turns the quad's `size` axes around `position` before that projection —
     // needed for text-on-a-spline (Renderer/Spline.cppm's GlyphPathPlacement2D::rotation feeds
     // straight into this) and incidentally makes ordinary rotated 2D labels possible too.
+    // Field order is deliberate, not cosmetic: it must byte-match Shaders/text_sdf.slang's
+    // GlyphInstance exactly, and Slang lays out StructuredBuffer elements with std430 rules
+    // (vec2 aligned to 8, vec4 aligned to 16, the whole struct padded to a multiple of its
+    // largest member's alignment) — rules plain C++ struct layout doesn't follow on its own. The
+    // two vec2 pairs (8-byte aligned, 16 bytes total) then the vec4 (16-byte aligned, already at
+    // a 32-byte/16-aligned offset) then four floats (16 bytes, no trailing pad needed) happen to
+    // lay out identically under both C++'s natural alignment and std430 with zero gaps either
+    // way — reordering the fields (or the explicit `_pad`) is a hard requirement, not tidiness.
     struct GlyphInstance {
         glm::vec2 position{0.0f};
         glm::vec2 size{0.0f};
-        f32 rotation = 0.0f;
         glm::vec2 uv_min{0.0f};
         glm::vec2 uv_max{0.0f};
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+        // `rotation` (radians, counter-clockwise) turns the quad's `size` axes around `position`
+        // before pixel-space projection — needed for text-on-a-spline
+        // (Renderer/Spline.cppm's GlyphPathPlacement2D::rotation feeds straight into this) and
+        // incidentally makes ordinary rotated 2D labels possible too.
+        f32 rotation = 0.0f;
         // 0 = SDF (sample R, distance math), 1 = MSDF (median RGB, distance math), 2 = Color
         // (sample RGBA straight through, alpha-modulated only — no distance math; see
         // Text::RasterFormat::Color / Text/ColorGlyph.cppm).
@@ -44,6 +56,7 @@ namespace SFT::Renderer {
         // raster cell (see TextAtlas::Config::pixel_range and GlyphSlot::cell_size_px). Keeps the
         // antialiasing edge one physical pixel wide at any on-screen scale.
         f32 screen_px_range = 2.0f;
+        f32 _pad = 0.0f;
     };
 
     // Maps a raster format onto GlyphInstance::format_kind — the one place this mapping is
@@ -96,9 +109,13 @@ namespace SFT::Renderer {
         // Groups `instances` by (format, tile) — `slots[i]` must be the TextAtlas::GlyphSlot that
         // produced `instances[i]` (same order, e.g. straight from TextAtlas::ensure_resident) —
         // uploads them into one instance buffer (growing it if needed), and returns the batches to
-        // pass to draw().
+        // pass to draw(). The instance buffer write itself is a plain host-visible memcpy (no GPU
+        // work, nothing to wait on); on growth, the outgrown buffer may still be referenced by a
+        // prior frame's in-flight bind group, so it's appended to `out_transient_buffers` instead
+        // of being destroyed on the spot — the caller frees it once the frame's fence retires.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, span<const GlyphInstance> instances,
-                                                   span<const GlyphSlot> slots, vector<TextDrawBatch> &out_batches);
+                                                   span<const GlyphSlot> slots, vector<TextDrawBatch> &out_batches,
+                                                   vector<RHI::BufferHandle> &out_transient_buffers);
 
         // Issues one instanced draw per batch against `pass`, (re)binding each batch's atlas tile
         // in turn. `viewport_size` is the render target's pixel dimensions (the pipeline's only

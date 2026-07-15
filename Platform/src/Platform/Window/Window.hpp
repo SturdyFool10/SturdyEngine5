@@ -72,10 +72,7 @@ namespace SFT::Platform::Windowing {
         // Hands out the next process-unique `WindowId`. **Monotonic** and never reused, even after a
         // window is destroyed; the function-local `static` gives one shared counter across every
         // translation unit that imports this partition. Thread-safe via a relaxed atomic fetch-add.
-        [[nodiscard]] inline WindowId allocate_window_id() noexcept {
-            static std::atomic<usize> next_id{0};
-            return static_cast<WindowId>(next_id.fetch_add(1, std::memory_order_relaxed));
-        }
+        [[nodiscard]] WindowId allocate_window_id() noexcept;
 
     } // namespace Detail
 
@@ -120,8 +117,7 @@ namespace SFT::Platform::Windowing {
         // Base-subobject initializer: stamps this window with its process-unique, never-reused
         // `WindowId`. Reachable only by a concrete backend holding a `ConstructorKey`, i.e. via
         // `create()` / `recreate()`.
-        explicit Window(ConstructorKey) noexcept
-            : id_(Detail::allocate_window_id()) {}
+        explicit Window(ConstructorKey) noexcept;
 
       public:
         // Virtual so deleting through a `unique_ptr<Window>` runs the concrete backend's destructor,
@@ -140,7 +136,7 @@ namespace SFT::Platform::Windowing {
         // This window's stable identity, used to key its resources in the engine backend.
         //
         // @returns the process-unique `WindowId` assigned at construction.
-        [[nodiscard]] WindowId id() const noexcept { return id_; }
+        [[nodiscard]] WindowId id() const noexcept;
 
         // The **sole entry point** for constructing a window. Instantiates the requested concrete
         // `Backend` through its `construct()` (gated by `ConstructorKey`, forwarding `args` to the real
@@ -356,14 +352,10 @@ namespace SFT::Platform::Windowing {
         // // ...
         // window->unlock_mouse();           // menu: release it
         // ```
-        expected<void, WindowError> lock_mouse_to_window() noexcept {
-            return set_mouse_locked(true);
-        }
+        expected<void, WindowError> lock_mouse_to_window() noexcept;
 
         // Readable wrapper for `set_mouse_locked(false)` — release the pointer.
-        expected<void, WindowError> unlock_mouse() noexcept {
-            return set_mouse_locked(false);
-        }
+        expected<void, WindowError> unlock_mouse() noexcept;
 
         // Apply a compositor window effect — blur-behind, acrylic/mica material, dark-mode title bar,
         // custom border/caption color, ... (build one with the `WindowEffect::*` factories).
@@ -417,7 +409,7 @@ namespace SFT::Platform::Windowing {
         // // ... later:
         // window->set_repaint_callback({});   // clear it
         // ```
-        virtual void set_repaint_callback(std::function<void()> /*callback*/) noexcept {}
+        virtual void set_repaint_callback(std::function<void()> /*callback*/) noexcept;
 
       private:
         WindowId id_;

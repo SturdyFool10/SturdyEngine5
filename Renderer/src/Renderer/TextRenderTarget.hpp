@@ -48,11 +48,11 @@ namespace SFT::Renderer {
                                                   span<const GlyphPlacement> glyphs);
 
         // Raw RHI handles, for wiring into a render graph directly.
-        [[nodiscard]] RHI::TextureHandle texture() const noexcept { return texture_; }
-        [[nodiscard]] RHI::TextureViewHandle view() const noexcept { return view_; }
-        [[nodiscard]] RHI::SamplerHandle sampler() const noexcept { return sampler_; }
-        [[nodiscard]] u32 width() const noexcept { return config_.width; }
-        [[nodiscard]] u32 height() const noexcept { return config_.height; }
+        [[nodiscard]] RHI::TextureHandle texture() const noexcept;
+        [[nodiscard]] RHI::TextureViewHandle view() const noexcept;
+        [[nodiscard]] RHI::SamplerHandle sampler() const noexcept;
+        [[nodiscard]] u32 width() const noexcept;
+        [[nodiscard]] u32 height() const noexcept;
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

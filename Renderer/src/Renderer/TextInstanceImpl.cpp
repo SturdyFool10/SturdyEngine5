@@ -210,7 +210,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextPipeline::prepare(RHI::RhiDevice &device, span<const GlyphInstance> instances,
-                                               span<const GlyphSlot> slots, vector<TextDrawBatch> &out_batches) {
+                                               span<const GlyphSlot> slots, vector<TextDrawBatch> &out_batches,
+                                               vector<RHI::BufferHandle> &out_transient_buffers) {
         out_batches.clear();
         if (instances.size() != slots.size()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -255,7 +256,13 @@ namespace SFT::Renderer {
         const u64 required_bytes = static_cast<u64>(ordered.size()) * sizeof(GlyphInstance);
         if (required_bytes > instance_buffer_capacity_) {
             if (instance_buffer_) {
-                device.destroy_buffer(instance_buffer_);
+                // A prior frame's bind group may still be in flight on the GPU referencing this
+                // buffer (bind groups are transient and only freed once their frame's fence
+                // retires — see the `transient_bind_groups` convention in RendererLifecycle.cpp).
+                // Handing it to the caller's fence-gated cleanup instead of destroying it here
+                // keeps this a pure CPU-side buffer swap — no stall, fire-and-forget like the rest
+                // of the frame.
+                out_transient_buffers.push_back(instance_buffer_);
             }
             auto buffer = device.create_buffer(RHI::BufferDesc{
                 .size = required_bytes,
@@ -300,7 +307,6 @@ namespace SFT::Renderer {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Text draw batch references an unresident atlas tile.");
             }
-
             // Group this batch's three resource bindings by which generated bind-group layout each
             // resolved to at create() time, so a shader that places them in one set (the common
             // case) or splits them across sets both work without hardcoding either shape.

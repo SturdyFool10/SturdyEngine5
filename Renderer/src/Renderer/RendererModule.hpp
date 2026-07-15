@@ -80,14 +80,14 @@ namespace SFT::Renderer {
 
         void wait_idle() noexcept;
 
-        [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
+        [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] const RHI::FeatureNegotiationReport *feature_negotiation_report() const noexcept;
         [[nodiscard]] optional<Core::GpuInfo> gpu_info() const;
 
         // Low-level escape hatches. `graphics_backend()` gives backend-specific extension points via
         // dynamic_cast when needed; `rhi_device()` is the API-agnostic low-level RHI surface.
-        [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept { return graphics_backend_.get(); }
-        [[nodiscard]] const Core::EngineBackend *graphics_backend() const noexcept { return graphics_backend_.get(); }
+        [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept;
+        [[nodiscard]] const Core::EngineBackend *graphics_backend() const noexcept;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept;
         [[nodiscard]] const RHI::RhiDevice *rhi_device() const noexcept;
 
@@ -224,6 +224,11 @@ namespace SFT::Renderer {
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
             vector<RHI::BindGroupHandle> transient_bind_groups;
+            // Buffers retired mid-frame (e.g. a text-atlas staging buffer, or an instance buffer
+            // outgrown and replaced) that a just-submitted command buffer may still reference —
+            // freed here once this ring slot's fence proves the GPU is done with them, same
+            // fire-and-forget contract as transient_textures/transient_bind_groups above.
+            vector<RHI::BufferHandle> transient_buffers;
             vector<RHI::SwapchainHandle> retired_swapchains;
             vector<RHI::TextureHandle> retired_presentation_textures;
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
@@ -274,6 +279,7 @@ namespace SFT::Renderer {
             SceneLighting lighting{};
             DeferredTargetFormats deferred_formats{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
+            vector<RHI::BufferHandle> transient_buffers;
             string debug_label;
         };
 
@@ -460,14 +466,25 @@ namespace SFT::Renderer {
         void destroy_tonemap_resources_locked(TonemapResources &resources) noexcept;
 
         // Debug HUD text overlay: lazily loads a default UI font + builds an atlas/pipeline, then
-        // shapes+draws `lines` (top-to-bottom) starting at `origin_px` in the current render pass.
+        // shapes+draws `lines` (top-to-bottom) starting at `origin_px`. Split across the render
+        // graph boundary so glyph rasterization/upload and the instance buffer write — the only
+        // GPU-command-recording parts — happen once, into the frame's own shared command encoder,
+        // before any render pass begins (see RendererLifecycle.cpp's render_frame_rhi): no separate
+        // submit+fence+wait, no mid-frame stall. Any buffer this call retires (a grown-out instance
+        // buffer, an atlas staging buffer) is appended to `transient_buffers` for the caller's
+        // frame-fence-gated cleanup, same contract as transient_bind_groups.
         [[nodiscard]] Core::RendererResult ensure_text_overlay_resources();
-        [[nodiscard]] Core::RendererResult record_text_overlay(RHI::RenderPassEncoder &pass,
-                                                                RHI::Format color_format,
-                                                                span<const string> lines,
-                                                                glm::vec2 origin_px,
-                                                                glm::vec2 viewport_size_px,
-                                                                vector<RHI::BindGroupHandle> &transient_bind_groups);
+        [[nodiscard]] Core::RendererResult prepare_text_overlay(RHI::CommandEncoder &encoder,
+                                                                 span<const string> lines,
+                                                                 glm::vec2 origin_px,
+                                                                 vector<RHI::BufferHandle> &transient_buffers,
+                                                                 vector<TextDrawBatch> &out_batches);
+        // Issues the instanced draws for a batch set already produced by prepare_text_overlay(),
+        // against the currently-bound render pass.
+        [[nodiscard]] Core::RendererResult draw_text_overlay(RHI::RenderPassEncoder &pass,
+                                                              span<const TextDrawBatch> batches,
+                                                              glm::vec2 viewport_size_px,
+                                                              vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_text_overlay_resources() noexcept;
         void destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept;
 

@@ -25,23 +25,9 @@ namespace SFT::Platform::Windowing {
         WindowErrorCode code;
         string message;
 
-        WindowError(WindowErrorCode error_code, const char *error_message) noexcept
-            : code(error_code) {
-            if (error_message) {
-                try {
-                    message = error_message;
-                } catch (...) {
-                }
-            }
-        }
+        WindowError(WindowErrorCode error_code, const char *error_message) noexcept;
 
-        WindowError(WindowErrorCode error_code, string_view error_message) noexcept
-            : code(error_code) {
-            try {
-                message = error_message;
-            } catch (...) {
-            }
-        }
+        WindowError(WindowErrorCode error_code, string_view error_message) noexcept;
     };
 
 } // namespace SFT::Platform::Windowing

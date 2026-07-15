@@ -33,8 +33,6 @@ namespace SFT::Core {
     template <typename Value>
     using RendererExpected = expected<Value, GraphicsBackendError>;
 
-    [[nodiscard]] inline unexpected<GraphicsBackendError> graphics_backend_error(GraphicsBackendErrorCode code, string message) {
-        return unexpected(GraphicsBackendError{code, std::move(message)});
-    }
+    [[nodiscard]] unexpected<GraphicsBackendError> graphics_backend_error(GraphicsBackendErrorCode code, string message);
 
 } // namespace SFT::Core

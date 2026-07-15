@@ -76,9 +76,9 @@ namespace SFT::Engine {
 
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
-        [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept { return capabilities_; }
-        [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept { return &renderer_; }
-        [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept { return &renderer_; }
+        [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
+        [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
+        [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept;
         [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept;
 
@@ -89,7 +89,7 @@ namespace SFT::Engine {
         // Shaders discovered and reflected from EngineConfig::shaders_directory during initialize(),
         // before the graphics backend came up. Each one is lazily compiled: target bytecode for an
         // entry point is only generated the first time something asks for it.
-        [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &shaders() const noexcept { return shaders_; }
+        [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &shaders() const noexcept;
 
         // Block until all in-flight GPU work is complete. The destructor calls this automatically;
         // also useful as an explicit sync point before controlled shutdown or resource reloads.

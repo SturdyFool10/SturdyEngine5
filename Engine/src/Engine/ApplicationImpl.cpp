@@ -205,16 +205,6 @@ namespace SFT::Engine {
         }
         max_frames_in_flight_ = std::max<u32>(1, engine_->capabilities().max_frames_in_flight);
 
-        // Spawn a second window purely to prove simultaneous multi-window control actually works end to
-        // end, not just compiles. Non-fatal if it fails - the app still runs with just the primary.
-        WindowConfig demo_config{};
-        demo_config.title = "Sturdy Engine 5 - Window 2";
-        demo_config.extent = {960, 540};
-        demo_config.graphics_api = WindowGraphicsApi::Vulkan;
-        if (!spawn_sdl3_managed_window(demo_config, /*is_primary=*/false)) {
-            Foundation::log_warn("Demo second window failed to start; continuing with the primary window only.");
-        }
-
         Async::Scheduler::initialize_low_latency();
         return true;
     }

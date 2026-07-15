@@ -17,18 +17,21 @@
 
 import sturdy_common;
 
+// Field order must byte-match Renderer/TextInstance.hpp's GlyphInstance exactly (see the comment
+// there) - two vec2 pairs, then the vec4, then four floats, with no gaps under std430 either way.
 struct GlyphInstance {
     float2 position;
     float2 size;
-    // Radians, counter-clockwise, rotates the quad's size axes around `position` — text-on-a-spline
-    // (Renderer/Spline.cppm) and ordinary rotated 2D labels both feed this.
-    float rotation;
     float2 uvMin;
     float2 uvMax;
     float4 color;
+    // Radians, counter-clockwise, rotates the quad's size axes around `position` — text-on-a-spline
+    // (Renderer/Spline.cppm) and ordinary rotated 2D labels both feed this.
+    float rotation;
     // 0 = SDF, 1 = MSDF, 2 = Color — see Renderer::format_kind_value (Renderer/TextInstance.cppm).
     float formatKind;
     float screenPxRange;
+    float _pad;
 };
 
 struct TextViewConstants {

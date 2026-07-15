@@ -51,15 +51,17 @@ namespace SFT::Renderer {
             return bytes;
         }
 
-        // Best-effort default UI font pick: a handful of common family names likely to exist on
-        // any of this engine's target OSes, falling back to whatever discovery found first.
+        // Best-effort default UI font pick: Maple Mono NF (the Nerd-Font-patched build of Maple
+        // Mono) is preferred when installed, falling back to a handful of common family names
+        // likely to exist on any of this engine's target OSes, then to whatever discovery found
+        // first.
         [[nodiscard]] optional<string> find_default_font_path() {
             const vector<string> search_dirs = Platform::font_search_directories();
             const Text::FontDatabase database =
                 Text::FontDatabase::create(span<const string>{search_dirs.data(), search_dirs.size()});
 
-            static constexpr array<const char *, 5> preferred_families{
-                "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica",
+            static constexpr array<const char *, 6> preferred_families{
+                "Maple Mono NF", "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica",
             };
             for (const char *family : preferred_families) {
                 if (optional<string> path = database.find(family)) {
@@ -122,11 +124,10 @@ namespace SFT::Renderer {
         return {};
     }
 
-    Core::RendererResult Renderer::record_text_overlay(RHI::RenderPassEncoder &pass, RHI::Format color_format,
-                                                        span<const string> lines, glm::vec2 origin_px,
-                                                        glm::vec2 viewport_size_px,
-                                                        vector<RHI::BindGroupHandle> &transient_bind_groups) {
-        (void)color_format;
+    Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const string> lines,
+                                                        glm::vec2 origin_px, vector<RHI::BufferHandle> &transient_buffers,
+                                                        vector<TextDrawBatch> &out_batches) {
+        out_batches.clear();
         if (Core::RendererResult ensured = ensure_text_overlay_resources(); !ensured.has_value()) {
             return ensured;
         }
@@ -203,7 +204,7 @@ namespace SFT::Renderer {
         }
 
         vector<GlyphSlot> slots;
-        if (auto resident = guard->atlas.ensure_resident(*device, requests, slots); !resident) {
+        if (auto resident = guard->atlas.ensure_resident(*device, encoder, requests, slots, transient_buffers); !resident) {
             return unexpected(resident.error());
         }
 
@@ -223,9 +224,25 @@ namespace SFT::Renderer {
             });
         }
 
-        vector<TextDrawBatch> batches;
-        if (auto prepared = guard->pipeline.prepare(*device, instances, slots, batches); !prepared) {
-            return unexpected(prepared.error());
+        return guard->pipeline.prepare(*device, instances, slots, out_batches, transient_buffers);
+    }
+
+    Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,
+                                                      glm::vec2 viewport_size_px,
+                                                      vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        if (batches.empty()) {
+            return {};
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot draw the debug text overlay without an RHI device.");
+        }
+
+        auto guard = text_overlay_.lock();
+        if (!guard->ready) {
+            return {};
         }
 
         return guard->pipeline.draw(*device, pass, guard->atlas, batches, viewport_size_px, transient_bind_groups);

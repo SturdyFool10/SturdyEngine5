@@ -38,15 +38,7 @@ namespace SFT::Core::Vulkan {
         u32 base_layer = 0;
         u32 layer_count = 1;
 
-        [[nodiscard]] VkImageSubresourceRange to_vk() const noexcept {
-            return VkImageSubresourceRange{
-                .aspectMask = aspects,
-                .baseMipLevel = base_mip,
-                .levelCount = mip_count,
-                .baseArrayLayer = base_layer,
-                .layerCount = layer_count,
-            };
-        }
+        [[nodiscard]] VkImageSubresourceRange to_vk() const noexcept;
     };
 
     [[nodiscard]] constexpr VulkanImageSubresourceRange full_image_range(

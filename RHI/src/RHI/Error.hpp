@@ -52,8 +52,6 @@ namespace SFT::RHI {
     template <typename Value>
     using RhiExpected = expected<Value, RhiError>;
 
-    [[nodiscard]] inline unexpected<RhiError> rhi_error(RhiErrorCode code, string message) {
-        return unexpected(RhiError{code, std::move(message)});
-    }
+    [[nodiscard]] unexpected<RhiError> rhi_error(RhiErrorCode code, string message);
 
 } // namespace SFT::RHI

@@ -809,54 +809,29 @@ namespace SFT::RHI {
       public:
         constexpr FeatureSet() = default;
 
-        FeatureSet &set(Feature feature, bool enabled = true) noexcept {
-            bits_.set(static_cast<usize>(feature), enabled);
-            return *this;
-        }
+        FeatureSet &set(Feature feature, bool enabled = true) noexcept;
 
-        FeatureSet &unset(Feature feature) noexcept {
-            bits_.reset(static_cast<usize>(feature));
-            return *this;
-        }
+        FeatureSet &unset(Feature feature) noexcept;
 
-        [[nodiscard]] bool has(Feature feature) const noexcept {
-            return bits_.test(static_cast<usize>(feature));
-        }
+        [[nodiscard]] bool has(Feature feature) const noexcept;
 
         // Every feature in `required` is present in this set (`required` ⊆ `*this`) — the check a
         // backend runs on `adapter.supported_features()` against a request's required features.
-        [[nodiscard]] bool contains_all(const FeatureSet &required) const noexcept {
-            return (required.bits_ & ~bits_).none();
-        }
+        [[nodiscard]] bool contains_all(const FeatureSet &required) const noexcept;
 
         // The features in `required` that this set is missing — for building a precise "unsupported:
         // A, B, C" message when a required-feature check fails. Iterate it with `for_each`.
-        [[nodiscard]] FeatureSet missing(const FeatureSet &required) const noexcept {
-            FeatureSet result;
-            result.bits_ = required.bits_ & ~bits_;
-            return result;
-        }
+        [[nodiscard]] FeatureSet missing(const FeatureSet &required) const noexcept;
 
-        [[nodiscard]] FeatureSet intersection(const FeatureSet &other) const noexcept {
-            FeatureSet result;
-            result.bits_ = bits_ & other.bits_;
-            return result;
-        }
+        [[nodiscard]] FeatureSet intersection(const FeatureSet &other) const noexcept;
 
-        [[nodiscard]] FeatureSet difference(const FeatureSet &other) const noexcept {
-            FeatureSet result;
-            result.bits_ = bits_ & ~other.bits_;
-            return result;
-        }
+        [[nodiscard]] FeatureSet difference(const FeatureSet &other) const noexcept;
 
-        [[nodiscard]] bool any() const noexcept { return bits_.any(); }
-        [[nodiscard]] bool none() const noexcept { return bits_.none(); }
-        [[nodiscard]] usize count() const noexcept { return bits_.count(); }
+        [[nodiscard]] bool any() const noexcept;
+        [[nodiscard]] bool none() const noexcept;
+        [[nodiscard]] usize count() const noexcept;
 
-        FeatureSet &operator|=(const FeatureSet &other) noexcept {
-            bits_ |= other.bits_;
-            return *this;
-        }
+        FeatureSet &operator|=(const FeatureSet &other) noexcept;
 
         [[nodiscard]] friend FeatureSet operator|(FeatureSet a, const FeatureSet &b) noexcept {
             a |= b;
@@ -889,35 +864,19 @@ namespace SFT::RHI {
         FeatureSet missing_required_features;
         FeatureSet unavailable_optional_features;
 
-        [[nodiscard]] bool required_satisfied() const noexcept { return missing_required_features.none(); }
-        [[nodiscard]] bool optional_fully_enabled() const noexcept { return unavailable_optional_features.none(); }
-        [[nodiscard]] FeatureSet enabled_features() const noexcept { return enabled_required_features | enabled_optional_features; }
+        [[nodiscard]] bool required_satisfied() const noexcept;
+        [[nodiscard]] bool optional_fully_enabled() const noexcept;
+        [[nodiscard]] FeatureSet enabled_features() const noexcept;
     };
 
-    [[nodiscard]] inline FeatureNegotiationReport negotiate_features(
+    [[nodiscard]] FeatureNegotiationReport negotiate_features(
         const FeatureSet &supported,
         const FeatureSet &required,
-        const FeatureSet &optional) noexcept {
-        FeatureNegotiationReport report{};
-        report.supported_features = supported;
-        report.requested_required_features = required;
-        report.requested_optional_features = optional;
-        report.enabled_required_features = required.intersection(supported);
-        report.enabled_optional_features = optional.intersection(supported).difference(required);
-        report.missing_required_features = supported.missing(required);
-        report.unavailable_optional_features = supported.missing(optional).difference(required);
-        return report;
-    }
+        const FeatureSet &optional) noexcept;
 
     // Convenience: a `FeatureSet` containing exactly the listed features, for terse request
     // construction — `features_of({Feature::RayTracingPipeline, Feature::RayQuery})`.
-    [[nodiscard]] inline FeatureSet features_of(std::initializer_list<Feature> features) noexcept {
-        FeatureSet set;
-        for (Feature feature : features) {
-            set.set(feature);
-        }
-        return set;
-    }
+    [[nodiscard]] FeatureSet features_of(std::initializer_list<Feature> features) noexcept;
 
     // ─── Feature-associated properties (graded values) ───────────────────────────
     //

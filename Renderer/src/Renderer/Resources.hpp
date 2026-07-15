@@ -26,8 +26,8 @@ namespace SFT::Renderer {
         bool gpu_resident = false;
         bool alive = false;
 
-        [[nodiscard]] RHI::BufferHandle vertex_buffer_handle() const noexcept { return vertex_buffer; }
-        [[nodiscard]] RHI::BufferHandle index_buffer_handle() const noexcept { return index_buffer; }
+        [[nodiscard]] RHI::BufferHandle vertex_buffer_handle() const noexcept;
+        [[nodiscard]] RHI::BufferHandle index_buffer_handle() const noexcept;
     };
 
     struct MaterialResource {

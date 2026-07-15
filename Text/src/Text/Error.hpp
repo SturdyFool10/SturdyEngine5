@@ -41,8 +41,6 @@ namespace SFT::Text {
     template <typename Value>
     using TextExpected = expected<Value, TextError>;
 
-    [[nodiscard]] inline unexpected<TextError> text_error(TextErrorCode code, string message) {
-        return unexpected(TextError{code, std::move(message)});
-    }
+    [[nodiscard]] unexpected<TextError> text_error(TextErrorCode code, string message);
 
 } // namespace SFT::Text

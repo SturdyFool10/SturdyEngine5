@@ -66,6 +66,16 @@ namespace SFT::Renderer {
             return it != tile_glyphs_.end() ? it->second : empty_glyphs;
         }();
 
+        // This tile render is a standalone one-shot (an on-demand offscreen re-raster of one dirty
+        // tile, not part of any per-frame render graph), so — unlike the main frame's shared
+        // encoder — it owns and submits/waits on its own command encoder for its whole lifetime,
+        // atlas upload included.
+        auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text canvas tile render"});
+        if (!encoder) {
+            return unexpected(graphics_error_from_rhi(encoder.error(), "create text canvas tile encoder"));
+        }
+        vector<RHI::BufferHandle> transient_buffers;
+
         vector<GlyphSlot> slots;
         vector<GlyphInstance> instances;
         if (!glyphs.empty()) {
@@ -82,7 +92,7 @@ namespace SFT::Renderer {
                     .font = glyph.font,
                 });
             }
-            if (auto resident = atlas_->ensure_resident(device, requests, slots); !resident) {
+            if (auto resident = atlas_->ensure_resident(device, **encoder, requests, slots, transient_buffers); !resident) {
                 return unexpected(resident.error());
             }
 
@@ -103,13 +113,8 @@ namespace SFT::Renderer {
         }
 
         vector<TextDrawBatch> batches;
-        if (auto prepared = pipeline_->prepare(device, instances, slots, batches); !prepared) {
+        if (auto prepared = pipeline_->prepare(device, instances, slots, batches, transient_buffers); !prepared) {
             return unexpected(prepared.error());
-        }
-
-        auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text canvas tile render"});
-        if (!encoder) {
-            return unexpected(graphics_error_from_rhi(encoder.error(), "create text canvas tile encoder"));
         }
 
         const RHI::TextureBarrier to_attachment{
@@ -192,6 +197,9 @@ namespace SFT::Renderer {
 
         for (RHI::BindGroupHandle bind_group : transient_bind_groups) {
             device.destroy_bind_group(bind_group);
+        }
+        for (RHI::BufferHandle buffer : transient_buffers) {
+            device.destroy_buffer(buffer);
         }
 
         tile.dirty = false;

@@ -68,7 +68,7 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererExpected<vector<ResidentCanvasTile>> ensure_viewport_resident(RHI::RhiDevice &device,
                                                                                                    RHI::Rect2D viewport);
 
-        [[nodiscard]] u32 tile_size() const noexcept { return tile_size_; }
+        [[nodiscard]] u32 tile_size() const noexcept;
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

@@ -88,17 +88,24 @@ namespace SFT::Renderer {
 
         [[nodiscard]] static Core::RendererExpected<TextAtlas> create(RHI::RhiDevice &device, const Config &config);
 
-        // Ensures every glyph in `requests` is resident (rasterizing + uploading any misses — new
-        // glyphs rasterize in parallel via Async::par_iter, then upload through one batched
-        // command-buffer submission), and marks each as most-recently-used. `out_slots` is resized
-        // to `requests.size()` and filled in request order.
-        [[nodiscard]] Core::RendererResult ensure_resident(RHI::RhiDevice &device, span<const GlyphRequest> requests,
-                                                           vector<GlyphSlot> &out_slots);
+        // Ensures every glyph in `requests` is resident (rasterizing any misses in parallel via
+        // Async::par_iter, then recording their upload — one batched staging-buffer copy plus the
+        // layout-transition barriers around it — into the caller's `encoder`), and marks each as
+        // most-recently-used. `out_slots` is resized to `requests.size()` and filled in request
+        // order. Deliberately does NOT submit or wait: `encoder` is the caller's own per-frame
+        // command encoder (already recording the rest of the frame), so this upload becomes just
+        // more commands in that one queue submission — no separate fence, no CPU stall. The staging
+        // buffer this call creates on a miss is appended to `out_transient_buffers`; the caller must
+        // keep it alive (and eventually destroy it) until the frame's fence retires, since the GPU
+        // copy hasn't necessarily run yet when this function returns.
+        [[nodiscard]] Core::RendererResult ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                           span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
+                                                           vector<RHI::BufferHandle> &out_transient_buffers);
 
         [[nodiscard]] RHI::TextureViewHandle tile_view(Text::RasterFormat format, u32 tile_index) const noexcept;
         [[nodiscard]] u32 tile_count(Text::RasterFormat format) const noexcept;
-        [[nodiscard]] u32 tile_size() const noexcept { return tile_size_; }
-        [[nodiscard]] f32 pixel_range() const noexcept { return config_.pixel_range; }
+        [[nodiscard]] u32 tile_size() const noexcept;
+        [[nodiscard]] f32 pixel_range() const noexcept;
 
         void destroy(RHI::RhiDevice &device) noexcept;
 
@@ -119,6 +126,11 @@ namespace SFT::Renderer {
             u32 tile_index = 0;
             u32 cell_x = 0;
             u32 cell_y = 0;
+            // The sub-rect of the cell actually rasterized into and sampled — see the comment on
+            // TextAtlas::upload_misses' `raster_size` computation. Not necessarily the full
+            // `config_.cell_size`: small glyphs raster smaller so their on-screen quad isn't stuck
+            // minifying a whole 64px cell down to a handful of pixels.
+            u32 raster_size = 0;
         };
 
         struct PendingUpload {
@@ -127,31 +139,14 @@ namespace SFT::Renderer {
         };
 
         [[nodiscard]] Core::RendererExpected<CellLocation> allocate_cell(RHI::RhiDevice &device, Text::RasterFormat format);
-        [[nodiscard]] Core::RendererResult upload_misses(RHI::RhiDevice &device, span<const GlyphRequest> requests,
-                                                         const vector<PendingUpload> &misses, vector<GlyphSlot> &out_slots);
+        [[nodiscard]] Core::RendererResult upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                         span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
+                                                         vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers);
 
-        [[nodiscard]] FormatAtlas &format_atlas(Text::RasterFormat format) noexcept {
-            switch (format) {
-                case Text::RasterFormat::SDF: return sdf_;
-                case Text::RasterFormat::MSDF: return msdf_;
-                case Text::RasterFormat::Color: return color_;
-            }
-            return sdf_;
-        }
-        [[nodiscard]] const FormatAtlas &format_atlas(Text::RasterFormat format) const noexcept {
-            return const_cast<TextAtlas *>(this)->format_atlas(format);
-        }
-        [[nodiscard]] LruIndex<GlyphKey, GlyphKeyHash> &format_lru(Text::RasterFormat format) noexcept {
-            switch (format) {
-                case Text::RasterFormat::SDF: return sdf_lru_;
-                case Text::RasterFormat::MSDF: return msdf_lru_;
-                case Text::RasterFormat::Color: return color_lru_;
-            }
-            return sdf_lru_;
-        }
-        [[nodiscard]] RHI::Format texture_format(Text::RasterFormat format) const noexcept {
-            return format == Text::RasterFormat::SDF ? RHI::Format::R8Unorm : RHI::Format::RGBA8Unorm;
-        }
+        [[nodiscard]] FormatAtlas &format_atlas(Text::RasterFormat format) noexcept;
+        [[nodiscard]] const FormatAtlas &format_atlas(Text::RasterFormat format) const noexcept;
+        [[nodiscard]] LruIndex<GlyphKey, GlyphKeyHash> &format_lru(Text::RasterFormat format) noexcept;
+        [[nodiscard]] RHI::Format texture_format(Text::RasterFormat format) const noexcept;
         [[nodiscard]] GlyphSlot slot_from_cell(Text::RasterFormat format, CellLocation cell) const noexcept;
 
         Config config_{};

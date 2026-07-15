@@ -772,6 +772,35 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
         }
 
+        // Debug HUD text overlay: scene label, renderable count, camera position, resolution, GPU,
+        // FPS/frame time, frame index — drawn last, straight onto the swapchain, on top of the
+        // tonemapped scene. Shaping, glyph-atlas residency, and the instance buffer upload all
+        // happen here — before any render pass begins — recording straight into this frame's own
+        // shared encoder (**encoder) so they ride along in the frame's one queue submission instead
+        // of a separate submit+fence+wait. draw_text_overlay() (below, inside the graph's "debug
+        // text overlay" pass) only issues the already-prepared instanced draws.
+        const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
+        const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
+        const array<string, 7> overlay_lines{
+            submission.debug_label.empty() ? string{"Scene"} : submission.debug_label,
+            std::format("Renderables: {}", submission.draws.size()),
+            std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
+                       submission.camera.world_position.y, submission.camera.world_position.z),
+            std::format("Resolution: {}x{}", render_extent.width, render_extent.height),
+            std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
+            std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
+            std::format("Frame: {}", frame.frame_index),
+        };
+        vector<TextDrawBatch> text_overlay_batches;
+        // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
+        // return (nothing has been submitted yet, so there's nothing else to unwind).
+        if (Core::RendererResult text_prepared =
+                prepare_text_overlay(**encoder, span<const string>{overlay_lines.data(), overlay_lines.size()},
+                                     glm::vec2{10.0f, 10.0f}, submission.transient_buffers, text_overlay_batches);
+            !text_prepared.has_value()) {
+            return text_prepared;
+        }
+
         RenderGraph graph;
         const RenderGraphTextureHandle swapchain_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = texture.texture,
@@ -966,17 +995,9 @@ namespace SFT::Renderer {
                 return record_tonemap(pass, source.default_view, swapchain_format, submission.transient_bind_groups);
             });
 
-        // Debug HUD text overlay: scene label, renderable count, camera position, FPS, frame index —
-        // drawn last, straight onto the swapchain, on top of the tonemapped scene.
-        const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
-        const array<string, 5> overlay_lines{
-            submission.debug_label.empty() ? string{"Scene"} : submission.debug_label,
-            std::format("Renderables: {}", submission.draws.size()),
-            std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
-                       submission.camera.world_position.y, submission.camera.world_position.z),
-            std::format("FPS: {:.1f}", overlay_fps),
-            std::format("Frame: {}", frame.frame_index),
-        };
+        // Debug HUD text overlay draw — shaping/residency/instance-upload already happened above,
+        // before the graph started recording (see prepare_text_overlay() call above); this pass
+        // just issues the already-prepared instanced draws on top of the tonemapped scene.
         graph.add_render_pass("debug text overlay")
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = swapchain_texture,
@@ -984,7 +1005,7 @@ namespace SFT::Renderer {
                 .store_op = RHI::StoreOp::Store,
             })
             .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, &submission, render_extent, overlay_lines](RenderGraphContext &context) -> Core::RendererResult {
+            .set_execute([this, &submission, render_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
@@ -996,8 +1017,7 @@ namespace SFT::Renderer {
                 });
                 pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                 const glm::vec2 viewport_size{static_cast<f32>(render_extent.width), static_cast<f32>(render_extent.height)};
-                return record_text_overlay(pass, swapchain_format, span<const string>{overlay_lines.data(), overlay_lines.size()},
-                                           glm::vec2{10.0f, 10.0f}, viewport_size, submission.transient_bind_groups);
+                return draw_text_overlay(pass, text_overlay_batches, viewport_size, submission.transient_bind_groups);
             });
 
         {
@@ -1039,6 +1059,7 @@ namespace SFT::Renderer {
         slot.command_buffer = *command_buffer;
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
         slot.transient_bind_groups = std::move(submission.transient_bind_groups);
+        slot.transient_buffers = std::move(submission.transient_buffers);
         slot.submitted = true;
 
         auto presented = [&]() {
@@ -1172,6 +1193,11 @@ namespace SFT::Renderer {
                     device->destroy_bind_group(group);
                 }
             }
+            for (RHI::BufferHandle buffer : slot.transient_buffers) {
+                if (buffer) {
+                    device->destroy_buffer(buffer);
+                }
+            }
             // Views before the textures they alias.
             for (RHI::TextureViewHandle view : slot.transient_texture_views) {
                 if (view) {
@@ -1205,6 +1231,7 @@ namespace SFT::Renderer {
             }
         }
         slot.transient_bind_groups.clear();
+        slot.transient_buffers.clear();
         slot.transient_texture_views.clear();
         slot.transient_textures.clear();
         if (destroy_retired_presentation) {

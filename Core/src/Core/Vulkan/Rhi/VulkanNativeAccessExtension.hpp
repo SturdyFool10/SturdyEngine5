@@ -37,31 +37,18 @@ namespace SFT::Core::Vulkan {
                                     VkQueue graphics_queue,
                                     void *queue_lookup_context = nullptr,
                                     NativeQueueLookup queue_lookup = nullptr,
-                                    NativeQueueFamilyLookup queue_family_lookup = nullptr) noexcept
-            : instance_(instance), physical_device_(physical_device), device_(device),
-              graphics_queue_(graphics_queue), queue_lookup_context_(queue_lookup_context),
-              queue_lookup_(queue_lookup), queue_family_lookup_(queue_family_lookup) {}
+                                    NativeQueueFamilyLookup queue_family_lookup = nullptr) noexcept;
 
-        [[nodiscard]] RHI::ExtensionId extension_id() const noexcept override { return id(); }
+        [[nodiscard]] RHI::ExtensionId extension_id() const noexcept override;
 
-        [[nodiscard]] VkInstance native_instance() const noexcept { return instance_; }
-        [[nodiscard]] VkPhysicalDevice native_physical_device() const noexcept { return physical_device_; }
-        [[nodiscard]] VkDevice native_device() const noexcept { return device_; }
-        [[nodiscard]] VkQueue native_graphics_queue() const noexcept { return graphics_queue_; }
+        [[nodiscard]] VkInstance native_instance() const noexcept;
+        [[nodiscard]] VkPhysicalDevice native_physical_device() const noexcept;
+        [[nodiscard]] VkDevice native_device() const noexcept;
+        [[nodiscard]] VkQueue native_graphics_queue() const noexcept;
         // Returns the native queue backing an advertised RHI queue lane, or VK_NULL_HANDLE if the lane
         // is not exposed. Use RhiDevice::queue_infos() first to discover valid QueueClass/index pairs.
-        [[nodiscard]] VkQueue native_queue(RHI::QueueLane lane) const noexcept {
-            if (queue_lookup_ == nullptr) {
-                return lane.queue == RHI::QueueClass::Graphics && lane.index == 0 ? graphics_queue_ : VK_NULL_HANDLE;
-            }
-            return queue_lookup_(queue_lookup_context_, lane);
-        }
-        [[nodiscard]] u32 native_queue_family(RHI::QueueLane lane) const noexcept {
-            if (queue_family_lookup_ == nullptr) {
-                return ~0u;
-            }
-            return queue_family_lookup_(queue_lookup_context_, lane);
-        }
+        [[nodiscard]] VkQueue native_queue(RHI::QueueLane lane) const noexcept;
+        [[nodiscard]] u32 native_queue_family(RHI::QueueLane lane) const noexcept;
 
         // Returns the live VkCommandBuffer backing `encoder` while it is still open (between its
         // creation via RhiDevice::create_command_encoder() and its finish()), or VK_NULL_HANDLE if

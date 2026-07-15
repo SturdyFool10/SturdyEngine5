@@ -4,6 +4,7 @@
 #include <Async/ParIter.hpp>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <expected>
 #include <glm/vec2.hpp>
@@ -38,6 +39,19 @@ namespace SFT::Renderer {
             }
         }
 
+        // How much of a (fixed-size) cache cell a glyph actually needs rasterized: enough to hold
+        // the glyph at its requested display size plus the SDF/MSDF distance-field margin (color
+        // glyphs fill their canvas directly with no such margin — see rasterize_color_glyph).
+        // Rasterizing — and later sampling — only this sub-rect instead of always the full cell
+        // keeps the on-screen quad's minification factor tied to how big the glyph is actually
+        // drawn, rather than the cache's fixed storage granularity (a 16px on-screen glyph
+        // sampling a fixed 64px cell is a 4x minification with no mipmapping — visibly broken).
+        [[nodiscard]] u32 raster_size_for(Text::RasterFormat format, f32 pixel_size, f32 padding_px, u32 cell_size) noexcept {
+            const f32 needed = format == Text::RasterFormat::Color ? pixel_size : pixel_size + 2.0f * padding_px;
+            const u32 rounded = static_cast<u32>(std::ceil(needed));
+            return std::clamp(rounded, 1u, cell_size);
+        }
+
         // The RHI only has raw texture-upload support for R8Unorm and RGBA8Unorm today (see
         // Renderer/RendererTextures.cpp) — msdfgen's MSDF output is 3-channel, so it's expanded
         // into RGBA here with a constant alpha (unused by the text shader, which reads MSDF
@@ -65,17 +79,29 @@ namespace SFT::Renderer {
     }
 
     GlyphSlot TextAtlas::slot_from_cell(Text::RasterFormat format, CellLocation cell) const noexcept {
+        // Only `raster_size` texels of this cell (top-left aligned) hold real rasterized content —
+        // see upload_misses. Bounding the UV rect to that sub-region, rather than the full
+        // (generally larger) fixed cell, keeps the displayed quad's minification factor tied to
+        // how the glyph was actually rasterized instead of the cache's fixed storage granularity.
+        const f32 raster_size = cell.raster_size > 0 ? static_cast<f32>(cell.raster_size) : static_cast<f32>(config_.cell_size);
         const f32 cell_size = static_cast<f32>(config_.cell_size);
         const f32 tile_size = static_cast<f32>(tile_size_);
-        const f32 u0 = static_cast<f32>(cell.cell_x) * cell_size / tile_size;
-        const f32 v0 = static_cast<f32>(cell.cell_y) * cell_size / tile_size;
-        const f32 u1 = static_cast<f32>(cell.cell_x + 1) * cell_size / tile_size;
-        const f32 v1 = static_cast<f32>(cell.cell_y + 1) * cell_size / tile_size;
+        // Cells are packed edge-to-edge with no gutter between them, so a UV rect that reaches
+        // all the way to the cell boundary lets bilinear filtering blend in the neighboring
+        // cell's texel at the seam (visible as a faint ghost line along glyph edges). Insetting
+        // by half a texel keeps every sample inside this cell's own texels.
+        const f32 half_texel = 0.5f / tile_size;
+        const f32 cell_u0 = static_cast<f32>(cell.cell_x) * cell_size / tile_size;
+        const f32 cell_v0 = static_cast<f32>(cell.cell_y) * cell_size / tile_size;
+        const f32 u0 = cell_u0 + half_texel;
+        const f32 v0 = cell_v0 + half_texel;
+        const f32 u1 = cell_u0 + raster_size / tile_size - half_texel;
+        const f32 v1 = cell_v0 + raster_size / tile_size - half_texel;
         return GlyphSlot{
             .tile_index = cell.tile_index,
             .uv_min = glm::vec2{u0, v0},
             .uv_max = glm::vec2{u1, v1},
-            .cell_size_px = cell_size,
+            .cell_size_px = raster_size,
             .format = format,
         };
     }
@@ -152,8 +178,9 @@ namespace SFT::Renderer {
         };
     }
 
-    Core::RendererResult TextAtlas::ensure_resident(RHI::RhiDevice &device, span<const GlyphRequest> requests,
-                                                     vector<GlyphSlot> &out_slots) {
+    Core::RendererResult TextAtlas::ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                     span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
+                                                     vector<RHI::BufferHandle> &out_transient_buffers) {
         out_slots.assign(requests.size(), GlyphSlot{});
         vector<PendingUpload> misses;
 
@@ -188,6 +215,7 @@ namespace SFT::Renderer {
             if (!cell) {
                 return unexpected(cell.error());
             }
+            cell->raster_size = raster_size_for(request.format, request.pixel_size, config_.padding_px, config_.cell_size);
             resident_[key] = *cell;
             format_lru(request.format).touch(key);
             misses.push_back(PendingUpload{.request_index = i, .cell = *cell});
@@ -196,20 +224,22 @@ namespace SFT::Renderer {
         if (misses.empty()) {
             return {};
         }
-        return upload_misses(device, requests, misses, out_slots);
+        return upload_misses(device, encoder, requests, misses, out_slots, out_transient_buffers);
     }
 
-    Core::RendererResult TextAtlas::upload_misses(RHI::RhiDevice &device, span<const GlyphRequest> requests,
-                                                  const vector<PendingUpload> &misses, vector<GlyphSlot> &out_slots) {
+    Core::RendererResult TextAtlas::upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                  span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
+                                                  vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers) {
         // Rasterize every miss off the calling thread in parallel — this is the engine's job
         // system's (Async::Scheduler) first real consumer in the renderer.
         vector<Text::TextExpected<Text::RasterizedGlyph>> rasterized(misses.size());
         Async::par_iter(std::views::iota(usize{0}, misses.size())).for_each([&](usize i) {
             const GlyphRequest &request = requests[misses[i].request_index];
+            const u32 raster_size = misses[i].cell.raster_size;
             if (request.format == Text::RasterFormat::Color) {
                 const Text::ColorRasterParams params{
-                    .width = config_.cell_size,
-                    .height = config_.cell_size,
+                    .width = raster_size,
+                    .height = raster_size,
                     .pixel_size = request.pixel_size,
                 };
                 rasterized[i] = Text::rasterize_color_glyph(*request.font, request.glyph_id, params);
@@ -217,8 +247,8 @@ namespace SFT::Renderer {
             }
             const f32 scale = request.pixel_size / static_cast<f32>(request.units_per_em);
             const Text::RasterParams params{
-                .width = config_.cell_size,
-                .height = config_.cell_size,
+                .width = raster_size,
+                .height = raster_size,
                 .scale = scale,
                 .pixel_range = config_.pixel_range,
                 .padding_px = config_.padding_px,
@@ -241,8 +271,9 @@ namespace SFT::Renderer {
         for (usize i = 0; i < misses.size(); ++i) {
             const Text::RasterFormat format = requests[misses[i].request_index].format;
             const usize texel_bytes = bytes_per_texel(texture_format(format));
+            const usize raster_size = misses[i].cell.raster_size;
             byte_offsets[i] = total_bytes;
-            total_bytes += static_cast<usize>(config_.cell_size) * config_.cell_size * texel_bytes;
+            total_bytes += raster_size * raster_size * texel_bytes;
         }
 
         vector<std::byte> staging_bytes(total_bytes);
@@ -272,12 +303,6 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(written.error(), "write text atlas staging buffer"));
         }
 
-        auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text atlas upload"});
-        if (!encoder) {
-            device.destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(encoder.error(), "create text atlas upload encoder"));
-        }
-
         // Transition every touched tile to TransferDst exactly once, even if it receives several
         // glyphs in this batch.
         vector<std::pair<Text::RasterFormat, u32>> touched_tiles;
@@ -304,7 +329,7 @@ namespace SFT::Renderer {
                 .old_layout = tile.current_layout,
                 .new_layout = RHI::TextureLayout::TransferDst,
             };
-            (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
+            encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
             tile.current_layout = RHI::TextureLayout::TransferDst;
         }
 
@@ -321,9 +346,9 @@ namespace SFT::Renderer {
                     static_cast<i32>(misses[i].cell.cell_y * config_.cell_size),
                     0,
                 },
-                .texture_extent = RHI::Extent3D{.width = config_.cell_size, .height = config_.cell_size, .depth_or_layers = 1},
+                .texture_extent = RHI::Extent3D{.width = misses[i].cell.raster_size, .height = misses[i].cell.raster_size, .depth_or_layers = 1},
             };
-            (*encoder)->copy_buffer_to_texture(*staging, tile.texture, copy);
+            encoder.copy_buffer_to_texture(*staging, tile.texture, copy);
         }
 
         for (const auto &[format, tile_index] : touched_tiles) {
@@ -337,46 +362,16 @@ namespace SFT::Renderer {
                 .old_layout = RHI::TextureLayout::TransferDst,
                 .new_layout = RHI::TextureLayout::ShaderReadOnly,
             };
-            (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
+            encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
             tile.current_layout = RHI::TextureLayout::ShaderReadOnly;
         }
 
-        auto command_buffer = (*encoder)->finish();
-        if (!command_buffer) {
-            device.destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish text atlas upload encoder"));
-        }
-
-        auto fence = device.create_fence(RHI::FenceDesc{.label = "text atlas upload fence"});
-        if (!fence) {
-            device.destroy_command_buffer(*command_buffer);
-            device.destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(fence.error(), "create text atlas upload fence"));
-        }
-
-        const array command_buffers{*command_buffer};
-        const RHI::SubmitDesc submit_desc{
-            .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
-            .fence = *fence,
-            .flags = RHI::SubmitFlags::OneShot,
-            .label = "text atlas upload submit",
-        };
-        if (auto submitted = device.submit(submit_desc); !submitted) {
-            device.destroy_fence(*fence);
-            device.destroy_command_buffer(*command_buffer);
-            device.destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(submitted.error(), "submit text atlas upload"));
-        }
-        if (auto waited = device.wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true); !waited) {
-            device.destroy_fence(*fence);
-            device.destroy_command_buffer(*command_buffer);
-            device.destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(waited.error(), "wait text atlas upload fence"));
-        }
-
-        device.destroy_fence(*fence);
-        device.destroy_command_buffer(*command_buffer);
-        device.destroy_buffer(*staging);
+        // No submit/wait here: `encoder` is the caller's shared per-frame encoder, already
+        // recording the rest of the frame's work — this upload rides along in that one queue
+        // submission. The staging buffer must outlive the GPU copy above, which hasn't necessarily
+        // run yet, so it's handed to the caller for frame-fence-gated cleanup instead of being
+        // destroyed here.
+        out_transient_buffers.push_back(*staging);
         return {};
     }
 
