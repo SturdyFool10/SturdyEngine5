@@ -709,9 +709,19 @@ namespace SFT::Renderer {
                 }
             }
             render_extent = record.swapchain_extent;
-            // See maybe_flush_retired_swapchains' declaration comment: bounds how many superseded
-            // swapchains a fast, continuous resize drag can leave un-destroyed.
-            maybe_flush_retired_swapchains(record);
+            // Bounded safety net only — see maybe_flush_retired_swapchains' declaration comment.
+            // Doesn't fire on an ordinary resize (one retired swapchain); only kicks in if a single
+            // continuous drag runs long enough to pile up several without ever pausing.
+            maybe_flush_retired_swapchains(record, false);
+        } else {
+            // Not resizing this frame: any swapchain retired by an *earlier* resize is cleaned up
+            // right now rather than left to linger — an extra live swapchain is dead weight the WSI
+            // carries on every subsequent acquire/present until it's gone, so "no active resize
+            // happening" is the first safe, free opportunity to pay the one wait_idle() that proves
+            // it's actually safe to destroy (see reclaim_frame_slot's comment on why we can't do
+            // this off a single frame-fence wait). A no-op most frames — it only does anything when
+            // there's an actual backlog.
+            maybe_flush_retired_swapchains(record, true);
         }
         if (!record.rhi_swapchain) {
             return {};
@@ -874,7 +884,10 @@ namespace SFT::Renderer {
                 .texture = gbuffer_normal,
                 .load_op = RHI::LoadOp::Clear,
                 .store_op = RHI::StoreOp::Store,
-                .clear_color = RHI::ClearColor{0.5f, 0.5f, 1.0f, 0.0f},
+                // encodeOctahedralNormal(float3(0,0,1)) == (0.5, 0.5) — an "up"-facing default
+                // normal, matching the old raw-xyz encode's {0.5,0.5,1.0} clear in spirit. Only R/G
+                // are meaningful now (RG16Float); B/A are unused padding in RHI::ClearColor.
+                .clear_color = RHI::ClearColor{0.5f, 0.5f, 0.0f, 0.0f},
             })
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = gbuffer_material,
@@ -1266,12 +1279,18 @@ namespace SFT::Renderer {
         }
     }
 
-    void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record) noexcept {
+    void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept {
         usize retired_count = 0;
         for (const FrameInFlight &slot : record.frames_in_flight) {
             retired_count += slot.retired_swapchains.size();
         }
-        if (retired_count < retired_swapchain_flush_threshold) {
+        // `opportunistic` (called on a frame that isn't itself resizing) flushes any backlog at all —
+        // there's no live-resize responsiveness to protect on this frame, so there's no reason to let
+        // even one superseded swapchain linger. The non-opportunistic call (from inside an active
+        // resize) only trips the bounded safety-net threshold, so a fast continuous drag doesn't pay
+        // a wait_idle() on every single frame.
+        const usize threshold = opportunistic ? 1 : retired_swapchain_flush_threshold;
+        if (retired_count < threshold) {
             return;
         }
         ScopedRendererStageTimer timer{"flush retired swapchains"};

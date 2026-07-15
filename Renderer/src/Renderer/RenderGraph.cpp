@@ -1,6 +1,35 @@
 #include "RenderGraph.hpp"
 
+#include <set>
+
 namespace SFT::Renderer {
+
+[[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphRenderPassBuilder &pass) {
+            PassUsage usage;
+            for (const RenderGraphColorAttachmentDesc &attachment : pass.color_attachments_) {
+                usage.writes.push_back(attachment.texture);
+            }
+            if (pass.has_depth_stencil_attachment_) {
+                // Counted as both: a Load op reads the prior contents and either store op writes
+                // the result. Treating it as a read too only makes the derived dependency edges
+                // more conservative (an extra edge that was already going to hold in practice),
+                // never wrong.
+                usage.writes.push_back(pass.depth_stencil_attachment_.texture);
+                usage.reads.push_back(pass.depth_stencil_attachment_.texture);
+            }
+            for (const RenderGraphSampledTextureReadDesc &read : pass.sampled_texture_reads_) {
+                usage.reads.push_back(read.texture);
+            }
+            usage.always_live = pass.color_attachments_.empty() && !pass.has_depth_stencil_attachment_;
+            return usage;
+        }
+
+[[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphBlitDesc &pass) {
+            PassUsage usage;
+            usage.writes.push_back(pass.destination);
+            usage.reads.push_back(pass.source);
+            return usage;
+        }
 
 RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(string label) : label_(std::move(label)) {}
 
@@ -100,13 +129,137 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             };
         }
 
+// Derives execution order from resource dependencies and culls dead passes — see the header's doc
+// comment on compile_execution_order() and the PassUsage helpers above for what's being derived
+// from what. Algorithm, in three passes over the (small, per-frame) `ordered_passes_` list:
+//
+// 1. Build a `depends_on[i]` edge list: pass i depends on the most recent earlier pass that wrote
+//    a texture pass i reads (RAW), and on the most recent earlier pass that wrote a texture pass i
+//    ALSO writes (WAW — keeps two writers of the same texture in their original relative order;
+//    the topo-sort below is never free to swap them).
+// 2. Liveness: backward-reachability flood fill starting from every pass that writes an *imported*
+//    texture (the graph's only externally-visible output — nothing outside the graph can observe a
+//    transient one) or that declared no attachments at all (`always_live` — can't reason about an
+//    undeclared side effect, so never culled). A pass reachable from a live pass via `depends_on`
+//    is live too; anything left unmarked is genuinely dead — its output is never read by anything
+//    that itself matters — and gets dropped from the returned order entirely.
+// 3. Stable Kahn's-algorithm topological sort restricted to the live set: among all passes whose
+//    dependencies are already scheduled, always schedule the smallest original insertion index
+//    next. Every existing caller in this codebase already calls add_render_pass()/add_blit_pass()
+//    in dependency order (a pass reads what an earlier add_*_pass call wrote), which is already a
+//    valid topological order — so "smallest ready index first" reproduces that exact order,
+//    verified by the deferred pipeline (gbuffer -> lighting -> tonemap -> UI) still rendering
+//    identically after this landed. A future caller that adds passes out of dependency order would
+//    still get correctly reordered instead of silently misrendering.
+[[nodiscard]] vector<RenderGraph::OrderedPass> RenderGraph::compile_execution_order() const {
+            const usize pass_count = ordered_passes_.size();
+            vector<PassUsage> usage(pass_count);
+            for (usize i = 0; i < pass_count; ++i) {
+                const OrderedPass &ordered = ordered_passes_[i];
+                usage[i] = ordered.kind == PassKind::Render ? pass_usage_of(render_passes_[ordered.index])
+                                                             : pass_usage_of(blit_passes_[ordered.index]);
+            }
+
+            vector<i64> last_writer(textures_.size(), -1);
+            vector<vector<u32>> depends_on(pass_count);
+            for (usize i = 0; i < pass_count; ++i) {
+                for (RenderGraphTextureHandle read : usage[i].reads) {
+                    if (read.index < last_writer.size() && last_writer[read.index] >= 0) {
+                        depends_on[i].push_back(static_cast<u32>(last_writer[read.index]));
+                    }
+                }
+                for (RenderGraphTextureHandle write : usage[i].writes) {
+                    if (write.index < last_writer.size() && last_writer[write.index] >= 0 &&
+                        static_cast<usize>(last_writer[write.index]) != i) {
+                        depends_on[i].push_back(static_cast<u32>(last_writer[write.index]));
+                    }
+                    if (write.index < last_writer.size()) {
+                        last_writer[write.index] = static_cast<i64>(i);
+                    }
+                }
+            }
+
+            vector<bool> live(pass_count, false);
+            vector<u32> pending;
+            for (usize i = 0; i < pass_count; ++i) {
+                bool writes_imported = false;
+                for (RenderGraphTextureHandle write : usage[i].writes) {
+                    const TextureRecord *record = texture_record(write);
+                    if (record != nullptr && !record->is_transient) {
+                        writes_imported = true;
+                        break;
+                    }
+                }
+                if ((writes_imported || usage[i].always_live) && !live[i]) {
+                    live[i] = true;
+                    pending.push_back(static_cast<u32>(i));
+                }
+            }
+            while (!pending.empty()) {
+                const u32 i = pending.back();
+                pending.pop_back();
+                for (u32 dependency : depends_on[i]) {
+                    if (!live[dependency]) {
+                        live[dependency] = true;
+                        pending.push_back(dependency);
+                    }
+                }
+            }
+
+            vector<u32> in_degree(pass_count, 0);
+            vector<vector<u32>> dependents(pass_count);
+            for (usize i = 0; i < pass_count; ++i) {
+                if (!live[i]) {
+                    continue;
+                }
+                for (u32 dependency : depends_on[i]) {
+                    if (live[dependency]) {
+                        dependents[dependency].push_back(static_cast<u32>(i));
+                        ++in_degree[i];
+                    }
+                }
+            }
+
+            std::set<u32> ready;
+            for (usize i = 0; i < pass_count; ++i) {
+                if (live[i] && in_degree[i] == 0) {
+                    ready.insert(static_cast<u32>(i));
+                }
+            }
+
+            vector<bool> scheduled(pass_count, false);
+            vector<OrderedPass> order;
+            order.reserve(pass_count);
+            while (!ready.empty()) {
+                const u32 i = *ready.begin();
+                ready.erase(ready.begin());
+                scheduled[i] = true;
+                order.push_back(ordered_passes_[i]);
+                for (u32 dependent : dependents[i]) {
+                    if (--in_degree[dependent] == 0) {
+                        ready.insert(dependent);
+                    }
+                }
+            }
+            // A cycle (never expected from any real graph — see the header comment) would leave
+            // some live pass permanently at in_degree > 0; append any stragglers in original order
+            // rather than silently dropping a pass that was determined to be live.
+            for (usize i = 0; i < pass_count; ++i) {
+                if (live[i] && !scheduled[i]) {
+                    order.push_back(ordered_passes_[i]);
+                }
+            }
+            return order;
+        }
+
 [[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder) {
             if (Core::RendererResult created = create_transient_resources(device); !created.has_value()) {
                 destroy_transient_resources(device);
                 return created;
             }
 
-            for (const OrderedPass &ordered : ordered_passes_) {
+            const vector<OrderedPass> execution_order = compile_execution_order();
+            for (const OrderedPass &ordered : execution_order) {
                 Core::RendererResult result = {};
                 switch (ordered.kind) {
                     case PassKind::Render: {

@@ -208,14 +208,20 @@ namespace SFT::Renderer {
             resource.bind_group_layout_sets.push_back(layout.set);
         }
 
-        const RHI::PushConstantRange scene_draw_constants{
-            .stages = RHI::ShaderStage::Vertex,
-            .offset = 0,
-            .size = scene_draw_push_constant_size,
-        };
+        // Derived from reflection rather than hand-written `sizeof(SceneDrawConstants)` — see
+        // generate_push_constant_ranges' doc comment. Only the vertex stage reads scene_draw
+        // (RendererLifecycle.cpp's draw call pushes it with ShaderStage::Vertex), hence Vertex here.
+        const vector<RHI::PushConstantRange> scene_draw_constants = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
+        if (scene_draw_constants.empty()) {
+            destroy_material_template_gpu(resource);
+            return unexpected(Core::GraphicsBackendError{
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "material shader reflection did not produce the expected scene_draw push-constant range.",
+            });
+        }
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
             .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{resource.bind_group_layouts.data(), resource.bind_group_layouts.size()},
-            .push_constant_ranges = span<const RHI::PushConstantRange>{&scene_draw_constants, 1},
+            .push_constant_ranges = span<const RHI::PushConstantRange>{scene_draw_constants.data(), scene_draw_constants.size()},
             .label = "material pipeline layout",
         });
         if (!pipeline_layout) {

@@ -629,13 +629,24 @@ namespace SFT::Core::Slang {
                 return parameter;
             }
 
+            // `getOffset()`/`getSize()` without an explicit category default to Uniform — correct for
+            // an ordinary uniform field, but wrong for a parameter whose *own* category is something
+            // else (push constants above all: a `[[push_constant]] ConstantBuffer<T> x` is categorized
+            // PushConstantBuffer, and its Uniform-category size is 0, not sizeof(T)). Querying with
+            // this parameter's actual native category — not always Uniform — is a no-op for the common
+            // Uniform case (identical to the old default) and gives the right answer for every other
+            // category, so this is strictly a correctness fix, not a behavior change for existing
+            // Uniform-category callers (material/uniform-buffer field parsing, the overwhelming
+            // majority of parameters reflected here).
+            const slang::ParameterCategory native_category = layout->getCategory();
+
             parameter.name = layout->getName() ? layout->getName() : "";
             parameter.type = parse_type_layout(layout->getTypeLayout());
-            parameter.category = from_slang_category(layout->getCategory());
+            parameter.category = from_slang_category(native_category);
             parameter.stage = from_slang_stage(layout->getStage());
             parameter.binding = normalize_slang_unsigned(layout->getBindingIndex());
             parameter.binding_space = normalize_slang_unsigned(layout->getBindingSpace());
-            parameter.offset = normalize_size(layout->getOffset());
+            parameter.offset = normalize_size(layout->getOffset(native_category));
             parameter.semantic_name = layout->getSemanticName() ? layout->getSemanticName() : "";
             parameter.semantic_index = normalize_u32(layout->getSemanticIndex());
 
@@ -646,7 +657,23 @@ namespace SFT::Core::Slang {
             }
 
             if (parameter.type) {
-                parameter.size = parameter.type->size;
+                slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
+                // A resource-counting category (ConstantBuffer, PushConstantBuffer,
+                // DescriptorTableSlot, ...) reports `getSize()` in units of "how many of this
+                // resource" (normally 1; N for an array of N), not bytes — for
+                // `[[push_constant]] ConstantBuffer<T> x`, querying PushConstantBuffer-category size
+                // on the wrapper gives 1, always, regardless of sizeof(T). The actual byte size lives
+                // on the buffer's *element* type layout (T itself), in the ordinary Uniform category
+                // — same place an explicit `ConstantBuffer<T>` binding's field layout comes from.
+                // Verified against this engine's shaders: TextViewConstants (one float2) reports
+                // element_uniform_size=8, SceneDrawConstants (two mat4) reports 128 — both exactly
+                // right, vs. the wrapper's PushConstantBuffer-category size of 1 for both.
+                if (native_category == slang::ParameterCategory::PushConstantBuffer && type_layout != nullptr) {
+                    slang::TypeLayoutReflection *element = type_layout->getElementTypeLayout();
+                    parameter.size = element != nullptr ? normalize_size(element->getSize()) : parameter.type->size;
+                } else {
+                    parameter.size = type_layout != nullptr ? normalize_size(type_layout->getSize(native_category)) : parameter.type->size;
+                }
                 parameter.stride = parameter.type->stride;
                 parameter.binding_ranges = parameter.type->binding_ranges;
             }

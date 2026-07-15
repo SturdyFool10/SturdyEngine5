@@ -396,14 +396,18 @@ namespace SFT::Renderer {
         // retired-swapchain flush — NOT the per-frame path. Leaves each slot's fence allocated but reset
         // (unsignaled) so the ring is immediately reusable.
         void drain_frames_in_flight(WindowSurfaceRecord &record) noexcept;
-        // Bounds how many superseded swapchains/presentation textures a resize can leave un-destroyed:
-        // recreate_rhi_swapchain() can't safely destroy the swapchain it just superseded (its present
-        // isn't fenced), so it retires it onto a frame-in-flight slot instead — fine as an occasional
-        // thing, but during a fast continuous resize drag (recreating every frame, by design — see
-        // render_frame_rhi) that queue would otherwise grow without bound for the drag's whole duration.
-        // Called after every recreate; once the retired count crosses a small threshold it pays one
-        // drain_frames_in_flight() to clear the backlog, then goes back to accumulating.
-        void maybe_flush_retired_swapchains(WindowSurfaceRecord &record) noexcept;
+        // Cleans up superseded swapchains/presentation textures that recreate_rhi_swapchain() couldn't
+        // safely destroy immediately (its present isn't fenced, so it retires them onto a
+        // frame-in-flight slot instead — see reclaim_frame_slot's comment). `opportunistic` (call this
+        // on any frame that ISN'T itself recreating the swapchain) flushes as soon as there's any
+        // backlog at all — a live swapchain is dead weight the WSI carries on every acquire/present
+        // until it's gone, and a non-resizing frame has no live-resize responsiveness to protect, so
+        // there's no reason to wait. `!opportunistic` (call this from inside an active resize) only
+        // trips a small bounded safety-net threshold, so a fast continuous resize drag — which
+        // recreates every frame, by design, see render_frame_rhi — doesn't pay a wait_idle() on every
+        // single one of those frames; it still won't grow the backlog without bound for a drag that
+        // runs long enough to never hit a non-resizing frame.
+        void maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
         void destroy_scene_gpu_resources() noexcept;

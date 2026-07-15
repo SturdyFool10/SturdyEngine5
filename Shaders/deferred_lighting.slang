@@ -1,6 +1,8 @@
 // Fullscreen deferred lighting pass.
 // Samples the G-buffer and writes HDR scene lighting for tonemapping.
 
+import sturdy_common;
+
 struct VertexOutput {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
@@ -15,14 +17,14 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 }
 
 Texture2D<float4> gbufferAlbedo;
-Texture2D<float4> gbufferNormal;
+Texture2D<float2> gbufferNormal;
 Texture2D<float4> gbufferMaterial;
 SamplerState gbufferSampler;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float4 albedo = gbufferAlbedo.Sample(gbufferSampler, input.uv);
-    float3 normal = normalize(gbufferNormal.Sample(gbufferSampler, input.uv).xyz * 2.0 - 1.0);
+    float3 normal = decodeOctahedralNormal(gbufferNormal.Sample(gbufferSampler, input.uv));
     float4 material = gbufferMaterial.Sample(gbufferSampler, input.uv);
 
     float roughness = material.x;

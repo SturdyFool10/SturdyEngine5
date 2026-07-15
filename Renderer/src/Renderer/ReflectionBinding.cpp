@@ -95,6 +95,28 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
         return layouts;
     }
 
+vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::ShaderReflection &reflection, RHI::ShaderStage stages) {
+        vector<RHI::PushConstantRange> ranges;
+        for (const slang::ShaderParameterReflection &parameter : reflection.global_parameters) {
+            if (parameter.category != slang::ShaderParameterCategory::PushConstantBuffer) {
+                continue;
+            }
+            if (parameter.size == 0) {
+                Foundation::log_warn(
+                    "ReflectionBinding: push constant '{}' reflected a zero byte size — skipping rather than "
+                    "emitting a bogus range (an unresolved generic/link-time size?).",
+                    parameter.name);
+                continue;
+            }
+            ranges.push_back(RHI::PushConstantRange{
+                .stages = stages,
+                .offset = static_cast<u32>(parameter.offset),
+                .size = static_cast<u32>(parameter.size),
+            });
+        }
+        return ranges;
+    }
+
 } // namespace SFT::Renderer
 
 namespace SFT::Renderer::detail {

@@ -147,14 +147,21 @@ namespace SFT::Renderer {
             });
         }
 
-        const RHI::PushConstantRange push_constant_range{
-            .stages = RHI::ShaderStage::Vertex,
-            .offset = 0,
-            .size = sizeof(TextViewConstantsGpu),
-        };
+        // Derived from reflection rather than hand-written: `sizeof(TextViewConstantsGpu)` would
+        // otherwise need to be kept in sync by hand with text_sdf.slang's `TextViewConstants` by
+        // eye — see generate_push_constant_ranges' doc comment. Only vertexMain reads viewConstants
+        // (the fragment stage never touches it), hence Vertex here.
+        const vector<RHI::PushConstantRange> push_constant_ranges = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
+        if (push_constant_ranges.empty()) {
+            pipeline.destroy(device);
+            return unexpected(Core::GraphicsBackendError{
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "text_sdf shader reflection did not produce the expected viewConstants push-constant range.",
+            });
+        }
         auto pipeline_layout = device.create_pipeline_layout(RHI::PipelineLayoutDesc{
             .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{pipeline.bind_group_layouts_.data(), pipeline.bind_group_layouts_.size()},
-            .push_constant_ranges = span<const RHI::PushConstantRange>{&push_constant_range, 1},
+            .push_constant_ranges = span<const RHI::PushConstantRange>{push_constant_ranges.data(), push_constant_ranges.size()},
             .label = "text pipeline layout",
         });
         if (!pipeline_layout) {

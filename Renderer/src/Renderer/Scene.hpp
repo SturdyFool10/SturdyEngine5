@@ -52,7 +52,10 @@ namespace SFT::Renderer {
     // should target: albedo, world/view normal, material properties, HDR lighting, and depth.
     struct DeferredTargetFormats {
         RHI::Format albedo = RHI::Format::RGBA8Unorm;
-        RHI::Format normal = RHI::Format::RGBA16Float;
+        // Octahedral-encoded (Shaders/sturdy_common.slang's encodeOctahedralNormal/
+        // decodeOctahedralNormal) — a unit normal needs only 2 components this way, halving
+        // bandwidth versus a raw xyz-in-RGBA16F encode for the same per-channel precision.
+        RHI::Format normal = RHI::Format::RG16Float;
         RHI::Format material = RHI::Format::RGBA8Unorm;
         RHI::Format lighting = RHI::Format::RGBA16Float;
         RHI::Format depth = RHI::Format::D32Float;
@@ -84,8 +87,6 @@ namespace SFT::Renderer {
         glm::mat4 view_projection{1.0f};
         glm::mat4 model{1.0f};
     };
-
-    inline constexpr u32 scene_draw_push_constant_size = sizeof(SceneDrawConstants);
 
     // GPU-facing per-view payload for deferred rendering. This becomes the stable set-0 view buffer used
     // by G-buffer, lighting, shadow, and post-processing passes; fields are vec4/mat4 aligned so the same

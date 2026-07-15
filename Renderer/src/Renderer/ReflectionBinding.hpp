@@ -63,6 +63,23 @@ namespace SFT::Renderer {
         RHI::ShaderStage visibility,
         u32 bindless_array_max_count = 4096);
 
+    // ─── Push-constant ranges ────────────────────────────────────────────────────────────────────
+
+    // Derives push-constant ranges from every reflected `[[push_constant]] ConstantBuffer<T>`
+    // module-scope global — the offset/size a caller would otherwise hand-maintain in a C++ mirror
+    // struct (`sizeof(SceneDrawConstants)`, `sizeof(TextViewConstantsGpu)`, ...) that can silently
+    // drift out of sync with the actual `.slang` declaration after an edit. `stages` is NOT derived
+    // from reflection: Slang's per-entry-point parameter lists cover only that stage's own varying
+    // I/O, not module-scope globals, so a push constant's reflected `stage` is always Unknown
+    // regardless of which entry point actually reads it — the caller must still supply the same
+    // `RHI::ShaderStage` it will later pass to `set_push_constants()`/`pass.set_push_constants()`
+    // for this range, since Vulkan requires those to agree exactly (mismatched stageFlags between a
+    // pipeline layout's declared range and a push call over the same bytes is invalid usage).
+    // Skips a parameter whose element size reflection couldn't resolve (0 — an unresolved generic
+    // or link-time-constant size) rather than emitting a bogus empty range.
+    [[nodiscard]] vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::ShaderReflection &reflection,
+                                                                                RHI::ShaderStage stages);
+
     // ─── Uniform parameters ──────────────────────────────────────────────────────────────────────
 
     // One scalar/vector/matrix uniform reflected out of a shader's default constant buffer: its

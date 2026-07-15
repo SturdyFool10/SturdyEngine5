@@ -1,8 +1,11 @@
 // Deferred G-buffer geometry shader for GeometryVertex.
 // Outputs material attributes into multiple dynamic-rendering color attachments:
 //   SV_Target0: albedo + alpha
-//   SV_Target1: encoded world normal + unused
+//   SV_Target1: octahedral-encoded world normal (RG16F — see sturdy_common's
+//               encodeOctahedralNormal/decodeOctahedralNormal)
 //   SV_Target2: material properties (roughness, metallic, ambient occlusion, flags)
+
+import sturdy_common;
 
 struct VertexInput {
     float3 position : POSITION;
@@ -20,7 +23,7 @@ struct VertexOutput {
 
 struct GBufferOutput {
     float4 albedo : SV_Target0;
-    float4 normal : SV_Target1;
+    float2 normal : SV_Target1;
     float4 material : SV_Target2;
 };
 
@@ -47,7 +50,7 @@ GBufferOutput fragmentMain(VertexOutput input) {
     GBufferOutput output;
     float3 normal = normalize(input.worldNormal);
     output.albedo = input.color;
-    output.normal = float4(normal * 0.5 + 0.5, 1.0);
+    output.normal = encodeOctahedralNormal(normal);
     // Baseline material defaults until physically-based material templates land:
     // roughness=0.5, metallic=0.0, ambient occlusion=1.0, flags=0.0.
     output.material = float4(0.5, 0.0, 1.0, 0.0);

@@ -249,6 +249,27 @@ namespace SFT::Renderer {
 
         [[nodiscard]] Core::RendererResult transition_to_final_states(RHI::CommandEncoder &encoder);
 
+        // Derives the actual execution order from each pass's declared reads/writes instead of
+        // trusting insertion order blindly, and drops ("culls") any pass whose writes are neither
+        // externally visible (an imported texture — a transient one can't be observed outside the
+        // graph) nor read by another live pass. See RenderGraph.cpp's doc comment on the algorithm
+        // for why this reproduces today's plain insertion order exactly for every existing caller.
+        [[nodiscard]] vector<OrderedPass> compile_execution_order() const;
+
+        // What one pass reads from and writes to, in RenderGraphTextureHandle terms — the input to
+        // compile_execution_order()'s dependency analysis. `always_live` covers a pass with no
+        // declared attachments at all (doesn't happen from any call site today, but nothing stops
+        // one existing): the graph can't reason about a side effect it never declared, so such a
+        // pass is never culled. Member functions (not free functions) purely so they can read
+        // RenderGraphRenderPassBuilder's private fields via its existing `friend class RenderGraph`.
+        struct PassUsage {
+            vector<RenderGraphTextureHandle> writes;
+            vector<RenderGraphTextureHandle> reads;
+            bool always_live = false;
+        };
+        [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphRenderPassBuilder &pass);
+        [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphBlitDesc &pass);
+
         vector<TextureRecord> textures_;
         vector<OrderedPass> ordered_passes_;
         vector<RenderGraphRenderPassBuilder> render_passes_;
