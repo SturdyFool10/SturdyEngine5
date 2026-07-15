@@ -35,7 +35,12 @@ namespace SFT::Renderer {
     namespace {
 
         constexpr f64 renderer_stage_hitch_threshold_seconds = 0.050;
-        constexpr f64 swapchain_resize_settle_seconds = 0.075;
+        // How many superseded swapchains a window's frame-in-flight ring tolerates before
+        // maybe_flush_retired_swapchains() pays one bounded wait_idle() to clear them out — see that
+        // function's declaration comment. Small enough to bound worst-case leaked-handle count during
+        // a long continuous resize drag, large enough that it doesn't trigger on ordinary one-off
+        // resizes (which retire exactly one swapchain and get reclaimed the normal way soon after).
+        constexpr usize retired_swapchain_flush_threshold = 6;
 
         class ScopedRendererStageTimer {
           public:
@@ -646,7 +651,13 @@ namespace SFT::Renderer {
         // the *specific* frame that last used this ring slot (frame_count frames ago), never a full-device
         // stall, capping the CPU to frame_count frames ahead of the GPU. Once its fence signals, that
         // frame's command buffer / transient targets / bind groups are safe to reclaim and its material
-        // UBO slot is free to overwrite.
+        // UBO slot is free to overwrite. NOT safe to reclaim here: any swapchain/presentation texture
+        // recreate_rhi_swapchain retired onto this slot — this fence only covers that frame's *command
+        // buffer* submission, not the separate, driver-internal completion of its vkQueuePresentKHR
+        // (validated: destroying here trips VUID-vkDestroySwapchainKHR-swapchain-01282, "swapchain
+        // currently in use by VkQueue" — presents aren't fenced the way command buffers are without
+        // VK_EXT_swapchain_maintenance1). Retired swapchains/textures accumulate on their slot until
+        // maybe_flush_retired_swapchains() below periodically clears them with a real wait_idle().
         if (slot.submitted) {
             {
                 ScopedRendererStageTimer timer{"wait in-flight frame fence"};
@@ -657,7 +668,7 @@ namespace SFT::Renderer {
             if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
                 return unexpected(graphics_error_from_rhi(reset.error(), "reset in-flight frame fence"));
             }
-            reclaim_frame_slot(slot);
+            reclaim_frame_slot(slot, false);
             slot.submitted = false;
         }
         if (!slot.fence) {
@@ -684,42 +695,23 @@ namespace SFT::Renderer {
         const bool size_changed = extent.width != record.swapchain_extent.width ||
             extent.height != record.swapchain_extent.height;
         const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
-        bool defer_size_recreate_this_frame = false;
         if (should_recreate) {
-            // During live resize, Linux/Wayland can deliver many intermediate extents. Rebuilding for
-            // each one can make vkCreateSwapchainKHR block inside the WSI/compositor path for hundreds
-            // of milliseconds. If we already have a swapchain and only the size is changing, wait until
-            // the extent has been stable for a tiny window, then rebuild once for the coalesced size.
-            if (record.rhi_swapchain && size_changed) {
-                const steady_clock::time_point now = steady_clock::now();
-                const bool new_pending_extent = record.pending_swapchain_extent.width != extent.width ||
-                    record.pending_swapchain_extent.height != extent.height;
-                if (new_pending_extent) {
-                    record.pending_swapchain_extent = extent;
-                    record.pending_swapchain_extent_since = now;
-                    defer_size_recreate_this_frame = true;
-                } else {
-                    const f64 stable_seconds = duration<f64>(now - record.pending_swapchain_extent_since).count();
-                    defer_size_recreate_this_frame = stable_seconds < swapchain_resize_settle_seconds;
-                }
-
-                if (defer_size_recreate_this_frame) {
-                    // Keep rendering/presenting the old swapchain while the compositor is still sending
-                    // intermediate resize extents. The window manager scales/composites the old image, which
-                    // is visually smoother than presenting nothing and avoids repeatedly blocking in WSI.
-                    render_extent = record.swapchain_extent;
-                }
-            }
-
-            if (!defer_size_recreate_this_frame) {
+            // Rebuild immediately on every size change, every frame — no debounce/rate-limit. A
+            // gate here (wait for the extent to stabilize, or cap rebuild frequency) trades away
+            // exactly the "surface visibly tracks the live drag" behavior we want: on Linux/Wayland
+            // especially, a continuous drag delivers a new extent essentially every frame, and any
+            // gate either never fires (frozen at the pre-drag size until the drag pauses) or caps
+            // the resize to a fixed cadence — both look laggy compared to just recreating every time.
+            {
                 ScopedRendererStageTimer timer{"recreate swapchain"};
                 if (Core::RendererResult recreated = recreate_rhi_swapchain(record, frame.frame_index, extent); !recreated.has_value()) {
                     return recreated;
                 }
-                record.pending_swapchain_extent = {};
-                record.pending_swapchain_extent_since = {};
-                render_extent = record.swapchain_extent;
             }
+            render_extent = record.swapchain_extent;
+            // See maybe_flush_retired_swapchains' declaration comment: bounds how many superseded
+            // swapchains a fast, continuous resize drag can leave un-destroyed.
+            maybe_flush_retired_swapchains(record);
         }
         if (!record.rhi_swapchain) {
             return {};
@@ -1209,6 +1201,13 @@ namespace SFT::Renderer {
                     device->destroy_texture(texture);
                 }
             }
+            // NOT covered by the same guarantee as the transient resources above: a retired
+            // swapchain/presentation texture was used by a vkQueuePresentKHR, which isn't fenced the
+            // way a command buffer submission is, so this slot's own frame fence signaling doesn't
+            // prove the present has finished (VUID-vkDestroySwapchainKHR-swapchain-01282 will fire if
+            // you destroy on that assumption — learned the hard way). Only call this with `true` right
+            // after a real device->wait_idle() (drain_frames_in_flight / teardown / the periodic
+            // maybe_flush_retired_swapchains() bounded flush) — never off a single fence wait.
             if (destroy_retired_presentation) {
                 for (RHI::TextureViewHandle view : slot.retired_presentation_texture_views) {
                     if (view) {
@@ -1247,13 +1246,16 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return;
         }
-        // Sanctioned heavy wait (teardown / swapchain rebuild), never the per-frame path.
+        // Sanctioned heavy wait (teardown / periodic retired-swapchain flush), never the per-frame path.
         device->wait_idle();
         for (FrameInFlight &slot : record.frames_in_flight) {
-            if (slot.submitted) {
-                reclaim_frame_slot(slot, true);
-                slot.submitted = false;
-            }
+            // Reclaim unconditionally (not just `if (slot.submitted)`): a slot can carry retired
+            // swapchains/presentation textures (attached by recreate_rhi_swapchain onto whichever ring
+            // index the *previous* frame used) even on a rare cycle where this exact slot itself was
+            // never submitted — e.g. very early in a window's life, before the ring has gone around
+            // once. Reclaiming an otherwise-empty slot is a no-op, so this costs nothing normally.
+            reclaim_frame_slot(slot, true);
+            slot.submitted = false;
             // Leave the fence allocated but unsignaled so the slot is immediately reusable — wait_idle
             // above left every submitted fence signaled, and vkQueueSubmit needs an unsignaled one.
             if (slot.fence) {
@@ -1262,6 +1264,18 @@ namespace SFT::Renderer {
                 }
             }
         }
+    }
+
+    void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record) noexcept {
+        usize retired_count = 0;
+        for (const FrameInFlight &slot : record.frames_in_flight) {
+            retired_count += slot.retired_swapchains.size();
+        }
+        if (retired_count < retired_swapchain_flush_threshold) {
+            return;
+        }
+        ScopedRendererStageTimer timer{"flush retired swapchains"};
+        drain_frames_in_flight(record);
     }
 
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {

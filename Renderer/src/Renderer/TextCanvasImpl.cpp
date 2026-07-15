@@ -98,17 +98,7 @@ namespace SFT::Renderer {
 
             instances.reserve(glyphs.size());
             for (usize i = 0; i < glyphs.size(); ++i) {
-                const GlyphSlot &slot = slots[i];
-                const f32 scale = slot.cell_size_px > 0.0f ? glyphs[i].size.x / slot.cell_size_px : 1.0f;
-                instances.push_back(GlyphInstance{
-                    .position = glyphs[i].position - tile_origin,
-                    .size = glyphs[i].size,
-                    .uv_min = slot.uv_min,
-                    .uv_max = slot.uv_max,
-                    .color = glyphs[i].color,
-                    .format_kind = format_kind_value(slot.format),
-                    .screen_px_range = atlas_->pixel_range() * scale,
-                });
+                instances.push_back(make_glyph_instance(glyphs[i].position - tile_origin, glyphs[i], slots[i], atlas_->pixel_range()));
             }
         }
 

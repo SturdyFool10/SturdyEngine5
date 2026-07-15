@@ -35,7 +35,7 @@ namespace SFT::Renderer {
     // two vec2 pairs (8-byte aligned, 16 bytes total) then the vec4 (16-byte aligned, already at
     // a 32-byte/16-aligned offset) then four floats (16 bytes, no trailing pad needed) happen to
     // lay out identically under both C++'s natural alignment and std430 with zero gaps either
-    // way — reordering the fields (or the explicit `_pad`) is a hard requirement, not tidiness.
+    // way — reordering the fields (or `stem_darkening_px`) is a hard requirement, not tidiness.
     struct GlyphInstance {
         glm::vec2 position{0.0f};
         glm::vec2 size{0.0f};
@@ -56,7 +56,10 @@ namespace SFT::Renderer {
         // raster cell (see TextAtlas::Config::pixel_range and GlyphSlot::cell_size_px). Keeps the
         // antialiasing edge one physical pixel wide at any on-screen scale.
         f32 screen_px_range = 2.0f;
-        f32 _pad = 0.0f;
+        // Stem-darkening bias, in screen pixels, added to the SDF/MSDF coverage threshold before
+        // the alpha cutoff — see resolved_stem_darkening_px() below for what this counteracts and
+        // why it ramps out at larger sizes.
+        f32 stem_darkening_px = 0.0f;
     };
 
     // Maps a raster format onto GlyphInstance::format_kind — the one place this mapping is
@@ -87,7 +90,52 @@ namespace SFT::Renderer {
         Text::RasterFormat format = Text::RasterFormat::SDF;
         const Text::GlyphOutline *outline = nullptr;
         const Text::Font *font = nullptr;
+        // On by default — see resolved_stem_darkening_px(). A caller that wants perfectly literal
+        // vector-accurate edges (e.g. an exported/print-preview path where optical compensation
+        // would be wrong) sets this false to get the raw distance field untouched.
+        bool stem_darkening = true;
     };
+
+    // A small embolden bias (in screen pixels) applied to the SDF/MSDF coverage threshold at small
+    // on-screen sizes, ramping to zero by `max_ppem`. Every outline this engine rasterizes is
+    // unhinted (Text::glyph_outline pulls straight from glyf/CFF, no grid-fitting), which keeps
+    // shapes proportionally exact at any scale but leaves small text looking thin/washed-out —
+    // the same tradeoff Quartz/CoreText and DirectWrite make, and the same fix they apply: a
+    // little extra weight at small sizes instead of pixel-snapping the outline. Constants (0.22px
+    // max strength, 14-28ppem ramp) match what a from-scratch text stack (Vertex's `textui` crate)
+    // settled on for this same unhinted-SDF setup.
+    [[nodiscard]] constexpr f32 resolved_stem_darkening_px(f32 pixel_size, f32 min_ppem = 14.0f, f32 max_ppem = 28.0f,
+                                                            f32 max_strength = 0.22f) noexcept {
+        if (pixel_size >= max_ppem) {
+            return 0.0f;
+        }
+        if (pixel_size <= min_ppem) {
+            return max_strength;
+        }
+        return max_strength * (1.0f - (pixel_size - min_ppem) / (max_ppem - min_ppem));
+    }
+
+    // Builds a GlyphInstance from a resolved atlas slot — the one place `format_kind`,
+    // `screen_px_range`, and `stem_darkening_px` get computed, reused by every draw path
+    // (Renderer/RendererTextOverlay.cpp, Renderer/TextCanvasImpl.cpp,
+    // Renderer/TextRenderTargetImpl.cpp) instead of each hand-rolling the same struct literal.
+    // `position` is taken separately (not `placement.position`) since a tiled caller
+    // (Renderer::TextCanvas) needs it relative to its tile's origin, not the placement's absolute
+    // canvas position.
+    [[nodiscard]] inline GlyphInstance make_glyph_instance(glm::vec2 position, const GlyphPlacement &placement,
+                                                            const GlyphSlot &slot, f32 atlas_pixel_range) noexcept {
+        const f32 instance_scale = slot.cell_size_px > 0.0f ? placement.size.x / slot.cell_size_px : 1.0f;
+        return GlyphInstance{
+            .position = position,
+            .size = placement.size,
+            .uv_min = slot.uv_min,
+            .uv_max = slot.uv_max,
+            .color = placement.color,
+            .format_kind = format_kind_value(slot.format),
+            .screen_px_range = atlas_pixel_range * instance_scale,
+            .stem_darkening_px = placement.stem_darkening ? resolved_stem_darkening_px(placement.pixel_size) : 0.0f,
+        };
+    }
 
     struct TextDrawBatch {
         Text::RasterFormat format = Text::RasterFormat::SDF;

@@ -31,7 +31,9 @@ struct GlyphInstance {
     // 0 = SDF, 1 = MSDF, 2 = Color — see Renderer::format_kind_value (Renderer/TextInstance.cppm).
     float formatKind;
     float screenPxRange;
-    float _pad;
+    // Embolden bias, in screen pixels, added to the coverage threshold — see
+    // Renderer::resolved_stem_darkening_px (Renderer/TextInstance.hpp).
+    float stemDarkeningPx;
 };
 
 struct TextViewConstants {
@@ -49,6 +51,7 @@ struct VertexOutput {
     float4 color : COLOR0;
     float formatKind : TEXCOORD1;
     float screenPxRange : TEXCOORD2;
+    float stemDarkeningPx : TEXCOORD3;
 };
 
 static const float2 kQuadCorners[6] = {
@@ -79,6 +82,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     output.color = inst.color;
     output.formatKind = inst.formatKind;
     output.screenPxRange = inst.screenPxRange;
+    output.stemDarkeningPx = inst.stemDarkeningPx;
     return output;
 }
 
@@ -104,7 +108,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // screenPxRange converts the encoded distance band into screen pixels so the antialiasing
     // falloff is about one physical pixel wide regardless of the glyph's on-screen scale — the
     // "what percentage of this pixel is covered by the shape" antialiasing, not a hard threshold.
+    // stemDarkeningPx shifts that threshold outward by a few tenths of a pixel at small sizes
+    // (Renderer::resolved_stem_darkening_px) — since every outline here is unhinted, this is what
+    // keeps small text from looking thin instead of grid-fitting it.
     float screenPxDistance = input.screenPxRange * (signedDistance - 0.5);
-    float coverage = clamp01(screenPxDistance + 0.5);
+    float coverage = clamp01(screenPxDistance + 0.5 + input.stemDarkeningPx);
     return float4(input.color.rgb, input.color.a * coverage);
 }

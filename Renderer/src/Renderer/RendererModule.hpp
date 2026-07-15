@@ -249,8 +249,6 @@ namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
-            Core::Extent2D pending_swapchain_extent{};
-            steady_clock::time_point pending_swapchain_extent_since{};
             // Ring of N = desired_frames_in_flight (well, capabilities_.max_frames_in_flight — see
             // render_frame_rhi) deferred-cleanup slots, one per window: each window has its own swapchain
             // and therefore its own frame-in-flight lifetime, so this can never be a Renderer-wide
@@ -339,9 +337,20 @@ namespace SFT::Renderer {
         // tonemap_/deferred_lighting_ above.
         struct TextOverlayResources {
             Text::Font font;
+            // Optional: best-effort emoji fallback (Noto Color Emoji), used via
+            // Text::shape_with_fallback when present. `has_emoji_font` is false (not just
+            // `emoji_font.valid()`) so a load failure degrades to primary-font-only text instead of
+            // failing the whole overlay — see find_default_emoji_font_path()'s caller.
+            Text::Font emoji_font;
+            bool has_emoji_font = false;
             TextAtlas atlas;
             TextPipeline pipeline;
             u64 font_id = 0;
+            u64 emoji_font_id = 0;
+            // Keyed by glyph_id alone, so only ever populated for the primary font's glyphs — glyph
+            // indices are font-local and would collide against the emoji font's, but emoji glyphs
+            // never need an extracted outline (Text::rasterize_color_glyph rasterizes straight from
+            // the font), so they never populate or look up this cache.
             std::unordered_map<u32, Text::GlyphOutline> outline_cache;
             bool ready = false;
         };
@@ -381,10 +390,20 @@ namespace SFT::Renderer {
                                                                          Core::Extent2D extent,
                                                                          const DeferredTargetFormats &formats);
         void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
-        // Waits for every submitted in-flight frame (of one window's ring) to finish, then reclaims its
-        // resources. The sanctioned heavy wait for teardown / swapchain rebuild — NOT the per-frame path.
-        // Leaves each slot's fence allocated but reset (unsignaled) so the ring is immediately reusable.
+        // Waits for every in-flight frame (of one window's ring) to finish, then reclaims its resources
+        // (including retired swapchains/presentation textures — safe here specifically because of the
+        // wait_idle, see reclaim_frame_slot's comment). The sanctioned heavy wait for teardown / periodic
+        // retired-swapchain flush — NOT the per-frame path. Leaves each slot's fence allocated but reset
+        // (unsignaled) so the ring is immediately reusable.
         void drain_frames_in_flight(WindowSurfaceRecord &record) noexcept;
+        // Bounds how many superseded swapchains/presentation textures a resize can leave un-destroyed:
+        // recreate_rhi_swapchain() can't safely destroy the swapchain it just superseded (its present
+        // isn't fenced), so it retires it onto a frame-in-flight slot instead — fine as an occasional
+        // thing, but during a fast continuous resize drag (recreating every frame, by design — see
+        // render_frame_rhi) that queue would otherwise grow without bound for the drag's whole duration.
+        // Called after every recreate; once the retired count crosses a small threshold it pays one
+        // drain_frames_in_flight() to clear the backlog, then goes back to accumulating.
+        void maybe_flush_retired_swapchains(WindowSurfaceRecord &record) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
         void destroy_scene_gpu_resources() noexcept;

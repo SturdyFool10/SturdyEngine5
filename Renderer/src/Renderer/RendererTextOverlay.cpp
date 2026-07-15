@@ -31,8 +31,11 @@ namespace SFT::Renderer {
 
     namespace {
 
-        constexpr f32 overlay_pixel_size = 16.0f;
-        constexpr f32 overlay_line_height = 20.0f;
+        // Maple Mono NF at 20pt/weight 400 (its only static weight), paired with Noto Color Emoji
+        // as the emoji fallback — sized up a notch from Vertex's own 18pt UI default for this
+        // engine's debug HUD.
+        constexpr f32 overlay_pixel_size = 20.0f;
+        constexpr f32 overlay_line_height = 25.0f;
 
         [[nodiscard]] optional<vector<std::byte>> read_file_bytes(const string &path) {
             std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -51,27 +54,54 @@ namespace SFT::Renderer {
             return bytes;
         }
 
-        // Best-effort default UI font pick: Maple Mono NF (the Nerd-Font-patched build of Maple
-        // Mono) is preferred when installed, falling back to a handful of common family names
-        // likely to exist on any of this engine's target OSes, then to whatever discovery found
-        // first.
-        [[nodiscard]] optional<string> find_default_font_path() {
-            const vector<string> search_dirs = Platform::font_search_directories();
-            const Text::FontDatabase database =
-                Text::FontDatabase::create(span<const string>{search_dirs.data(), search_dirs.size()});
+        // "Fonts" is a bundled, engine-shipped directory (mirrors how Engine::shaders_directory
+        // defaults to a relative "Shaders" folder) so a preferred family is always found even on a
+        // machine that never had it installed system-wide.
+        [[nodiscard]] Text::FontDatabase build_font_database() {
+            vector<string> search_dirs{"Fonts"};
+            const vector<string> platform_dirs = Platform::font_search_directories();
+            search_dirs.insert(search_dirs.end(), platform_dirs.begin(), platform_dirs.end());
+            return Text::FontDatabase::create(span<const string>{search_dirs.data(), search_dirs.size()});
+        }
 
-            static constexpr array<const char *, 6> preferred_families{
-                "Maple Mono NF", "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica",
-            };
+        [[nodiscard]] optional<string> find_first_available(const Text::FontDatabase &database,
+                                                             span<const char *const> preferred_families) {
             for (const char *family : preferred_families) {
                 if (optional<string> path = database.find(family)) {
                     return path;
                 }
             }
+            return std::nullopt;
+        }
+
+        // Best-effort default UI font pick: Maple Mono NF (the Nerd-Font-patched build of Maple
+        // Mono) is preferred when installed, falling back to a handful of common family names
+        // likely to exist on any of this engine's target OSes, then to whatever discovery found
+        // first.
+        [[nodiscard]] optional<string> find_default_font_path(const Text::FontDatabase &database) {
+            static constexpr array<const char *, 6> preferred_families{
+                "Maple Mono NF", "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica",
+            };
+            if (optional<string> path = find_first_available(database, preferred_families)) {
+                return path;
+            }
             if (!database.faces().empty()) {
                 return database.faces().front().file_path;
             }
             return std::nullopt;
+        }
+
+        // Best-effort default emoji font pick: Noto Color Emoji (bundled alongside Maple Mono NF —
+        // see Fonts/), falling back to whatever other color-emoji family common OSes tend to ship.
+        // No last-resort fallback to "whatever discovery found first" the way the UI font has one:
+        // an arbitrary non-emoji font picked here would just render emoji as tofu/missing-glyph
+        // boxes, no better than having no emoji font at all — see the `has_emoji_font` degradation
+        // path in ensure_text_overlay_resources().
+        [[nodiscard]] optional<string> find_default_emoji_font_path(const Text::FontDatabase &database) {
+            static constexpr array<const char *, 3> preferred_families{
+                "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
+            };
+            return find_first_available(database, preferred_families);
         }
 
     } // namespace
@@ -88,7 +118,9 @@ namespace SFT::Renderer {
                                                 "Cannot build the debug text overlay without an RHI device.");
         }
 
-        optional<string> font_path = find_default_font_path();
+        const Text::FontDatabase database = build_font_database();
+
+        optional<string> font_path = find_default_font_path(database);
         if (!font_path) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "No usable font was found for the debug text overlay.");
@@ -120,6 +152,20 @@ namespace SFT::Renderer {
         guard->pipeline = std::move(*pipeline);
         guard->font_id = 1;
         guard->outline_cache.clear();
+
+        // Best-effort: an emoji font that fails to load or parse just means emoji render as
+        // whatever tofu the primary font has for those codepoints, not a broken overlay.
+        guard->has_emoji_font = false;
+        if (optional<string> emoji_path = find_default_emoji_font_path(database)) {
+            if (optional<vector<std::byte>> emoji_bytes = read_file_bytes(*emoji_path)) {
+                if (auto emoji_font = Text::Font::load(span<const std::byte>{emoji_bytes->data(), emoji_bytes->size()})) {
+                    guard->emoji_font = std::move(*emoji_font);
+                    guard->emoji_font_id = 2;
+                    guard->has_emoji_font = true;
+                }
+            }
+        }
+
         guard->ready = true;
         return {};
     }
@@ -145,11 +191,20 @@ namespace SFT::Renderer {
 
         const u32 units_per_em = guard->font.units_per_em();
         const f32 scale = units_per_em > 0 ? overlay_pixel_size / static_cast<f32>(units_per_em) : 0.0f;
+        const u32 emoji_units_per_em = guard->has_emoji_font ? guard->emoji_font.units_per_em() : 0;
+        const f32 emoji_scale = emoji_units_per_em > 0 ? overlay_pixel_size / static_cast<f32>(emoji_units_per_em) : 0.0f;
+
+        const Text::FontStack fonts{
+            .primary = &guard->font,
+            .emoji = guard->has_emoji_font ? &guard->emoji_font : nullptr,
+            .primary_font_id = guard->font_id,
+            .emoji_font_id = guard->emoji_font_id,
+        };
 
         vector<GlyphPlacement> placements;
         glm::vec2 pen = origin_px;
         for (const string &line : lines) {
-            auto shaped = Text::shape(guard->font, line);
+            auto shaped = Text::shape_with_fallback(fonts, line);
             if (!shaped) {
                 pen.y += overlay_line_height;
                 continue;
@@ -157,30 +212,36 @@ namespace SFT::Renderer {
 
             glm::vec2 cursor = pen;
             for (const Text::PositionedGlyph &glyph : *shaped) {
-                auto cached = guard->outline_cache.find(glyph.glyph_id);
-                if (cached == guard->outline_cache.end()) {
-                    if (auto outline = Text::glyph_outline(guard->font, glyph.glyph_id)) {
-                        cached = guard->outline_cache.emplace(glyph.glyph_id, std::move(*outline)).first;
-                    } else {
-                        cached = guard->outline_cache.emplace(glyph.glyph_id, Text::GlyphOutline{}).first;
+                const f32 glyph_scale = glyph.is_color ? emoji_scale : scale;
+
+                const Text::GlyphOutline *outline = nullptr;
+                if (!glyph.is_color) {
+                    auto cached = guard->outline_cache.find(glyph.glyph_id);
+                    if (cached == guard->outline_cache.end()) {
+                        if (auto extracted = Text::glyph_outline(guard->font, glyph.glyph_id)) {
+                            cached = guard->outline_cache.emplace(glyph.glyph_id, std::move(*extracted)).first;
+                        } else {
+                            cached = guard->outline_cache.emplace(glyph.glyph_id, Text::GlyphOutline{}).first;
+                        }
                     }
+                    outline = &cached->second;
                 }
 
                 placements.push_back(GlyphPlacement{
-                    .position = glm::vec2{cursor.x + glyph.x_offset * scale, cursor.y - glyph.y_offset * scale},
+                    .position = glm::vec2{cursor.x + glyph.x_offset * glyph_scale, cursor.y - glyph.y_offset * glyph_scale},
                     .size = glm::vec2{overlay_pixel_size, overlay_pixel_size},
                     .color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
-                    .font_id = guard->font_id,
+                    .font_id = glyph.font_id,
                     .glyph_id = glyph.glyph_id,
-                    .units_per_em = units_per_em,
+                    .units_per_em = glyph.is_color ? emoji_units_per_em : units_per_em,
                     .pixel_size = overlay_pixel_size,
-                    .format = Text::select_raster_format(overlay_pixel_size),
-                    .outline = &cached->second,
-                    .font = &guard->font,
+                    .format = glyph.is_color ? Text::RasterFormat::Color : Text::select_raster_format(overlay_pixel_size),
+                    .outline = outline,
+                    .font = glyph.is_color ? &guard->emoji_font : &guard->font,
                 });
 
-                cursor.x += glyph.x_advance * scale;
-                cursor.y -= glyph.y_advance * scale;
+                cursor.x += glyph.x_advance * glyph_scale;
+                cursor.y -= glyph.y_advance * glyph_scale;
             }
             pen.y += overlay_line_height;
         }
@@ -211,17 +272,7 @@ namespace SFT::Renderer {
         vector<GlyphInstance> instances;
         instances.reserve(placements.size());
         for (usize i = 0; i < placements.size(); ++i) {
-            const GlyphSlot &slot = slots[i];
-            const f32 instance_scale = slot.cell_size_px > 0.0f ? placements[i].size.x / slot.cell_size_px : 1.0f;
-            instances.push_back(GlyphInstance{
-                .position = placements[i].position,
-                .size = placements[i].size,
-                .uv_min = slot.uv_min,
-                .uv_max = slot.uv_max,
-                .color = placements[i].color,
-                .format_kind = format_kind_value(slot.format),
-                .screen_px_range = guard->atlas.pixel_range() * instance_scale,
-            });
+            instances.push_back(make_glyph_instance(placements[i].position, placements[i], slots[i], guard->atlas.pixel_range()));
         }
 
         return guard->pipeline.prepare(*device, instances, slots, out_batches, transient_buffers);
