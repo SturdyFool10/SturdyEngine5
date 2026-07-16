@@ -3,7 +3,6 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
-#include <string_view>
 #include <vector>
 #pragma endregion
 
@@ -11,7 +10,6 @@
 #include "Font.hpp"
 #include "Shape.hpp"
 
-using std::string_view;
 using std::vector;
 
 namespace SFT::Text {
@@ -43,7 +41,7 @@ namespace SFT::Text {
             usize length = 1;
         };
 
-        [[nodiscard]] DecodedCodepoint decode_utf8(string_view text, usize offset) noexcept;
+        [[nodiscard]] DecodedCodepoint decode_utf8(const ustr &text, usize offset) noexcept;
 
     } // namespace Detail
 
@@ -53,7 +51,14 @@ namespace SFT::Text {
     // `font_id`/`is_color` stamped per glyph. This is font-run itemization only, not full Unicode
     // bidi segmentation — `options.direction` is passed through to each run's shape() call exactly
     // as plain shape() already does, no new directional handling is added here.
-    [[nodiscard]] TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts, string_view utf8,
-                                                                                   const ShapeOptions &options = {});
+    [[nodiscard]] TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts, const ustr &utf8,
+                                                                            const ShapeOptions &options = {});
+
+    [[nodiscard]] TextExpected<vector<PositionedGlyph>> shape_with_fallback(
+        const FontStack &fonts, const ustr &utf8, const OpenTypeFeatureOptions &features);
+
+    [[nodiscard]] TextExpected<vector<PositionedGlyph>> shape_with_fallback(
+        const FontStack &fonts, const ustr &utf8, const ustr &comma_separated_features,
+        const ShapeOptions &options = {});
 
 } // namespace SFT::Text

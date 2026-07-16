@@ -2,7 +2,7 @@
 
 namespace SFT::Text::Detail {
 
-string read_name(hb_face_t *face, hb_ot_name_id_t name_id) {
+UString read_name(hb_face_t *face, hb_ot_name_id_t name_id) {
             // hb_ot_name_get_utf8 follows HarfBuzz's snprintf-style idiom: the return value is the
             // *full* string length regardless of truncation, while `text_size` is IN (buffer
             // capacity) / OUT (bytes actually written) — a zero-capacity probe call still reports
@@ -17,18 +17,18 @@ string read_name(hb_face_t *face, hb_ot_name_id_t name_id) {
             text.resize(capacity);
             hb_ot_name_get_utf8(face, name_id, HB_LANGUAGE_INVALID, &capacity, text.data());
             text.resize(std::min(capacity, full_length));
-            return text;
+            return UString{text};
         }
 
-bool contains_ci(string_view haystack, string_view needle) noexcept {
-            auto it = std::ranges::search(haystack, needle, [](char a, char b) {
+bool contains_ci(const ustr &haystack, const ustr &needle) noexcept {
+            auto it = std::ranges::search(haystack.cpp_string_view(), needle.cpp_string_view(), [](char a, char b) {
                 return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
             });
             return !it.empty();
         }
 
-bool equals_ci(string_view a, string_view b) noexcept {
-            return std::ranges::equal(a, b, [](char x, char y) {
+bool equals_ci(const ustr &a, const ustr &b) noexcept {
+            return std::ranges::equal(a.cpp_string_view(), b.cpp_string_view(), [](char x, char y) {
                 return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
             });
         }
@@ -77,18 +77,22 @@ vector<FontFaceInfo> discover_fonts(span<const string> search_directories) {
                     continue;
                 }
 
-                const string family = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_FAMILY);
+                UString family = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_FAMILY);
                 if (family.empty()) {
                     continue;
                 }
-                const string subfamily = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_SUBFAMILY);
+                UString subfamily = Detail::read_name(font->face_handle(), HB_OT_NAME_ID_FONT_SUBFAMILY);
+                const bool bold = Detail::contains_ci(subfamily.as_ustr(), "Bold"_ustr) ||
+                                  Detail::contains_ci(subfamily.as_ustr(), "Black"_ustr) ||
+                                  Detail::contains_ci(subfamily.as_ustr(), "Heavy"_ustr);
+                const bool italic = Detail::contains_ci(subfamily.as_ustr(), "Italic"_ustr) ||
+                                    Detail::contains_ci(subfamily.as_ustr(), "Oblique"_ustr);
 
                 faces.push_back(FontFaceInfo{
-                    .family = family,
-                    .subfamily = subfamily,
-                    .bold = Detail::contains_ci(subfamily, "Bold") || Detail::contains_ci(subfamily, "Black") ||
-                            Detail::contains_ci(subfamily, "Heavy"),
-                    .italic = Detail::contains_ci(subfamily, "Italic") || Detail::contains_ci(subfamily, "Oblique"),
+                    .family = std::move(family),
+                    .subfamily = std::move(subfamily),
+                    .bold = bold,
+                    .italic = italic,
                     .file_path = entry.path().string(),
                     .face_index = 0,
                 });
@@ -105,11 +109,11 @@ FontDatabase::FontDatabase(vector<FontFaceInfo> faces) : faces_(std::move(faces)
 
 [[nodiscard]] span<const FontFaceInfo> FontDatabase::faces() const noexcept { return faces_; }
 
-[[nodiscard]] optional<string> FontDatabase::find(string_view family, bool bold, bool italic) const {
+[[nodiscard]] optional<string> FontDatabase::find(const ustr &family, bool bold, bool italic) const {
             const FontFaceInfo *best = nullptr;
             int best_score = -1;
             for (const FontFaceInfo &face : faces_) {
-                if (!Detail::equals_ci(face.family, family)) {
+                if (!Detail::equals_ci(face.family.as_ustr(), family)) {
                     continue;
                 }
                 const int score = (face.bold == bold ? 1 : 0) + (face.italic == italic ? 1 : 0);

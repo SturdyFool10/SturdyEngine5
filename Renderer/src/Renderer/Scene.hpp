@@ -70,7 +70,7 @@ namespace SFT::Renderer {
         span<const SceneRenderable> renderables{};
         u32 visibility_mask = ~0u;
         DeferredTargetFormats deferred_formats{};
-        const char *debug_label = nullptr;
+        UString debug_label;
     };
 
     // High-level per-frame renderer entry point: one surface, timing, and the scene view to render into it.

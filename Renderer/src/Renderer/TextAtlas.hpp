@@ -64,6 +64,13 @@ namespace SFT::Renderer {
         glm::vec2 uv_max{0.0f};
         f32 cell_size_px = 0.0f;
         Text::RasterFormat format = Text::RasterFormat::SDF;
+        // Where the resident raster sits relative to the pen, in this cell's own pixel space (see
+        // Text::RasterizedGlyph's doc comment for the convention) — an instance builder rescales
+        // these by the same cell_size_px-relative factor it already applies to screen_px_range
+        // before placing the glyph's quad, since a cache hit may be drawn at a different actual
+        // pixel size than the one this slot's raster was generated at.
+        f32 bearing_x = 0.0f;
+        f32 bearing_top = 0.0f;
     };
 
     // An LRU, tile-based cache of rasterized glyphs backed by RHI textures. Three independent
@@ -131,10 +138,16 @@ namespace SFT::Renderer {
             // `config_.cell_size`: small glyphs raster smaller so their on-screen quad isn't stuck
             // minifying a whole 64px cell down to a handful of pixels.
             u32 raster_size = 0;
+            // Only known once Text::rasterize_glyph actually runs (upload_misses), so a fresh
+            // cache-miss CellLocation is inserted into resident_ with these left at 0 and
+            // overwritten right after rasterizing — see GlyphSlot's doc comment for what they mean.
+            f32 bearing_x = 0.0f;
+            f32 bearing_top = 0.0f;
         };
 
         struct PendingUpload {
             usize request_index = 0;
+            GlyphKey key{};
             CellLocation cell{};
         };
 

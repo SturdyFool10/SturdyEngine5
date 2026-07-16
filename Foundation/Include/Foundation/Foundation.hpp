@@ -36,6 +36,7 @@ using u256 [[maybe_unused]] = SFT::Foundation::u256;
 using usize [[maybe_unused]] = SFT::Foundation::usize;
 using USlice [[maybe_unused]] = SFT::Foundation::USlice;
 using USlicePattern [[maybe_unused]] = SFT::Foundation::USlicePattern;
+using TextConversionError [[maybe_unused]] = SFT::Foundation::TextConversionError;
 using ustr [[maybe_unused]] = SFT::Foundation::ustr;
 using UString [[maybe_unused]] = SFT::Foundation::UString;
 using SFT::Foundation::slice_from;

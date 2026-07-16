@@ -40,10 +40,21 @@ namespace SFT::Text {
     // already produces — 0.5 (encoded ~128) sits on the true glyph edge. `channel_count` is 1 for
     // RasterFormat::SDF, 3 for RasterFormat::MSDF (matching RHI::Format::R8Unorm/RGBA8Unorm* atlas
     // storage — see Renderer/TextAtlas.cppm).
+    //
+    // `bearing_x`/`bearing_top` place this raster relative to the pen (the glyph's origin on the
+    // baseline) — the same convention FreeType's `bitmap_left`/`bitmap_top` use, since each raster
+    // is tightly cropped to *this glyph's own* ink bounding box (plus `RasterParams::padding_px`),
+    // not to a shared baseline-relative box: a parenthesis descends well below the baseline and
+    // rises well above x-height, while a plain lowercase letter sits almost entirely within
+    // [0, x-height], so two rasters of the same output `width`/`height` place their own baseline
+    // at two different rows unless the caller repositions each one by its bearing. In pixel space:
+    // `raster_left_edge = pen.x + bearing_x`, `raster_top_edge = pen.y - bearing_top`.
     struct RasterizedGlyph {
         u32 width = 0;
         u32 height = 0;
         u32 channel_count = 0;
+        f32 bearing_x = 0.0f;
+        f32 bearing_top = 0.0f;
         vector<u8> pixels;
     };
 

@@ -16,6 +16,7 @@ sturdy_add_package(Text
         Sturdy::Async
         Sturdy::GLM
         Sturdy::HarfBuzz
+        Sturdy::FreeType
         Sturdy::MsdfGen
         Sturdy::StbImage
 

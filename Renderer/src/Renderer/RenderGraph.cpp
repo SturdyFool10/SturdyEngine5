@@ -1,6 +1,8 @@
 #include "RenderGraph.hpp"
 
+#include <algorithm>
 #include <set>
+#include <utility>
 
 namespace SFT::Renderer {
 
@@ -29,6 +31,43 @@ namespace SFT::Renderer {
             usage.writes.push_back(pass.destination);
             usage.reads.push_back(pass.source);
             return usage;
+        }
+
+[[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphComputePassBuilder &pass) {
+            PassUsage usage;
+            for (RenderGraphTextureHandle read : pass.sampled_texture_reads_) {
+                usage.reads.push_back(read);
+            }
+            for (const RenderGraphStorageTextureAccessDesc &access : pass.storage_textures_) {
+                if (access.read) {
+                    usage.reads.push_back(access.texture);
+                }
+                if (access.write) {
+                    usage.writes.push_back(access.texture);
+                }
+            }
+            // No declared storage write means whatever this pass dispatches has an untracked side
+            // effect (e.g. writing only to a buffer) the graph can't reason about from textures alone
+            // — mirrors RenderGraphRenderPassBuilder's own always_live rule above.
+            usage.always_live = usage.writes.empty();
+            return usage;
+        }
+
+[[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphCopyDesc &pass) {
+            PassUsage usage;
+            usage.writes.push_back(pass.destination);
+            usage.reads.push_back(pass.source);
+            return usage;
+        }
+
+[[nodiscard]] RenderGraph::PassUsage RenderGraph::usage_of_ordered(const OrderedPass &ordered) const {
+            switch (ordered.kind) {
+                case PassKind::Render: return pass_usage_of(render_passes_[ordered.index]);
+                case PassKind::Blit: return pass_usage_of(blit_passes_[ordered.index]);
+                case PassKind::Compute: return pass_usage_of(compute_passes_[ordered.index]);
+                case PassKind::Copy: return pass_usage_of(copy_passes_[ordered.index]);
+            }
+            return {};
         }
 
 RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(string label) : label_(std::move(label)) {}
@@ -64,39 +103,62 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGr
             return *this;
         }
 
+RenderGraphComputePassBuilder::RenderGraphComputePassBuilder(string label) : label_(std::move(label)) {}
+
+RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_sampled_texture(RenderGraphTextureHandle texture) {
+            sampled_texture_reads_.push_back(texture);
+            return *this;
+        }
+
+RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_storage_texture(const RenderGraphStorageTextureAccessDesc &access) {
+            storage_textures_.push_back(access);
+            return *this;
+        }
+
+RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(RenderGraphComputeExecuteFn execute) noexcept {
+            execute_ = std::move(execute);
+            return *this;
+        }
+
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::import_texture(const RenderGraphImportedTextureDesc &desc) {
+            const u32 slot_index = static_cast<u32>(physical_slots_.size());
+            physical_slots_.push_back(PhysicalSlot{
+                .texture = desc.texture,
+                .default_view = desc.default_view,
+                .current_layout = desc.initial_layout,
+                .current_stage = desc.initial_stage,
+                .current_access = desc.initial_access,
+                .owns_resource = false,
+            });
+
             const RenderGraphTextureHandle handle{static_cast<u32>(textures_.size())};
             textures_.push_back(TextureRecord{
                 .imported = desc,
                 .is_transient = false,
-                .texture = desc.texture,
-                .default_view = desc.default_view,
+                .physical_slot = slot_index,
                 .format = desc.format,
                 .extent = desc.extent,
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
-                .current_layout = desc.initial_layout,
-                .current_stage = desc.initial_stage,
-                .current_access = desc.initial_access,
                 .label = desc.label ? desc.label : "",
             });
             return handle;
         }
 
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::create_texture(const RenderGraphTextureDesc &desc) {
+            // No physical_slot yet — aliasing assigns one per compiled-graph lifetime analysis inside
+            // create_transient_resources(), which runs once execute() knows every pass in the frame.
             const RenderGraphTextureHandle handle{static_cast<u32>(textures_.size())};
             textures_.push_back(TextureRecord{
                 .transient = desc,
                 .is_transient = true,
+                .physical_slot = ~0u,
                 .format = desc.format,
                 .extent = desc.extent,
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
-                .current_layout = desc.initial_layout,
-                .current_stage = desc.initial_stage,
-                .current_access = desc.initial_access,
                 .label = desc.label ? desc.label : "",
             });
             return handle;
@@ -115,17 +177,31 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Blit, .index = index});
         }
 
+[[nodiscard]] RenderGraphComputePassBuilder &RenderGraph::add_compute_pass(string_view label) {
+            const u32 index = static_cast<u32>(compute_passes_.size());
+            compute_passes_.emplace_back(string{label});
+            ordered_passes_.push_back(OrderedPass{.kind = PassKind::Compute, .index = index});
+            return compute_passes_.back();
+        }
+
+void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
+            const u32 index = static_cast<u32>(copy_passes_.size());
+            copy_passes_.push_back(desc);
+            ordered_passes_.push_back(OrderedPass{.kind = PassKind::Copy, .index = index});
+        }
+
 [[nodiscard]] RenderGraphTextureAccess RenderGraph::texture_access(RenderGraphTextureHandle handle) const noexcept {
             const TextureRecord *record = texture_record(handle);
-            if (record == nullptr) {
+            const PhysicalSlot *slot = physical_slot_for(handle);
+            if (record == nullptr || slot == nullptr) {
                 return {};
             }
             return RenderGraphTextureAccess{
-                .texture = record->texture,
-                .default_view = record->default_view,
+                .texture = slot->texture,
+                .default_view = slot->default_view,
                 .format = record->format,
                 .extent = record->extent,
-                .current_layout = record->current_layout,
+                .current_layout = slot->current_layout,
             };
         }
 
@@ -155,9 +231,7 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             const usize pass_count = ordered_passes_.size();
             vector<PassUsage> usage(pass_count);
             for (usize i = 0; i < pass_count; ++i) {
-                const OrderedPass &ordered = ordered_passes_[i];
-                usage[i] = ordered.kind == PassKind::Render ? pass_usage_of(render_passes_[ordered.index])
-                                                             : pass_usage_of(blit_passes_[ordered.index]);
+                usage[i] = usage_of_ordered(ordered_passes_[i]);
             }
 
             vector<i64> last_writer(textures_.size(), -1);
@@ -253,12 +327,15 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder) {
-            if (Core::RendererResult created = create_transient_resources(device); !created.has_value()) {
+            // Order first: aliasing needs the culled, topo-sorted order to compute accurate lifetimes,
+            // and compile_execution_order() never touches physical resource state, so this is safe to
+            // run before any GPU texture exists yet.
+            const vector<OrderedPass> execution_order = compile_execution_order();
+            if (Core::RendererResult created = create_transient_resources(device, execution_order); !created.has_value()) {
                 destroy_transient_resources(device);
                 return created;
             }
 
-            const vector<OrderedPass> execution_order = compile_execution_order();
             for (const OrderedPass &ordered : execution_order) {
                 Core::RendererResult result = {};
                 switch (ordered.kind) {
@@ -273,6 +350,20 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
                         const RenderGraphBlitDesc &pass = blit_passes_[ordered.index];
                         result = with_debug_group(encoder, pass.label ? pass.label : "render graph blit", [&]() {
                             return execute_blit_pass(encoder, pass);
+                        });
+                        break;
+                    }
+                    case PassKind::Compute: {
+                        RenderGraphComputePassBuilder &pass = compute_passes_[ordered.index];
+                        result = with_debug_group(encoder, pass.label_, [&]() {
+                            return execute_compute_pass(encoder, pass);
+                        });
+                        break;
+                    }
+                    case PassKind::Copy: {
+                        const RenderGraphCopyDesc &pass = copy_passes_[ordered.index];
+                        result = with_debug_group(encoder, pass.label ? pass.label : "render graph copy", [&]() {
+                            return execute_copy_pass(encoder, pass);
                         });
                         break;
                     }
@@ -291,35 +382,37 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
         }
 
 void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
-            for (TextureRecord &record : textures_) {
-                if (!record.is_transient) {
+            // Iterates physical_slots_, not textures_: aliasing means several virtual transient textures
+            // can share one slot, so destroying per-virtual-texture would double-destroy.
+            for (PhysicalSlot &slot : physical_slots_) {
+                if (!slot.owns_resource) {
                     continue;
                 }
-                if (record.default_view) {
-                    device.destroy_texture_view(record.default_view);
+                if (slot.default_view) {
+                    device.destroy_texture_view(slot.default_view);
                 }
-                if (record.texture) {
-                    device.destroy_texture(record.texture);
+                if (slot.texture) {
+                    device.destroy_texture(slot.texture);
                 }
-                record.texture = {};
-                record.default_view = {};
+                slot.texture = {};
+                slot.default_view = {};
             }
         }
 
 void RenderGraph::take_transient_resources(vector<RHI::TextureHandle> &textures,
                                       vector<RHI::TextureViewHandle> &views) {
-            for (TextureRecord &record : textures_) {
-                if (!record.is_transient) {
+            for (PhysicalSlot &slot : physical_slots_) {
+                if (!slot.owns_resource) {
                     continue;
                 }
-                if (record.texture) {
-                    textures.push_back(record.texture);
+                if (slot.texture) {
+                    textures.push_back(slot.texture);
                 }
-                if (record.default_view) {
-                    views.push_back(record.default_view);
+                if (slot.default_view) {
+                    views.push_back(slot.default_view);
                 }
-                record.texture = {};
-                record.default_view = {};
+                slot.texture = {};
+                slot.default_view = {};
             }
         }
 
@@ -327,7 +420,10 @@ void RenderGraph::reset() noexcept {
             ordered_passes_.clear();
             render_passes_.clear();
             blit_passes_.clear();
+            compute_passes_.clear();
+            copy_passes_.clear();
             textures_.clear();
+            physical_slots_.clear();
         }
 
 [[nodiscard]] RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) noexcept {
@@ -344,35 +440,51 @@ void RenderGraph::reset() noexcept {
             return &textures_[handle.index];
         }
 
+[[nodiscard]] RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) noexcept {
+            TextureRecord *record = texture_record(handle);
+            if (record == nullptr || record->physical_slot >= physical_slots_.size()) {
+                return nullptr;
+            }
+            return &physical_slots_[record->physical_slot];
+        }
+
+[[nodiscard]] const RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) const noexcept {
+            const TextureRecord *record = texture_record(handle);
+            if (record == nullptr || record->physical_slot >= physical_slots_.size()) {
+                return nullptr;
+            }
+            return &physical_slots_[record->physical_slot];
+        }
+
 [[nodiscard]] Core::RendererResult RenderGraph::transition_texture(RHI::CommandEncoder &encoder,
                                                               RenderGraphTextureHandle handle,
                                                               RHI::TextureLayout next_layout,
                                                               RHI::PipelineStage next_stage,
                                                               RHI::AccessFlags next_access) {
-            TextureRecord *record = texture_record(handle);
-            if (record == nullptr || !record->texture) {
+            PhysicalSlot *slot = physical_slot_for(handle);
+            if (slot == nullptr || !slot->texture) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Render graph pass references an unknown texture.");
             }
 
-            if (record->current_layout == next_layout && record->current_stage == next_stage &&
-                record->current_access == next_access) {
+            if (slot->current_layout == next_layout && slot->current_stage == next_stage &&
+                slot->current_access == next_access) {
                 return {};
             }
 
             const RHI::TextureBarrier barrier{
-                .texture = record->texture,
-                .src_stage = record->current_stage,
-                .src_access = record->current_access,
+                .texture = slot->texture,
+                .src_stage = slot->current_stage,
+                .src_access = slot->current_access,
                 .dst_stage = next_stage,
                 .dst_access = next_access,
-                .old_layout = record->current_layout,
+                .old_layout = slot->current_layout,
                 .new_layout = next_layout,
             };
             encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&barrier, 1});
-            record->current_layout = next_layout;
-            record->current_stage = next_stage;
-            record->current_access = next_access;
+            slot->current_layout = next_layout;
+            slot->current_stage = next_stage;
+            slot->current_access = next_access;
             return {};
         }
 
@@ -393,8 +505,8 @@ void RenderGraph::reset() noexcept {
             color_attachments.reserve(pass.color_attachments_.size());
 
             for (const RenderGraphColorAttachmentDesc &attachment : pass.color_attachments_) {
-                TextureRecord *record = texture_record(attachment.texture);
-                if (record == nullptr) {
+                PhysicalSlot *slot = physical_slot_for(attachment.texture);
+                if (slot == nullptr) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Render graph color attachment references an unknown texture.");
                 }
@@ -407,7 +519,7 @@ void RenderGraph::reset() noexcept {
                     return transition;
                 }
                 color_attachments.push_back(RHI::ColorAttachment{
-                    .view = attachment.view ? attachment.view : record->default_view,
+                    .view = attachment.view ? attachment.view : slot->default_view,
                     .load_op = attachment.load_op,
                     .store_op = attachment.store_op,
                     .clear_color = attachment.clear_color,
@@ -417,8 +529,8 @@ void RenderGraph::reset() noexcept {
             RHI::DepthStencilAttachment depth_stencil{};
             if (pass.has_depth_stencil_attachment_) {
                 const RenderGraphDepthStencilAttachmentDesc &attachment = pass.depth_stencil_attachment_;
-                TextureRecord *record = texture_record(attachment.texture);
-                if (record == nullptr) {
+                PhysicalSlot *slot = physical_slot_for(attachment.texture);
+                if (slot == nullptr) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Render graph depth/stencil attachment references an unknown texture.");
                 }
@@ -431,7 +543,7 @@ void RenderGraph::reset() noexcept {
                     return transition;
                 }
                 depth_stencil = RHI::DepthStencilAttachment{
-                    .view = attachment.view ? attachment.view : record->default_view,
+                    .view = attachment.view ? attachment.view : slot->default_view,
                     .depth_load_op = attachment.depth_load_op,
                     .depth_store_op = attachment.depth_store_op,
                     .stencil_load_op = attachment.stencil_load_op,
@@ -466,9 +578,11 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_blit_pass(RHI::CommandEncoder &encoder, const RenderGraphBlitDesc &pass) {
-            TextureRecord *source = texture_record(pass.source);
-            TextureRecord *destination = texture_record(pass.destination);
-            if (source == nullptr || destination == nullptr) {
+            const TextureRecord *source_record = texture_record(pass.source);
+            const TextureRecord *destination_record = texture_record(pass.destination);
+            PhysicalSlot *source = physical_slot_for(pass.source);
+            PhysicalSlot *destination = physical_slot_for(pass.destination);
+            if (source_record == nullptr || destination_record == nullptr || source == nullptr || destination == nullptr) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Render graph blit pass references an unknown texture.");
             }
@@ -493,52 +607,258 @@ void RenderGraph::reset() noexcept {
             const RHI::TextureBlit blit{
                 .src_subresource = RHI::TextureSubresourceLayers{.mip_level = 0, .base_array_layer = 0, .array_layer_count = 1},
                 .src_min = RHI::Offset3D{0, 0, 0},
-                .src_max = RHI::Offset3D{static_cast<i32>(source->extent.width),
-                                         static_cast<i32>(source->extent.height),
-                                         static_cast<i32>(source->extent.depth_or_layers)},
+                .src_max = RHI::Offset3D{static_cast<i32>(source_record->extent.width),
+                                         static_cast<i32>(source_record->extent.height),
+                                         static_cast<i32>(source_record->extent.depth_or_layers)},
                 .dst_subresource = RHI::TextureSubresourceLayers{.mip_level = 0, .base_array_layer = 0, .array_layer_count = 1},
                 .dst_min = RHI::Offset3D{0, 0, 0},
-                .dst_max = RHI::Offset3D{static_cast<i32>(destination->extent.width),
-                                         static_cast<i32>(destination->extent.height),
-                                         static_cast<i32>(destination->extent.depth_or_layers)},
+                .dst_max = RHI::Offset3D{static_cast<i32>(destination_record->extent.width),
+                                         static_cast<i32>(destination_record->extent.height),
+                                         static_cast<i32>(destination_record->extent.depth_or_layers)},
             };
             encoder.blit_texture(source->texture, destination->texture, blit, pass.filter);
             return {};
         }
 
-[[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device) {
-            for (TextureRecord &record : textures_) {
-                if (!record.is_transient) {
+[[nodiscard]] Core::RendererResult RenderGraph::execute_compute_pass(RHI::CommandEncoder &encoder,
+                                                                 RenderGraphComputePassBuilder &pass) {
+            for (RenderGraphTextureHandle read : pass.sampled_texture_reads_) {
+                Core::RendererResult transition = transition_texture(encoder,
+                                                                     read,
+                                                                     RHI::TextureLayout::ShaderReadOnly,
+                                                                     RHI::PipelineStage::ComputeShader,
+                                                                     RHI::AccessFlags::ShaderRead);
+                if (!transition.has_value()) {
+                    return transition;
+                }
+            }
+            for (const RenderGraphStorageTextureAccessDesc &access : pass.storage_textures_) {
+                RHI::AccessFlags storage_access = RHI::AccessFlags::None;
+                if (access.read) {
+                    storage_access = storage_access | RHI::AccessFlags::ShaderRead;
+                }
+                if (access.write) {
+                    storage_access = storage_access | RHI::AccessFlags::ShaderWrite;
+                }
+                Core::RendererResult transition = transition_texture(encoder,
+                                                                     access.texture,
+                                                                     RHI::TextureLayout::General,
+                                                                     RHI::PipelineStage::ComputeShader,
+                                                                     storage_access);
+                if (!transition.has_value()) {
+                    return transition;
+                }
+            }
+
+            const RHI::ComputePassDesc pass_desc{
+                .label = pass.label_.empty() ? nullptr : pass.label_.c_str(),
+            };
+            auto compute_pass = encoder.begin_compute_pass(pass_desc);
+            if (!compute_pass) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    string("begin render graph compute pass '") + pass.label_ + "' failed: " + compute_pass.error().message);
+            }
+
+            if (pass.execute_) {
+                RenderGraphComputeContext context{*this, encoder, **compute_pass};
+                Core::RendererResult result = pass.execute_(context);
+                if (!result.has_value()) {
+                    (*compute_pass)->end();
+                    return result;
+                }
+            }
+            (*compute_pass)->end();
+            return {};
+        }
+
+[[nodiscard]] Core::RendererResult RenderGraph::execute_copy_pass(RHI::CommandEncoder &encoder, const RenderGraphCopyDesc &pass) {
+            const TextureRecord *source_record = texture_record(pass.source);
+            PhysicalSlot *source = physical_slot_for(pass.source);
+            PhysicalSlot *destination = physical_slot_for(pass.destination);
+            if (source_record == nullptr || source == nullptr || destination == nullptr) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Render graph copy pass references an unknown texture.");
+            }
+
+            Core::RendererResult src_transition = transition_texture(encoder,
+                                                                     pass.source,
+                                                                     RHI::TextureLayout::TransferSrc,
+                                                                     RHI::PipelineStage::Transfer,
+                                                                     RHI::AccessFlags::TransferRead);
+            if (!src_transition.has_value()) {
+                return src_transition;
+            }
+            Core::RendererResult dst_transition = transition_texture(encoder,
+                                                                     pass.destination,
+                                                                     RHI::TextureLayout::TransferDst,
+                                                                     RHI::PipelineStage::Transfer,
+                                                                     RHI::AccessFlags::TransferWrite);
+            if (!dst_transition.has_value()) {
+                return dst_transition;
+            }
+
+            const RHI::TextureCopy copy{
+                .src_subresource = RHI::TextureSubresourceLayers{.mip_level = 0, .base_array_layer = 0, .array_layer_count = 1},
+                .src_offset = RHI::Offset3D{0, 0, 0},
+                .dst_subresource = RHI::TextureSubresourceLayers{.mip_level = 0, .base_array_layer = 0, .array_layer_count = 1},
+                .dst_offset = RHI::Offset3D{0, 0, 0},
+                .extent = source_record->extent,
+            };
+            encoder.copy_texture_to_texture(source->texture, destination->texture, copy);
+            return {};
+        }
+
+[[nodiscard]] vector<RenderGraph::TextureLifetime> RenderGraph::compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const {
+            vector<TextureLifetime> lifetimes(textures_.size());
+            for (usize order_index = 0; order_index < execution_order.size(); ++order_index) {
+                const PassUsage usage = usage_of_ordered(execution_order[order_index]);
+                auto mark = [&](RenderGraphTextureHandle handle) {
+                    if (!handle || handle.index >= lifetimes.size()) {
+                        return;
+                    }
+                    TextureLifetime &lifetime = lifetimes[handle.index];
+                    if (lifetime.first_use < 0) {
+                        lifetime.first_use = static_cast<i32>(order_index);
+                    }
+                    lifetime.last_use = static_cast<i32>(order_index);
+                };
+                for (RenderGraphTextureHandle read : usage.reads) {
+                    mark(read);
+                }
+                for (RenderGraphTextureHandle write : usage.writes) {
+                    mark(write);
+                }
+            }
+            return lifetimes;
+        }
+
+// Interval-graph aliasing: assigns each *virtual* transient texture (created via create_texture()) a
+// PhysicalSlot, sharing one slot — and therefore one GPU allocation — across any number of virtual
+// textures whose [first_use, last_use] ranges (in the compiled execution order) never overlap. Two
+// virtual textures can only ever share a slot if their creation desc matches exactly (format/extent/
+// mips/samples/usage) — the graph never reasons about reinterpreting a resource as a different shape.
+// Assignment is greedy, sorted by first_use ascending (linear-scan register allocation): within a
+// signature bucket, a texture reuses the first open slot whose current occupant already finished
+// (last_use < this texture's first_use), or gets a brand new slot if none is free. A slot's
+// current_layout/stage/access is only seeded from its *first* occupant's declared initial state —
+// later occupants inherit whatever state the previous occupant actually left the physical resource in,
+// which is correct (and cheaper than resetting) since it's literally the same VkImage, not a separate
+// aliased allocation requiring its own hazard tracking.
+[[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device,
+                                                                      const vector<OrderedPass> &execution_order) {
+            const vector<TextureLifetime> lifetimes = compute_transient_lifetimes(execution_order);
+
+            struct PendingSlot {
+                RenderGraphTextureDesc desc;
+                string label;
+            };
+            vector<PendingSlot> pending;
+
+            auto signature_matches = [](const RenderGraphTextureDesc &a, const RenderGraphTextureDesc &b) noexcept {
+                return a.format == b.format && a.extent.width == b.extent.width && a.extent.height == b.extent.height &&
+                       a.extent.depth_or_layers == b.extent.depth_or_layers && a.mip_levels == b.mip_levels &&
+                       a.samples == b.samples && a.usage == b.usage;
+            };
+
+            struct Bucket {
+                RenderGraphTextureDesc signature;
+                vector<u32> members;
+            };
+            vector<Bucket> buckets;
+            vector<u32> solo; // transient textures with no declared use in the compiled graph — nothing to alias by
+
+            for (usize i = 0; i < textures_.size(); ++i) {
+                if (!textures_[i].is_transient) {
                     continue;
                 }
+                if (lifetimes[i].first_use < 0) {
+                    solo.push_back(static_cast<u32>(i));
+                    continue;
+                }
+                bool placed = false;
+                for (Bucket &bucket : buckets) {
+                    if (signature_matches(bucket.signature, textures_[i].transient)) {
+                        bucket.members.push_back(static_cast<u32>(i));
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    buckets.push_back(Bucket{.signature = textures_[i].transient, .members = {static_cast<u32>(i)}});
+                }
+            }
+
+            for (Bucket &bucket : buckets) {
+                std::sort(bucket.members.begin(), bucket.members.end(), [&](u32 a, u32 b) {
+                    return lifetimes[a].first_use < lifetimes[b].first_use;
+                });
+                vector<std::pair<u32, i32>> open_slots; // (physical_slots_ index, current occupant's last_use)
+                for (u32 texture_index : bucket.members) {
+                    const TextureLifetime &lifetime = lifetimes[texture_index];
+                    i32 reused_slot = -1;
+                    for (auto &open_slot : open_slots) {
+                        if (open_slot.second < lifetime.first_use) {
+                            reused_slot = static_cast<i32>(open_slot.first);
+                            open_slot.second = lifetime.last_use;
+                            break;
+                        }
+                    }
+                    if (reused_slot >= 0) {
+                        textures_[texture_index].physical_slot = static_cast<u32>(reused_slot);
+                    } else {
+                        const u32 slot_index = static_cast<u32>(physical_slots_.size());
+                        physical_slots_.emplace_back();
+                        pending.push_back(PendingSlot{.desc = textures_[texture_index].transient,
+                                                      .label = textures_[texture_index].label});
+                        textures_[texture_index].physical_slot = slot_index;
+                        open_slots.push_back({slot_index, lifetime.last_use});
+                    }
+                }
+            }
+            for (u32 texture_index : solo) {
+                const u32 slot_index = static_cast<u32>(physical_slots_.size());
+                physical_slots_.emplace_back();
+                pending.push_back(PendingSlot{.desc = textures_[texture_index].transient,
+                                              .label = textures_[texture_index].label});
+                textures_[texture_index].physical_slot = slot_index;
+            }
+
+            const u32 first_new_slot = static_cast<u32>(physical_slots_.size() - pending.size());
+            for (usize p = 0; p < pending.size(); ++p) {
+                PhysicalSlot &slot = physical_slots_[first_new_slot + p];
+                const PendingSlot &pending_slot = pending[p];
 
                 auto texture_handle = device.create_texture(RHI::TextureDesc{
                     .dimension = RHI::TextureDimension::Dim2D,
-                    .format = record.transient.format,
-                    .extent = record.transient.extent,
-                    .mip_levels = record.transient.mip_levels,
-                    .samples = record.transient.samples,
-                    .usage = record.transient.usage,
-                    .label = record.label.empty() ? "render graph transient texture" : record.label.c_str(),
+                    .format = pending_slot.desc.format,
+                    .extent = pending_slot.desc.extent,
+                    .mip_levels = pending_slot.desc.mip_levels,
+                    .samples = pending_slot.desc.samples,
+                    .usage = pending_slot.desc.usage,
+                    .label = pending_slot.label.empty() ? "render graph transient texture" : pending_slot.label.c_str(),
                 });
                 if (!texture_handle) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        string("create render graph transient texture '") + record.label + "' failed: " + texture_handle.error().message);
+                                                        string("create render graph transient texture '") + pending_slot.label + "' failed: " + texture_handle.error().message);
                 }
 
                 auto view_handle = device.create_texture_view(RHI::TextureViewDesc{
                     .texture = *texture_handle,
                     .view_type = RHI::TextureViewType::View2D,
-                    .label = record.label.empty() ? "render graph transient texture view" : record.label.c_str(),
+                    .label = pending_slot.label.empty() ? "render graph transient texture view" : pending_slot.label.c_str(),
                 });
                 if (!view_handle) {
                     device.destroy_texture(*texture_handle);
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        string("create render graph transient texture view '") + record.label + "' failed: " + view_handle.error().message);
+                                                        string("create render graph transient texture view '") + pending_slot.label + "' failed: " + view_handle.error().message);
                 }
 
-                record.texture = *texture_handle;
-                record.default_view = *view_handle;
+                slot.texture = *texture_handle;
+                slot.default_view = *view_handle;
+                slot.current_layout = pending_slot.desc.initial_layout;
+                slot.current_stage = pending_slot.desc.initial_stage;
+                slot.current_access = pending_slot.desc.initial_access;
+                slot.owns_resource = true;
             }
             return {};
         }
@@ -549,9 +869,10 @@ void RenderGraph::reset() noexcept {
                 if (record.final_layout == RHI::TextureLayout::Undefined) {
                     continue;
                 }
-                if (record.current_layout == record.final_layout &&
-                    record.current_stage == record.final_stage &&
-                    record.current_access == record.final_access) {
+                const PhysicalSlot *slot = physical_slot_for(RenderGraphTextureHandle{static_cast<u32>(i)});
+                if (slot != nullptr && slot->current_layout == record.final_layout &&
+                    slot->current_stage == record.final_stage &&
+                    slot->current_access == record.final_access) {
                     continue;
                 }
                 Core::RendererResult transition = transition_texture(encoder,
@@ -580,6 +901,23 @@ RHI::RenderPassEncoder &RenderGraphContext::render_pass() const noexcept {
     }
 
 RenderGraphTextureAccess RenderGraphContext::texture(RenderGraphTextureHandle handle) const noexcept {
+        return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
+    }
+
+RenderGraphComputeContext::RenderGraphComputeContext(RenderGraph &graph,
+                                                  RHI::CommandEncoder &command_encoder,
+                                                  RHI::ComputePassEncoder &compute_pass) noexcept
+        : graph_(&graph), command_encoder_(&command_encoder), compute_pass_(&compute_pass) {}
+
+RHI::CommandEncoder &RenderGraphComputeContext::command_encoder() const noexcept {
+        return *command_encoder_;
+    }
+
+RHI::ComputePassEncoder &RenderGraphComputeContext::compute_pass() const noexcept {
+        return *compute_pass_;
+    }
+
+RenderGraphTextureAccess RenderGraphComputeContext::texture(RenderGraphTextureHandle handle) const noexcept {
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 

@@ -355,7 +355,7 @@ namespace SFT::Engine {
         desc.view.camera = camera;
         desc.view.lighting = RendererApi::SceneLighting{.ambient_radiance = {0.035f, 0.04f, 0.055f}, .exposure = 1.0f};
         desc.view.renderables = span<const RendererApi::SceneRenderable>{renderables.data(), renderables.size()};
-        desc.view.debug_label = "deferred demo scene";
+        desc.view.debug_label = UString{"deferred demo scene"_ustr};
         return renderer_.render_frame(desc);
     }
 

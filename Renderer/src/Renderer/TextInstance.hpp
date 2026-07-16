@@ -125,8 +125,15 @@ namespace SFT::Renderer {
     [[nodiscard]] inline GlyphInstance make_glyph_instance(glm::vec2 position, const GlyphPlacement &placement,
                                                             const GlyphSlot &slot, f32 atlas_pixel_range) noexcept {
         const f32 instance_scale = slot.cell_size_px > 0.0f ? placement.size.x / slot.cell_size_px : 1.0f;
+        // `position` in is the pen (baseline origin), not the quad's top-left corner — every glyph's
+        // resident raster is cropped to *its own* ink bounding box (see RasterizedGlyph's doc
+        // comment), so the offset from pen to that raster's top-left varies per glyph (a
+        // parenthesis descends well below the baseline and rises well above x-height, unlike a
+        // plain lowercase letter) and must be added back here, rescaled by the same
+        // cell-size-relative factor already used for screen_px_range above.
+        const glm::vec2 bearing_offset = glm::vec2{slot.bearing_x, -slot.bearing_top} * instance_scale;
         return GlyphInstance{
-            .position = position,
+            .position = position + bearing_offset,
             .size = placement.size,
             .uv_min = slot.uv_min,
             .uv_max = slot.uv_max,

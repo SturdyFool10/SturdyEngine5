@@ -20,7 +20,6 @@
 using std::optional;
 using std::span;
 using std::string;
-using std::string_view;
 using std::vector;
 
 namespace SFT::Text {
@@ -31,8 +30,8 @@ namespace SFT::Text {
     // "Bold"/"Black"/"Heavy") — good enough for font-picking UI and FontDatabase::find(); a
     // precise weight number would need the `OS/2` table, which isn't reflected here yet.
     struct FontFaceInfo {
-        string family;
-        string subfamily;
+        UString family;
+        UString subfamily;
         bool bold = false;
         bool italic = false;
         string file_path;
@@ -41,11 +40,11 @@ namespace SFT::Text {
 
     namespace Detail {
 
-        [[nodiscard]] string read_name(hb_face_t *face, hb_ot_name_id_t name_id);
+        [[nodiscard]] UString read_name(hb_face_t *face, hb_ot_name_id_t name_id);
 
-        [[nodiscard]] bool contains_ci(string_view haystack, string_view needle) noexcept;
+        [[nodiscard]] bool contains_ci(const ustr &haystack, const ustr &needle) noexcept;
 
-        [[nodiscard]] bool equals_ci(string_view a, string_view b) noexcept;
+        [[nodiscard]] bool equals_ci(const ustr &a, const ustr &b) noexcept;
 
         [[nodiscard]] bool has_font_extension(const std::filesystem::path &path) noexcept;
 
@@ -72,7 +71,7 @@ namespace SFT::Text {
 
         // Best-effort match: exact case-insensitive family name, closest bold/italic combination
         // (prefers an exact style match, then falls back to whatever that family has).
-        [[nodiscard]] optional<string> find(string_view family, bool bold = false, bool italic = false) const;
+        [[nodiscard]] optional<string> find(const ustr &family, bool bold = false, bool italic = false) const;
 
       private:
         vector<FontFaceInfo> faces_;
@@ -85,9 +84,9 @@ namespace SFT::Text {
     // flat directory list, so a caller merges `extra_search_directories` with
     // Platform::font_search_directories() and passes the combined span in.
     struct FontSettings {
-        string default_ui_font_family;
-        string default_world_font_family;
-        string emoji_font_family;
+        UString default_ui_font_family;
+        UString default_world_font_family;
+        UString emoji_font_family;
         vector<string> extra_search_directories;
     };
 

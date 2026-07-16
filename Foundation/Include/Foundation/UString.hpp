@@ -6,6 +6,8 @@
 #include <compare>
 #include <concepts>
 #include <cstring>
+#include <exception>
+#include <expected>
 #include <fmt/format.h>
 #include <format>
 #include <functional>
@@ -22,6 +24,7 @@
 
 
 using std::array;
+using std::expected;
 using std::format;
 using std::invalid_argument;
 using std::length_error;
@@ -32,6 +35,7 @@ using std::size_t;
 using std::string;
 using std::string_view;
 using std::strong_ordering;
+using std::unexpected;
 using std::u16string;
 using std::u16string_view;
 using std::u32string;
@@ -206,6 +210,13 @@ namespace SFT::Foundation {
         InvalidLeadingByte,
     };
 
+    // std::string has no encoding in its type. Converting Unicode text back to it is therefore an
+    // explicit ASCII downcast; UTF-8 byte interop remains available separately through the
+    // cpp_string()/cpp_string_view() APIs.
+    enum class TextConversionError : u8 {
+        NonAscii,
+    };
+
     struct UStringValidation {
         bool valid = true;
         UStringValidationError error = UStringValidationError::None;
@@ -242,6 +253,14 @@ namespace SFT::Foundation {
         }
 
         return "unknown UTF-8 validation error";
+    }
+
+    [[nodiscard]] constexpr string_view to_string(TextConversionError error) noexcept {
+        switch (error) {
+        case TextConversionError::NonAscii:
+            return "text contains non-ASCII code points";
+        }
+        return "unknown text conversion error";
     }
 
     namespace Detail {
@@ -451,7 +470,10 @@ namespace SFT::Foundation {
             assign(text);
         }
 
-        UString(const string &text) {
+        // Implicit bridge from legacy std::string call sites. Its bytes are validated as UTF-8;
+        // invalid input (or failure to allocate the owned copy) violates this noexcept contract
+        // and terminates rather than leaking an exception across the bridge.
+        UString(const string &text) noexcept {
             assign(string_view{text});
         }
 
@@ -727,6 +749,24 @@ namespace SFT::Foundation {
             return string{cpp_string_view()};
         }
 
+        // Checked ASCII downcast. Allocation can still throw in the ordinary std::string way; the
+        // expected error reports an encoding failure, not an allocator failure.
+        [[nodiscard]] expected<string, TextConversionError> to_std_string() const {
+            if (!is_ascii()) {
+                return unexpected(TextConversionError::NonAscii);
+            }
+            return string{cpp_string_view()};
+        }
+
+        // Caller promises this value is ASCII. A violated encoding contract terminates in every
+        // build configuration instead of returning mojibake.
+        [[nodiscard]] string to_std_string_unchecked() const {
+            if (!is_ascii()) {
+                std::terminate();
+            }
+            return string{cpp_string_view()};
+        }
+
         // Borrowed `char8_t` view over the same bytes — UTF-8-typed interop without a copy. The bytes are
         // identical to `cpp_string_view()`; only the element type differs.
         [[nodiscard]] u8string_view cpp_u8string_view() const noexcept {
@@ -757,6 +797,12 @@ namespace SFT::Foundation {
 
         [[nodiscard]] bool empty() const noexcept {
             return byte_size_ == 0;
+        }
+
+        [[nodiscard]] bool is_ascii() const noexcept {
+            return std::ranges::all_of(cpp_string_view(), [](char byte) {
+                return static_cast<unsigned char>(byte) <= 0x7Fu;
+            });
         }
 
         [[nodiscard]] usize size() const noexcept {
@@ -1797,7 +1843,7 @@ namespace SFT::Foundation {
             assign_validated(as_char_view(text));
         }
 
-        ustr(const UString &text) noexcept
+        explicit ustr(const UString &text) noexcept
             : bytes_(text.cpp_string_view()), scalar_size_(text.scalar_size()) {
         }
 
@@ -1846,6 +1892,20 @@ namespace SFT::Foundation {
             return string{bytes_};
         }
 
+        [[nodiscard]] expected<string, TextConversionError> to_std_string() const {
+            if (!is_ascii()) {
+                return unexpected(TextConversionError::NonAscii);
+            }
+            return string{bytes_};
+        }
+
+        [[nodiscard]] string to_std_string_unchecked() const {
+            if (!is_ascii()) {
+                std::terminate();
+            }
+            return string{bytes_};
+        }
+
         [[nodiscard]] UString to_owned() const {
             return UString{*this};
         }
@@ -1878,6 +1938,12 @@ namespace SFT::Foundation {
 
         [[nodiscard]] bool empty() const noexcept {
             return bytes_.empty();
+        }
+
+        [[nodiscard]] bool is_ascii() const noexcept {
+            return std::ranges::all_of(bytes_, [](char byte) {
+                return static_cast<unsigned char>(byte) <= 0x7Fu;
+            });
         }
 
         [[nodiscard]] usize size() const noexcept {
@@ -2492,6 +2558,10 @@ namespace SFT::Foundation {
         return os << to_string(value);
     }
 
+    inline std::ostream &operator<<(std::ostream &os, TextConversionError value) {
+        return os << to_string(value);
+    }
+
     inline std::ostream &operator<<(std::ostream &os, const UStringValidation &value) {
         return os << Detail::display_string(value);
     }
@@ -2518,6 +2588,7 @@ namespace SFT {
 
     using USlice [[maybe_unused]] = Foundation::USlice;
     using USlicePattern [[maybe_unused]] = Foundation::USlicePattern;
+    using TextConversionError [[maybe_unused]] = Foundation::TextConversionError;
     using ustr [[maybe_unused]] = Foundation::ustr;
     using UString [[maybe_unused]] = Foundation::UString;
     using Foundation::slice_from;
@@ -2562,6 +2633,13 @@ struct std::formatter<SFT::Foundation::USlicePattern> : std::formatter<std::stri
 template <>
 struct std::formatter<SFT::Foundation::UStringValidationError> : std::formatter<std::string_view> {
     auto format(SFT::Foundation::UStringValidationError value, auto &ctx) const {
+        return std::formatter<std::string_view>::format(SFT::Foundation::to_string(value), ctx);
+    }
+};
+
+template <>
+struct std::formatter<SFT::Foundation::TextConversionError> : std::formatter<std::string_view> {
+    auto format(SFT::Foundation::TextConversionError value, auto &ctx) const {
         return std::formatter<std::string_view>::format(SFT::Foundation::to_string(value), ctx);
     }
 };
@@ -2613,6 +2691,13 @@ struct fmt::formatter<SFT::Foundation::UStringValidationError> : fmt::formatter<
 };
 
 template <>
+struct fmt::formatter<SFT::Foundation::TextConversionError> : fmt::formatter<std::string_view> {
+    auto format(SFT::Foundation::TextConversionError value, fmt::format_context &ctx) const {
+        return fmt::formatter<std::string_view>::format(SFT::Foundation::to_string(value), ctx);
+    }
+};
+
+template <>
 struct fmt::formatter<SFT::Foundation::UStringValidation> : fmt::formatter<std::string_view> {
     auto format(const SFT::Foundation::UStringValidation &value, fmt::format_context &ctx) const {
         return fmt::formatter<std::string_view>::format(SFT::Foundation::Detail::display_string(value), ctx);
@@ -2645,8 +2730,10 @@ static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlice>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::USlicePattern>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidationError>);
 static_assert(SFT::Foundation::Displayable<SFT::Foundation::UStringValidation>);
+static_assert(SFT::Foundation::Displayable<SFT::Foundation::TextConversionError>);
 
 // And both string types are `Hashable` (usable as hash-map keys), verified after the `std::hash`
 // specializations are in scope.
 static_assert(SFT::Foundation::Hashable<SFT::Foundation::UString>);
 static_assert(SFT::Foundation::Hashable<SFT::Foundation::ustr>);
+static_assert(noexcept(SFT::Foundation::UString{std::declval<const std::string &>()}));

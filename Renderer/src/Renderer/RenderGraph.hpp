@@ -136,6 +136,61 @@ namespace SFT::Renderer {
         const char *label = nullptr;
     };
 
+    // Raw same-size, same-format texture->texture copy (no scaling/filtering) — distinct from
+    // RenderGraphBlitDesc, which is the scaled/filtered path. History buffers / readback staging.
+    struct RenderGraphCopyDesc {
+        RenderGraphTextureHandle source{};
+        RenderGraphTextureHandle destination{};
+        const char *label = nullptr;
+    };
+
+    // A storage-image (RHI::TextureLayout::General) access declared by a compute pass. `read`/`write`
+    // are independent so a pass can declare read-only, write-only, or read-modify-write access; at
+    // least one must be true.
+    struct RenderGraphStorageTextureAccessDesc {
+        RenderGraphTextureHandle texture{};
+        bool read = false;
+        bool write = true;
+    };
+
+    class RenderGraphComputeContext {
+      public:
+        RenderGraphComputeContext(RenderGraph &graph, RHI::CommandEncoder &command_encoder,
+                                  RHI::ComputePassEncoder &compute_pass) noexcept;
+
+        [[nodiscard]] RHI::CommandEncoder &command_encoder() const noexcept;
+        [[nodiscard]] RHI::ComputePassEncoder &compute_pass() const noexcept;
+        [[nodiscard]] RenderGraphTextureAccess texture(RenderGraphTextureHandle handle) const noexcept;
+
+      private:
+        RenderGraph *graph_ = nullptr;
+        RHI::CommandEncoder *command_encoder_ = nullptr;
+        RHI::ComputePassEncoder *compute_pass_ = nullptr;
+    };
+
+    using RenderGraphComputeExecuteFn = function<Core::RendererResult(RenderGraphComputeContext &)>;
+
+    class RenderGraphComputePassBuilder {
+      public:
+        explicit RenderGraphComputePassBuilder(string label = {});
+
+        // Sampled (ShaderReadOnly) texture read, always at the compute-shader stage.
+        RenderGraphComputePassBuilder &add_sampled_texture(RenderGraphTextureHandle texture);
+
+        // Storage-image (RHI::TextureLayout::General) read/write/read-write access.
+        RenderGraphComputePassBuilder &add_storage_texture(const RenderGraphStorageTextureAccessDesc &access);
+
+        RenderGraphComputePassBuilder &set_execute(RenderGraphComputeExecuteFn execute) noexcept;
+
+      private:
+        friend class RenderGraph;
+
+        string label_;
+        vector<RenderGraphTextureHandle> sampled_texture_reads_;
+        vector<RenderGraphStorageTextureAccessDesc> storage_textures_;
+        RenderGraphComputeExecuteFn execute_;
+    };
+
     class RenderGraphRenderPassBuilder {
       public:
         explicit RenderGraphRenderPassBuilder(string label = {});
@@ -173,7 +228,11 @@ namespace SFT::Renderer {
 
         [[nodiscard]] RenderGraphRenderPassBuilder &add_render_pass(string_view label);
 
+        [[nodiscard]] RenderGraphComputePassBuilder &add_compute_pass(string_view label);
+
         void add_blit_pass(const RenderGraphBlitDesc &desc);
+
+        void add_copy_pass(const RenderGraphCopyDesc &desc);
 
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
 
@@ -194,32 +253,61 @@ namespace SFT::Renderer {
         enum class PassKind : u8 {
             Render,
             Blit,
+            Compute,
+            Copy,
         };
 
         struct OrderedPass {
             PassKind kind = PassKind::Render;
             u32 index = 0;
         };
+
+        // The actual GPU-visible backing for one or more virtual transient textures. Two virtual
+        // textures whose lifetimes don't overlap (and whose creation desc matches exactly) are assigned
+        // the same PhysicalSlot by create_transient_resources()'s aliasing pass, so current_layout/stage/
+        // access is deliberately tracked per *physical* slot, not per virtual TextureRecord: it reflects
+        // real GPU state, which is shared whenever two virtual textures alias. Imported textures always
+        // get a dedicated, non-owning slot (owns_resource = false — the graph never destroys it).
+        struct PhysicalSlot {
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle default_view{};
+            RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
+            RHI::PipelineStage current_stage = RHI::PipelineStage::None;
+            RHI::AccessFlags current_access = RHI::AccessFlags::None;
+            bool owns_resource = false;
+        };
+
         struct TextureRecord {
             RenderGraphImportedTextureDesc imported{};
             RenderGraphTextureDesc transient{};
             bool is_transient = false;
-            RHI::TextureHandle texture{};
-            RHI::TextureViewHandle default_view{};
+            // Index into physical_slots_. Imported textures get one immediately in import_texture();
+            // transient textures are only assigned one once create_transient_resources() runs its
+            // aliasing pass, so this is ~0u (invalid) between create_texture() and execute().
+            u32 physical_slot = ~0u;
             RHI::Format format = RHI::Format::Undefined;
             RHI::Extent3D extent{};
             RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
             RHI::PipelineStage final_stage = RHI::PipelineStage::None;
             RHI::AccessFlags final_access = RHI::AccessFlags::None;
-            RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
-            RHI::PipelineStage current_stage = RHI::PipelineStage::None;
-            RHI::AccessFlags current_access = RHI::AccessFlags::None;
             string label;
+        };
+
+        // First/last position a transient texture is read or written at, in compile_execution_order()'s
+        // returned (culled, topo-sorted) order — the input to interval-graph aliasing. -1 means the
+        // texture was never used by any live pass.
+        struct TextureLifetime {
+            i32 first_use = -1;
+            i32 last_use = -1;
         };
 
         [[nodiscard]] TextureRecord *texture_record(RenderGraphTextureHandle handle) noexcept;
 
         [[nodiscard]] const TextureRecord *texture_record(RenderGraphTextureHandle handle) const noexcept;
+
+        [[nodiscard]] PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) noexcept;
+
+        [[nodiscard]] const PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) const noexcept;
 
         [[nodiscard]] Core::RendererResult transition_texture(RHI::CommandEncoder &encoder,
                                                               RenderGraphTextureHandle handle,
@@ -245,7 +333,18 @@ namespace SFT::Renderer {
 
         [[nodiscard]] Core::RendererResult execute_blit_pass(RHI::CommandEncoder &encoder, const RenderGraphBlitDesc &pass);
 
-        [[nodiscard]] Core::RendererResult create_transient_resources(RHI::RhiDevice &device);
+        [[nodiscard]] Core::RendererResult execute_compute_pass(RHI::CommandEncoder &encoder,
+                                                                RenderGraphComputePassBuilder &pass);
+
+        [[nodiscard]] Core::RendererResult execute_copy_pass(RHI::CommandEncoder &encoder, const RenderGraphCopyDesc &pass);
+
+        // Runs compile_execution_order()'s topo-sorted/culled order through interval-graph aliasing
+        // (see RenderGraph.cpp for the algorithm) before creating one physical GPU texture per resulting
+        // slot instead of one per virtual transient texture, then creates the GPU resources.
+        [[nodiscard]] Core::RendererResult create_transient_resources(RHI::RhiDevice &device,
+                                                                      const vector<OrderedPass> &execution_order);
+
+        [[nodiscard]] vector<TextureLifetime> compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const;
 
         [[nodiscard]] Core::RendererResult transition_to_final_states(RHI::CommandEncoder &encoder);
 
@@ -269,11 +368,17 @@ namespace SFT::Renderer {
         };
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphRenderPassBuilder &pass);
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphBlitDesc &pass);
+        [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphComputePassBuilder &pass);
+        [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphCopyDesc &pass);
+        [[nodiscard]] PassUsage usage_of_ordered(const OrderedPass &ordered) const;
 
         vector<TextureRecord> textures_;
+        vector<PhysicalSlot> physical_slots_;
         vector<OrderedPass> ordered_passes_;
         vector<RenderGraphRenderPassBuilder> render_passes_;
         vector<RenderGraphBlitDesc> blit_passes_;
+        vector<RenderGraphComputePassBuilder> compute_passes_;
+        vector<RenderGraphCopyDesc> copy_passes_;
     };
 
     

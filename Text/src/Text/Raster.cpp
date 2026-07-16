@@ -87,6 +87,19 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         const msdfgen::Shape::Bounds bounds = shape.getBounds();
         const double translate_x = static_cast<double>(params.padding_px) / scale - bounds.l;
         const double translate_y = static_cast<double>(params.padding_px) / scale - bounds.b;
+
+        // Where this specific raster sits relative to the pen (baseline origin) — see
+        // RasterizedGlyph's doc comment. Derived directly from the same translate_x/translate_y
+        // this glyph's own ink was anchored by: bounds.l maps to pixel column padding_px (by
+        // construction of translate_x above), so pixel column of the pen (shape x=0) is
+        // `translate_x * scale` from the raster's left edge, i.e. `padding_px - bounds.l * scale`
+        // — bearing_x below is that quantity's sign flipped to an additive pen-relative offset.
+        // Symmetric for Y, then re-based from msdfgen's bottom-up bitmap row convention (row 0 =
+        // bottom) to this function's top-to-bottom output (row 0 = top) by subtracting from height.
+        result.bearing_x = static_cast<f32>(bounds.l * scale - static_cast<double>(params.padding_px));
+        result.bearing_top =
+            static_cast<f32>(static_cast<double>(params.height) - static_cast<double>(params.padding_px) + bounds.b * scale);
+
         const msdfgen::Range range(static_cast<double>(params.pixel_range) / scale);
         const msdfgen::SDFTransformation transformation(
             msdfgen::Projection(msdfgen::Vector2(scale, scale), msdfgen::Vector2(translate_x, translate_y)), range);

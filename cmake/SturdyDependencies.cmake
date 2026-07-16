@@ -16,6 +16,9 @@ set(STURDY_FMT_TAG "12.1.0" CACHE STRING "{fmt} git tag to fetch; shared with sp
 set(STURDY_SPDLOG_TAG "v1.17.0" CACHE STRING "spdlog git tag to fetch.")
 set(STURDY_MIMALLOC_TAG "v2.1.7" CACHE STRING "mimalloc git tag to fetch.")
 set(STURDY_HARFBUZZ_TAG "14.2.1" CACHE STRING "HarfBuzz git tag to fetch.")
+# Only used to give HarfBuzz's hb-ft backend (HB_HAVE_FREETYPE) a real hinting engine — Text's own
+# outline extraction (hb-draw) stays FreeType-agnostic either way; see sturdy_fetch_freetype().
+set(STURDY_FREETYPE_TAG "VER-2-14-1" CACHE STRING "FreeType git tag to fetch.")
 set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # Slang is built from source so we get a static library with SPIRV-Tools baked in.
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
@@ -153,6 +156,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_fmt()
         sturdy_fetch_spdlog()
         sturdy_fetch_mimalloc()
+        sturdy_fetch_freetype()
         sturdy_fetch_harfbuzz()
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
@@ -178,6 +182,7 @@ function(sturdy_configure_dependencies)
         find_package(fmt CONFIG REQUIRED)
         find_package(spdlog CONFIG REQUIRED)
         find_package(mimalloc CONFIG REQUIRED)
+        find_package(Freetype REQUIRED)
         find_package(harfbuzz CONFIG REQUIRED)
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
@@ -771,10 +776,43 @@ function(sturdy_fetch_mimalloc)
     sturdy_register_license(mimalloc "${mimalloc_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_freetype)
+    # FreeType gives HarfBuzz's hb-ft backend a real hinting engine (TrueType bytecode interpreter
+    # + the CFF/PostScript hinter) — Text's own outline extraction (Text/Outline.cpp, hb-draw) is
+    # otherwise FreeType-agnostic and stays that way; this is purely so a Font can optionally be
+    # loaded through hb-ft with hinting enabled instead of the plain hb-ot (unhinted) path. Disable
+    # everything FreeType can optionally depend on (HarfBuzz itself, PNG/zlib/bzip2 for embedded
+    # bitmap strikes/compressed tables this engine's fonts don't use, brotli for WOFF2) to keep
+    # this a small, dependency-free static library.
+    set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+    # No "CONFIG" restriction (unlike this file's other FIND_PACKAGE_ARGS): FreeType's own distro
+    # packages mostly only support CMake's bundled Module-mode FindFreetype.cmake, not an exported
+    # Config package. Module-mode discovery matters here specifically because HarfBuzz frequently
+    # resolves to a *system* package too (see sturdy_fetch_harfbuzz) — when it does, its hb-ft
+    # backend is already linked against the system libfreetype.so, so our own FT_Face-creating code
+    # (Font::load_hinted) must link that exact same library, not a separately-built copy, or the
+    # two FreeType copies' symbols/struct layouts can clash at runtime.
+    sturdy_fetchcontent_declare(freetype
+        GIT_REPOSITORY https://github.com/freetype/freetype.git
+        GIT_TAG ${STURDY_FREETYPE_TAG}
+        FIND_PACKAGE_ARGS QUIET
+    )
+    FetchContent_MakeAvailable(freetype)
+    sturdy_mark_dependency_targets_exclude_from_all(freetype freetype::freetype)
+    sturdy_register_license(freetype "${freetype_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_fetch_harfbuzz)
     set(HB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
-    set(HB_HAVE_FREETYPE OFF CACHE BOOL "" FORCE)
+    # ON so hb-ft.cc (the FreeType-backed hb_font_t backend) is compiled in — this is what lets
+    # Text::Font optionally load through FreeType with hinting active; see Font::load_hinted() and
+    # sturdy_fetch_freetype()'s comment. Text's default (unhinted) path is untouched either way.
+    set(HB_HAVE_FREETYPE ON CACHE BOOL "" FORCE)
     set(HB_HAVE_GLIB OFF CACHE BOOL "" FORCE)
     set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
     sturdy_fetchcontent_declare(harfbuzz
@@ -967,6 +1005,12 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::HarfBuzz
         harfbuzz::harfbuzz
         harfbuzz
+    )
+
+    sturdy_alias_existing_target(Sturdy::FreeType
+        freetype::freetype
+        freetype
+        Freetype::Freetype
     )
 
     sturdy_alias_existing_target(Sturdy::miniaudio

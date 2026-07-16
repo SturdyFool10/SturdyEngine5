@@ -244,7 +244,7 @@ namespace SFT::Renderer {
         submission.lighting = desc.view.lighting;
         submission.deferred_formats = desc.view.deferred_formats;
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
-        submission.debug_label = desc.view.debug_label != nullptr ? desc.view.debug_label : string{};
+        submission.debug_label = desc.view.debug_label;
 
         submission.draws.reserve(desc.view.renderables.size());
         for (const SceneRenderable &renderable : desc.view.renderables) {
@@ -794,8 +794,8 @@ namespace SFT::Renderer {
         // text overlay" pass) only issues the already-prepared instanced draws.
         const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
         const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
-        const array<string, 7> overlay_lines{
-            submission.debug_label.empty() ? string{"Scene"} : submission.debug_label,
+        const array<UString, 7> overlay_lines{
+            submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
             std::format("Renderables: {}", submission.draws.size()),
             std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
                        submission.camera.world_position.y, submission.camera.world_position.z),
@@ -808,7 +808,7 @@ namespace SFT::Renderer {
         // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
         // return (nothing has been submitted yet, so there's nothing else to unwind).
         if (Core::RendererResult text_prepared =
-                prepare_text_overlay(**encoder, span<const string>{overlay_lines.data(), overlay_lines.size()},
+                prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
                                      glm::vec2{10.0f, 10.0f}, submission.transient_buffers, text_overlay_batches);
             !text_prepared.has_value()) {
             return text_prepared;

@@ -4,12 +4,10 @@
 
 #pragma region Imports
 #include <expected>
-#include <string>
 #include <utility>
 #pragma endregion
 
 using std::expected;
-using std::string;
 using std::unexpected;
 
 namespace SFT::Text {
@@ -32,7 +30,7 @@ namespace SFT::Text {
 
     struct TextError {
         TextErrorCode code = TextErrorCode::LoadFailed;
-        string message;
+        UString message;
     };
 
     // `TextResult` — a fallible Text call with no value; `TextExpected<T>` — one that yields a `T`.
@@ -41,6 +39,6 @@ namespace SFT::Text {
     template <typename Value>
     using TextExpected = expected<Value, TextError>;
 
-    [[nodiscard]] unexpected<TextError> text_error(TextErrorCode code, string message);
+    [[nodiscard]] unexpected<TextError> text_error(TextErrorCode code, UString message);
 
 } // namespace SFT::Text

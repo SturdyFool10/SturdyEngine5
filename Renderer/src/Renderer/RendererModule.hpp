@@ -278,7 +278,7 @@ namespace SFT::Renderer {
             DeferredTargetFormats deferred_formats{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
-            string debug_label;
+            UString debug_label;
         };
 
         struct DebugSceneResources {
@@ -498,7 +498,7 @@ namespace SFT::Renderer {
         // frame-fence-gated cleanup, same contract as transient_bind_groups.
         [[nodiscard]] Core::RendererResult ensure_text_overlay_resources();
         [[nodiscard]] Core::RendererResult prepare_text_overlay(RHI::CommandEncoder &encoder,
-                                                                 span<const string> lines,
+                                                                 span<const UString> lines,
                                                                  glm::vec2 origin_px,
                                                                  vector<RHI::BufferHandle> &transient_buffers,
                                                                  vector<TextDrawBatch> &out_batches);

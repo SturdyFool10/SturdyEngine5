@@ -1,6 +1,7 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <array>
 #include <expected>
 #include <fstream>
@@ -35,7 +36,6 @@ namespace SFT::Renderer {
         // as the emoji fallback — sized up a notch from Vertex's own 18pt UI default for this
         // engine's debug HUD.
         constexpr f32 overlay_pixel_size = 20.0f;
-        constexpr f32 overlay_line_height = 25.0f;
 
         [[nodiscard]] optional<vector<std::byte>> read_file_bytes(const string &path) {
             std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -65,22 +65,24 @@ namespace SFT::Renderer {
         }
 
         [[nodiscard]] optional<string> find_first_available(const Text::FontDatabase &database,
-                                                             span<const char *const> preferred_families) {
-            for (const char *family : preferred_families) {
-                if (optional<string> path = database.find(family)) {
+                                                             span<const UString> preferred_families) {
+            for (const UString &family : preferred_families) {
+                if (optional<string> path = database.find(family.as_ustr())) {
                     return path;
                 }
             }
             return std::nullopt;
         }
 
-        // Best-effort default UI font pick: Maple Mono NF (the Nerd-Font-patched build of Maple
-        // Mono) is preferred when installed, falling back to a handful of common family names
-        // likely to exist on any of this engine's target OSes, then to whatever discovery found
-        // first.
+        // Best-effort default UI font pick. Maple Mono NF is the bundled engine typeface and the
+        // first choice; horizontal layout still comes entirely from HarfBuzz's shaped x_advance,
+        // including any substitutions or positioning selected through its OpenType features.
         [[nodiscard]] optional<string> find_default_font_path(const Text::FontDatabase &database) {
-            static constexpr array<const char *, 6> preferred_families{
-                "Maple Mono NF", "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica",
+            static const array<UString, 12> preferred_families{
+                UString{"Maple Mono NF"_ustr}, UString{"Segoe UI"_ustr}, UString{"SF Pro Text"_ustr},
+                UString{"Roboto"_ustr}, UString{"Noto Sans"_ustr}, UString{"DejaVu Sans"_ustr},
+                UString{"Fira Sans"_ustr}, UString{"Cantarell"_ustr}, UString{"Adwaita Sans"_ustr},
+                UString{"Liberation Sans"_ustr}, UString{"Arial"_ustr}, UString{"Helvetica"_ustr},
             };
             if (optional<string> path = find_first_available(database, preferred_families)) {
                 return path;
@@ -98,8 +100,9 @@ namespace SFT::Renderer {
         // boxes, no better than having no emoji font at all — see the `has_emoji_font` degradation
         // path in ensure_text_overlay_resources().
         [[nodiscard]] optional<string> find_default_emoji_font_path(const Text::FontDatabase &database) {
-            static constexpr array<const char *, 3> preferred_families{
-                "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
+            static const array<UString, 3> preferred_families{
+                UString{"Noto Color Emoji"_ustr}, UString{"Apple Color Emoji"_ustr},
+                UString{"Segoe UI Emoji"_ustr},
             };
             return find_first_available(database, preferred_families);
         }
@@ -131,11 +134,16 @@ namespace SFT::Renderer {
                                                 "Failed to read the debug text overlay font file: " + *font_path);
         }
 
-        auto font = Text::Font::load(span<const std::byte>{font_bytes->data(), font_bytes->size()});
+        // Hinted, not load()'s scale-free path: the overlay always draws at exactly
+        // overlay_pixel_size (never scaled/rotated/animated), which is exactly the case FreeType's
+        // hinting engine (Text::Font::load_hinted) is for — see its doc comment for why a hinted
+        // Font is only valid to rasterize at the one size it was loaded with.
+        auto font = Text::Font::load_hinted(span<const std::byte>{font_bytes->data(), font_bytes->size()}, overlay_pixel_size);
         if (!font) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Failed to parse the debug text overlay font: " + *font_path);
         }
+        Foundation::log_info("Debug text overlay font: {}", *font_path);
 
         auto atlas = TextAtlas::create(*device, TextAtlas::Config{});
         if (!atlas) {
@@ -162,6 +170,7 @@ namespace SFT::Renderer {
                     guard->emoji_font = std::move(*emoji_font);
                     guard->emoji_font_id = 2;
                     guard->has_emoji_font = true;
+                    Foundation::log_info("Debug text overlay emoji font: {}", *emoji_path);
                 }
             }
         }
@@ -170,7 +179,7 @@ namespace SFT::Renderer {
         return {};
     }
 
-    Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const string> lines,
+    Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const UString> lines,
                                                         glm::vec2 origin_px, vector<RHI::BufferHandle> &transient_buffers,
                                                         vector<TextDrawBatch> &out_batches) {
         out_batches.clear();
@@ -191,6 +200,10 @@ namespace SFT::Renderer {
 
         const u32 units_per_em = guard->font.units_per_em();
         const f32 scale = units_per_em > 0 ? overlay_pixel_size / static_cast<f32>(units_per_em) : 0.0f;
+        const f32 ascender_px = static_cast<f32>(guard->font.ascender()) * scale;
+        const f32 font_line_height =
+            static_cast<f32>(guard->font.ascender() - guard->font.descender() + guard->font.line_gap()) * scale;
+        const f32 line_height = std::max(font_line_height, overlay_pixel_size);
         const u32 emoji_units_per_em = guard->has_emoji_font ? guard->emoji_font.units_per_em() : 0;
         const f32 emoji_scale = emoji_units_per_em > 0 ? overlay_pixel_size / static_cast<f32>(emoji_units_per_em) : 0.0f;
 
@@ -201,12 +214,26 @@ namespace SFT::Renderer {
             .emoji_font_id = guard->emoji_font_id,
         };
 
+        // Preserve the shaping features a proportional UI face normally enables by default and
+        // make them explicit for the debug HUD. Tabular figures are the one HUD-specific choice:
+        // changing FPS/frame counters keep a stable width while ordinary UI can opt into `pnum`.
+        Text::ShapeOptions shape_options;
+        shape_options.features.calt = 1;
+        shape_options.features.ccmp = 1;
+        shape_options.features.clig = 1;
+        shape_options.features.kern = 1;
+        shape_options.features.liga = 1;
+        shape_options.features.locl = 1;
+        shape_options.features.mark = 1;
+        shape_options.features.mkmk = 1;
+        shape_options.features.tnum = 1;
+
         vector<GlyphPlacement> placements;
-        glm::vec2 pen = origin_px;
-        for (const string &line : lines) {
-            auto shaped = Text::shape_with_fallback(fonts, line);
+        glm::vec2 pen{origin_px.x, origin_px.y + ascender_px};
+        for (const UString &line : lines) {
+            auto shaped = Text::shape_with_fallback(fonts, line.as_ustr(), shape_options);
             if (!shaped) {
-                pen.y += overlay_line_height;
+                pen.y += line_height;
                 continue;
             }
 
@@ -243,7 +270,7 @@ namespace SFT::Renderer {
                 cursor.x += glyph.x_advance * glyph_scale;
                 cursor.y -= glyph.y_advance * glyph_scale;
             }
-            pen.y += overlay_line_height;
+            pen.y += line_height;
         }
 
         if (placements.empty()) {

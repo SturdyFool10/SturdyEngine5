@@ -103,6 +103,8 @@ namespace SFT::Renderer {
             .uv_max = glm::vec2{u1, v1},
             .cell_size_px = raster_size,
             .format = format,
+            .bearing_x = cell.bearing_x,
+            .bearing_top = cell.bearing_top,
         };
     }
 
@@ -218,7 +220,7 @@ namespace SFT::Renderer {
             cell->raster_size = raster_size_for(request.format, request.pixel_size, config_.padding_px, config_.cell_size);
             resident_[key] = *cell;
             format_lru(request.format).touch(key);
-            misses.push_back(PendingUpload{.request_index = i, .cell = *cell});
+            misses.push_back(PendingUpload{.request_index = i, .key = key, .cell = *cell});
         }
 
         if (misses.empty()) {
@@ -258,10 +260,19 @@ namespace SFT::Renderer {
 
         for (usize i = 0; i < misses.size(); ++i) {
             if (!rasterized[i]) {
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    "Text atlas glyph rasterization failed: " + rasterized[i].error().message);
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    "Text atlas glyph rasterization failed: " + rasterized[i].error().message.cpp_string());
             }
-            out_slots[misses[i].request_index] = slot_from_cell(requests[misses[i].request_index].format, misses[i].cell);
+            // Bearing is only known now that rasterization has actually run (Color glyphs leave it
+            // at 0 — see RasterizedGlyph's doc comment on why only the SDF/MSDF outline path needs
+            // it) — fold it into both the resident_ entry (so a future cache hit sees it too) and
+            // this miss's own slot.
+            CellLocation cell = misses[i].cell;
+            cell.bearing_x = rasterized[i]->bearing_x;
+            cell.bearing_top = rasterized[i]->bearing_top;
+            resident_[misses[i].key] = cell;
+            out_slots[misses[i].request_index] = slot_from_cell(requests[misses[i].request_index].format, cell);
         }
 
         // Batch every miss's pixels into one staging buffer, then one command buffer + submit +

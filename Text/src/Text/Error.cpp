@@ -2,7 +2,7 @@
 
 namespace SFT::Text {
 
-unexpected<TextError> text_error(TextErrorCode code, string message) {
+unexpected<TextError> text_error(TextErrorCode code, UString message) {
         return unexpected(TextError{code, std::move(message)});
     }
 
