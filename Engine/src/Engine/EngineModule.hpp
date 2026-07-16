@@ -62,8 +62,10 @@ namespace SFT::Engine {
                                                                           u32 desired_frames_in_flight = 2);
 
         // Forward a resize-needed notification to the backend. Call on every window resize event,
-        // including resize-to-zero (minimized). The backend queries extent and rebuilds lazily.
-        void on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept;
+        // including resize-to-zero (minimized), with the already-resolved framebuffer extent — the
+        // backend must not query the window itself (this can be called from a render thread; see
+        // EngineBackend::on_surface_resize_needed). The backend rebuilds the swapchain lazily.
+        void on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept;
 
         // Runtime presentation policy for a surface: apps can expose this as vsync / low-latency / tearing
         // options. Changing it marks the swapchain dirty and applies on the next rendered frame.

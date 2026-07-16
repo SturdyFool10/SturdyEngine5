@@ -50,6 +50,16 @@ namespace SFT::Engine {
             u64 frame_index = 0;
             std::chrono::high_resolution_clock::time_point last_frame_time{};
             f64 last_delta_seconds = 0.0;
+            // Last time a wait_for_completion=true (Windows interactive-drag) repaint actually
+            // rendered, as opposed to being throttle-skipped — see render_managed_window's
+            // wait_for_completion doc for why this throttle exists.
+            std::chrono::high_resolution_clock::time_point last_synchronous_repaint_time{};
+            // How long that last synchronous repaint actually took to render+present. Feeds the
+            // adaptive fallback in render_managed_window: an unusually slow one (GPU/driver hiccup,
+            // not something the engine controls — see the wait_for_completion doc) means the *next*
+            // repaint skips forcing a synchronous wait, so a slow driver can't freeze the OS's own
+            // move/resize loop for a second multi-second stretch back to back.
+            f64 last_synchronous_repaint_duration_seconds = 0.0;
         };
 
         // Waits on every still-in-flight render-thread frame (every window) and empties each ring. Must
@@ -72,7 +82,40 @@ namespace SFT::Engine {
         // window_manager_ — since it also runs from inside a Window's repaint callback, which itself
         // fires from inside WindowManager's own dispatch(); re-entering dispatch() from there would
         // deadlock a single-worker DedicatedThread waiting on itself.
-        void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized);
+        //
+        // wait_for_completion forces this call to block until the frame it just queued has actually
+        // finished (rather than only enforcing the usual max_frames_in_flight_ backpressure), so the
+        // window's on-screen content is fully caught up before returning. Only the Windows-only
+        // interactive-move/resize repaint path (see SDL3Window::sdl_repaint_watch) needs this: that
+        // path is driven synchronously from inside SDL's blocked modal move/resize pump, and without
+        // it the render thread free-runs ahead as fast as WM_PAINT fires while swapchain recreation
+        // (tens to thousands of ms each) can't keep up, so the visible content lags the drag by however
+        // large that backlog has grown instead of tracking it live.
+        //
+        // wait_for_completion also applies two guards, both scoped to just this synchronous path —
+        // neither ever touches the pipelined async path used everywhere else:
+        //
+        //  1. A small minimum-interval throttle (min_synchronous_repaint_interval_seconds in the
+        //     .cpp) pacing how often it *starts* a new synchronous render. Windows can dispatch
+        //     WM_PAINT during a drag far faster than a full render+swapchain-recreate can complete;
+        //     the throttle keeps that from turning into a wall of redundant back-to-back rebuilds.
+        //  2. An adaptive fallback: if the *previous* synchronous repaint measured unusually slow
+        //     (see last_synchronous_repaint_duration_seconds on ManagedWindow), this call skips
+        //     forcing the wait and dispatches through the normal pipelined path instead. Direct
+        //     instrumentation traced an observed multi-second-per-call stall to the GPU driver's
+        //     vkCreateSwapchainKHR itself — correlated with a preceding idle gap, recovering
+        //     immediately after, the signature of a GPU power-state wake-up rather than anything
+        //     this engine's own bookkeeping controls. When the driver does stall like that, forcing
+        //     every subsequent repaint to also block would turn one hardware hiccup into the OS's
+        //     entire move/resize loop being frozen for its whole duration; falling back lets the
+        //     drag stay interactive (content trailing briefly) instead.
+        //
+        // The extent used once a throttled or recovering call finally renders synchronously again is
+        // still whatever is current at that moment, so it stays visually live rather than stale.
+        // The normal per-frame call from run()'s main loop (used on every platform, including Windows
+        // outside of an active drag) keeps the default pipelined behavior for throughput.
+        void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized,
+                                    bool wait_for_completion = false);
         void report_frame_result(const Core::RendererResult &result) noexcept;
 
         Platform::Windowing::WindowManager window_manager_{

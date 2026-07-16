@@ -70,8 +70,12 @@ namespace SFT::Core {
         virtual void destroy_window_surface(RenderSurfaceHandle surface) noexcept = 0;
 
         // Notify the backend that a surface needs resize handling. The renderer/RHI owns swapchain
-        // recreation; this remains a backend hook for API-specific surface bookkeeping.
-        virtual void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept = 0;
+        // recreation; this remains a backend hook for API-specific surface bookkeeping. `extent` is
+        // the fresh framebuffer size already resolved on the window-owning thread — implementations
+        // must use it as-is rather than querying the Window themselves: this hook typically runs on
+        // a dedicated render thread, and Window is not safe to touch off its owning thread (see
+        // SDL3Window's thread-affinity contract).
+        virtual void on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept = 0;
 
         // What this backend can actually do, populated during initialize().
         [[nodiscard]] virtual RendererCapabilities capabilities() const noexcept = 0;

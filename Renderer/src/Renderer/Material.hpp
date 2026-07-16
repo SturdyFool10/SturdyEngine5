@@ -13,7 +13,6 @@
 #include "Handles.hpp"
 #include "ReflectionBinding.hpp"
 
-using std::byte;
 using std::string;
 using std::vector;
 

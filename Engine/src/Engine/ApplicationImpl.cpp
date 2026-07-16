@@ -106,6 +106,13 @@ namespace SFT::Engine {
         // docs), so it's always safe to touch the captured Window& directly from inside it; calling
         // back into window_manager_ from here would deadlock a single-worker DedicatedThread waiting
         // on itself.
+        //
+        // In practice this callback only ever fires on Windows, synchronously from inside SDL's
+        // blocked interactive move/resize modal pump (see SDL3Window::sdl_repaint_watch — every other
+        // platform's watch is a no-op and relies solely on the normal per-frame call in run()'s main
+        // loop below). wait_for_completion=true makes each of those repaints block until fully
+        // rendered before returning to the modal pump, so on-screen content tracks the drag live
+        // instead of free-running ahead and catching up only once the drag ends.
         window_manager_.with_window(*id, [this, managed_ptr](Window &window) -> bool {
             window.set_repaint_callback([this, managed_ptr, window_ptr = &window]() {
                 const bool resized = window_ptr->consume_resize().has_value();
@@ -113,7 +120,7 @@ namespace SFT::Engine {
                 if (!extent) {
                     return;
                 }
-                render_managed_window(*managed_ptr, *extent, resized);
+                render_managed_window(*managed_ptr, *extent, resized, /*wait_for_completion=*/true);
             });
             return true;
         });
@@ -121,12 +128,38 @@ namespace SFT::Engine {
         return true;
     }
 
-    void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized) {
+    void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized,
+                                             bool wait_for_completion) {
         if (resized) {
             managed.resize_pending.store(true, std::memory_order_release);
         }
         if (extent.x == 0 || extent.y == 0 || !managed.surface) {
             return;
+        }
+
+        // See wait_for_completion's doc in Application.hpp for both guards below — throttle and
+        // adaptive fallback — which apply only to the Windows interactive-drag repaint path and
+        // never touch the pipelined async path used everywhere else.
+        bool effective_wait_for_completion = wait_for_completion;
+        if (wait_for_completion) {
+            constexpr f64 min_synchronous_repaint_interval_seconds = 1.0 / 120.0;
+            // Threshold well above any observed healthy swapchain-recreate cost (tens of ms) but
+            // far below the multi-second GPU driver stalls this guards against.
+            constexpr f64 slow_repaint_fallback_threshold_seconds = 0.2;
+
+            if (managed.last_synchronous_repaint_duration_seconds > slow_repaint_fallback_threshold_seconds) {
+                effective_wait_for_completion = false;
+                // Give synchronous mode another chance next repaint rather than disabling it for the
+                // rest of the drag — most observed stalls were a one-off GPU wake-up, not sustained.
+                managed.last_synchronous_repaint_duration_seconds = 0.0;
+            } else {
+                const auto throttle_now = high_resolution_clock::now();
+                const f64 since_last = duration<f64>(throttle_now - managed.last_synchronous_repaint_time).count();
+                if (since_last < min_synchronous_repaint_interval_seconds) {
+                    return;
+                }
+                managed.last_synchronous_repaint_time = throttle_now;
+            }
         }
 
         constexpr f64 hitch_log_threshold_seconds = 0.1;
@@ -150,10 +183,16 @@ namespace SFT::Engine {
         // Everything below is the one seam where a graphics call happens. On the dedicated render
         // thread, resize handling and engine_->render() both run there so all RHI/Vulkan calls for this
         // window stay on a single owning thread (Vulkan objects here are not internally synchronized).
+        // resize_needed_extent is `extent`, already resolved on the main thread above — the render
+        // thread must not call back into Window itself (e.g. via framebuffer_size()): on Windows the
+        // main thread can be blocked inside SDL's modal move/resize pump holding Window's internal
+        // lock while it waits on this very render task, so a render-thread Window touch here would
+        // deadlock the whole process during a drag.
         const Core::RenderSurfaceHandle surface = *managed.surface;
-        auto render_task = [this, &managed, surface, frame_input]() -> Core::RendererResult {
+        const Core::Extent2D resize_needed_extent{extent.x, extent.y};
+        auto render_task = [this, &managed, surface, frame_input, resize_needed_extent]() -> Core::RendererResult {
             if (managed.resize_pending.exchange(false, std::memory_order_acq_rel)) {
-                engine_->on_surface_resize_needed(surface);
+                engine_->on_surface_resize_needed(surface, resize_needed_extent);
             }
             return engine_->render(surface, frame_input);
         };
@@ -168,6 +207,16 @@ namespace SFT::Engine {
                 managed.in_flight_frames.pop_front();
             }
             managed.in_flight_frames.push_back(render_thread_->run(std::move(render_task)));
+
+            if (effective_wait_for_completion) {
+                const auto wait_start = high_resolution_clock::now();
+                while (!managed.in_flight_frames.empty()) {
+                    report_frame_result(managed.in_flight_frames.front().wait());
+                    managed.in_flight_frames.pop_front();
+                }
+                managed.last_synchronous_repaint_duration_seconds =
+                    duration<f64>(high_resolution_clock::now() - wait_start).count();
+            }
         } else {
             report_frame_result(render_task());
         }

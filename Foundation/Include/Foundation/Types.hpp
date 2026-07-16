@@ -7,7 +7,6 @@
 #include <type_traits>
 
 
-using std::byte;
 using std::int16_t;
 using std::int32_t;
 using std::int64_t;
@@ -41,7 +40,7 @@ namespace SFT::Foundation {
     using f32 = float;  // 32-bit IEEE-754
     using f64 = double; // 64-bit IEEE-754
 
-    using byte = ::byte;      // raw byte (`std::byte`)
+    using byte = std::byte;   // raw byte
     using usize = size_t;     // unsigned size / index type
     using isize = ptrdiff_t;  // signed size / pointer-difference type
 

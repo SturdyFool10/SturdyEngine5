@@ -6,10 +6,9 @@
 #include <algorithm>
 #include <hb.h>
 #include <hb-ot.h>
-// stb_image is a single-header library — exactly one translation unit in the whole program must
-// define STB_IMAGE_IMPLEMENTATION before including it to get the actual decoder definitions, and
-// this is that one TU (nothing else in Text uses stb_image).
-#define STB_IMAGE_IMPLEMENTATION
+// stb_image is a single-header library — STB_IMAGE_IMPLEMENTATION must be defined in exactly one
+// translation unit (ColorGlyph.cpp, before this header is included there) to get the actual
+// decoder definitions; this header only pulls in the declarations.
 #define STBI_ONLY_PNG
 #include <stb_image.h>
 #include <vector>

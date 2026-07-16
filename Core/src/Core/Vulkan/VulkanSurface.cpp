@@ -113,17 +113,7 @@ void VulkanSurface::mark_dirty() noexcept { swapchain_dirty_ = true; }
 
 void VulkanSurface::clear_dirty() noexcept { swapchain_dirty_ = false; }
 
-void VulkanSurface::refresh_extent() noexcept {
-            if (!window_) {
-                extent_ = {};
-                return;
-            }
-            if (auto fb = window_->framebuffer_size()) {
-                extent_ = {fb->x, fb->y};
-            } else {
-                extent_ = {};
-            }
-        }
+void VulkanSurface::set_extent(Extent2D extent) noexcept { extent_ = extent; }
 
 void VulkanSurface::destroy(VkInstance instance) noexcept {
             destroy_frame_resources();

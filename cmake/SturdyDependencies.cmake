@@ -45,7 +45,7 @@ set(STURDY_MSDFGEN_TAG "v1.13" CACHE STRING "msdfgen git tag to fetch.")
 set(STURDY_STB_TAG "31c1ad37456438565541f4919958214b6e762fb4" CACHE STRING "stb git commit to fetch.")
 # Microsoft's official, MIT-licensed native D3D12/DXGI headers (no NuGet/.NET tooling involved —
 # plain C/C++ headers only). Only fetched when STURDY_OS is Windows.
-set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2" CACHE STRING "DirectX-Headers git tag to fetch.")
+set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2-preview" CACHE STRING "DirectX-Headers git tag to fetch.")
 # Apple's official, Apache-2.0-licensed C++ bindings for Metal (headers only; Apple ships no
 # prebuilt binary, this just wraps the Objective-C API). Tags track macOS/iOS SDK releases. Only
 # fetched when STURDY_OS is MacOS.
@@ -868,7 +868,10 @@ function(sturdy_fetch_msdfgen)
     set(MSDFGEN_USE_OPENMP OFF CACHE BOOL "" FORCE)
     set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
     set(MSDFGEN_INSTALL OFF CACHE BOOL "" FORCE)
-    set(MSDFGEN_DYNAMIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    # Must match the rest of the project's (default, dynamic) MSVC runtime library on Windows —
+    # msdfgen otherwise self-selects the static CRT (/MT[d]), which fails to link against every
+    # other target here built with the dynamic CRT (/MD[d]).
+    set(MSDFGEN_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
 
     sturdy_fetchcontent_declare(msdfgen
         GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git

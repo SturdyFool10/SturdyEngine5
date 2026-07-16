@@ -61,7 +61,7 @@ namespace SFT::Renderer {
             u32 desired_frames_in_flight = 2);
 
         void destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept;
-        void on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept;
+        void on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept;
         [[nodiscard]] Core::RendererResult set_presentation_settings(Core::RenderSurfaceHandle surface,
                                                                      const Core::PresentationSettings &settings);
         [[nodiscard]] Core::RendererResult reconfigure_backend(const Core::RendererCreateInfo &create_info);

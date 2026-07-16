@@ -1,3 +1,4 @@
+#define STB_IMAGE_IMPLEMENTATION
 #include "ColorGlyph.hpp"
 
 namespace SFT::Text {

@@ -106,8 +106,8 @@ namespace SFT::Engine {
         return add_window(new_window, desired_frames_in_flight);
     }
 
-    void Engine::on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept {
-        renderer_.on_surface_resize_needed(surface);
+    void Engine::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
+        renderer_.on_surface_resize_needed(surface, extent);
     }
 
     Core::RendererResult Engine::set_presentation_settings(Core::RenderSurfaceHandle surface,

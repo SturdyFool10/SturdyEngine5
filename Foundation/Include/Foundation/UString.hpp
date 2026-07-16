@@ -2498,11 +2498,11 @@ namespace SFT::Foundation {
 
 } // namespace SFT::Foundation
 
-[[nodiscard]] SFT::Foundation::ustr operator""_ustr(const char *text, size_t byte_count) {
+[[nodiscard]] inline SFT::Foundation::ustr operator""_ustr(const char *text, size_t byte_count) {
     return SFT::Foundation::ustr{string_view{text, byte_count}};
 }
 
-[[nodiscard]] SFT::Foundation::ustr operator""_ustr(const char8_t *text, size_t byte_count) {
+[[nodiscard]] inline SFT::Foundation::ustr operator""_ustr(const char8_t *text, size_t byte_count) {
     return SFT::Foundation::ustr{u8string_view{text, byte_count}};
 }
 

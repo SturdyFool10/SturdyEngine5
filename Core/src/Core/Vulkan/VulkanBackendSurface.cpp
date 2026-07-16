@@ -82,12 +82,12 @@ namespace SFT::Core::Vulkan {
         surfaces_.erase(it);
     }
 
-    void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface) noexcept {
+    void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept {
         VulkanSurface *s = surface_slot(surface);
         if (!s) [[unlikely]]
             return;
         s->mark_dirty();
-        s->refresh_extent();
+        s->set_extent(extent);
         // Swapchain rebuild is deferred to the next render_frame call.
         // Resize-to-zero (minimized) is valid — render_frame will skip presentation.
     }

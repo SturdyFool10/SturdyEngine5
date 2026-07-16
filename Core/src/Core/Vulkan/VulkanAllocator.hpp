@@ -15,7 +15,6 @@
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 #endif
-#define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 #if defined(__clang__)
 #pragma clang diagnostic pop

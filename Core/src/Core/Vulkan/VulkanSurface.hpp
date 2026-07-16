@@ -99,7 +99,11 @@ namespace SFT::Core::Vulkan {
         void mark_dirty() noexcept;
         void clear_dirty() noexcept;
 
-        void refresh_extent() noexcept;
+        // Sets the surface's tracked extent directly from an already-resolved framebuffer size.
+        // Deliberately does not query window_->framebuffer_size() itself: this is called from
+        // on_surface_resize_needed(), which can run on a render thread where the owning Window is
+        // not safe to touch (see EngineBackend::on_surface_resize_needed's docs).
+        void set_extent(Extent2D extent) noexcept;
 
         // Destroys the per-frame sync/command resources, the swapchain and the VkSurfaceKHR, and
         // marks this entry inactive. Frame resources go first: they may hold command buffers with

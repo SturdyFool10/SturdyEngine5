@@ -87,12 +87,14 @@ function(sturdy_add_package package_name)
           continue()
         endif()
 
-        set(_exclude_prefix "${_exclude_relative}/")
-        string(FIND "${_source_relative}" "${_exclude_prefix}"
-          _exclude_prefix_index
+        # Match _exclude_relative as a whole run of path segments occurring anywhere in
+        # _source_relative (at "/" or string boundaries) — not just as a prefix from the package
+        # root. Sources commonly live nested (e.g. src/Platform/Linux/...), so a bare directory
+        # name like "Linux" must still exclude everything under it regardless of nesting depth.
+        string(REGEX REPLACE "([.^$+*?()\\[\\]{}|\\\\])" "\\\\\\1" _exclude_escaped
+          "${_exclude_relative}"
         )
-        if(_source_relative STREQUAL _exclude_relative OR
-            _exclude_prefix_index EQUAL 0)
+        if(_source_relative MATCHES "(^|/)${_exclude_escaped}(/|$)")
           set(_excluded TRUE)
           break()
         endif()

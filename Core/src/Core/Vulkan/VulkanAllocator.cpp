@@ -1,3 +1,4 @@
+#define VMA_IMPLEMENTATION
 #include "VulkanAllocator.hpp"
 
 namespace SFT::Core::Vulkan {

@@ -39,7 +39,7 @@ namespace SFT::Core::Vulkan {
         RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) override;
         RendererExpected<RenderSurfaceHandle> create_window_surface(Window &window, u32 desired_frames_in_flight = 2) override;
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
-        void on_surface_resize_needed(RenderSurfaceHandle surface) noexcept override;
+        void on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept override;
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
         [[nodiscard]] RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept override;
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept override;

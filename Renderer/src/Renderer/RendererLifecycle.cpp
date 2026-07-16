@@ -40,6 +40,17 @@ namespace SFT::Renderer {
         // function's declaration comment. Small enough to bound worst-case leaked-handle count during
         // a long continuous resize drag, large enough that it doesn't trigger on ordinary one-off
         // resizes (which retire exactly one swapchain and get reclaimed the normal way soon after).
+        //
+        // Investigated as a possible cause of multi-second vkCreateSwapchainKHR stalls seen during
+        // Windows interactive-resize testing (see Application::render_managed_window's
+        // wait_for_completion doc) — direct instrumentation ruled it out: forcing this down to 1
+        // (flush after every single resize) did not change the stall's timing or frequency at all,
+        // and the flush's own wait_idle() consistently measured well under a millisecond. The stall
+        // is isolated entirely inside the driver's vkCreateSwapchainKHR call itself (confirmed by
+        // wrapping just that call), correlates with a preceding multi-second gap of zero swapchain
+        // activity, and fully recovers on the very next call — the signature of a GPU power-state
+        // wake-up cost, not an application-side resource backlog. Left at the original tolerance;
+        // see render_managed_window's adaptive synchronous-repaint fallback for the actual mitigation.
         constexpr usize retired_swapchain_flush_threshold = 6;
 
         class ScopedRendererStageTimer {
@@ -188,9 +199,9 @@ namespace SFT::Renderer {
         }
     }
 
-    void Renderer::on_surface_resize_needed(Core::RenderSurfaceHandle surface) noexcept {
+    void Renderer::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
         if (graphics_backend_) {
-            graphics_backend_->on_surface_resize_needed(surface);
+            graphics_backend_->on_surface_resize_needed(surface, extent);
         }
         if (WindowSurfaceRecord *record = window_surface(surface)) {
             record->rhi_swapchain_dirty = true;
