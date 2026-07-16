@@ -6,8 +6,11 @@
 #endif
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <expected>
 #include <glm/vec2.hpp>
+#include <limits>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -28,6 +31,76 @@ using std::vector;
 
 namespace SFT::Renderer {
 
+    namespace {
+
+        struct PlacementBounds {
+            f32 left = 0.0f;
+            f32 top = 0.0f;
+            f32 right = 0.0f;
+            f32 bottom = 0.0f;
+        };
+
+        [[nodiscard]] std::optional<PlacementBounds> placement_bounds(const GlyphPlacement &glyph) noexcept {
+            const f32 inverse_em = 1.0f / static_cast<f32>(std::max(glyph.units_per_em, 1u));
+            const glm::vec2 scale = glyph.size * inverse_em;
+            f32 left_units = 0.0f;
+            f32 bottom_units = 0.0f;
+            f32 right_units = static_cast<f32>(glyph.units_per_em);
+            f32 top_units = static_cast<f32>(glyph.units_per_em);
+
+            if (glyph.format == Text::RasterFormat::Color && glyph.font != nullptr) {
+                hb_glyph_extents_t extents{};
+                if (hb_font_get_glyph_extents(glyph.font->handle(), glyph.glyph_id, &extents)) {
+                    left_units = static_cast<f32>(extents.x_bearing);
+                    right_units = static_cast<f32>(extents.x_bearing + extents.width);
+                    top_units = static_cast<f32>(extents.y_bearing);
+                    bottom_units = static_cast<f32>(extents.y_bearing + extents.height);
+                }
+            } else if (glyph.outline != nullptr) {
+                const Text::GlyphBounds bounds = Text::glyph_bounds(*glyph.outline);
+                if (bounds.empty) {
+                    return std::nullopt; // spaces/control glyphs have no visible tile coverage
+                }
+                left_units = bounds.left;
+                bottom_units = bounds.bottom;
+                right_units = bounds.right;
+                top_units = bounds.top;
+            }
+
+            const array<glm::vec2, 4> local_corners{
+                glm::vec2{left_units * scale.x, -top_units * scale.y},
+                glm::vec2{right_units * scale.x, -top_units * scale.y},
+                glm::vec2{right_units * scale.x, -bottom_units * scale.y},
+                glm::vec2{left_units * scale.x, -bottom_units * scale.y},
+            };
+            const f32 cosine = std::cos(glyph.rotation);
+            const f32 sine = std::sin(glyph.rotation);
+            PlacementBounds result{
+                .left = std::numeric_limits<f32>::max(),
+                .top = std::numeric_limits<f32>::max(),
+                .right = std::numeric_limits<f32>::lowest(),
+                .bottom = std::numeric_limits<f32>::lowest(),
+            };
+            for (const glm::vec2 corner : local_corners) {
+                const glm::vec2 rotated{
+                    corner.x * cosine - corner.y * sine,
+                    corner.x * sine + corner.y * cosine,
+                };
+                const glm::vec2 point = glyph.position + rotated;
+                result.left = std::min(result.left, point.x);
+                result.top = std::min(result.top, point.y);
+                result.right = std::max(result.right, point.x);
+                result.bottom = std::max(result.bottom, point.y);
+            }
+            if (!std::isfinite(result.left) || !std::isfinite(result.top) ||
+                !std::isfinite(result.right) || !std::isfinite(result.bottom)) {
+                return std::nullopt;
+            }
+            return result;
+        }
+
+    } // namespace
+
     Core::RendererExpected<TextCanvas> TextCanvas::create(RHI::RhiDevice &device, const Config &config, TextAtlas &atlas,
                                                            TextPipeline &pipeline) {
         TextCanvas canvas;
@@ -44,9 +117,27 @@ namespace SFT::Renderer {
 
     void TextCanvas::draw_run(span<const GlyphPlacement> glyphs) {
         for (const GlyphPlacement &glyph : glyphs) {
+            const std::optional<PlacementBounds> bounds = placement_bounds(glyph);
+            if (!bounds) {
+                continue;
+            }
+            // Distance-field reconstruction and stem darkening affect at most a fraction of a
+            // screen pixel beyond the vector edge. One pixel keeps that antialiasing fringe in
+            // every overlapped tile without treating the atlas's transparent guard band as ink.
+            constexpr f32 fringe = 1.0f;
+            const f32 left = std::floor(bounds->left - fringe);
+            const f32 top = std::floor(bounds->top - fringe);
+            const f32 right = std::ceil(bounds->right + fringe);
+            const f32 bottom = std::ceil(bounds->bottom + fringe);
+            constexpr f32 i32_min = static_cast<f32>(std::numeric_limits<i32>::min());
+            constexpr f32 i32_max = static_cast<f32>(std::numeric_limits<i32>::max());
+            if (left < i32_min || top < i32_min || right > i32_max || bottom > i32_max ||
+                right <= left || bottom <= top) {
+                continue;
+            }
             const vector<TileCoord> overlapped = tiles_overlapping(
-                static_cast<i32>(glyph.position.x), static_cast<i32>(glyph.position.y),
-                static_cast<u32>(glyph.size.x), static_cast<u32>(glyph.size.y), tile_size_);
+                static_cast<i32>(left), static_cast<i32>(top),
+                static_cast<u32>(right - left), static_cast<u32>(bottom - top), tile_size_);
             for (TileCoord coord : overlapped) {
                 tile_glyphs_[coord].push_back(glyph);
                 if (auto it = resident_tiles_.find(coord); it != resident_tiles_.end()) {
@@ -75,6 +166,7 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create text canvas tile encoder"));
         }
         vector<RHI::BufferHandle> transient_buffers;
+        TextAtlasRetiredResources retired_atlas_resources;
 
         vector<GlyphSlot> slots;
         vector<GlyphInstance> instances;
@@ -92,7 +184,9 @@ namespace SFT::Renderer {
                     .font = glyph.font,
                 });
             }
-            if (auto resident = atlas_->ensure_resident(device, **encoder, requests, slots, transient_buffers); !resident) {
+            if (auto resident = atlas_->ensure_resident(device, **encoder, requests, slots, transient_buffers,
+                                                        retired_atlas_resources);
+                !resident) {
                 return unexpected(resident.error());
             }
 
@@ -103,20 +197,25 @@ namespace SFT::Renderer {
         }
 
         vector<TextDrawBatch> batches;
-        if (auto prepared = pipeline_->prepare(device, instances, slots, batches, transient_buffers); !prepared) {
+        if (auto prepared = pipeline_->prepare(device, *atlas_, instances, slots, tile.text_resources, batches); !prepared) {
             return unexpected(prepared.error());
         }
 
         const RHI::TextureBarrier to_attachment{
             .texture = tile.texture,
-            .src_stage = RHI::PipelineStage::None,
-            .src_access = RHI::AccessFlags::None,
+            .src_stage = tile.current_layout == RHI::TextureLayout::Undefined
+                             ? RHI::PipelineStage::None
+                             : RHI::PipelineStage::FragmentShader,
+            .src_access = tile.current_layout == RHI::TextureLayout::Undefined
+                              ? RHI::AccessFlags::None
+                              : RHI::AccessFlags::ShaderRead,
             .dst_stage = RHI::PipelineStage::ColorAttachmentOutput,
             .dst_access = RHI::AccessFlags::ColorAttachmentWrite,
-            .old_layout = RHI::TextureLayout::Undefined,
+            .old_layout = tile.current_layout,
             .new_layout = RHI::TextureLayout::ColorAttachment,
         };
         (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_attachment, 1});
+        tile.current_layout = RHI::TextureLayout::ColorAttachment;
 
         const RHI::ColorAttachment color_attachment{
             .view = tile.view,
@@ -136,10 +235,8 @@ namespace SFT::Renderer {
         (*pass)->set_viewport(RHI::Viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<f32>(tile_size_), .height = static_cast<f32>(tile_size_)});
         (*pass)->set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = tile_size_, .height = tile_size_});
 
-        vector<RHI::BindGroupHandle> transient_bind_groups;
-        Core::RendererResult draw_result = pipeline_->draw(device, **pass, *atlas_, batches,
-                                                            glm::vec2{static_cast<f32>(tile_size_), static_cast<f32>(tile_size_)},
-                                                            transient_bind_groups);
+        Core::RendererResult draw_result = pipeline_->draw(
+            **pass, batches, glm::vec2{static_cast<f32>(tile_size_), static_cast<f32>(tile_size_)});
         (*pass)->end();
         if (!draw_result) {
             return draw_result;
@@ -155,6 +252,7 @@ namespace SFT::Renderer {
             .new_layout = RHI::TextureLayout::ShaderReadOnly,
         };
         (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
+        tile.current_layout = RHI::TextureLayout::ShaderReadOnly;
 
         auto command_buffer = (*encoder)->finish();
         if (!command_buffer) {
@@ -185,11 +283,14 @@ namespace SFT::Renderer {
         device.destroy_fence(*fence);
         device.destroy_command_buffer(*command_buffer);
 
-        for (RHI::BindGroupHandle bind_group : transient_bind_groups) {
-            device.destroy_bind_group(bind_group);
-        }
         for (RHI::BufferHandle buffer : transient_buffers) {
             device.destroy_buffer(buffer);
+        }
+        for (RHI::TextureViewHandle view : retired_atlas_resources.texture_views) {
+            device.destroy_texture_view(view);
+        }
+        for (RHI::TextureHandle texture : retired_atlas_resources.textures) {
+            device.destroy_texture(texture);
         }
 
         tile.dirty = false;
@@ -210,6 +311,7 @@ namespace SFT::Renderer {
             }
             auto it = resident_tiles_.find(*victim);
             if (it != resident_tiles_.end()) {
+                destroy_text_frame_resources(device, it->second.text_resources);
                 if (it->second.view) {
                     device.destroy_texture_view(it->second.view);
                 }
@@ -283,6 +385,7 @@ namespace SFT::Renderer {
 
     void TextCanvas::destroy(RHI::RhiDevice &device) noexcept {
         for (auto &[coord, tile] : resident_tiles_) {
+            destroy_text_frame_resources(device, tile.text_resources);
             if (tile.view) {
                 device.destroy_texture_view(tile.view);
             }

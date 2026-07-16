@@ -76,6 +76,8 @@ namespace SFT::Renderer {
         struct TileRecord {
             RHI::TextureHandle texture{};
             RHI::TextureViewHandle view{};
+            RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
+            TextFrameResources text_resources{};
             bool dirty = true;
         };
 

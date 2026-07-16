@@ -1,0 +1,3 @@
+# RenderDoc captures are large, machine-local debugging artifacts.
+*
+!.gitignore

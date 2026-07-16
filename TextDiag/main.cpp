@@ -104,6 +104,7 @@ int main(int argc, char **argv) {
         .scale = static_cast<f32>(size - 40) / static_cast<f32>(font->units_per_em()),
         .pixel_range = 8.0f,
         .padding_px = 20.0f,
+        .translation = std::nullopt,
     };
     Text::TextExpected<Text::RasterizedGlyph> raster = Text::rasterize_glyph(*outline, Text::RasterFormat::SDF, params);
     if (!raster) {

@@ -20,5 +20,9 @@ sturdy_add_package(Text
         Sturdy::MsdfGen
         Sturdy::StbImage
 
+    PRIVATE_DEPS
+        Sturdy::SheenBidi
+        Sturdy::UniBreak
+
     DEBUG_PUBLIC_DEPS
 )

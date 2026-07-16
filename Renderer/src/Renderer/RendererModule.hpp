@@ -229,6 +229,9 @@ namespace SFT::Renderer {
             // freed here once this ring slot's fence proves the GPU is done with them, same
             // fire-and-forget contract as transient_textures/transient_bind_groups above.
             vector<RHI::BufferHandle> transient_buffers;
+            // Reused after this slot's fence retires; unlike transient_buffers/groups these are
+            // not recreated or destroyed every frame.
+            TextFrameResources text_overlay_resources{};
             vector<RHI::SwapchainHandle> retired_swapchains;
             vector<RHI::TextureHandle> retired_presentation_textures;
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
@@ -278,6 +281,7 @@ namespace SFT::Renderer {
             DeferredTargetFormats deferred_formats{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
+            TextAtlasRetiredResources retired_text_atlas_resources;
             UString debug_label;
         };
 
@@ -493,21 +497,23 @@ namespace SFT::Renderer {
         // graph boundary so glyph rasterization/upload and the instance buffer write — the only
         // GPU-command-recording parts — happen once, into the frame's own shared command encoder,
         // before any render pass begins (see RendererLifecycle.cpp's render_frame_rhi): no separate
-        // submit+fence+wait, no mid-frame stall. Any buffer this call retires (a grown-out instance
-        // buffer, an atlas staging buffer) is appended to `transient_buffers` for the caller's
-        // frame-fence-gated cleanup, same contract as transient_bind_groups.
+        // submit+fence+wait, no mid-frame stall. Atlas staging buffers are appended to
+        // `transient_buffers` for frame-fence-gated cleanup; instance buffers and their bind groups
+        // instead live in the reusable per-frame `TextFrameResources` slot and only grow or rebuild
+        // when their capacity or atlas image view changes.
         [[nodiscard]] Core::RendererResult ensure_text_overlay_resources();
         [[nodiscard]] Core::RendererResult prepare_text_overlay(RHI::CommandEncoder &encoder,
                                                                  span<const UString> lines,
                                                                  glm::vec2 origin_px,
+                                                                 TextFrameResources &frame_resources,
                                                                  vector<RHI::BufferHandle> &transient_buffers,
+                                                                 TextAtlasRetiredResources &retired_atlas_resources,
                                                                  vector<TextDrawBatch> &out_batches);
         // Issues the instanced draws for a batch set already produced by prepare_text_overlay(),
         // against the currently-bound render pass.
         [[nodiscard]] Core::RendererResult draw_text_overlay(RHI::RenderPassEncoder &pass,
                                                               span<const TextDrawBatch> batches,
-                                                              glm::vec2 viewport_size_px,
-                                                              vector<RHI::BindGroupHandle> &transient_bind_groups);
+                                                              glm::vec2 viewport_size_px);
         void destroy_text_overlay_resources() noexcept;
         void destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept;
 

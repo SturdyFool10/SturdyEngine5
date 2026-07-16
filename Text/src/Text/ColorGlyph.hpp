@@ -41,6 +41,9 @@ namespace SFT::Text {
         // Desired em size in pixels — selects the nearest embedded PNG strike (CBDT/sbix ship
         // several fixed sizes; HarfBuzz picks the closest to this) and scales COLR layer outlines.
         f32 pixel_size = 32.0f;
+        // Transparent guard pixels around the color image. Unlike an SDF this is not a distance
+        // band; it prevents bilinear sampling from clipping or bleeding at the atlas boundary.
+        f32 padding_px = 2.0f;
     };
 
     namespace Detail {

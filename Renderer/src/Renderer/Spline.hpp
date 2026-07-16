@@ -191,9 +191,8 @@ namespace SFT::Renderer {
 
     // Where and how a glyph sits on a 2D path: `position` is the glyph's pen origin, `rotation`
     // (radians) is the path's tangent angle at that point — the caller applies this the same way
-    // a rotated GlyphInstance would be built for any other 2D text (see
-    // Renderer/TextInstance.cppm's format_kind_value neighbor for the equivalent rotation-aware
-    // instance basis once GlyphInstance grows a rotation field).
+    // a rotated GlyphPlacement would be built for any other 2D text (copy both fields into the
+    // placement; make_glyph_instance applies the rotation around its pen origin).
     struct GlyphPathPlacement2D {
         glm::vec2 position{0.0f};
         f32 rotation = 0.0f;

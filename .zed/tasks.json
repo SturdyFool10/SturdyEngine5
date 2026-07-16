@@ -55,6 +55,17 @@
     "save": "all"
   },
   {
+    "label": "Capture Runtime (Debug, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Debug", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
     "label": "Run Runtime (RelWithDebInfo)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=RelWithDebInfo", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],

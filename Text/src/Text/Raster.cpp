@@ -11,6 +11,21 @@ RasterFormat select_raster_format(f32 long_side_px, RasterFormat previous) noexc
         return long_side_px > upshift_threshold ? RasterFormat::MSDF : RasterFormat::SDF;
     }
 
+GlyphBounds glyph_bounds(const GlyphOutline &outline) {
+        if (outline.contours.empty()) {
+            return {};
+        }
+        const msdfgen::Shape shape = Detail::to_msdfgen_shape(outline);
+        const msdfgen::Shape::Bounds bounds = shape.getBounds();
+        return GlyphBounds{
+            .left = static_cast<f32>(bounds.l),
+            .bottom = static_cast<f32>(bounds.b),
+            .right = static_cast<f32>(bounds.r),
+            .top = static_cast<f32>(bounds.t),
+            .empty = false,
+        };
+    }
+
 } // namespace SFT::Text
 
 namespace SFT::Text::Detail {
@@ -64,6 +79,14 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         if (params.width == 0 || params.height == 0) {
             return text_error(TextErrorCode::InvalidArgument, "Cannot rasterize a glyph into a zero-sized raster.");
         }
+        if (format == RasterFormat::Color) {
+            return text_error(TextErrorCode::InvalidArgument,
+                              "Color glyphs must be rasterized with rasterize_color_glyph().");
+        }
+        if (!(params.scale > 0.0f) || !(params.pixel_range > 0.0f) || params.padding_px < 0.0f) {
+            return text_error(TextErrorCode::InvalidArgument,
+                              "Glyph raster scale/range must be positive and padding must be non-negative.");
+        }
 
         RasterizedGlyph result;
         result.width = params.width;
@@ -85,8 +108,12 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
 
         const double scale = static_cast<double>(params.scale);
         const msdfgen::Shape::Bounds bounds = shape.getBounds();
-        const double translate_x = static_cast<double>(params.padding_px) / scale - bounds.l;
-        const double translate_y = static_cast<double>(params.padding_px) / scale - bounds.b;
+        const double translate_x = params.translation
+                                       ? static_cast<double>(params.translation->x)
+                                       : static_cast<double>(params.padding_px) / scale - bounds.l;
+        const double translate_y = params.translation
+                                       ? static_cast<double>(params.translation->y)
+                                       : static_cast<double>(params.padding_px) / scale - bounds.b;
 
         // Where this specific raster sits relative to the pen (baseline origin) — see
         // RasterizedGlyph's doc comment. Derived directly from the same translate_x/translate_y
@@ -96,9 +123,8 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         // — bearing_x below is that quantity's sign flipped to an additive pen-relative offset.
         // Symmetric for Y, then re-based from msdfgen's bottom-up bitmap row convention (row 0 =
         // bottom) to this function's top-to-bottom output (row 0 = top) by subtracting from height.
-        result.bearing_x = static_cast<f32>(bounds.l * scale - static_cast<double>(params.padding_px));
-        result.bearing_top =
-            static_cast<f32>(static_cast<double>(params.height) - static_cast<double>(params.padding_px) + bounds.b * scale);
+        result.bearing_x = static_cast<f32>(-translate_x * scale);
+        result.bearing_top = static_cast<f32>(static_cast<double>(params.height) - translate_y * scale);
 
         const msdfgen::Range range(static_cast<double>(params.pixel_range) / scale);
         const msdfgen::SDFTransformation transformation(

@@ -16,6 +16,7 @@ using std::vector;
 namespace SFT::Text {
 
     enum class TextDirection {
+        Auto,
         LeftToRight,
         RightToLeft,
         TopToBottom,
@@ -30,7 +31,7 @@ namespace SFT::Text {
     struct ShapeOptions {
         UString script;
         UString language;
-        TextDirection direction = TextDirection::LeftToRight;
+        TextDirection direction = TextDirection::Auto;
         OpenTypeFeatureOptions features;
     };
 

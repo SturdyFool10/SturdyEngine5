@@ -22,3 +22,5 @@
 #include "ColorGlyph.hpp"
 #include "FontFallback.hpp"
 #include "Features.hpp"
+#include "Break.hpp"
+#include "Layout.hpp"

@@ -16,6 +16,12 @@ set(STURDY_FMT_TAG "12.1.0" CACHE STRING "{fmt} git tag to fetch; shared with sp
 set(STURDY_SPDLOG_TAG "v1.17.0" CACHE STRING "spdlog git tag to fetch.")
 set(STURDY_MIMALLOC_TAG "v2.1.7" CACHE STRING "mimalloc git tag to fetch.")
 set(STURDY_HARFBUZZ_TAG "14.2.1" CACHE STRING "HarfBuzz git tag to fetch.")
+# Complete UAX #9 paragraph/line resolution. HarfBuzz deliberately shapes one directional run at
+# a time; SheenBidi supplies the standards-based run ordering around it without pulling in ICU.
+set(STURDY_SHEENBIDI_TAG "v3.0.0" CACHE STRING "SheenBidi git tag to fetch.")
+# UAX #14 line breaks plus UAX #29 grapheme/word boundaries. This is kept separate from bidi:
+# those standards answer different questions and are deliberately separate in Unicode itself.
+set(STURDY_LIBUNIBREAK_TAG "libunibreak_7_0" CACHE STRING "libunibreak git tag to fetch.")
 # Only used to give HarfBuzz's hb-ft backend (HB_HAVE_FREETYPE) a real hinting engine — Text's own
 # outline extraction (hb-draw) stays FreeType-agnostic either way; see sturdy_fetch_freetype().
 set(STURDY_FREETYPE_TAG "VER-2-14-1" CACHE STRING "FreeType git tag to fetch.")
@@ -158,6 +164,8 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_mimalloc()
         sturdy_fetch_freetype()
         sturdy_fetch_harfbuzz()
+        sturdy_fetch_sheenbidi()
+        sturdy_fetch_libunibreak()
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
         sturdy_fetch_box3d()
@@ -184,6 +192,8 @@ function(sturdy_configure_dependencies)
         find_package(mimalloc CONFIG REQUIRED)
         find_package(Freetype REQUIRED)
         find_package(harfbuzz CONFIG REQUIRED)
+        find_package(SheenBidi CONFIG REQUIRED)
+        sturdy_find_libunibreak()
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
         find_package(box3d CONFIG REQUIRED)
@@ -825,6 +835,61 @@ function(sturdy_fetch_harfbuzz)
     sturdy_register_license(harfbuzz "${harfbuzz_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_sheenbidi)
+    set(SB_CONFIG_EXPERIMENTAL_TEXT_API OFF CACHE BOOL "" FORCE)
+    set(SB_CONFIG_UNITY ON CACHE BOOL "" FORCE)
+    set(BUILD_GENERATOR OFF CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(SheenBidi
+        GIT_REPOSITORY https://github.com/Tehreer/SheenBidi.git
+        GIT_TAG ${STURDY_SHEENBIDI_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(SheenBidi)
+    sturdy_mark_dependency_targets_exclude_from_all(SheenBidi SheenBidi::SheenBidi)
+    sturdy_register_license(sheenbidi "${sheenbidi_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_libunibreak)
+    sturdy_fetchcontent_declare(libunibreak
+        GIT_REPOSITORY https://github.com/adah1972/libunibreak.git
+        GIT_TAG ${STURDY_LIBUNIBREAK_TAG}
+    )
+    # libunibreak intentionally ships Autotools/Makefiles rather than CMake. MakeAvailable still
+    # performs the pinned FetchContent population; we define the small static target ourselves.
+    FetchContent_MakeAvailable(libunibreak)
+    set(_libunibreak_sources
+        "${libunibreak_SOURCE_DIR}/src/unibreakbase.c"
+        "${libunibreak_SOURCE_DIR}/src/unibreakdef.c"
+        "${libunibreak_SOURCE_DIR}/src/linebreak.c"
+        "${libunibreak_SOURCE_DIR}/src/linebreakdata.c"
+        "${libunibreak_SOURCE_DIR}/src/linebreakdef.c"
+        "${libunibreak_SOURCE_DIR}/src/eastasianwidthdef.c"
+        "${libunibreak_SOURCE_DIR}/src/emojidef.c"
+        "${libunibreak_SOURCE_DIR}/src/graphemebreak.c"
+        "${libunibreak_SOURCE_DIR}/src/wordbreak.c"
+    )
+    add_library(sturdy_libunibreak STATIC ${_libunibreak_sources})
+    target_include_directories(sturdy_libunibreak PUBLIC "${libunibreak_SOURCE_DIR}/src")
+    set_target_properties(sturdy_libunibreak PROPERTIES
+        EXCLUDE_FROM_ALL TRUE
+        FOLDER "${STURDY_DEPS_FOLDER}"
+    )
+    sturdy_register_license(libunibreak "${libunibreak_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_libunibreak)
+    find_path(STURDY_LIBUNIBREAK_INCLUDE_DIR linebreak.h PATH_SUFFIXES libunibreak)
+    find_library(STURDY_LIBUNIBREAK_LIBRARY NAMES unibreak libunibreak)
+    if(NOT STURDY_LIBUNIBREAK_INCLUDE_DIR OR NOT STURDY_LIBUNIBREAK_LIBRARY)
+        message(FATAL_ERROR "libunibreak was not found; enable STURDY_FETCH_DEPENDENCIES or install libunibreak.")
+    endif()
+    add_library(sturdy_libunibreak UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(sturdy_libunibreak PROPERTIES
+        IMPORTED_LOCATION "${STURDY_LIBUNIBREAK_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${STURDY_LIBUNIBREAK_INCLUDE_DIR}"
+    )
+endfunction()
+
 function(sturdy_fetch_miniaudio)
     # miniaudio is the base audio engine: device output (up to 7.1), capture with low latency,
     # and built-in lossless decoding (FLAC/WAV) via dr_flac. It is public-domain / MIT-0, so it
@@ -1005,6 +1070,16 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::HarfBuzz
         harfbuzz::harfbuzz
         harfbuzz
+    )
+
+    sturdy_alias_existing_target(Sturdy::SheenBidi
+        SheenBidi::SheenBidi
+        SheenBidi
+    )
+
+    sturdy_alias_existing_target(Sturdy::UniBreak
+        sturdy_libunibreak
+        unibreak
     )
 
     sturdy_alias_existing_target(Sturdy::FreeType

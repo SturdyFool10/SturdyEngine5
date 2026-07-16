@@ -652,6 +652,7 @@ namespace SFT::Renderer {
         const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
+                destroy_text_frame_resources(*device, old_slot.text_overlay_resources);
                 destroy_frame_deferred_targets(old_slot);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
@@ -809,7 +810,9 @@ namespace SFT::Renderer {
         // return (nothing has been submitted yet, so there's nothing else to unwind).
         if (Core::RendererResult text_prepared =
                 prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
-                                     glm::vec2{10.0f, 10.0f}, submission.transient_buffers, text_overlay_batches);
+                                     glm::vec2{10.0f, 10.0f}, slot.text_overlay_resources,
+                                     submission.transient_buffers, submission.retired_text_atlas_resources,
+                                     text_overlay_batches);
             !text_prepared.has_value()) {
             return text_prepared;
         }
@@ -1021,7 +1024,7 @@ namespace SFT::Renderer {
                 .store_op = RHI::StoreOp::Store,
             })
             .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, &submission, render_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
+            .set_execute([this, render_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
@@ -1033,7 +1036,7 @@ namespace SFT::Renderer {
                 });
                 pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                 const glm::vec2 viewport_size{static_cast<f32>(render_extent.width), static_cast<f32>(render_extent.height)};
-                return draw_text_overlay(pass, text_overlay_batches, viewport_size, submission.transient_bind_groups);
+                return draw_text_overlay(pass, text_overlay_batches, viewport_size);
             });
 
         {
@@ -1073,6 +1076,8 @@ namespace SFT::Renderer {
         // deliberately NO wait here (the whole point of the async model). They are reclaimed the next time
         // this slot comes round, after its fence has signaled.
         slot.command_buffer = *command_buffer;
+        slot.transient_textures = std::move(submission.retired_text_atlas_resources.textures);
+        slot.transient_texture_views = std::move(submission.retired_text_atlas_resources.texture_views);
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
         slot.transient_bind_groups = std::move(submission.transient_bind_groups);
         slot.transient_buffers = std::move(submission.transient_buffers);
@@ -1318,6 +1323,7 @@ namespace SFT::Renderer {
             drain_frames_in_flight(record);
             for (FrameInFlight &slot : record.frames_in_flight) {
                 reclaim_frame_slot(slot, true);
+                destroy_text_frame_resources(*device, slot.text_overlay_resources);
                 destroy_frame_deferred_targets(slot);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);

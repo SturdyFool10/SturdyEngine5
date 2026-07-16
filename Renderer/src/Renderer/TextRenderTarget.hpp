@@ -62,6 +62,8 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle view_{};
         RHI::SamplerHandle sampler_{};
         RHI::TextureLayout current_layout_ = RHI::TextureLayout::Undefined;
+        TextFrameResources text_resources_{};
+        const TextPipeline *resources_pipeline_ = nullptr;
     };
 
 } // namespace SFT::Renderer

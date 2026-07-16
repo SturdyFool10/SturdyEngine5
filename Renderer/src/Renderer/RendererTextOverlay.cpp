@@ -32,10 +32,9 @@ namespace SFT::Renderer {
 
     namespace {
 
-        // Maple Mono NF at 20pt/weight 400 (its only static weight), paired with Noto Color Emoji
-        // as the emoji fallback — sized up a notch from Vertex's own 18pt UI default for this
-        // engine's debug HUD.
-        constexpr f32 overlay_pixel_size = 20.0f;
+        // Maple Mono NF at the overlay's 18pt nominal size/weight 400 (its only static weight),
+        // paired with Noto Color Emoji as the emoji fallback.
+        constexpr f32 overlay_pixel_size = 18.0f;
 
         [[nodiscard]] optional<vector<std::byte>> read_file_bytes(const string &path) {
             std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -180,7 +179,9 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const UString> lines,
-                                                        glm::vec2 origin_px, vector<RHI::BufferHandle> &transient_buffers,
+                                                        glm::vec2 origin_px, TextFrameResources &frame_resources,
+                                                        vector<RHI::BufferHandle> &transient_buffers,
+                                                        TextAtlasRetiredResources &retired_atlas_resources,
                                                         vector<TextDrawBatch> &out_batches) {
         out_batches.clear();
         if (Core::RendererResult ensured = ensure_text_overlay_resources(); !ensured.has_value()) {
@@ -204,9 +205,6 @@ namespace SFT::Renderer {
         const f32 font_line_height =
             static_cast<f32>(guard->font.ascender() - guard->font.descender() + guard->font.line_gap()) * scale;
         const f32 line_height = std::max(font_line_height, overlay_pixel_size);
-        const u32 emoji_units_per_em = guard->has_emoji_font ? guard->emoji_font.units_per_em() : 0;
-        const f32 emoji_scale = emoji_units_per_em > 0 ? overlay_pixel_size / static_cast<f32>(emoji_units_per_em) : 0.0f;
-
         const Text::FontStack fonts{
             .primary = &guard->font,
             .emoji = guard->has_emoji_font ? &guard->emoji_font : nullptr,
@@ -227,48 +225,61 @@ namespace SFT::Renderer {
         shape_options.features.mark = 1;
         shape_options.features.mkmk = 1;
         shape_options.features.tnum = 1;
+        // Maple's default zero is slashed; its `zero` alternate is the dotted-center design used
+        // by the debug HUD.
+        shape_options.features.zero = 1;
 
         vector<GlyphPlacement> placements;
         glm::vec2 pen{origin_px.x, origin_px.y + ascender_px};
         for (const UString &line : lines) {
-            auto shaped = Text::shape_with_fallback(fonts, line.as_ustr(), shape_options);
+            auto shaped = Text::shape_line_with_fallback(fonts, line.as_ustr(), shape_options);
             if (!shaped) {
                 pen.y += line_height;
                 continue;
             }
 
-            glm::vec2 cursor = pen;
-            for (const Text::PositionedGlyph &glyph : *shaped) {
-                const f32 glyph_scale = glyph.is_color ? emoji_scale : scale;
+            f32 visual_run_x = pen.x;
+            for (const Text::ShapedRun &run : shaped->runs) {
+                const f32 run_scale = overlay_pixel_size / static_cast<f32>(std::max(run.units_per_em, 1u));
+                glm::vec2 cursor{visual_run_x + run.pen_origin_em * overlay_pixel_size, pen.y};
+                for (const Text::PositionedGlyph &glyph : run.glyphs) {
+                    const f32 glyph_scale = run_scale;
 
-                const Text::GlyphOutline *outline = nullptr;
-                if (!glyph.is_color) {
-                    auto cached = guard->outline_cache.find(glyph.glyph_id);
-                    if (cached == guard->outline_cache.end()) {
-                        if (auto extracted = Text::glyph_outline(guard->font, glyph.glyph_id)) {
-                            cached = guard->outline_cache.emplace(glyph.glyph_id, std::move(*extracted)).first;
-                        } else {
-                            cached = guard->outline_cache.emplace(glyph.glyph_id, Text::GlyphOutline{}).first;
+                    const Text::GlyphOutline *outline = nullptr;
+                    if (!glyph.is_color) {
+                        auto cached = guard->outline_cache.find(glyph.glyph_id);
+                        if (cached == guard->outline_cache.end()) {
+                            if (auto extracted = Text::glyph_outline(guard->font, glyph.glyph_id)) {
+                                cached = guard->outline_cache.emplace(glyph.glyph_id, std::move(*extracted)).first;
+                            } else {
+                                cached = guard->outline_cache.emplace(glyph.glyph_id, Text::GlyphOutline{}).first;
+                            }
                         }
+                        outline = &cached->second;
                     }
-                    outline = &cached->second;
+
+                    placements.push_back(GlyphPlacement{
+                        .position = glm::vec2{cursor.x + glyph.x_offset * glyph_scale,
+                                             cursor.y - glyph.y_offset * glyph_scale},
+                        .size = glm::vec2{overlay_pixel_size, overlay_pixel_size},
+                        .color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
+                        .font_id = glyph.font_id,
+                        .glyph_id = glyph.glyph_id,
+                        .units_per_em = run.units_per_em,
+                        .pixel_size = overlay_pixel_size,
+                        .format = glyph.is_color ? Text::RasterFormat::Color
+                                                 : Text::select_raster_format(overlay_pixel_size),
+                        .outline = outline,
+                        .font = glyph.is_color ? &guard->emoji_font : &guard->font,
+                        // This face is already grid-fitted by Font::load_hinted() at exactly 18 px.
+                        // Applying the unhinted-outline optical compensation again would double-bold it.
+                        .stem_darkening = false,
+                    });
+
+                    cursor.x += glyph.x_advance * glyph_scale;
+                    cursor.y -= glyph.y_advance * glyph_scale;
                 }
-
-                placements.push_back(GlyphPlacement{
-                    .position = glm::vec2{cursor.x + glyph.x_offset * glyph_scale, cursor.y - glyph.y_offset * glyph_scale},
-                    .size = glm::vec2{overlay_pixel_size, overlay_pixel_size},
-                    .color = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f},
-                    .font_id = glyph.font_id,
-                    .glyph_id = glyph.glyph_id,
-                    .units_per_em = glyph.is_color ? emoji_units_per_em : units_per_em,
-                    .pixel_size = overlay_pixel_size,
-                    .format = glyph.is_color ? Text::RasterFormat::Color : Text::select_raster_format(overlay_pixel_size),
-                    .outline = outline,
-                    .font = glyph.is_color ? &guard->emoji_font : &guard->font,
-                });
-
-                cursor.x += glyph.x_advance * glyph_scale;
-                cursor.y -= glyph.y_advance * glyph_scale;
+                visual_run_x += run.advance_em * overlay_pixel_size;
             }
             pen.y += line_height;
         }
@@ -292,7 +303,9 @@ namespace SFT::Renderer {
         }
 
         vector<GlyphSlot> slots;
-        if (auto resident = guard->atlas.ensure_resident(*device, encoder, requests, slots, transient_buffers); !resident) {
+        if (auto resident = guard->atlas.ensure_resident(*device, encoder, requests, slots, transient_buffers,
+                                                         retired_atlas_resources);
+            !resident) {
             return unexpected(resident.error());
         }
 
@@ -302,12 +315,11 @@ namespace SFT::Renderer {
             instances.push_back(make_glyph_instance(placements[i].position, placements[i], slots[i], guard->atlas.pixel_range()));
         }
 
-        return guard->pipeline.prepare(*device, instances, slots, out_batches, transient_buffers);
+        return guard->pipeline.prepare(*device, guard->atlas, instances, slots, frame_resources, out_batches);
     }
 
     Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,
-                                                      glm::vec2 viewport_size_px,
-                                                      vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                      glm::vec2 viewport_size_px) {
         if (batches.empty()) {
             return {};
         }
@@ -323,7 +335,7 @@ namespace SFT::Renderer {
             return {};
         }
 
-        return guard->pipeline.draw(*device, pass, guard->atlas, batches, viewport_size_px, transient_bind_groups);
+        return guard->pipeline.draw(pass, batches, viewport_size_px);
     }
 
     void Renderer::destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept {

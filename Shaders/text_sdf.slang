@@ -30,7 +30,9 @@ struct GlyphInstance {
     float rotation;
     // 0 = SDF, 1 = MSDF, 2 = Color — see Renderer::format_kind_value (Renderer/TextInstance.cppm).
     float formatKind;
-    float screenPxRange;
+    // Encoded distance-band width in atlas texels. Converted to screen pixels from UV derivatives
+    // in fragmentMain, so non-uniform transforms remain correctly antialiased.
+    float distancePixelRange;
     // Embolden bias, in screen pixels, added to the coverage threshold — see
     // Renderer::resolved_stem_darkening_px (Renderer/TextInstance.hpp).
     float stemDarkeningPx;
@@ -38,6 +40,10 @@ struct GlyphInstance {
 
 struct TextViewConstants {
     float2 viewportSize;
+    // Explicit base into `instances` for the current atlas-image batch. SV_InstanceID's treatment
+    // of API draw-call base-instance values is not portable across shader-language backends.
+    uint instanceIndexBase;
+    uint padding;
 };
 
 [[push_constant]] ConstantBuffer<TextViewConstants> viewConstants;
@@ -50,7 +56,7 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
     float4 color : COLOR0;
     float formatKind : TEXCOORD1;
-    float screenPxRange : TEXCOORD2;
+    float distancePixelRange : TEXCOORD2;
     float stemDarkeningPx : TEXCOORD3;
 };
 
@@ -61,7 +67,7 @@ static const float2 kQuadCorners[6] = {
 
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID) {
-    GlyphInstance inst = instances[instanceId];
+    GlyphInstance inst = instances[viewConstants.instanceIndexBase + instanceId];
     float2 corner = kQuadCorners[vertexId % 6];
 
     // Build the quad's size axes pre-rotated by `inst.rotation` instead of an axis-aligned
@@ -81,7 +87,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     output.uv = lerp(inst.uvMin, inst.uvMax, corner);
     output.color = inst.color;
     output.formatKind = inst.formatKind;
-    output.screenPxRange = inst.screenPxRange;
+    output.distancePixelRange = inst.distancePixelRange;
     output.stemDarkeningPx = inst.stemDarkeningPx;
     return output;
 }
@@ -105,13 +111,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
 
     // 0.5 sits exactly on the glyph's true edge (Text::rasterize_glyph's distance mapping);
-    // screenPxRange converts the encoded distance band into screen pixels so the antialiasing
-    // falloff is about one physical pixel wide regardless of the glyph's on-screen scale — the
-    // "what percentage of this pixel is covered by the shape" antialiasing, not a hard threshold.
+    // Convert the atlas-texel distance range to screen pixels using the local UV derivatives.
+    // This is msdfgen's reference reconstruction and remains correct for non-uniformly scaled or
+    // rotated quads, where one CPU-side pixels-per-texel estimate cannot represent both axes.
     // stemDarkeningPx shifts that threshold outward by a few tenths of a pixel at small sizes
-    // (Renderer::resolved_stem_darkening_px) — since every outline here is unhinted, this is what
-    // keeps small text from looking thin instead of grid-fitting it.
-    float screenPxDistance = input.screenPxRange * (signedDistance - 0.5);
+    // (Renderer::resolved_stem_darkening_px). Scalable unhinted text uses it to retain small-size
+    // weight; fixed-size grid-fitted callers pass zero so compensation is never doubled.
+    uint atlasWidth;
+    uint atlasHeight;
+    atlasTexture.GetDimensions(atlasWidth, atlasHeight);
+    float2 unitRange = input.distancePixelRange / float2(atlasWidth, atlasHeight);
+    float2 screenTexelSpan = 1.0 / max(fwidth(input.uv), float2(SFT_EPSILON));
+    float screenPxRange = max(0.5, 0.5 * dot(unitRange, screenTexelSpan));
+    float screenPxDistance = screenPxRange * (signedDistance - 0.5);
     float coverage = clamp01(screenPxDistance + 0.5 + input.stemDarkeningPx);
     return float4(input.color.rgb, input.color.a * coverage);
 }

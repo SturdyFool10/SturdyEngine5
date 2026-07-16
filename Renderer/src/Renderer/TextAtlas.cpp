@@ -2,7 +2,7 @@
 
 namespace SFT::Renderer {
 
-[[nodiscard]] u32 TextAtlas::tile_size() const noexcept { return tile_size_; }
+[[nodiscard]] u32 TextAtlas::tile_size() const noexcept { return max_tile_size_; }
 
 [[nodiscard]] f32 TextAtlas::pixel_range() const noexcept { return config_.pixel_range; }
 

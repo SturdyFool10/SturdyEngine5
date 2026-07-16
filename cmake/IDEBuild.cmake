@@ -4,7 +4,8 @@
 # lists in cmake/SturdyMatrix.cmake, so adding an arch/os/profile needs no change here.
 #
 #   cmake [-DSTURDY_ARCH=<arch>] [-DSTURDY_OS=<os>] [-DSTURDY_COMPILER=<compiler>] \
-#         -DSTURDY_PROFILE=<profile> [-DSTURDY_RUN=ON] [-DSTURDY_TARGET=<target>] \
+#         -DSTURDY_PROFILE=<profile> [-DSTURDY_RUN=ON | -DSTURDY_RENDERDOC=ON] \
+#         [-DSTURDY_TARGET=<target>] \
 #         [-DSTURDY_ALL_PROFILES=ON] -P cmake/IDEBuild.cmake
 #
 # STURDY_ARCH / STURDY_OS default to the host. STURDY_COMPILER defaults to Clang (GCC is only
@@ -12,6 +13,8 @@
 # sturdy_apply_matrix(), and Web never has a GCC variant). STURDY_PROFILE defaults to Debug
 # (ignored when STURDY_ALL_PROFILES is set, which builds every profile for the selected arch/os).
 # STURDY_RUN launches the built target afterwards (single profile, host-native only).
+# STURDY_RENDERDOC launches it through renderdoccmd, ready for an F12/Print Screen capture, and
+# writes timestamped captures beneath <project-root>/captures (single profile, host-native only).
 # STURDY_TARGET defaults to Runtime.
 cmake_minimum_required(VERSION 3.28)
 
@@ -44,6 +47,10 @@ if(NOT DEFINED STURDY_TARGET OR STURDY_TARGET STREQUAL "")
 endif()
 if(NOT DEFINED STURDY_COMPILER OR STURDY_COMPILER STREQUAL "")
     set(STURDY_COMPILER "Clang")
+endif()
+
+if(STURDY_RUN AND STURDY_RENDERDOC)
+    message(FATAL_ERROR "STURDY_RUN and STURDY_RENDERDOC are mutually exclusive launch modes.")
 endif()
 
 if(NOT STURDY_ARCH IN_LIST STURDY_ARCH_LIST)
@@ -114,7 +121,7 @@ if(STURDY_ARCH STREQUAL _host_arch AND STURDY_OS STREQUAL _host_os)
     endif()
 endif()
 
-if(STURDY_RUN AND NOT STURDY_ALL_PROFILES)
+if((STURDY_RUN OR STURDY_RENDERDOC) AND NOT STURDY_ALL_PROFILES)
     sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY_COMPILER}" _binary_dir)
     if(CMAKE_HOST_WIN32)
         set(_binary "${_root}/${_binary_dir}/bin/${STURDY_TARGET}.exe")
@@ -125,13 +132,53 @@ if(STURDY_RUN AND NOT STURDY_ALL_PROFILES)
         message(FATAL_ERROR "Target executable not found: ${_binary}")
     endif()
 
-    message(STATUS "==> Running ${_binary}")
-    execute_process(
-        COMMAND "${_binary}"
-        WORKING_DIRECTORY "${_root}"
-        RESULT_VARIABLE _run_result
-    )
-    if(NOT _run_result EQUAL 0)
-        message(FATAL_ERROR "${STURDY_TARGET} exited with code ${_run_result}.")
+    if(STURDY_RENDERDOC)
+        if(NOT STURDY_ARCH STREQUAL _host_arch OR NOT STURDY_OS STREQUAL _host_os)
+            message(FATAL_ERROR "RenderDoc capture tasks can only launch a host-native target.")
+        endif()
+        find_program(_renderdoccmd NAMES renderdoccmd renderdoccmd.exe)
+        if(NOT _renderdoccmd)
+            message(FATAL_ERROR "renderdoccmd was not found on PATH. Install RenderDoc to use this task.")
+        endif()
+
+        set(_capture_directory "${_root}/captures")
+        file(MAKE_DIRECTORY "${_capture_directory}")
+        string(TIMESTAMP _capture_timestamp "%Y-%m-%d_%H-%M-%S")
+        set(_capture_template "${_capture_directory}/${STURDY_TARGET}_${_capture_timestamp}")
+
+        message(STATUS "==> Launching ${_binary} through RenderDoc")
+        message(STATUS "==> Press F12 or Print Screen to capture into ${_capture_directory}")
+        set(_renderdoc_command)
+        if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+            # RenderDoc's Linux package commonly supports Xlib/XCB capture but not
+            # VK_KHR_wayland_surface. Force SDL through XWayland so Vulkan injection works on
+            # both X11 desktops and Wayland desktops with XWayland available.
+            list(APPEND _renderdoc_command "${CMAKE_COMMAND}" -E env SDL_VIDEODRIVER=x11)
+        endif()
+        list(APPEND _renderdoc_command
+            "${_renderdoccmd}" capture
+            --wait-for-exit
+            --working-dir "${_root}"
+            --capture-file "${_capture_template}"
+            "${_binary}"
+        )
+        execute_process(
+            COMMAND ${_renderdoc_command}
+            WORKING_DIRECTORY "${_root}"
+            RESULT_VARIABLE _capture_result
+        )
+        if(NOT _capture_result EQUAL 0)
+            message(FATAL_ERROR "RenderDoc capture session exited with code ${_capture_result}.")
+        endif()
+    else()
+        message(STATUS "==> Running ${_binary}")
+        execute_process(
+            COMMAND "${_binary}"
+            WORKING_DIRECTORY "${_root}"
+            RESULT_VARIABLE _run_result
+        )
+        if(NOT _run_result EQUAL 0)
+            message(FATAL_ERROR "${STURDY_TARGET} exited with code ${_run_result}.")
+        endif()
     endif()
 endif()

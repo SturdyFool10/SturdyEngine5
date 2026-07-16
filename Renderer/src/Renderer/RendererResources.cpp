@@ -191,6 +191,7 @@ namespace SFT::Renderer {
             if (RHI::RhiDevice *device = rhi_device()) {
                 for (FrameInFlight &slot : record->frames_in_flight) {
                     reclaim_frame_slot(slot, true);
+                    destroy_text_frame_resources(*device, slot.text_overlay_resources);
                     destroy_frame_deferred_targets(slot);
                     if (slot.fence) {
                         device->destroy_fence(slot.fence);

@@ -88,6 +88,12 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create text render target encoder"));
         }
         vector<RHI::BufferHandle> transient_buffers;
+        TextAtlasRetiredResources retired_atlas_resources;
+
+        if (resources_pipeline_ != nullptr && resources_pipeline_ != &pipeline) {
+            destroy_text_frame_resources(device, text_resources_);
+        }
+        resources_pipeline_ = &pipeline;
 
         vector<GlyphSlot> slots;
         vector<GlyphInstance> instances;
@@ -105,7 +111,9 @@ namespace SFT::Renderer {
                     .font = glyph.font,
                 });
             }
-            if (auto resident = atlas.ensure_resident(device, **encoder, requests, slots, transient_buffers); !resident) {
+            if (auto resident = atlas.ensure_resident(device, **encoder, requests, slots, transient_buffers,
+                                                      retired_atlas_resources);
+                !resident) {
                 return unexpected(resident.error());
             }
 
@@ -116,7 +124,7 @@ namespace SFT::Renderer {
         }
 
         vector<TextDrawBatch> batches;
-        if (auto prepared = pipeline.prepare(device, instances, slots, batches, transient_buffers); !prepared) {
+        if (auto prepared = pipeline.prepare(device, atlas, instances, slots, text_resources_, batches); !prepared) {
             return unexpected(prepared.error());
         }
 
@@ -150,10 +158,8 @@ namespace SFT::Renderer {
         (*pass)->set_viewport(RHI::Viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<f32>(config_.width), .height = static_cast<f32>(config_.height)});
         (*pass)->set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = config_.width, .height = config_.height});
 
-        vector<RHI::BindGroupHandle> transient_bind_groups;
-        Core::RendererResult draw_result =
-            pipeline.draw(device, **pass, atlas, batches, glm::vec2{static_cast<f32>(config_.width), static_cast<f32>(config_.height)},
-                          transient_bind_groups);
+        Core::RendererResult draw_result = pipeline.draw(
+            **pass, batches, glm::vec2{static_cast<f32>(config_.width), static_cast<f32>(config_.height)});
         (*pass)->end();
         if (!draw_result) {
             return draw_result;
@@ -200,17 +206,21 @@ namespace SFT::Renderer {
         device.destroy_fence(*fence);
         device.destroy_command_buffer(*command_buffer);
 
-        for (RHI::BindGroupHandle bind_group : transient_bind_groups) {
-            device.destroy_bind_group(bind_group);
-        }
         for (RHI::BufferHandle buffer : transient_buffers) {
             device.destroy_buffer(buffer);
+        }
+        for (RHI::TextureViewHandle view : retired_atlas_resources.texture_views) {
+            device.destroy_texture_view(view);
+        }
+        for (RHI::TextureHandle texture : retired_atlas_resources.textures) {
+            device.destroy_texture(texture);
         }
 
         return {};
     }
 
     void TextRenderTarget::destroy(RHI::RhiDevice &device) noexcept {
+        destroy_text_frame_resources(device, text_resources_);
         if (sampler_) {
             device.destroy_sampler(sampler_);
         }

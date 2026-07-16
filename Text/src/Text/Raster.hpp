@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <algorithm>
 #include <msdfgen.h>
+#include <optional>
 #include <vector>
 #pragma endregion
 
@@ -12,6 +13,7 @@
 #include "Outline.hpp"
 
 using std::vector;
+using std::optional;
 
 namespace SFT::Text {
 
@@ -58,19 +60,43 @@ namespace SFT::Text {
         vector<u8> pixels;
     };
 
+    // Axis-aligned outline bounds in font design units. Keeping this public lets the atlas choose
+    // a reference ppem that fits unusually wide glyphs (ligatures, swashes, combining sequences)
+    // instead of silently clipping them to its fixed-size storage cell.
+    struct GlyphBounds {
+        f32 left = 0.0f;
+        f32 bottom = 0.0f;
+        f32 right = 0.0f;
+        f32 top = 0.0f;
+        bool empty = true;
+
+        [[nodiscard]] constexpr f32 width() const noexcept { return right - left; }
+        [[nodiscard]] constexpr f32 height() const noexcept { return top - bottom; }
+    };
+
+    [[nodiscard]] GlyphBounds glyph_bounds(const GlyphOutline &outline);
+
+    // Optional shared projection for several outlines that must retain their relative positions,
+    // most notably the layers of a COLR glyph. Values are added in font units before scaling.
+    struct RasterTranslation {
+        f32 x = 0.0f;
+        f32 y = 0.0f;
+    };
+
     // Placement of the glyph within the output raster. `scale` converts font design units (see
     // Font::units_per_em()) to output pixels; `pixel_range` is the width of the encoded distance
     // band either side of the true edge, in output pixels (a larger range gives smoother
     // antialiasing falloff at the cost of atlas precision — 4px is a reasonable default);
     // `padding_px` reserves space between the glyph's ink bounding box and the raster edge so the
-    // distance band isn't clipped. The caller (the atlas — Renderer/TextAtlas.cppm) picks
-    // `width`/`height`/`scale` to fit its cell grid.
+    // distance band isn't clipped. The caller (the atlas — Renderer/TextAtlas.cpp) picks
+    // `width`/`height`/`scale` to fit its tightly packed atlas rectangle.
     struct RasterParams {
         u32 width = 0;
         u32 height = 0;
         f32 scale = 1.0f;
         f32 pixel_range = 4.0f;
         f32 padding_px = 4.0f;
+        optional<RasterTranslation> translation;
     };
 
     namespace Detail {

@@ -61,8 +61,8 @@ namespace SFT::Renderer {
     // or upload that crosses tile boundaries (Renderer/TextCanvas.cppm's draw_run()).
     [[nodiscard]] vector<TileCoord> tiles_overlapping(i32 x, i32 y, u32 width, u32 height, u32 tile_size) noexcept;
 
-    // A least-recently-used index over `Key`, shared by the glyph atlas (Renderer/TextAtlas.cppm,
-    // evicting individual glyph cells) and the large text canvas (Renderer/TextCanvas.cppm,
+    // A least-recently-used index over `Key`, shared by the glyph atlas (Renderer/TextAtlas.cpp,
+    // evicting individual glyph rectangles) and the large text canvas (Renderer/TextCanvas.cpp,
     // evicting whole tiles). Tracks residency order only — it does not own whatever `Key` maps to;
     // the caller looks up/destroys the associated resource when `evict_one()` returns a key.
     template <typename Key, typename Hash = std::hash<Key>>
@@ -92,6 +92,25 @@ namespace SFT::Renderer {
             order_.pop_back();
             nodes_.erase(key);
             return key;
+        }
+
+        // Evicts the least-recently-used key accepted by `predicate`. This lets a caller pin the
+        // resources referenced by the draw it is currently building while still reclaiming older
+        // entries. Walking from the back preserves ordinary LRU order among eligible entries.
+        template <typename Predicate>
+        [[nodiscard]] optional<Key> evict_one_if(Predicate &&predicate) {
+            for (auto reverse = order_.rbegin(); reverse != order_.rend(); ++reverse) {
+                if (!predicate(*reverse)) {
+                    continue;
+                }
+                Key key = *reverse;
+                auto forward = reverse.base();
+                --forward;
+                order_.erase(forward);
+                nodes_.erase(key);
+                return key;
+            }
+            return std::nullopt;
         }
 
         void erase(const Key &key) {

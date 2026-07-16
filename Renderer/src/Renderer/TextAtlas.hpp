@@ -54,19 +54,30 @@ namespace SFT::Renderer {
         const Text::Font *font = nullptr;
     };
 
+    // Images/views superseded by grow-only atlas replacement. They remain alive until the command
+    // buffer that copies from them (and every earlier queued draw that sampled them) retires.
+    struct TextAtlasRetiredResources {
+        vector<RHI::TextureHandle> textures;
+        vector<RHI::TextureViewHandle> texture_views;
+    };
+
     // Where a resident glyph lives in the atlas: which tile, and its normalized UV rect within
-    // that tile's texture. `cell_size_px` is the resident raster box's edge length in pixels
-    // (cells are square) — an instance builder (Renderer/TextInstance.cppm) uses it together with
-    // the glyph's font-unit metrics to size the glyph's screen/world quad.
+    // that tile's texture. `raster_size_px` is the tightly packed resident raster rectangle in
+    // pixels — an instance builder uses it together
+    // with `reference_ppem` to size the glyph's screen/world quad without shrinking for padding.
     struct GlyphSlot {
         u32 tile_index = 0;
         glm::vec2 uv_min{0.0f};
         glm::vec2 uv_max{0.0f};
-        f32 cell_size_px = 0.0f;
+        glm::vec2 raster_size_px{0.0f};
+        // Actual em size at which this atlas entry was generated. It may be lower than the
+        // requested display size when an unusually large glyph must be down-rasterized to fit a tile;
+        // distance fields then scale it back up without clipping.
+        f32 reference_ppem = 0.0f;
         Text::RasterFormat format = Text::RasterFormat::SDF;
-        // Where the resident raster sits relative to the pen, in this cell's own pixel space (see
+        // Where the resident raster sits relative to the pen, in its own pixel space (see
         // Text::RasterizedGlyph's doc comment for the convention) — an instance builder rescales
-        // these by the same cell_size_px-relative factor it already applies to screen_px_range
+        // these by the same reference-ppem-relative factor it applies to the resident raster size
         // before placing the glyph's quad, since a cache hit may be drawn at a different actual
         // pixel size than the one this slot's raster was generated at.
         f32 bearing_x = 0.0f;
@@ -75,18 +86,18 @@ namespace SFT::Renderer {
 
     // An LRU, tile-based cache of rasterized glyphs backed by RHI textures. Three independent
     // sub-atlases are maintained — R8Unorm (SDF), RGBA8Unorm (MSDF), and RGBA8Unorm (Color, for
-    // emoji — see Text/ColorGlyph.cppm) — each its own set of same-size tiles clamped to the
-    // device's actual max 2D image dimension
-    // (clamp_tile_size, TileGrid.cppm), so requesting more glyph storage than fits in one texture grows
-    // the tile count instead of failing outright. Each tile is subdivided into a fixed-size cell
-    // grid; eviction reclaims individual cells (via LruIndex), not whole tiles, so a
-    // handful of rarely-used glyphs never holds an entire tile hostage.
+    // emoji — see Text/ColorGlyph.cpp) — each with its own lazily allocated image. A format starts
+    // with no VRAM allocation; its first image is small, then that image is replaced by a doubled
+    // image up to a configured/device-clamped ceiling. Existing texels are copied to the same
+    // coordinates and the smaller image is fence-retired. Images never shrink, including after
+    // eviction. This keeps ordinary UI text cheap while allowing multilingual workloads to grow.
+    // Every glyph reserves only its actual padded ink rectangle. Eviction returns that rectangle
+    // to a coalescing free-rectangle allocator instead of throwing away a whole tile.
     class TextAtlas {
       public:
         struct Config {
-            u32 desired_tile_size = 2048;
-            u32 cell_size = 64;
-            u32 max_tiles_per_format = 64;
+            u32 initial_image_size = 64;
+            u32 maximum_image_size = 4096;
             f32 pixel_range = 4.0f;
             f32 padding_px = 4.0f;
         };
@@ -107,7 +118,8 @@ namespace SFT::Renderer {
         // copy hasn't necessarily run yet when this function returns.
         [[nodiscard]] Core::RendererResult ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                            span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
-                                                           vector<RHI::BufferHandle> &out_transient_buffers);
+                                                           vector<RHI::BufferHandle> &out_transient_buffers,
+                                                           TextAtlasRetiredResources &out_retired_resources);
 
         [[nodiscard]] RHI::TextureViewHandle tile_view(Text::RasterFormat format, u32 tile_index) const noexcept;
         [[nodiscard]] u32 tile_count(Text::RasterFormat format) const noexcept;
@@ -117,29 +129,36 @@ namespace SFT::Renderer {
         void destroy(RHI::RhiDevice &device) noexcept;
 
       private:
+        struct AtlasRect {
+            u32 x = 0;
+            u32 y = 0;
+            u32 width = 0;
+            u32 height = 0;
+        };
+
         struct Tile {
             RHI::TextureHandle texture{};
             RHI::TextureViewHandle view{};
             RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
+            u32 size = 0;
+            // Disjoint rectangles covering every currently unused texel in this tile. Allocation
+            // guillotine-splits one rectangle; release merges compatible neighbors back together.
+            vector<AtlasRect> free_rects;
         };
 
         struct FormatAtlas {
             vector<Tile> tiles;
-            u32 cells_per_row = 0;
-            u32 next_free_cell = 0; // linear cell-allocation cursor before the first eviction pass
         };
 
-        struct CellLocation {
+        struct RectLocation {
             u32 tile_index = 0;
-            u32 cell_x = 0;
-            u32 cell_y = 0;
-            // The sub-rect of the cell actually rasterized into and sampled — see the comment on
-            // TextAtlas::upload_misses' `raster_size` computation. Not necessarily the full
-            // `config_.cell_size`: small glyphs raster smaller so their on-screen quad isn't stuck
-            // minifying a whole 64px cell down to a handful of pixels.
-            u32 raster_size = 0;
+            u32 x = 0;
+            u32 y = 0;
+            u32 raster_width = 0;
+            u32 raster_height = 0;
+            f32 reference_ppem = 0.0f;
             // Only known once Text::rasterize_glyph actually runs (upload_misses), so a fresh
-            // cache-miss CellLocation is inserted into resident_ with these left at 0 and
+            // cache-miss RectLocation is inserted into resident_ with these left at 0 and
             // overwritten right after rasterizing — see GlyphSlot's doc comment for what they mean.
             f32 bearing_x = 0.0f;
             f32 bearing_top = 0.0f;
@@ -148,10 +167,21 @@ namespace SFT::Renderer {
         struct PendingUpload {
             usize request_index = 0;
             GlyphKey key{};
-            CellLocation cell{};
+            RectLocation rect{};
+            bool allocated = false;
         };
 
-        [[nodiscard]] Core::RendererExpected<CellLocation> allocate_cell(RHI::RhiDevice &device, Text::RasterFormat format);
+        [[nodiscard]] Core::RendererExpected<RectLocation>
+        allocate_rect(RHI::RhiDevice &device, RHI::CommandEncoder &encoder, Text::RasterFormat format,
+                      u32 width, u32 height, span<const GlyphKey> protected_keys,
+                      TextAtlasRetiredResources &out_retired_resources);
+        [[nodiscard]] Core::RendererExpected<Tile> create_tile(RHI::RhiDevice &device,
+                                                               Text::RasterFormat format, u32 size);
+        [[nodiscard]] Core::RendererResult append_tile(RHI::RhiDevice &device, Text::RasterFormat format, u32 size);
+        [[nodiscard]] Core::RendererResult grow_tile(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                     Text::RasterFormat format, u32 new_size,
+                                                     TextAtlasRetiredResources &out_retired_resources);
+        void release_rect(Text::RasterFormat format, RectLocation rect) noexcept;
         [[nodiscard]] Core::RendererResult upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                          span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
                                                          vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers);
@@ -160,14 +190,15 @@ namespace SFT::Renderer {
         [[nodiscard]] const FormatAtlas &format_atlas(Text::RasterFormat format) const noexcept;
         [[nodiscard]] LruIndex<GlyphKey, GlyphKeyHash> &format_lru(Text::RasterFormat format) noexcept;
         [[nodiscard]] RHI::Format texture_format(Text::RasterFormat format) const noexcept;
-        [[nodiscard]] GlyphSlot slot_from_cell(Text::RasterFormat format, CellLocation cell) const noexcept;
+        [[nodiscard]] GlyphSlot slot_from_rect(Text::RasterFormat format, RectLocation rect) const noexcept;
 
         Config config_{};
-        u32 tile_size_ = 0;
+        u32 initial_tile_size_ = 0;
+        u32 max_tile_size_ = 0;
         FormatAtlas sdf_;
         FormatAtlas msdf_;
         FormatAtlas color_;
-        unordered_map<GlyphKey, CellLocation, GlyphKeyHash> resident_;
+        unordered_map<GlyphKey, RectLocation, GlyphKeyHash> resident_;
         LruIndex<GlyphKey, GlyphKeyHash> sdf_lru_;
         LruIndex<GlyphKey, GlyphKeyHash> msdf_lru_;
         LruIndex<GlyphKey, GlyphKeyHash> color_lru_;

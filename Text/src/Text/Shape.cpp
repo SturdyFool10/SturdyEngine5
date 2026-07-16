@@ -8,6 +8,8 @@ namespace SFT::Text::Detail {
 
 hb_direction_t to_hb_direction(TextDirection direction) noexcept {
     switch (direction) {
+    case TextDirection::Auto:
+        return HB_DIRECTION_INVALID;
     case TextDirection::LeftToRight:
         return HB_DIRECTION_LTR;
     case TextDirection::RightToLeft:
@@ -44,7 +46,9 @@ TextExpected<vector<PositionedGlyph>> shape_resolved(const Font &font, const ust
     hb_buffer_add_utf8(buffer, utf8.data(), static_cast<int>(utf8.byte_size()), 0,
                        static_cast<int>(utf8.byte_size()));
 
-    hb_buffer_set_direction(buffer, Detail::to_hb_direction(options.direction));
+    if (options.direction != TextDirection::Auto) {
+        hb_buffer_set_direction(buffer, Detail::to_hb_direction(options.direction));
+    }
     if (!options.script.empty()) {
         hb_buffer_set_script(buffer, hb_script_from_string(options.script.data(),
                                                             static_cast<int>(options.script.byte_size())));
