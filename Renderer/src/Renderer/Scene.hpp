@@ -46,6 +46,30 @@ namespace SFT::Renderer {
         f32 exposure = 1.0f;
     };
 
+    // Renderer-facing lowering of Engine's programmable graph recipe. These are semantic choices,
+    // never resource descriptions: the renderer still owns formats, target lifetimes, synchronization
+    // and the concrete low-level RenderGraph pass callbacks.
+    enum class ToneMappingOperator : u8 {
+        None,
+        Reinhard,
+        Aces,
+        Exponential,
+    };
+
+    struct RenderGraphSettings {
+        bool render_scene = true;
+        bool deferred_lighting = true;
+        bool tone_mapping = true;
+        bool debug_overlay = false;
+        f32 resolution_scale = 1.0f;
+        glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
+        f32 background_intensity = 1.0f;
+        ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Aces;
+        f32 tone_mapping_exposure = 1.0f;
+        f32 tone_mapping_white_point = 1.0f;
+        f32 tone_mapping_saturation = 1.0f;
+    };
+
     // Default transient target layout for the deferred path, expressed in RHI formats so the render graph
     // can create everything through dynamic rendering. The first implementation still shades through the
     // simple geometry path, but these defaults establish the G-buffer contract future material variants
@@ -70,6 +94,7 @@ namespace SFT::Renderer {
         span<const SceneRenderable> renderables{};
         u32 visibility_mask = ~0u;
         DeferredTargetFormats deferred_formats{};
+        RenderGraphSettings render_graph{};
         UString debug_label;
     };
 

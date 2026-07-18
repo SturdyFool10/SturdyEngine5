@@ -60,6 +60,18 @@ namespace SFT::Renderer {
             return sets.size();
         }
 
+        [[nodiscard]] bool same_glyph_instance(const GlyphInstance &lhs, const GlyphInstance &rhs) noexcept {
+            return lhs.position.x == rhs.position.x && lhs.position.y == rhs.position.y &&
+                   lhs.size.x == rhs.size.x && lhs.size.y == rhs.size.y &&
+                   lhs.uv_min.x == rhs.uv_min.x && lhs.uv_min.y == rhs.uv_min.y &&
+                   lhs.uv_max.x == rhs.uv_max.x && lhs.uv_max.y == rhs.uv_max.y &&
+                   lhs.color.x == rhs.color.x && lhs.color.y == rhs.color.y &&
+                   lhs.color.z == rhs.color.z && lhs.color.w == rhs.color.w &&
+                   lhs.rotation == rhs.rotation && lhs.format_kind == rhs.format_kind &&
+                   lhs.distance_pixel_range == rhs.distance_pixel_range &&
+                   lhs.stem_darkening_px == rhs.stem_darkening_px;
+        }
+
         // Matches Shaders/text_sdf.slang's `TextViewConstants` push-constant struct byte-for-byte.
         struct TextViewConstantsGpu {
             glm::vec2 viewport_size{0.0f};
@@ -290,12 +302,17 @@ namespace SFT::Renderer {
             resources.instance_capacity_bytes = new_capacity;
         }
 
-        const auto *bytes = reinterpret_cast<const std::byte *>(instances.data());
-        if (auto written = device.write_buffer(resources.instance_buffer, 0,
-                                               span<const std::byte>{bytes, static_cast<usize>(required_bytes)});
-            !written) {
-            out_batches.clear();
-            return unexpected(graphics_error_from_rhi(written.error(), "write text instance buffer"));
+        const bool instances_unchanged = resources.uploaded_instances.size() == instances.size() &&
+            std::ranges::equal(resources.uploaded_instances, instances, same_glyph_instance);
+        if (!instances_unchanged) {
+            const auto *bytes = reinterpret_cast<const std::byte *>(instances.data());
+            if (auto written = device.write_buffer(resources.instance_buffer, 0,
+                                                   span<const std::byte>{bytes, static_cast<usize>(required_bytes)});
+                !written) {
+                out_batches.clear();
+                return unexpected(graphics_error_from_rhi(written.error(), "write text instance buffer"));
+            }
+            resources.uploaded_instances.assign(instances.begin(), instances.end());
         }
         for (TextDrawBatch &batch : out_batches) {
             batch.instance_buffer = resources.instance_buffer;

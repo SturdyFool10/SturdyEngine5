@@ -150,7 +150,6 @@ namespace SFT::Renderer {
         *tonemap_.lock() = {};
 
         frame_draws_.clear();
-        *debug_scene_.lock() = {};
     }
 
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {

@@ -3,6 +3,7 @@
 #include <Ecs/Component.hpp>
 
 #include <algorithm>
+#include <type_traits>
 #include <vector>
 
 namespace SFT::Ecs {
@@ -13,9 +14,20 @@ namespace SFT::Ecs {
     using Signature = std::vector<ComponentId>;
 
     template <class... Ts>
-    [[nodiscard]] Signature make_signature() {
-        Signature signature{component_id<Ts>()...};
+    [[nodiscard]] Signature make_signature(ComponentRegistry &registry) {
+        Signature signature{registry.component<std::remove_const_t<Ts>>()...};
         std::sort(signature.begin(), signature.end());
+        const auto duplicate = std::adjacent_find(signature.begin(), signature.end());
+        if (duplicate != signature.end()) {
+            if (const ComponentInfo *descriptor = registry.info(*duplicate)) {
+                Detail::contract_violation(
+                    "ECS signature contains duplicate component '{}'.",
+                    descriptor->canonical_name);
+            }
+            Detail::contract_violation(
+                "ECS signature contains duplicate dense component ID {}.",
+                *duplicate);
+        }
         return signature;
     }
 

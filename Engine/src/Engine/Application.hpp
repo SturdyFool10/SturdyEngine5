@@ -4,18 +4,19 @@
 #include <RHI/Threading.hpp>
 
 #pragma region Imports
+#include <Async/Async.hpp>
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <vector>
-#include <Async/Async.hpp>
 #pragma endregion
 
+#include "EngineModule.hpp"
 #include <Core/Core.hpp>
 #include <Platform/Platform.hpp>
-#include "EngineModule.hpp"
 
 using std::optional;
 using std::unique_ptr;
@@ -23,12 +24,48 @@ using std::vector;
 
 namespace SFT::Engine {
 
+    struct ApplicationConfig {
+        Platform::Windowing::WindowConfig primary_window;
+        EngineConfig engine;
+        // No periodic title mutation unless the consumer explicitly enables it.
+        optional<f64> primary_window_title_update_interval_seconds;
+    };
+
+    struct ApplicationFrameStats {
+        f64 frame_seconds = 0.0;
+        u64 frame_index = 0;
+        usize window_count = 0;
+    };
+
+    struct ApplicationError {
+        UString message;
+    };
+
+    using ApplicationResult = std::expected<void, ApplicationError>;
+
+    // Host-facing lifecycle boundary. Runtime is the first simulated API consumer: it owns policy
+    // and sample/game behavior while Application owns only platform pumping and render dispatch.
+    class ApplicationClient {
+      public:
+        virtual ~ApplicationClient() = default;
+
+        [[nodiscard]] virtual const ApplicationConfig &application_config() const noexcept = 0;
+        [[nodiscard]] virtual ApplicationResult on_engine_initialized(Engine &engine) = 0;
+        [[nodiscard]] virtual UString primary_window_title(
+            Engine &engine,
+            const ApplicationFrameStats &stats) = 0;
+        [[nodiscard]] virtual optional<RenderFrameParameters> request_render_frame(
+            Engine &engine,
+            Core::RenderSurfaceHandle surface,
+            const Core::FrameInput &frame) = 0;
+    };
+
     // Process host: owns the WindowManager and the engine, runs the main loop, and forwards OS events,
     // resizes and frame timing into the engine for every managed window. This is the boundary where the
     // platform/OS lives; everything below Engine is platform- and API-agnostic.
     class Application {
       public:
-        Application();
+        explicit Application(ApplicationClient &client) noexcept;
         ~Application();
 
         bool initialize();
@@ -114,15 +151,15 @@ namespace SFT::Engine {
         // still whatever is current at that moment, so it stays visually live rather than stale.
         // The normal per-frame call from run()'s main loop (used on every platform, including Windows
         // outside of an active drag) keeps the default pipelined behavior for throughput.
-        void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized,
-                                    bool wait_for_completion = false);
+        void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion = false);
         void report_frame_result(const Core::RendererResult &result) noexcept;
 
         Platform::Windowing::WindowManager window_manager_{
             Platform::Windowing::WindowManagerPolicy{.event_pump_mode = Platform::Windowing::WindowEventPumpMode::CallerThread,
-                                                      .platform_allows_threads = false}};
+                                                     .platform_allows_threads = false}};
         vector<unique_ptr<ManagedWindow>> windows_;
         unique_ptr<Engine> engine_;
+        ApplicationClient *client_ = nullptr;
 
         // Primary Render Thread: null means the single-threaded fallback is in effect (Web, or the
         // backend/platform declining RHI::RenderThreadingMode above SingleThreaded via

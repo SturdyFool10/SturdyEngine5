@@ -186,6 +186,10 @@ namespace SFT::Renderer {
 
         RHI::BufferHandle instance_buffer{};
         u64 instance_capacity_bytes = 0;
+        // Exact CPU mirror of the last successful upload. Static text can revisit this frame slot
+        // without issuing another host-to-GPU write; comparison is field-wise so struct padding
+        // never participates.
+        vector<GlyphInstance> uploaded_instances;
         vector<BindingCacheEntry> binding_cache;
     };
 

@@ -135,7 +135,6 @@ namespace SFT::Renderer {
         }
         shader_watcher_.reset();
 
-        destroy_debug_scene_resources();
         frame_draws_.clear();
         destroy_scene_gpu_resources();
 

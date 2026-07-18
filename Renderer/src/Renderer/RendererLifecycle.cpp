@@ -1,16 +1,18 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <expected>
 #include <format>
 #include <optional>
 #include <span>
-#include <utility>
 #include <string>
 #include <utility>
+#include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #pragma endregion
@@ -29,6 +31,7 @@ using std::optional;
 using std::span;
 using std::string;
 using std::unexpected;
+using std::vector;
 
 namespace SFT::Renderer {
 
@@ -76,8 +79,6 @@ namespace SFT::Renderer {
             }
             return {};
         }
-
-
 
         [[maybe_unused]] [[nodiscard]] Core::GraphicsBackendError graphics_error_from_shader(const Core::Slang::ShaderError &error,
                                                                                             const char *operation) {
@@ -243,6 +244,7 @@ namespace SFT::Renderer {
         submission.camera = desc.view.camera;
         submission.lighting = desc.view.lighting;
         submission.deferred_formats = desc.view.deferred_formats;
+        submission.render_graph = desc.view.render_graph;
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
         submission.debug_label = desc.view.debug_label;
 
@@ -283,14 +285,6 @@ namespace SFT::Renderer {
         FrameSubmission submission{};
         submission.draws = std::move(frame_draws_);
         frame_draws_.clear();
-
-        if (submission.draws.empty()) {
-            if (Core::RendererResult debug_resources = ensure_debug_scene_resources(); !debug_resources.has_value()) {
-                return debug_resources;
-            }
-            auto guard = debug_scene_.lock();
-            submission.draws.push_back(RenderItem{.mesh = guard->mesh, .material = guard->material_instance});
-        }
 
         return render_frame_dispatch(surface, frame, submission);
     }
@@ -370,80 +364,6 @@ namespace SFT::Renderer {
         }
 
         return recreate_rhi_swapchain(record);
-    }
-
-    Core::RendererResult Renderer::ensure_debug_scene_resources() {
-        auto guard = debug_scene_.lock();
-        if (mesh(guard->mesh) != nullptr && material_template(guard->material_template) != nullptr &&
-            material_instance(guard->material_instance) != nullptr) {
-            return {};
-        }
-
-        destroy_debug_scene_resources_locked(*guard);
-
-        // Source-backed so a live edit to the deferred G-buffer shader hot-reloads the triangle
-        // (poll_shader_hot_reload() at the top of render_frame drives it).
-        const Core::Slang::ShaderCompileOptions shader_options{
-            .targets = {Core::Slang::ShaderTarget{}},
-            .entry_points = {
-                Core::Slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = Core::Slang::ShaderStage::Vertex},
-                Core::Slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = Core::Slang::ShaderStage::Fragment},
-            },
-            .search_paths = {},
-            .macros = {},
-            .optimization = Core::Slang::ShaderOptimizationLevel::Default,
-            .allow_glsl_syntax = false,
-            .skip_spirv_validation = false,
-            .enable_effect_annotations = false,
-        };
-        auto material_template_handle = create_material_template_from_source(
-            Core::Slang::ShaderSource::from_file("Shaders/gbuffer_geometry.slang", "gbuffer_geometry"),
-            shader_options, "renderer debug gbuffer material template");
-        if (!material_template_handle) {
-            return unexpected(material_template_handle.error());
-        }
-        guard->material_template = *material_template_handle;
-
-        auto material_instance_handle = create_material_instance(guard->material_template, "renderer debug vertex-color material");
-        if (!material_instance_handle) {
-            destroy_debug_scene_resources_locked(*guard);
-            return unexpected(material_instance_handle.error());
-        }
-        guard->material_instance = *material_instance_handle;
-
-        constexpr array<GeometryVertex, 3> vertices{
-            GeometryVertex{.position = {0.0f, -0.55f, 0.0f}, .color = {1.0f, 0.0f, 0.0f, 1.0f}},
-            GeometryVertex{.position = {0.55f, 0.45f, 0.0f}, .color = {0.0f, 1.0f, 0.0f, 1.0f}},
-            GeometryVertex{.position = {-0.55f, 0.45f, 0.0f}, .color = {0.0f, 0.0f, 1.0f, 1.0f}},
-        };
-        constexpr array<u32, 3> indices{0, 1, 2};
-        auto mesh_handle = create_mesh(span<const GeometryVertex>{vertices.data(), vertices.size()},
-                                       span<const u32>{indices.data(), indices.size()},
-                                       "renderer debug triangle mesh");
-        if (!mesh_handle) {
-            destroy_debug_scene_resources_locked(*guard);
-            return unexpected(mesh_handle.error());
-        }
-        guard->mesh = *mesh_handle;
-        return {};
-    }
-
-    void Renderer::destroy_debug_scene_resources() noexcept {
-        auto guard = debug_scene_.lock();
-        destroy_debug_scene_resources_locked(*guard);
-    }
-
-    void Renderer::destroy_debug_scene_resources_locked(DebugSceneResources &scene) noexcept {
-        if (scene.mesh) {
-            destroy_mesh(scene.mesh);
-        }
-        if (scene.material_instance) {
-            destroy_material_instance(scene.material_instance);
-        }
-        if (scene.material_template) {
-            destroy_material_template(scene.material_template);
-        }
-        scene = {};
     }
 
     Core::RendererResult Renderer::record_render_item(RHI::RenderPassEncoder &pass,
@@ -703,7 +623,6 @@ namespace SFT::Renderer {
         if (extent.is_zero()) {
             return {};
         }
-        Core::Extent2D render_extent = extent;
         const bool size_changed = extent.width != record.swapchain_extent.width ||
             extent.height != record.swapchain_extent.height;
         const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
@@ -720,7 +639,6 @@ namespace SFT::Renderer {
                     return recreated;
                 }
             }
-            render_extent = record.swapchain_extent;
             // Bounded safety net only — see maybe_flush_retired_swapchains' declaration comment.
             // Doesn't fire on an ordinary resize (one retired swapchain); only kicks in if a single
             // continuous drag runs long enough to pile up several without ever pausing.
@@ -738,6 +656,12 @@ namespace SFT::Renderer {
         if (!record.rhi_swapchain) {
             return {};
         }
+        const Core::Extent2D presentation_extent = record.swapchain_extent;
+        const f32 resolution_scale = std::clamp(submission.render_graph.resolution_scale, 0.1f, 2.0f);
+        const Core::Extent2D render_extent{
+            .width = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.width) * resolution_scale))),
+            .height = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.height) * resolution_scale))),
+        };
         if (Core::RendererResult depth_resources = ensure_rhi_depth_resources(record); !depth_resources.has_value()) {
             return depth_resources;
         }
@@ -750,11 +674,13 @@ namespace SFT::Renderer {
 
         // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
         // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
-        if (Core::RendererResult deferred_lighting_ready = ensure_deferred_lighting_resources(); !deferred_lighting_ready.has_value()) {
-            return deferred_lighting_ready;
-        }
-        if (auto lighting_pipeline = deferred_lighting_pipeline_for(submission.deferred_formats.lighting); !lighting_pipeline) {
-            return unexpected(lighting_pipeline.error());
+        if (submission.render_graph.render_scene && submission.render_graph.deferred_lighting) {
+            if (Core::RendererResult deferred_lighting_ready = ensure_deferred_lighting_resources(); !deferred_lighting_ready.has_value()) {
+                return deferred_lighting_ready;
+            }
+            if (auto lighting_pipeline = deferred_lighting_pipeline_for(submission.deferred_formats.lighting); !lighting_pipeline) {
+                return unexpected(lighting_pipeline.error());
+            }
         }
         if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
             return tonemap_ready;
@@ -786,43 +712,50 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
         }
 
-        // Debug HUD text overlay: scene label, renderable count, camera position, resolution, GPU,
-        // FPS/frame time, frame index — drawn last, straight onto the swapchain, on top of the
-        // tonemapped scene. Shaping, glyph-atlas residency, and the instance buffer upload all
-        // happen here — before any render pass begins — recording straight into this frame's own
-        // shared encoder (**encoder) so they ride along in the frame's one queue submission instead
-        // of a separate submit+fence+wait. draw_text_overlay() (below, inside the graph's "debug
-        // text overlay" pass) only issues the already-prepared instanced draws.
-        const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
-        const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
-        const array<UString, 7> overlay_lines{
-            submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
-            std::format("Renderables: {}", submission.draws.size()),
-            std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
-                       submission.camera.world_position.y, submission.camera.world_position.z),
-            std::format("Resolution: {}x{}", render_extent.width, render_extent.height),
-            std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
-            std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
-            std::format("Frame: {}", frame.frame_index),
-        };
         vector<TextDrawBatch> text_overlay_batches;
-        // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
-        // return (nothing has been submitted yet, so there's nothing else to unwind).
-        if (Core::RendererResult text_prepared =
-                prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
-                                     glm::vec2{10.0f, 10.0f}, slot.text_overlay_resources,
-                                     submission.transient_buffers, submission.retired_text_atlas_resources,
-                                     text_overlay_batches);
-            !text_prepared.has_value()) {
-            return text_prepared;
+        if (submission.render_graph.debug_overlay) {
+            // The large-text path still virtualizes, caches shaping/layout, and avoids redundant
+            // instance uploads; only the two changing counter lines need reshaping each frame.
+            const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
+            const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
+            const array<UString, 7> overlay_lines{
+                submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
+                std::format("Renderables: {}", submission.draws.size()),
+                std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
+                            submission.camera.world_position.y, submission.camera.world_position.z),
+                std::format("Resolution: {}x{} (scene {}x{}, {:.0f}%)",
+                            presentation_extent.width, presentation_extent.height,
+                            render_extent.width, render_extent.height, resolution_scale * 100.0f),
+                std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
+                std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
+                std::format("Frame: {}", frame.frame_index),
+            };
+            // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
+            // return (nothing has been submitted yet, so there's nothing else to unwind).
+            if (Core::RendererResult text_prepared =
+                    prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
+                                         glm::vec2{10.0f, 10.0f},
+                                         glm::vec2{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)},
+                                         slot.text_overlay_resources,
+                                         submission.transient_buffers, submission.retired_text_atlas_resources,
+                                         text_overlay_batches);
+                !text_prepared.has_value()) {
+                return text_prepared;
+            }
         }
 
         RenderGraph graph;
+        const glm::vec4 background{
+            submission.render_graph.background_color.r * submission.render_graph.background_intensity,
+            submission.render_graph.background_color.g * submission.render_graph.background_intensity,
+            submission.render_graph.background_color.b * submission.render_graph.background_intensity,
+            submission.render_graph.background_color.a,
+        };
         const RenderGraphTextureHandle swapchain_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = texture.texture,
             .default_view = texture.view,
             .format = RHI::Format::BGRA8UnormSrgb,
-            .extent = RHI::Extent3D{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = presentation_extent.width, .height = presentation_extent.height, .depth_or_layers = 1},
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -874,9 +807,9 @@ namespace SFT::Renderer {
             .label = "deferred scene lighting (HDR)",
         });
         const RenderGraphTextureHandle depth_texture = graph.import_texture(RenderGraphImportedTextureDesc{
-            .texture = record.depth_texture,
-            .default_view = record.depth_view,
-            .format = record.depth_format,
+            .texture = slot.deferred_targets.depth,
+            .default_view = slot.deferred_targets.depth_view,
+            .format = submission.deferred_formats.depth,
             .extent = frame_extent,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
@@ -887,107 +820,103 @@ namespace SFT::Renderer {
             .label = "deferred depth",
         });
 
-        graph.add_render_pass("deferred gbuffer geometry")
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = gbuffer_albedo,
-                .load_op = RHI::LoadOp::Clear,
-                .store_op = RHI::StoreOp::Store,
-                .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
-            })
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = gbuffer_normal,
-                .load_op = RHI::LoadOp::Clear,
-                .store_op = RHI::StoreOp::Store,
-                // encodeOctahedralNormal(float3(0,0,1)) == (0.5, 0.5) — an "up"-facing default
-                // normal, matching the old raw-xyz encode's {0.5,0.5,1.0} clear in spirit. Only R/G
-                // are meaningful now (RG16Float); B/A are unused padding in RHI::ClearColor.
-                .clear_color = RHI::ClearColor{0.5f, 0.5f, 0.0f, 0.0f},
-            })
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = gbuffer_material,
-                .load_op = RHI::LoadOp::Clear,
-                .store_op = RHI::StoreOp::Store,
-                .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
-            })
-            .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                .texture = depth_texture,
-                .depth_load_op = RHI::LoadOp::Clear,
-                .depth_store_op = RHI::StoreOp::Store,
-                .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-            })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, &record, &submission, render_extent, frame](RenderGraphContext &context) -> Core::RendererResult {
-                RHI::RenderPassEncoder &pass = context.render_pass();
-                pass.set_viewport(RHI::Viewport{
-                    .x = 0.0f,
-                    .y = 0.0f,
-                    .width = static_cast<f32>(render_extent.width),
-                    .height = static_cast<f32>(render_extent.height),
-                    .min_depth = 0.0f,
-                    .max_depth = 1.0f,
-                });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                const array<RHI::Format, 3> gbuffer_formats{
-                    submission.deferred_formats.albedo,
-                    submission.deferred_formats.normal,
-                    submission.deferred_formats.material,
-                };
-                for (const RenderItem &item : submission.draws) {
-                    if (Core::RendererResult recorded = record_render_item(pass, item,
-                                                                          span<const RHI::Format>{gbuffer_formats.data(), gbuffer_formats.size()},
-                                                                          record.depth_format, frame.frame_index,
-                                                                          submission.view_projection);
-                        !recorded.has_value()) {
-                        return recorded;
+        if (submission.render_graph.render_scene) {
+            graph.add_render_pass("deferred gbuffer geometry")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = gbuffer_albedo,
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
+                })
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = gbuffer_normal,
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{0.5f, 0.5f, 0.0f, 0.0f},
+                })
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = gbuffer_material,
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
+                })
+                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                    .texture = depth_texture,
+                    .depth_load_op = RHI::LoadOp::Clear,
+                    .depth_store_op = RHI::StoreOp::Store,
+                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
+                })
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &submission, render_extent, frame](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f, .y = 0.0f,
+                        .width = static_cast<f32>(render_extent.width),
+                        .height = static_cast<f32>(render_extent.height),
+                        .min_depth = 0.0f, .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    const array<RHI::Format, 3> gbuffer_formats{
+                        submission.deferred_formats.albedo,
+                        submission.deferred_formats.normal,
+                        submission.deferred_formats.material,
+                    };
+                    for (const RenderItem &item : submission.draws) {
+                        if (Core::RendererResult recorded = record_render_item(
+                                pass, item,
+                                span<const RHI::Format>{gbuffer_formats.data(), gbuffer_formats.size()},
+                                submission.deferred_formats.depth, frame.frame_index, submission.view_projection);
+                            !recorded.has_value()) {
+                            return recorded;
+                        }
                     }
-                }
-                return {};
-            });
-
-        graph.add_render_pass("deferred lighting")
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = scene_lighting,
-                .load_op = RHI::LoadOp::Clear,
-                .store_op = RHI::StoreOp::Store,
-                .clear_color = RHI::ClearColor{0.01f, 0.015f, 0.025f, 1.0f},
-            })
-            .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = gbuffer_albedo,
-                .stages = RHI::PipelineStage::FragmentShader,
-                .access = RHI::AccessFlags::ShaderRead,
-            })
-            .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = gbuffer_normal,
-                .stages = RHI::PipelineStage::FragmentShader,
-                .access = RHI::AccessFlags::ShaderRead,
-            })
-            .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = gbuffer_material,
-                .stages = RHI::PipelineStage::FragmentShader,
-                .access = RHI::AccessFlags::ShaderRead,
-            })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, &submission, render_extent, gbuffer_albedo, gbuffer_normal, gbuffer_material](RenderGraphContext &context) -> Core::RendererResult {
-                RHI::RenderPassEncoder &pass = context.render_pass();
-                pass.set_viewport(RHI::Viewport{
-                    .x = 0.0f,
-                    .y = 0.0f,
-                    .width = static_cast<f32>(render_extent.width),
-                    .height = static_cast<f32>(render_extent.height),
-                    .min_depth = 0.0f,
-                    .max_depth = 1.0f,
+                    return {};
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                const RenderGraphTextureAccess albedo = context.texture(gbuffer_albedo);
-                const RenderGraphTextureAccess normal = context.texture(gbuffer_normal);
-                const RenderGraphTextureAccess material = context.texture(gbuffer_material);
-                return record_deferred_lighting(pass, albedo.default_view, normal.default_view, material.default_view,
-                                                submission.deferred_formats.lighting, submission.transient_bind_groups);
-            });
+        }
+
+        if (submission.render_graph.render_scene && submission.render_graph.deferred_lighting) {
+            graph.add_render_pass("deferred lighting")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = scene_lighting,
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_albedo})
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_normal})
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &submission, render_extent, gbuffer_albedo, gbuffer_normal, gbuffer_material](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f, .y = 0.0f,
+                        .width = static_cast<f32>(render_extent.width),
+                        .height = static_cast<f32>(render_extent.height),
+                        .min_depth = 0.0f, .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    const RenderGraphTextureAccess albedo = context.texture(gbuffer_albedo);
+                    const RenderGraphTextureAccess normal = context.texture(gbuffer_normal);
+                    const RenderGraphTextureAccess material = context.texture(gbuffer_material);
+                    return record_deferred_lighting(pass, albedo.default_view, normal.default_view, material.default_view,
+                                                    submission.deferred_formats.lighting, submission.transient_bind_groups);
+                });
+        } else {
+            // A clear-only HDR pass keeps overlay-only/empty-scene recipes valid without inventing a
+            // consumer-visible texture or requiring a special presentation path.
+            graph.add_render_pass("scene background")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = scene_lighting,
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
+                })
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+        }
 
         // Tonemap post-process: sample HDR deferred lighting and resolve it to the swapchain.
         constexpr RHI::Format swapchain_format = RHI::Format::BGRA8UnormSrgb;
-        graph.add_render_pass("tonemap")
+        graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap" : "present scene color")
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = swapchain_texture,
                 .load_op = RHI::LoadOp::DontCare,
@@ -998,46 +927,48 @@ namespace SFT::Renderer {
                 .stages = RHI::PipelineStage::FragmentShader,
                 .access = RHI::AccessFlags::ShaderRead,
             })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, &submission, render_extent, scene_lighting](RenderGraphContext &context) -> Core::RendererResult {
+            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
+            .set_execute([this, &submission, presentation_extent, scene_lighting](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
                     .y = 0.0f,
-                    .width = static_cast<f32>(render_extent.width),
-                    .height = static_cast<f32>(render_extent.height),
+                    .width = static_cast<f32>(presentation_extent.width),
+                    .height = static_cast<f32>(presentation_extent.height),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
                 const RenderGraphTextureAccess source = context.texture(scene_lighting);
-                return record_tonemap(pass, source.default_view, swapchain_format, submission.transient_bind_groups);
+                return record_tonemap(pass, source.default_view, swapchain_format,
+                                      submission.render_graph, submission.transient_bind_groups);
             });
 
-        // Debug HUD text overlay draw — shaping/residency/instance-upload already happened above,
-        // before the graph started recording (see prepare_text_overlay() call above); this pass
-        // just issues the already-prepared instanced draws on top of the tonemapped scene.
-        graph.add_render_pass("debug text overlay")
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = swapchain_texture,
-                .load_op = RHI::LoadOp::Load,
-                .store_op = RHI::StoreOp::Store,
-            })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-            .set_execute([this, render_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
-                RHI::RenderPassEncoder &pass = context.render_pass();
-                pass.set_viewport(RHI::Viewport{
-                    .x = 0.0f,
-                    .y = 0.0f,
-                    .width = static_cast<f32>(render_extent.width),
-                    .height = static_cast<f32>(render_extent.height),
-                    .min_depth = 0.0f,
-                    .max_depth = 1.0f,
+        if (submission.render_graph.debug_overlay) {
+            // Shaping/residency/instance upload happened above; this pass only issues the prepared
+            // instanced draws over the tonemapped scene.
+            graph.add_render_pass("debug text overlay")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = swapchain_texture,
+                    .load_op = RHI::LoadOp::Load,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
+                .set_execute([this, presentation_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f,
+                        .y = 0.0f,
+                        .width = static_cast<f32>(presentation_extent.width),
+                        .height = static_cast<f32>(presentation_extent.height),
+                        .min_depth = 0.0f,
+                        .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
+                    const glm::vec2 viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
+                    return draw_text_overlay(pass, text_overlay_batches, viewport_size);
                 });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                const glm::vec2 viewport_size{static_cast<f32>(render_extent.width), static_cast<f32>(render_extent.height)};
-                return draw_text_overlay(pass, text_overlay_batches, viewport_size);
-            });
+        }
 
         {
             ScopedRendererStageTimer timer{"execute render graph"};
@@ -1108,26 +1039,29 @@ namespace SFT::Renderer {
                                                 "Renderer RHI device is unavailable.");
         }
         const bool matches = slot.deferred_targets.gbuffer_albedo &&
+            slot.deferred_targets.depth &&
             slot.deferred_targets.extent.width == extent.width &&
             slot.deferred_targets.extent.height == extent.height &&
             slot.deferred_targets.formats.albedo == formats.albedo &&
             slot.deferred_targets.formats.normal == formats.normal &&
             slot.deferred_targets.formats.material == formats.material &&
-            slot.deferred_targets.formats.lighting == formats.lighting;
+            slot.deferred_targets.formats.lighting == formats.lighting &&
+            slot.deferred_targets.formats.depth == formats.depth;
         if (matches) {
             return {};
         }
 
         destroy_frame_deferred_targets(slot);
 
-        auto create_target = [&](RHI::Format format, const char *label) -> Core::RendererExpected<std::pair<RHI::TextureHandle, RHI::TextureViewHandle>> {
+        auto create_target = [&](RHI::Format format, RHI::TextureUsage usage,
+                                 const char *label) -> Core::RendererExpected<std::pair<RHI::TextureHandle, RHI::TextureViewHandle>> {
             auto texture = device->create_texture(RHI::TextureDesc{
                 .dimension = RHI::TextureDimension::Dim2D,
                 .format = format,
                 .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
                 .mip_levels = 1,
                 .samples = RHI::SampleCount::X1,
-                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                .usage = usage,
                 .label = label,
             });
             if (!texture) {
@@ -1145,15 +1079,16 @@ namespace SFT::Renderer {
             return std::pair<RHI::TextureHandle, RHI::TextureViewHandle>{*texture, *view};
         };
 
-        auto albedo = create_target(formats.albedo, "persistent deferred gbuffer albedo");
+        constexpr RHI::TextureUsage color_usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled;
+        auto albedo = create_target(formats.albedo, color_usage, "persistent deferred gbuffer albedo");
         if (!albedo) return unexpected(albedo.error());
-        auto normal = create_target(formats.normal, "persistent deferred gbuffer normal");
+        auto normal = create_target(formats.normal, color_usage, "persistent deferred gbuffer normal");
         if (!normal) {
             device->destroy_texture_view(albedo->second);
             device->destroy_texture(albedo->first);
             return unexpected(normal.error());
         }
-        auto material = create_target(formats.material, "persistent deferred gbuffer material");
+        auto material = create_target(formats.material, color_usage, "persistent deferred gbuffer material");
         if (!material) {
             device->destroy_texture_view(normal->second);
             device->destroy_texture(normal->first);
@@ -1161,7 +1096,7 @@ namespace SFT::Renderer {
             device->destroy_texture(albedo->first);
             return unexpected(material.error());
         }
-        auto lighting = create_target(formats.lighting, "persistent deferred scene lighting");
+        auto lighting = create_target(formats.lighting, color_usage, "persistent deferred scene lighting");
         if (!lighting) {
             device->destroy_texture_view(material->second);
             device->destroy_texture(material->first);
@@ -1170,6 +1105,19 @@ namespace SFT::Renderer {
             device->destroy_texture_view(albedo->second);
             device->destroy_texture(albedo->first);
             return unexpected(lighting.error());
+        }
+        auto depth = create_target(formats.depth, RHI::TextureUsage::DepthStencilAttachment,
+                                   "persistent deferred depth");
+        if (!depth) {
+            device->destroy_texture_view(lighting->second);
+            device->destroy_texture(lighting->first);
+            device->destroy_texture_view(material->second);
+            device->destroy_texture(material->first);
+            device->destroy_texture_view(normal->second);
+            device->destroy_texture(normal->first);
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(depth.error());
         }
 
         slot.deferred_targets = FrameDeferredTargets{
@@ -1183,6 +1131,8 @@ namespace SFT::Renderer {
             .gbuffer_material_view = material->second,
             .scene_lighting = lighting->first,
             .scene_lighting_view = lighting->second,
+            .depth = depth->first,
+            .depth_view = depth->second,
         };
         return {};
     }
@@ -1202,6 +1152,7 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.gbuffer_normal, slot.deferred_targets.gbuffer_normal_view);
             destroy_target(slot.deferred_targets.gbuffer_material, slot.deferred_targets.gbuffer_material_view);
             destroy_target(slot.deferred_targets.scene_lighting, slot.deferred_targets.scene_lighting_view);
+            destroy_target(slot.deferred_targets.depth, slot.deferred_targets.depth_view);
         }
         slot.deferred_targets = {};
     }

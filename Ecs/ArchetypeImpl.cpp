@@ -1,13 +1,20 @@
 #include <Ecs/Archetype.hpp>
 
+#include <cstring>
 #include <new>
 
 namespace SFT::Ecs {
 
-Archetype::Archetype(Signature signature) : signature_(std::move(signature)) {
+Archetype::Archetype(Signature signature, const ComponentRegistry &registry) : signature_(std::move(signature)) {
     columns_.reserve(signature_.size());
     for (ComponentId id : signature_) {
-        columns_.push_back(Column{.id = id, .info = component_info(id), .data = nullptr});
+        const ComponentInfo *info = registry.info(id);
+        if (info == nullptr) {
+            Detail::contract_violation(
+                "ECS archetype creation referenced unregistered dense component ID {}.",
+                id);
+        }
+        columns_.push_back(Column{.id = id, .info = *info, .data = nullptr});
     }
 }
 
@@ -17,7 +24,9 @@ Archetype::~Archetype() {
             continue;
         }
         for (usize row = 0; row < entities_.size(); ++row) {
-            column.info.destroy(column.data + row * column.info.size);
+            if (column.info.destroy != nullptr) {
+                column.info.destroy(column.data + row * column.info.size, column.info.user_data);
+            }
         }
         ::operator delete(column.data, std::align_val_t(column.info.align));
     }
@@ -47,8 +56,16 @@ void Archetype::grow(usize new_capacity) {
         std::byte *new_data = static_cast<std::byte *>(
             ::operator new(new_capacity * column.info.size, std::align_val_t(column.info.align)));
         for (usize row = 0; row < entities_.size(); ++row) {
-            column.info.move_construct(new_data + row * column.info.size, column.data + row * column.info.size);
-            column.info.destroy(column.data + row * column.info.size);
+            std::byte *destination = new_data + row * column.info.size;
+            std::byte *source = column.data + row * column.info.size;
+            if (column.info.move_construct != nullptr) {
+                column.info.move_construct(destination, source, column.info.user_data);
+            } else {
+                std::memcpy(destination, source, column.info.size);
+            }
+            if (column.info.destroy != nullptr) {
+                column.info.destroy(source, column.info.user_data);
+            }
         }
         if (column.data != nullptr) {
             ::operator delete(column.data, std::align_val_t(column.info.align));
@@ -72,11 +89,19 @@ Entity Archetype::remove_row(u32 row) {
     Entity moved{};
     for (Column &column : columns_) {
         std::byte *row_ptr = column.data + static_cast<usize>(row) * column.info.size;
-        column.info.destroy(row_ptr);
+        if (column.info.destroy != nullptr) {
+            column.info.destroy(row_ptr, column.info.user_data);
+        }
         if (row != last) {
             std::byte *last_ptr = column.data + last * column.info.size;
-            column.info.move_construct(row_ptr, last_ptr);
-            column.info.destroy(last_ptr);
+            if (column.info.move_construct != nullptr) {
+                column.info.move_construct(row_ptr, last_ptr, column.info.user_data);
+            } else {
+                std::memcpy(row_ptr, last_ptr, column.info.size);
+            }
+            if (column.info.destroy != nullptr) {
+                column.info.destroy(last_ptr, column.info.user_data);
+            }
         }
     }
     if (row != last) {

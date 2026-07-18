@@ -2,30 +2,28 @@
 #include <RHI/Threading.hpp>
 
 #pragma region Imports
+#include <Async/Async.hpp>
 #include <algorithm>
 #include <chrono>
-#include <format>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
-#include <Async/Async.hpp>
 #pragma endregion
 
-#include <Engine/Application.hpp>
 #include <Core/Core.hpp>
+#include <Engine/Application.hpp>
 #include <Platform/Platform.hpp>
 #include <Platform/Window/SDL3/SDL3.hpp>
 
-using std::chrono::duration;
-using std::chrono::high_resolution_clock;
+using SFT::Foundation::f64;
 using std::make_unique;
 using std::vector;
-using SFT::Foundation::f64;
+using std::chrono::duration;
+using std::chrono::high_resolution_clock;
 
 namespace SFT::Engine {
 
-    Application::Application() = default;
+    Application::Application(ApplicationClient &client) noexcept : client_(&client) {}
 
     Application::~Application() {
         drain_render_thread();
@@ -77,8 +75,7 @@ namespace SFT::Engine {
             // state from `window`, so keep registration on the window-owning caller path. Steady-state
             // rendering still moves onto render_thread_ below when that backend policy is selected.
             if (is_primary) {
-                EngineConfig engine_config{};
-                return engine_->initialize(window, engine_config);
+                return engine_->initialize(window, client_->application_config().engine);
             }
             return engine_->add_window(window);
         });
@@ -128,8 +125,7 @@ namespace SFT::Engine {
         return true;
     }
 
-    void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized,
-                                             bool wait_for_completion) {
+    void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion) {
         if (resized) {
             managed.resize_pending.store(true, std::memory_order_release);
         }
@@ -180,9 +176,10 @@ namespace SFT::Engine {
         };
         ++managed.frame_index;
 
-        // Everything below is the one seam where a graphics call happens. On the dedicated render
-        // thread, resize handling and engine_->render() both run there so all RHI/Vulkan calls for this
-        // window stay on a single owning thread (Vulkan objects here are not internally synchronized).
+        // ECS extraction below is CPU-only and runs on this coordinating caller before dispatch. The
+        // lambda is the one seam where graphics calls happen: on the dedicated render thread, resize
+        // handling and engine_->render() both run there so all RHI/Vulkan calls for this window stay on
+        // a single owning thread (Vulkan objects here are not internally synchronized).
         // resize_needed_extent is `extent`, already resolved on the main thread above — the render
         // thread must not call back into Window itself (e.g. via framebuffer_size()): on Windows the
         // main thread can be blocked inside SDL's modal move/resize pump holding Window's internal
@@ -190,11 +187,21 @@ namespace SFT::Engine {
         // deadlock the whole process during a drag.
         const Core::RenderSurfaceHandle surface = *managed.surface;
         const Core::Extent2D resize_needed_extent{extent.x, extent.y};
-        auto render_task = [this, &managed, surface, frame_input, resize_needed_extent]() -> Core::RendererResult {
+        optional<RenderFrameParameters> frame_parameters =
+            client_->request_render_frame(*engine_, surface, frame_input);
+        if (!frame_parameters) {
+            return;
+        }
+        PreparedRenderFrame prepared_frame = engine_->prepare_render_frame(surface, frame_input, *frame_parameters);
+        auto render_task = [this,
+                            &managed,
+                            surface,
+                            resize_needed_extent,
+                            prepared_frame = std::move(prepared_frame)]() -> Core::RendererResult {
             if (managed.resize_pending.exchange(false, std::memory_order_acq_rel)) {
                 engine_->on_surface_resize_needed(surface, resize_needed_extent);
             }
-            return engine_->render(surface, frame_input);
+            return engine_->render(prepared_frame);
         };
 
         if (render_thread_) {
@@ -225,17 +232,28 @@ namespace SFT::Engine {
     bool Application::initialize() {
         using namespace Platform::Windowing;
 
-        WindowConfig primary_config{};
-        primary_config.title = "Sturdy Engine 5";
-        primary_config.extent = {1280, 720};
-        primary_config.graphics_api = WindowGraphicsApi::Vulkan;
-
         engine_ = make_unique<Engine>();
 
         // SDL3 is the default windowing backend (broad platform reach + robust Vulkan surface
         // creation). GLFW remains available - this is the one line that selects the primary window's
         // backend; spawn_managed_window<Backend> works with either.
-        if (!spawn_sdl3_managed_window(primary_config, /*is_primary=*/true)) {
+        if (!spawn_sdl3_managed_window(client_->application_config().primary_window, /*is_primary=*/true)) {
+            engine_.reset();
+            Async::Scheduler::shutdown();
+            return false;
+        }
+
+        if (ApplicationResult consumer_initialized = client_->on_engine_initialized(*engine_);
+            !consumer_initialized) {
+            Foundation::log_error("Runtime consumer initialization failed: {}", consumer_initialized.error().message);
+            for (auto &managed : windows_) {
+                if (managed->surface) {
+                    engine_->remove_window(*managed->surface);
+                    managed->surface.reset();
+                }
+                window_manager_.destroy_window(managed->window_id);
+            }
+            windows_.clear();
             engine_.reset();
             Async::Scheduler::shutdown();
             return false;
@@ -268,7 +286,6 @@ namespace SFT::Engine {
         auto last_memory_log = high_resolution_clock::now();
         auto last_title_update = last_memory_log;
         constexpr f64 memory_log_interval_seconds = 5.0;
-        constexpr f64 title_update_interval_seconds = 0.25;
         usize peak_resident_bytes = 0;
 
         vector<ManagedWindowEvents> window_events;
@@ -359,12 +376,19 @@ namespace SFT::Engine {
                 last_memory_log = now;
             }
 
-            if (duration<f64>(now - last_title_update).count() >= title_update_interval_seconds) {
+            const optional<f64> title_update_interval =
+                client_->application_config().primary_window_title_update_interval_seconds;
+            if (title_update_interval &&
+                duration<f64>(now - last_title_update).count() >= *title_update_interval) {
                 if (auto primary_id = window_manager_.primary_window_id()) {
                     if (ManagedWindow *primary = find_managed_window(*primary_id); primary != nullptr && !primary->closing && primary->last_delta_seconds > 0.0) {
-                        const std::string title = std::format("SturdyEngine 5 Frame Time: {}, FPS: {:.0f} [{} window(s)]",
-                                                               Foundation::human_readable_time(primary->last_delta_seconds),
-                                                               1.0 / primary->last_delta_seconds, windows_.size());
+                        const UString title = client_->primary_window_title(
+                            *engine_,
+                            ApplicationFrameStats{
+                                .frame_seconds = primary->last_delta_seconds,
+                                .frame_index = primary->frame_index,
+                                .window_count = windows_.size(),
+                            });
                         window_manager_.with_window(*primary_id, [&](Window &w) -> bool {
                             if (auto result = w.set_title(title.c_str()); !result) {
                                 Foundation::log_error("Failed to set window title: {}", result.error().message);

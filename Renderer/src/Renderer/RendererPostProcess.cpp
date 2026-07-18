@@ -29,6 +29,14 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        struct alignas(16) TonemapConstants {
+            f32 exposure = 1.0f;
+            f32 white_point = 1.0f;
+            f32 saturation = 1.0f;
+            u32 operation = 0;
+        };
+        static_assert(sizeof(TonemapConstants) == 16);
+
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
@@ -119,9 +127,15 @@ namespace SFT::Renderer {
             return unexpected(tonemap_error("tonemap shader produced no bind-group layout (expected a texture + sampler)."));
         }
 
+        const vector<RHI::PushConstantRange> push_constant_ranges =
+            generate_push_constant_ranges(reflection, RHI::ShaderStage::Fragment);
+        if (push_constant_ranges.empty()) {
+            destroy_tonemap_resources_locked(*guard);
+            return unexpected(tonemap_error("tonemap shader produced no push-constant range."));
+        }
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
             .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{guard->bind_group_layouts.data(), guard->bind_group_layouts.size()},
-            .push_constant_ranges = {},
+            .push_constant_ranges = span<const RHI::PushConstantRange>{push_constant_ranges.data(), push_constant_ranges.size()},
             .label = "tonemap pipeline layout",
         });
         if (!pipeline_layout) {
@@ -189,7 +203,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::record_tonemap(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
-                                                  RHI::Format color_format, vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                  RHI::Format color_format, const RenderGraphSettings &settings,
+                                                  vector<RHI::BindGroupHandle> &transient_bind_groups) {
         auto pipeline = tonemap_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -243,6 +258,17 @@ namespace SFT::Renderer {
 
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(layout.set, *bind_group);
+        const ToneMappingOperator operation = settings.tone_mapping
+            ? settings.tone_mapping_operator
+            : ToneMappingOperator::None;
+        const TonemapConstants constants{
+            .exposure = settings.tone_mapping_exposure,
+            .white_point = settings.tone_mapping_white_point,
+            .saturation = settings.tone_mapping_saturation,
+            .operation = static_cast<u32>(operation),
+        };
+        pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
+                                std::as_bytes(span<const TonemapConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};
     }

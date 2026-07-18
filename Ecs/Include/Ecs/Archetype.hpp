@@ -22,7 +22,7 @@ namespace SFT::Ecs {
     // move_construct/destroy plumbing below is exactly what a transition path would reuse.
     class Archetype {
       public:
-        explicit Archetype(Signature signature);
+        Archetype(Signature signature, const ComponentRegistry &registry);
         ~Archetype();
 
         Archetype(const Archetype &) = delete;
@@ -56,12 +56,8 @@ namespace SFT::Ecs {
       private:
         struct Column {
             ComponentId id{};
-            // Copied by value, not a `const ComponentInfo *` into component_info()'s registry: that
-            // registry is a std::vector<ComponentInfo> that keeps growing as new component types are
-            // first seen (via component_id<T>()), and any such growth reallocates and invalidates
-            // pointers/references into it. A pointer captured here at Archetype-construction time
-            // would dangle the moment any *other* archetype later registers a brand new component
-            // type — copying the (small, POD) struct once avoids that entirely.
+            // Copied by value so archetype storage can invoke lifecycle operations without taking a
+            // registry lock per row or retaining a descriptor borrow across plugin/type activity.
             ComponentInfo info{};
             std::byte *data = nullptr; // capacity_ * info.size bytes, aligned to info.align
         };

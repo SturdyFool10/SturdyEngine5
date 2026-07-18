@@ -88,9 +88,31 @@
     "save": "all"
   },
   {
+    "label": "Capture Runtime (Release, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Release", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
     "label": "Run Runtime (Dist)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Dist", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Capture Runtime (Dist, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_PROFILE=Dist", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",

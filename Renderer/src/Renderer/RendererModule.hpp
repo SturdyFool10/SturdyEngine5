@@ -216,6 +216,8 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle gbuffer_material_view{};
             RHI::TextureHandle scene_lighting{};
             RHI::TextureViewHandle scene_lighting_view{};
+            RHI::TextureHandle depth{};
+            RHI::TextureViewHandle depth_view{};
         };
 
         struct FrameInFlight {
@@ -279,16 +281,11 @@ namespace SFT::Renderer {
             CameraView camera{};
             SceneLighting lighting{};
             DeferredTargetFormats deferred_formats{};
+            RenderGraphSettings render_graph{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
             TextAtlasRetiredResources retired_text_atlas_resources;
             UString debug_label;
-        };
-
-        struct DebugSceneResources {
-            MeshHandle mesh{};
-            MaterialTemplateHandle material_template{};
-            MaterialInstanceHandle material_instance{};
         };
 
         // GPU state for the fullscreen tonemap post-process pass: the compiled shader + modules, its
@@ -340,6 +337,22 @@ namespace SFT::Renderer {
         // rendered each frame in render_frame_rhi(). Same lazy-build-once-and-cache pattern as
         // tonemap_/deferred_lighting_ above.
         struct TextOverlayResources {
+            struct CachedLine {
+                UString source;
+                optional<Text::ShapedLine> shaped;
+                bool initialized = false;
+            };
+
+            struct CachedVisibleLayout {
+                usize first_line = 0;
+                glm::vec2 origin_px{0.0f};
+                f32 viewport_height_px = 0.0f;
+                vector<UString> source_lines;
+                vector<GlyphSlot> slots;
+                vector<GlyphInstance> instances;
+                bool valid = false;
+            };
+
             Text::Font font;
             // Optional: best-effort emoji fallback (Noto Color Emoji), used via
             // Text::shape_with_fallback when present. `has_emoji_font` is false (not just
@@ -356,6 +369,12 @@ namespace SFT::Renderer {
             // never need an extracted outline (Text::rasterize_color_glyph rasterizes straight from
             // the font), so they never populate or look up this cache.
             std::unordered_map<u32, Text::GlyphOutline> outline_cache;
+            // Large documents are virtualized to visible lines. Each line is shaped at most once
+            // per source change, while the final visible instance list is reused wholesale until
+            // the viewport or visible text changes.
+            usize first_cached_line = 0;
+            vector<CachedLine> line_cache;
+            CachedVisibleLayout visible_layout;
             bool ready = false;
         };
 
@@ -415,14 +434,6 @@ namespace SFT::Renderer {
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
         void destroy_scene_gpu_resources() noexcept;
-        // Lazy-build-once-and-cache, guarded by lazy_resource_mutex_ internally so concurrent first-use
-        // from two windows' render calls can't double-build or corrupt the cache.
-        [[nodiscard]] Core::RendererResult ensure_debug_scene_resources();
-        void destroy_debug_scene_resources() noexcept;
-        // Caller must already hold debug_scene_'s guard — used by ensure_debug_scene_resources() itself
-        // (which holds it for its whole check-then-build body) to avoid double-locking a non-recursive
-        // Async::Mutex.
-        void destroy_debug_scene_resources_locked(DebugSceneResources &scene) noexcept;
         [[nodiscard]] Core::RendererResult record_render_item(RHI::RenderPassEncoder &pass,
                                                               const RenderItem &item,
                                                               span<const RHI::Format> color_formats,
@@ -464,7 +475,7 @@ namespace SFT::Renderer {
 
         // ── Deferred lighting and fullscreen tonemap post-processes ──
         // Both ensure_*/*_pipeline_for() pairs are lazy-build-once-and-cache, guarded by their own
-        // Async::Mutex (deferred_lighting_/tonemap_) for the same reason as debug_scene_.
+        // Async::Mutex so concurrent first use cannot double-build or corrupt either cache.
         [[nodiscard]] Core::RendererResult ensure_deferred_lighting_resources();
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> deferred_lighting_pipeline_for(RHI::Format color_format);
         [[nodiscard]] Core::RendererResult record_deferred_lighting(RHI::RenderPassEncoder &pass,
@@ -474,7 +485,7 @@ namespace SFT::Renderer {
                                                                     RHI::Format color_format,
                                                                     vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_deferred_lighting_resources() noexcept;
-        // Caller must already hold deferred_lighting_'s guard — see destroy_debug_scene_resources_locked.
+        // Caller must already hold deferred_lighting_'s guard.
         void destroy_deferred_lighting_resources_locked(DeferredLightingResources &resources) noexcept;
 
         // Lazily compiles Shaders/fullscreen_tonemap.slang and builds its reflection-derived layouts +
@@ -487,9 +498,10 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult record_tonemap(RHI::RenderPassEncoder &pass,
                                                           RHI::TextureViewHandle source_view,
                                                           RHI::Format color_format,
+                                                          const RenderGraphSettings &settings,
                                                           vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_tonemap_resources() noexcept;
-        // Caller must already hold tonemap_'s guard — see destroy_debug_scene_resources_locked.
+        // Caller must already hold tonemap_'s guard.
         void destroy_tonemap_resources_locked(TonemapResources &resources) noexcept;
 
         // Debug HUD text overlay: lazily loads a default UI font + builds an atlas/pipeline, then
@@ -505,6 +517,7 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult prepare_text_overlay(RHI::CommandEncoder &encoder,
                                                                  span<const UString> lines,
                                                                  glm::vec2 origin_px,
+                                                                 glm::vec2 viewport_size_px,
                                                                  TextFrameResources &frame_resources,
                                                                  vector<RHI::BufferHandle> &transient_buffers,
                                                                  TextAtlasRetiredResources &retired_atlas_resources,
@@ -548,8 +561,8 @@ namespace SFT::Renderer {
         TextureHandle default_white_texture_{};
         // Legacy accumulator for the public submit_draw() API + the plain render_frame(surface, frame)
         // fallback overload only — never touched by the RenderFrameDesc path (which uses a fully
-        // call-local FrameSubmission instead) and, per today's Engine::render(), never exercised
-        // concurrently with another window's render once the demo scene is up.
+        // call-local FrameSubmission instead). An empty accumulator now intentionally renders no
+        // geometry; content is always supplied by an API consumer.
         vector<RenderItem> frame_draws_;
         vector<SceneFrameGpuResources> scene_frame_resources_;
         // Lazily created by the first async poll over the `Shaders/` tree; primed so the first poll
@@ -572,7 +585,6 @@ namespace SFT::Renderer {
         // (and therefore the vector) non-movable. A plain mutex covering just this one cache is the
         // exception here, not the rule.
         std::mutex material_pipeline_mutex_;
-        Async::Mutex<DebugSceneResources> debug_scene_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

@@ -3,6 +3,7 @@
 #pragma region Imports
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <expected>
 #include <fstream>
 #include <optional>
@@ -159,6 +160,9 @@ namespace SFT::Renderer {
         guard->pipeline = std::move(*pipeline);
         guard->font_id = 1;
         guard->outline_cache.clear();
+        guard->first_cached_line = 0;
+        guard->line_cache.clear();
+        guard->visible_layout = {};
 
         // Best-effort: an emoji font that fails to load or parse just means emoji render as
         // whatever tofu the primary font has for those codepoints, not a broken overlay.
@@ -179,7 +183,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const UString> lines,
-                                                        glm::vec2 origin_px, TextFrameResources &frame_resources,
+                                                        glm::vec2 origin_px, glm::vec2 viewport_size_px,
+                                                        TextFrameResources &frame_resources,
                                                         vector<RHI::BufferHandle> &transient_buffers,
                                                         TextAtlasRetiredResources &retired_atlas_resources,
                                                         vector<TextDrawBatch> &out_batches) {
@@ -205,6 +210,47 @@ namespace SFT::Renderer {
         const f32 font_line_height =
             static_cast<f32>(guard->font.ascender() - guard->font.descender() + guard->font.line_gap()) * scale;
         const f32 line_height = std::max(font_line_height, overlay_pixel_size);
+
+        // Virtualize large documents before shaping. One line of overscan on each side retains
+        // accents, outline padding, and unusually tall glyphs crossing the nominal line box while
+        // keeping CPU/GPU work proportional to viewport height instead of document length.
+        auto clamp_line_index = [&](f32 index) noexcept -> usize {
+            if (!(index > 0.0f)) {
+                return 0;
+            }
+            const f32 line_count = static_cast<f32>(lines.size());
+            if (!std::isfinite(index) || index >= line_count) {
+                return lines.size();
+            }
+            return static_cast<usize>(index);
+        };
+        const usize first_visible_line = clamp_line_index(
+            std::floor(-origin_px.y / line_height) - 1.0f);
+        usize end_visible_line = clamp_line_index(
+            std::ceil((viewport_size_px.y - origin_px.y) / line_height) + 1.0f);
+        end_visible_line = std::max(end_visible_line, first_visible_line);
+        const usize visible_line_count = end_visible_line - first_visible_line;
+
+        TextOverlayResources::CachedVisibleLayout &cached_layout = guard->visible_layout;
+        bool layout_matches = cached_layout.valid &&
+                              cached_layout.first_line == first_visible_line &&
+                              cached_layout.origin_px.x == origin_px.x &&
+                              cached_layout.origin_px.y == origin_px.y &&
+                              cached_layout.viewport_height_px == viewport_size_px.y &&
+                              cached_layout.source_lines.size() == visible_line_count;
+        if (layout_matches) {
+            for (usize i = 0; i < visible_line_count; ++i) {
+                if (cached_layout.source_lines[i] != lines[first_visible_line + i]) {
+                    layout_matches = false;
+                    break;
+                }
+            }
+        }
+        if (layout_matches) {
+            return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances,
+                                           cached_layout.slots, frame_resources, out_batches);
+        }
+
         const Text::FontStack fonts{
             .primary = &guard->font,
             .emoji = guard->has_emoji_font ? &guard->emoji_font : nullptr,
@@ -229,14 +275,47 @@ namespace SFT::Renderer {
         // by the debug HUD.
         shape_options.features.zero = 1;
 
+        // Retain shaped results for the current visible window only. When scrolling, overlapping
+        // lines move into the next cache without reshaping; memory remains O(visible lines), not
+        // O(total document lines).
+        vector<TextOverlayResources::CachedLine> next_line_cache;
+        next_line_cache.reserve(visible_line_count);
+        for (usize i = 0; i < visible_line_count; ++i) {
+            const usize line_index = first_visible_line + i;
+            TextOverlayResources::CachedLine entry;
+            if (line_index >= guard->first_cached_line) {
+                const usize old_offset = line_index - guard->first_cached_line;
+                if (old_offset < guard->line_cache.size() &&
+                    guard->line_cache[old_offset].initialized &&
+                    guard->line_cache[old_offset].source == lines[line_index]) {
+                    entry = std::move(guard->line_cache[old_offset]);
+                }
+            }
+            if (!entry.initialized) {
+                entry.source = lines[line_index];
+                auto shaped = Text::shape_line_with_fallback(fonts, entry.source.as_ustr(), shape_options);
+                if (shaped) {
+                    entry.shaped = std::move(*shaped);
+                }
+                entry.initialized = true;
+            }
+            next_line_cache.push_back(std::move(entry));
+        }
+        guard->first_cached_line = first_visible_line;
+        guard->line_cache = std::move(next_line_cache);
+
         vector<GlyphPlacement> placements;
-        glm::vec2 pen{origin_px.x, origin_px.y + ascender_px};
-        for (const UString &line : lines) {
-            auto shaped = Text::shape_line_with_fallback(fonts, line.as_ustr(), shape_options);
+        placements.reserve(visible_line_count * 64u);
+        for (usize i = 0; i < guard->line_cache.size(); ++i) {
+            const optional<Text::ShapedLine> &shaped = guard->line_cache[i].shaped;
             if (!shaped) {
-                pen.y += line_height;
                 continue;
             }
+            const usize line_index = first_visible_line + i;
+            const glm::vec2 pen{
+                origin_px.x,
+                origin_px.y + ascender_px + static_cast<f32>(line_index) * line_height,
+            };
 
             f32 visual_run_x = pen.x;
             for (const Text::ShapedRun &run : shaped->runs) {
@@ -281,11 +360,6 @@ namespace SFT::Renderer {
                 }
                 visual_run_x += run.advance_em * overlay_pixel_size;
             }
-            pen.y += line_height;
-        }
-
-        if (placements.empty()) {
-            return {};
         }
 
         vector<GlyphRequest> requests;
@@ -303,10 +377,12 @@ namespace SFT::Renderer {
         }
 
         vector<GlyphSlot> slots;
-        if (auto resident = guard->atlas.ensure_resident(*device, encoder, requests, slots, transient_buffers,
-                                                         retired_atlas_resources);
-            !resident) {
-            return unexpected(resident.error());
+        if (!requests.empty()) {
+            if (auto resident = guard->atlas.ensure_resident(*device, encoder, requests, slots, transient_buffers,
+                                                             retired_atlas_resources);
+                !resident) {
+                return unexpected(resident.error());
+            }
         }
 
         vector<GlyphInstance> instances;
@@ -315,7 +391,17 @@ namespace SFT::Renderer {
             instances.push_back(make_glyph_instance(placements[i].position, placements[i], slots[i], guard->atlas.pixel_range()));
         }
 
-        return guard->pipeline.prepare(*device, guard->atlas, instances, slots, frame_resources, out_batches);
+        cached_layout.first_line = first_visible_line;
+        cached_layout.origin_px = origin_px;
+        cached_layout.viewport_height_px = viewport_size_px.y;
+        cached_layout.source_lines.assign(lines.begin() + static_cast<isize>(first_visible_line),
+                                          lines.begin() + static_cast<isize>(end_visible_line));
+        cached_layout.slots = std::move(slots);
+        cached_layout.instances = std::move(instances);
+        cached_layout.valid = true;
+
+        return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances,
+                                       cached_layout.slots, frame_resources, out_batches);
     }
 
     Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,
@@ -344,6 +430,9 @@ namespace SFT::Renderer {
             resources.atlas.destroy(*device);
         }
         resources.outline_cache.clear();
+        resources.first_cached_line = 0;
+        resources.line_cache.clear();
+        resources.visible_layout = {};
         resources.ready = false;
     }
 

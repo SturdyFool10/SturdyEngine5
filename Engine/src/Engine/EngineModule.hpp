@@ -4,17 +4,18 @@
 
 #pragma region Imports
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <vector>
-#include <glm/mat4x4.hpp>
-#include <glm/vec3.hpp>
 #pragma endregion
 
+#include "EcsRendering.hpp"
+#include "AssetManager.hpp"
 #include <Core/Core.hpp>
-#include <Renderer/Renderer.hpp>
-#include <RHI/RHI.hpp>
+#include <Ecs/System.hpp>
+#include <Ecs/World.hpp>
 #include <Platform/Platform.hpp>
+#include <RHI/RHI.hpp>
+#include <Renderer/Renderer.hpp>
 
 using std::optional;
 using std::vector;
@@ -78,6 +79,23 @@ namespace SFT::Engine {
 
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
+        // Runs the ECS render-extraction schedule on the coordinating caller thread and returns an
+        // immutable CPU snapshot. Queue this snapshot to the render thread; never hand renderer/RHI
+        // objects to ECS workers directly.
+        [[nodiscard]] PreparedRenderFrame prepare_render_frame(Core::RenderSurfaceHandle surface,
+                                                               const Core::FrameInput &frame,
+                                                               const RenderFrameParameters &parameters = {});
+        Core::RendererResult render(const PreparedRenderFrame &frame);
+
+        // Consumer extension points. Bind RenderFrameRequests as a World resource, then add
+        // read-oriented extraction systems that submit into it.
+        [[nodiscard]] Ecs::World &ecs_world() noexcept;
+        [[nodiscard]] const Ecs::World &ecs_world() const noexcept;
+        [[nodiscard]] Ecs::Schedule &render_extraction_schedule() noexcept;
+        [[nodiscard]] RenderFrameRequests &render_frame_requests() noexcept;
+        [[nodiscard]] AssetManager &assets() noexcept;
+        [[nodiscard]] const AssetManager &assets() const noexcept;
+
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
         [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept;
@@ -98,24 +116,15 @@ namespace SFT::Engine {
         void wait_idle() noexcept;
 
       private:
-        struct DemoSceneResources {
-            SFT::Renderer::MaterialTemplateHandle material_template{};
-            SFT::Renderer::MaterialInstanceHandle material_instance{};
-            SFT::Renderer::MeshHandle floor{};
-            SFT::Renderer::MeshHandle sphere{};
-            SFT::Renderer::MeshHandle cube{};
-            SFT::Renderer::MeshHandle torus{};
-            SFT::Renderer::MeshHandle cone{};
-            bool ready = false;
-        };
-
-        Core::RendererResult create_demo_scene();
-
         SFT::Renderer::Renderer renderer_;
+        AssetManager assets_{renderer_};
+        Ecs::ComponentRegistry ecs_component_registry_;
+        RenderFrameRequests render_frame_requests_{assets_};
+        Ecs::World ecs_world_{ecs_component_registry_};
+        Ecs::Schedule render_extraction_schedule_;
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;
-        DemoSceneResources demo_scene_{};
         EngineConfig config_{};
         Platform::Windowing::Window *primary_window_ = nullptr;
         bool initialized_ = false;

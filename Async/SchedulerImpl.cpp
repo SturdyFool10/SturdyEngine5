@@ -221,6 +221,10 @@ namespace SFT::Async {
         return pool().running.load(std::memory_order_acquire);
     }
 
+    bool Scheduler::is_worker_thread() noexcept {
+        return t_worker_index >= 0;
+    }
+
     u32 Scheduler::worker_count() noexcept {
         return static_cast<u32>(pool().deques.size());
     }

@@ -30,6 +30,7 @@ namespace SFT::Async {
         static void initialize_low_latency(u32 worker_count = 0) noexcept;
         static void shutdown() noexcept;
         [[nodiscard]] static bool is_running() noexcept;
+        [[nodiscard]] static bool is_worker_thread() noexcept;
         [[nodiscard]] static u32 worker_count() noexcept;
 
         template <typename F>

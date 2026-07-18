@@ -5,7 +5,6 @@
 #include <string_view>
 #include <utility>
 
-
 using std::string_view;
 
 namespace SFT::Foundation {
@@ -79,5 +78,17 @@ namespace SFT::Foundation {
     }
 
     inline void log_error(string_view message) noexcept { log(spdlog::level::err, message); }
+
+    // Force pending messages to their sinks. Fatal contract paths call this immediately before
+    // termination so their final diagnostic reaches the console even if a future logger becomes
+    // buffered or asynchronous.
+    inline void flush_logs() noexcept {
+        try {
+            if (const auto logger = ::spdlog::default_logger()) {
+                logger->flush();
+            }
+        } catch (...) {
+        }
+    }
 
 } // namespace SFT::Foundation
