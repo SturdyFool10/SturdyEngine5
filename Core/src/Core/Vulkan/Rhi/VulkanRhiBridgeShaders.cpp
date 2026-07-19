@@ -2,7 +2,7 @@
 // VulkanDevice::create_shader_module — the Slang-reflection-carrying VulkanShaderModule wrapper the
 // demo render path uses is a different, source-file-keyed concern and not what this generic RHI entry
 // point is for.
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

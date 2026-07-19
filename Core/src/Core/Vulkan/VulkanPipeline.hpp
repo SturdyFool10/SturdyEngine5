@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

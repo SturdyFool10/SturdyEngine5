@@ -1,4 +1,4 @@
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -29,13 +29,44 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
-        struct alignas(16) TonemapConstants {
+        // Deliberately no alignas(16): every field is a plain 4-byte scalar (no vec3/array members —
+        // see Engine::PsychoVSettings's doc comment on why the gray-point vec3s are flattened into
+        // separate r/g/b scalars here), so this struct's natural size already matches what Slang's
+        // push_constant block reflects byte-for-byte. Forcing 16-byte alignment would pad the C++
+        // side to a size the shader's reflected push-constant range doesn't agree with.
+        struct TonemapConstants {
             f32 exposure = 1.0f;
             f32 white_point = 1.0f;
             f32 saturation = 1.0f;
             u32 operation = 0;
+
+            u32 hdr_output = 0;
+            f32 hdr_paper_white_nits = 203.0f;
+            f32 hdr_peak_nits = 1000.0f;
+
+            u32 agx_look = 0;
+
+            f32 hermite_toe_strength = 0.5f;
+            f32 hermite_toe_length = 0.5f;
+            f32 hermite_shoulder_strength = 2.0f;
+            f32 hermite_shoulder_length = 0.5f;
+            f32 hermite_shoulder_angle = 1.0f;
+
+            f32 psychov_highlights = 1.0f;
+            f32 psychov_shadows = 1.0f;
+            f32 psychov_contrast = 1.0f;
+            f32 psychov_purity_scale = 1.0f;
+            f32 psychov_gamut_compression = 1.0f;
+            u32 psychov_gamut_compression_mode = 1;
+            f32 psychov_compression = 0.0f;
+            f32 psychov_adapted_gray_r = 0.18f;
+            f32 psychov_adapted_gray_g = 0.18f;
+            f32 psychov_adapted_gray_b = 0.18f;
+            f32 psychov_background_gray_r = 0.18f;
+            f32 psychov_background_gray_g = 0.18f;
+            f32 psychov_background_gray_b = 0.18f;
         };
-        static_assert(sizeof(TonemapConstants) == 16);
+        static_assert(sizeof(TonemapConstants) == 104);
 
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -266,6 +297,28 @@ namespace SFT::Renderer {
             .white_point = settings.tone_mapping_white_point,
             .saturation = settings.tone_mapping_saturation,
             .operation = static_cast<u32>(operation),
+            .hdr_output = static_cast<u32>(settings.tone_mapping_hdr_output),
+            .hdr_paper_white_nits = settings.tone_mapping_hdr_paper_white_nits,
+            .hdr_peak_nits = settings.tone_mapping_hdr_peak_nits,
+            .agx_look = static_cast<u32>(settings.agx_look),
+            .hermite_toe_strength = settings.hermite_toe_strength,
+            .hermite_toe_length = settings.hermite_toe_length,
+            .hermite_shoulder_strength = settings.hermite_shoulder_strength,
+            .hermite_shoulder_length = settings.hermite_shoulder_length,
+            .hermite_shoulder_angle = settings.hermite_shoulder_angle,
+            .psychov_highlights = settings.psychov_highlights,
+            .psychov_shadows = settings.psychov_shadows,
+            .psychov_contrast = settings.psychov_contrast,
+            .psychov_purity_scale = settings.psychov_purity_scale,
+            .psychov_gamut_compression = settings.psychov_gamut_compression,
+            .psychov_gamut_compression_mode = settings.psychov_gamut_compression_use_bt2020 ? 1u : 0u,
+            .psychov_compression = settings.psychov_compression,
+            .psychov_adapted_gray_r = settings.psychov_adapted_gray_bt709.r,
+            .psychov_adapted_gray_g = settings.psychov_adapted_gray_bt709.g,
+            .psychov_adapted_gray_b = settings.psychov_adapted_gray_bt709.b,
+            .psychov_background_gray_r = settings.psychov_background_gray_bt709.r,
+            .psychov_background_gray_g = settings.psychov_background_gray_bt709.g,
+            .psychov_background_gray_b = settings.psychov_background_gray_bt709.b,
         };
         pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
                                 std::as_bytes(span<const TonemapConstants>{&constants, 1}));

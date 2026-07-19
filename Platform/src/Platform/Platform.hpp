@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Platform/Window/Window.hpp>
 #include <Platform/Window/WindowManager.hpp>

@@ -128,6 +128,39 @@ namespace SFT::Engine {
                 .message = UString{"Render graph tonemapping requires finite non-negative exposure, positive white point, and saturation in [0, 4]."_ustr},
             });
         }
+        if (!std::isfinite(tone.hdr_paper_white_nits) || tone.hdr_paper_white_nits <= 0.0f ||
+            !std::isfinite(tone.hdr_peak_nits) || tone.hdr_peak_nits < tone.hdr_paper_white_nits) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidToneMappingSettings,
+                .message = UString{"Render graph HDR output requires a positive paper-white and a peak nits value at or above it."_ustr},
+            });
+        }
+        if (!std::isfinite(tone.hermite_spline.toe_strength) || tone.hermite_spline.toe_strength < 0.0f || tone.hermite_spline.toe_strength > 1.0f ||
+            !std::isfinite(tone.hermite_spline.toe_length) || tone.hermite_spline.toe_length < 0.0f || tone.hermite_spline.toe_length > 1.0f ||
+            !std::isfinite(tone.hermite_spline.shoulder_strength) || tone.hermite_spline.shoulder_strength < 0.0f ||
+            !std::isfinite(tone.hermite_spline.shoulder_length) || tone.hermite_spline.shoulder_length < 0.0f || tone.hermite_spline.shoulder_length > 1.0f ||
+            !std::isfinite(tone.hermite_spline.shoulder_angle) || tone.hermite_spline.shoulder_angle < 0.0f || tone.hermite_spline.shoulder_angle > 1.0f) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidToneMappingSettings,
+                .message = UString{"Render graph Hermite spline settings must be finite; toe/shoulder length and shoulder angle must lie in [0, 1], and shoulder strength must be non-negative."_ustr},
+            });
+        }
+        if (!std::isfinite(tone.psycho_v.highlights) || tone.psycho_v.highlights <= 0.0f ||
+            !std::isfinite(tone.psycho_v.shadows) || tone.psycho_v.shadows <= 0.0f ||
+            !std::isfinite(tone.psycho_v.contrast) || tone.psycho_v.contrast <= 0.0f ||
+            !std::isfinite(tone.psycho_v.purity_scale) || tone.psycho_v.purity_scale < 0.0f ||
+            !std::isfinite(tone.psycho_v.gamut_compression) || tone.psycho_v.gamut_compression < 0.0f || tone.psycho_v.gamut_compression > 1.0f ||
+            !std::isfinite(tone.psycho_v.compression) || tone.psycho_v.compression < 0.0f ||
+            !finite(glm::vec4{tone.psycho_v.adapted_gray_bt709, 1.0f}) ||
+            !finite(glm::vec4{tone.psycho_v.background_gray_bt709, 1.0f}) ||
+            tone.psycho_v.adapted_gray_bt709.x <= 0.0f || tone.psycho_v.adapted_gray_bt709.y <= 0.0f ||
+            tone.psycho_v.adapted_gray_bt709.z <= 0.0f || tone.psycho_v.background_gray_bt709.x <= 0.0f ||
+            tone.psycho_v.background_gray_bt709.y <= 0.0f || tone.psycho_v.background_gray_bt709.z <= 0.0f) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidToneMappingSettings,
+                .message = UString{"Render graph PsychoV settings must be finite, with positive highlights/shadows/contrast, non-negative purity/compression, gamut_compression in [0, 1], and positive adapted/background gray points."_ustr},
+            });
+        }
         if (description_.scene.enabled && !description_.lighting.enabled) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidFeatureCombination,
@@ -158,6 +191,33 @@ namespace SFT::Engine {
         desc.tone_mapping.saturation = std::isfinite(desc.tone_mapping.saturation)
                                            ? std::clamp(desc.tone_mapping.saturation, 0.0f, 4.0f)
                                            : 1.0f;
+        desc.tone_mapping.hdr_paper_white_nits = std::isfinite(desc.tone_mapping.hdr_paper_white_nits) && desc.tone_mapping.hdr_paper_white_nits > 0.0f
+                                                     ? desc.tone_mapping.hdr_paper_white_nits
+                                                     : 203.0f;
+        desc.tone_mapping.hdr_peak_nits = std::isfinite(desc.tone_mapping.hdr_peak_nits)
+                                              ? std::max(desc.tone_mapping.hdr_peak_nits, desc.tone_mapping.hdr_paper_white_nits)
+                                              : 1000.0f;
+        HermiteSplineSettings &hermite = desc.tone_mapping.hermite_spline;
+        hermite.toe_strength = std::isfinite(hermite.toe_strength) ? std::clamp(hermite.toe_strength, 0.0f, 1.0f) : 0.5f;
+        hermite.toe_length = std::isfinite(hermite.toe_length) ? std::clamp(hermite.toe_length, 0.0f, 1.0f) : 0.5f;
+        hermite.shoulder_strength = std::isfinite(hermite.shoulder_strength) ? std::max(hermite.shoulder_strength, 0.0f) : 2.0f;
+        hermite.shoulder_length = std::isfinite(hermite.shoulder_length) ? std::clamp(hermite.shoulder_length, 0.0f, 1.0f) : 0.5f;
+        hermite.shoulder_angle = std::isfinite(hermite.shoulder_angle) ? std::clamp(hermite.shoulder_angle, 0.0f, 1.0f) : 1.0f;
+        PsychoVSettings &psycho_v = desc.tone_mapping.psycho_v;
+        psycho_v.highlights = std::isfinite(psycho_v.highlights) && psycho_v.highlights > 0.0f ? psycho_v.highlights : 1.0f;
+        psycho_v.shadows = std::isfinite(psycho_v.shadows) && psycho_v.shadows > 0.0f ? psycho_v.shadows : 1.0f;
+        psycho_v.contrast = std::isfinite(psycho_v.contrast) && psycho_v.contrast > 0.0f ? psycho_v.contrast : 1.0f;
+        psycho_v.purity_scale = std::isfinite(psycho_v.purity_scale) ? std::max(psycho_v.purity_scale, 0.0f) : 1.0f;
+        psycho_v.gamut_compression = std::isfinite(psycho_v.gamut_compression) ? std::clamp(psycho_v.gamut_compression, 0.0f, 1.0f) : 1.0f;
+        psycho_v.compression = std::isfinite(psycho_v.compression) ? std::max(psycho_v.compression, 0.0f) : 0.0f;
+        if (!finite(glm::vec4{psycho_v.adapted_gray_bt709, 1.0f}) ||
+            psycho_v.adapted_gray_bt709.x <= 0.0f || psycho_v.adapted_gray_bt709.y <= 0.0f || psycho_v.adapted_gray_bt709.z <= 0.0f) {
+            psycho_v.adapted_gray_bt709 = glm::vec3{0.18f};
+        }
+        if (!finite(glm::vec4{psycho_v.background_gray_bt709, 1.0f}) ||
+            psycho_v.background_gray_bt709.x <= 0.0f || psycho_v.background_gray_bt709.y <= 0.0f || psycho_v.background_gray_bt709.z <= 0.0f) {
+            psycho_v.background_gray_bt709 = glm::vec3{0.18f};
+        }
         if (!desc.lighting.enabled) {
             desc.scene.enabled = false;
         }

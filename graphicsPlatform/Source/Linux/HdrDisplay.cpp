@@ -1,5 +1,5 @@
-#include <Foundation/Foundation.hpp>
-#include <graphicsPlatform/GraphicsPlatform.hpp>
+#include <Foundation/src/Foundation.hpp>
+#include <graphicsPlatform/src/GraphicsPlatform.hpp>
 
 #include <algorithm>
 #include <array>

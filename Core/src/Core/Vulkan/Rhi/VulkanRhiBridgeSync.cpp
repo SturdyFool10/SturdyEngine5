@@ -9,7 +9,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanDevice.hpp>
 #include <Core/Vulkan/VulkanQueue.hpp>

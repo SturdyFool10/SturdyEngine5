@@ -11,7 +11,7 @@
 // depends on this package.
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include "Error.hpp"
 #include "Font.hpp"

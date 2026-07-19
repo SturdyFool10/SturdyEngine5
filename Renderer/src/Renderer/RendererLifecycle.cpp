@@ -1,4 +1,4 @@
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -915,7 +915,13 @@ namespace SFT::Renderer {
         }
 
         // Tonemap post-process: sample HDR deferred lighting and resolve it to the swapchain.
-        constexpr RHI::Format swapchain_format = RHI::Format::BGRA8UnormSrgb;
+        // recreate_rhi_swapchain() above already picks RGB10A2Unorm/Hdr10St2084 for the swapchain
+        // itself once presentation.hdr_enabled is set — the tonemap pipeline's own color-attachment
+        // format must match, and the shader must know to PQ-encode instead of relying on an *Srgb
+        // format's automatic sRGB OETF (Vulkan applies no equivalent fixed-function curve for PQ).
+        const bool hdr_output = static_cast<bool>(record.presentation.hdr_enabled);
+        const RHI::Format swapchain_format = hdr_output ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb;
+        submission.render_graph.tone_mapping_hdr_output = hdr_output;
         graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap" : "present scene color")
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = swapchain_texture,
@@ -928,7 +934,7 @@ namespace SFT::Renderer {
                 .access = RHI::AccessFlags::ShaderRead,
             })
             .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
-            .set_execute([this, &submission, presentation_extent, scene_lighting](RenderGraphContext &context) -> Core::RendererResult {
+            .set_execute([this, &submission, presentation_extent, scene_lighting, swapchain_format](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,

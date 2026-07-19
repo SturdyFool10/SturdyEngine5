@@ -18,7 +18,7 @@
 #include <glm/vec3.hpp>
 #pragma endregion
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Geometry.hpp>

@@ -18,7 +18,7 @@
 #include <SDL3/SDL_vulkan.h>
 #pragma endregion
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanBackend.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>

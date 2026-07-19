@@ -1,4 +1,4 @@
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -32,10 +32,21 @@ namespace SFT::Engine {
             switch (operation) {
                 case ToneMappingOperator::None: return RendererApi::ToneMappingOperator::None;
                 case ToneMappingOperator::Reinhard: return RendererApi::ToneMappingOperator::Reinhard;
-                case ToneMappingOperator::Aces: return RendererApi::ToneMappingOperator::Aces;
                 case ToneMappingOperator::Exponential: return RendererApi::ToneMappingOperator::Exponential;
+                case ToneMappingOperator::Agx: return RendererApi::ToneMappingOperator::Agx;
+                case ToneMappingOperator::HermiteSpline: return RendererApi::ToneMappingOperator::HermiteSpline;
+                case ToneMappingOperator::PsychoV: return RendererApi::ToneMappingOperator::PsychoV;
             }
-            return RendererApi::ToneMappingOperator::Aces;
+            return RendererApi::ToneMappingOperator::Agx;
+        }
+
+        [[nodiscard]] RendererApi::AgxLook lower_agx_look(AgxLook look) noexcept {
+            switch (look) {
+                case AgxLook::None: return RendererApi::AgxLook::None;
+                case AgxLook::Punchy: return RendererApi::AgxLook::Punchy;
+                case AgxLook::Golden: return RendererApi::AgxLook::Golden;
+            }
+            return RendererApi::AgxLook::None;
         }
     } // namespace
 
@@ -266,6 +277,23 @@ namespace SFT::Engine {
             .tone_mapping_exposure = frame.render_graph.tone_mapping.exposure,
             .tone_mapping_white_point = frame.render_graph.tone_mapping.white_point,
             .tone_mapping_saturation = frame.render_graph.tone_mapping.saturation,
+            .tone_mapping_hdr_paper_white_nits = frame.render_graph.tone_mapping.hdr_paper_white_nits,
+            .tone_mapping_hdr_peak_nits = frame.render_graph.tone_mapping.hdr_peak_nits,
+            .agx_look = lower_agx_look(frame.render_graph.tone_mapping.agx.look),
+            .hermite_toe_strength = frame.render_graph.tone_mapping.hermite_spline.toe_strength,
+            .hermite_toe_length = frame.render_graph.tone_mapping.hermite_spline.toe_length,
+            .hermite_shoulder_strength = frame.render_graph.tone_mapping.hermite_spline.shoulder_strength,
+            .hermite_shoulder_length = frame.render_graph.tone_mapping.hermite_spline.shoulder_length,
+            .hermite_shoulder_angle = frame.render_graph.tone_mapping.hermite_spline.shoulder_angle,
+            .psychov_highlights = frame.render_graph.tone_mapping.psycho_v.highlights,
+            .psychov_shadows = frame.render_graph.tone_mapping.psycho_v.shadows,
+            .psychov_contrast = frame.render_graph.tone_mapping.psycho_v.contrast,
+            .psychov_purity_scale = frame.render_graph.tone_mapping.psycho_v.purity_scale,
+            .psychov_gamut_compression = frame.render_graph.tone_mapping.psycho_v.gamut_compression,
+            .psychov_gamut_compression_use_bt2020 = frame.render_graph.tone_mapping.psycho_v.gamut_compression_use_bt2020,
+            .psychov_compression = frame.render_graph.tone_mapping.psycho_v.compression,
+            .psychov_adapted_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.adapted_gray_bt709,
+            .psychov_background_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.background_gray_bt709,
         };
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <graphicsPlatform/GraphicsPlatform.hpp>
+#include <graphicsPlatform/src/GraphicsPlatform.hpp>
 
 #include "Swapchain.hpp"
 

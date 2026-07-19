@@ -143,9 +143,29 @@ float3 exposureTonemap(float3 hdr, float exposure) {
 }
 
 float3 acesFittedTonemap(float3 hdr) {
-    // Narkowicz ACES fit: compact, branchless, and good enough for real-time previews.
+    // Narkowicz ACES fit: compact, branchless, and good enough for real-time previews. Not one of
+    // the engine's facilitated tonemap operators (see Engine::ToneMappingOperator) — kept here only
+    // as a helper for anyone who wants to wire ACES up by hand.
     float3 x = max(hdr, 0.0);
     return saturate((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
+}
+
+// SMPTE ST 2084 (PQ) forward OETF. `nits` is absolute display luminance in cd/m^2; the result is
+// the normalized [0,1] code value an HDR10 (RHI::ColorSpace::Hdr10St2084) swapchain expects the
+// shader to have already encoded — Vulkan applies no fixed-function PQ curve the way an *Srgb
+// swapchain format applies sRGB automatically, so every HDR-output tonemap operator must call this
+// itself before writing its final color.
+float3 pqEncode(float3 nits) {
+    static const float PQ_M1 = 0.1593017578125;
+    static const float PQ_M2 = 78.84375;
+    static const float PQ_C1 = 0.8359375;
+    static const float PQ_C2 = 18.8515625;
+    static const float PQ_C3 = 18.6875;
+    static const float PQ_MAX_NITS = 10000.0;
+
+    float3 y = saturate(nits / PQ_MAX_NITS);
+    float3 yM1 = pow(y, PQ_M1);
+    return pow((PQ_C1 + PQ_C2 * yM1) / (1.0 + PQ_C3 * yM1), PQ_M2);
 }
 
 float linearToSrgbChannel(float linearValue) {

@@ -1,4 +1,4 @@
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -18,7 +18,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-#include <Async/Async.hpp>
+#include <Async/src/Async.hpp>
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>

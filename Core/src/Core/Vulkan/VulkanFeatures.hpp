@@ -29,7 +29,7 @@
 #include <span>
 #include <string_view>
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 using std::array;
 using std::span;

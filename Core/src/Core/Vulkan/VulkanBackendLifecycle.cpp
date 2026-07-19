@@ -13,7 +13,7 @@
 #include <optional>
 #pragma endregion
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #include <Core/Vulkan/VulkanAllocator.hpp>

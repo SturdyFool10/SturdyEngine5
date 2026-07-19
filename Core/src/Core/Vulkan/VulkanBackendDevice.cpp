@@ -23,7 +23,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanAllocator.hpp>
 #include <Core/Vulkan/VulkanBackend.hpp>

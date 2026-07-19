@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #include <filesystem>
@@ -11,8 +11,8 @@
 #include "EcsRendering.hpp"
 #include "AssetManager.hpp"
 #include <Core/Core.hpp>
-#include <Ecs/System.hpp>
-#include <Ecs/World.hpp>
+#include <Ecs/src/System.hpp>
+#include <Ecs/src/World.hpp>
 #include <Platform/Platform.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/Renderer.hpp>

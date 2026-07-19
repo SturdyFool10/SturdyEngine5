@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #pragma region Imports

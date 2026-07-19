@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <expected>
 #include <functional>
@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 namespace SFT::Engine {
@@ -21,11 +22,60 @@ namespace SFT::Engine {
         DebugOverlay,
     };
 
+    // ACES is deliberately not offered here. It has well-known highlight/hue-shift problems (see
+    // e.g. Troy Sobotka's writeups on ACES RRT/ODT skew) that this engine does not want to steer
+    // consumers toward by default. The underlying acesFittedTonemap() shader helper still exists in
+    // Shaders/sturdy_common.slang for anyone who wants to wire it up by hand — it just isn't one of
+    // the operators this enum can select.
     enum class ToneMappingOperator : u8 {
         None,
         Reinhard,
-        Aces,
         Exponential,
+        Agx,
+        HermiteSpline,
+        PsychoV,
+    };
+
+    // AgX (Troy Sobotka, shipped as Blender 4.0's default view transform) applies a fixed log2
+    // encode + sigmoid through inset/outset matrices; "looks" are the same optional post-curve
+    // grades Blender itself offers.
+    enum class AgxLook : u8 {
+        None,
+        Punchy,
+        Golden,
+    };
+
+    struct AgxSettings {
+        AgxLook look = AgxLook::None;
+    };
+
+    // Toe/shoulder-parameterized filmic curve evaluated as a cubic Hermite spline through the toe
+    // and shoulder segments (the technique behind Unity's legacy "Custom" tonemapping curve and
+    // John Hable's piecewise filmic curves) — fully user-shapeable rather than one fixed formula.
+    struct HermiteSplineSettings {
+        f32 toe_strength = 0.5f;      // [0, 1]: how hard the toe rolls off shadow detail.
+        f32 toe_length = 0.5f;        // [0, 1]: how much of the input range the toe occupies.
+        f32 shoulder_strength = 2.0f; // Stops of highlight compression above the linear midtone.
+        f32 shoulder_length = 0.5f;   // [0, 1]: how much of the input range the shoulder occupies.
+        f32 shoulder_angle = 1.0f;    // [0, 1]: blends the shoulder from a hard knee (0) to linear (1).
+    };
+
+    // A faithful port of clshortfuse/renodx's "psychov" test22 psychovisual tonemapper — an
+    // observer-model operator: converts to Stockman-Sharpe LMS cone space, applies adaptive
+    // MacLeod-Boynton-space highlight/shadow grading and hue-preserving log-domain compression, then
+    // gamut-compresses against a chosen RGB hull. See Shaders/sturdy_tonemap_psychov.slang.
+    struct PsychoVSettings {
+        f32 highlights = 1.0f;      // >1 lifts, <1 rolls off highlights (per-cone grade).
+        f32 shadows = 1.0f;         // >1 lifts, <1 rolls off shadows (per-cone grade).
+        f32 contrast = 1.0f;        // Slope-normalized contrast into the compression shoulder.
+        f32 purity_scale = 1.0f;    // MacLeod-Boynton purity applied before the contrast curve.
+        f32 gamut_compression = 1.0f; // [0, 1]: how strongly out-of-hull colors bend back in-gamut.
+        bool gamut_compression_use_bt2020 = true; // false compresses against the BT.709 hull instead.
+        // Log-domain compression exponent; 0 auto-derives it from a simultaneous-contrast
+        // dynamic-range reference (Kunkel & Reinhard 2010), matching upstream's default behavior.
+        f32 compression = 0.0f;
+        glm::vec3 adapted_gray_bt709{0.18f};     // Scene state the observer is assumed adapted to.
+        glm::vec3 background_gray_bt709{0.18f};  // Display state that adapted gray should map to.
     };
 
     struct SceneRenderSettings {
@@ -42,10 +92,25 @@ namespace SFT::Engine {
 
     struct ToneMappingSettings {
         bool enabled = true;
-        ToneMappingOperator operation = ToneMappingOperator::Aces;
+        // AgX is the default now that ACES is no longer offered — see ToneMappingOperator's doc
+        // comment above.
+        ToneMappingOperator operation = ToneMappingOperator::Agx;
         f32 exposure = 1.0f;
         f32 white_point = 1.0f;
         f32 saturation = 1.0f;
+
+        // HDR output nits. Whether the current frame actually *presents* in HDR depends on the
+        // surface's own PresentationSettings::hdr_enabled (Engine::set_presentation_settings) — the
+        // Renderer downgrades to an SDR-encoded output automatically when that isn't set, the same
+        // capability-aware "request vs. what actually happened" pattern used elsewhere in the engine
+        // (e.g. Window::enable_window_effect's Degraded outcome). These two nits values only shape
+        // *how* an operator uses the room it's given once HDR output is active.
+        f32 hdr_paper_white_nits = 203.0f; // ITU-R BT.2408 HDR reference white.
+        f32 hdr_peak_nits = 1000.0f;
+
+        AgxSettings agx{};
+        HermiteSplineSettings hermite_spline{};
+        PsychoVSettings psycho_v{};
     };
 
     struct DebugOverlayRenderSettings {

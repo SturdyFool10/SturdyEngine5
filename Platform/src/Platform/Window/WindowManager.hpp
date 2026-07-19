@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
-#include <Async/Async.hpp>
+#include <Foundation/src/Foundation.hpp>
+#include <Async/src/Async.hpp>
 
 #pragma region Imports
 #include <expected>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #include <chrono>
@@ -16,7 +16,7 @@
 #include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
-#include <Async/Async.hpp>
+#include <Async/src/Async.hpp>
 #pragma endregion
 
 #include <Core/Core.hpp>

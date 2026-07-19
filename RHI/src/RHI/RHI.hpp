@@ -46,7 +46,7 @@
 // and backend mappings — the shapes above never have to change to accommodate it.
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include "Error.hpp"
 #include "Flags.hpp"

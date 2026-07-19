@@ -1,5 +1,5 @@
 #pragma once
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 namespace SFT::RHI {
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Ecs/Entity.hpp>
-#include <Ecs/Resource.hpp>
+#include <Ecs/src/Entity.hpp>
+#include <Ecs/src/Resource.hpp>
 #include <Renderer/Scene.hpp>
 
 #include "Asset.hpp"

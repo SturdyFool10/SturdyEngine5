@@ -3,7 +3,7 @@
 // the text_sdf.slang shader entirely. Lets us tell whether a suspected Y-axis bug lives in
 // Text/Outline.cpp + Text/Raster.cpp (this program would show it directly) or further downstream
 // in atlas packing / the shader (this program would look correct).
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #include <Text/Text.hpp>
 

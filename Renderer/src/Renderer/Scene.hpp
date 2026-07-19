@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/Foundation.hpp>
+#include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -48,12 +48,21 @@ namespace SFT::Renderer {
 
     // Renderer-facing lowering of Engine's programmable graph recipe. These are semantic choices,
     // never resource descriptions: the renderer still owns formats, target lifetimes, synchronization
-    // and the concrete low-level RenderGraph pass callbacks.
+    // and the concrete low-level RenderGraph pass callbacks. ACES is deliberately not offered here —
+    // see Engine::ToneMappingOperator's doc comment for why.
     enum class ToneMappingOperator : u8 {
         None,
         Reinhard,
-        Aces,
         Exponential,
+        Agx,
+        HermiteSpline,
+        PsychoV,
+    };
+
+    enum class AgxLook : u8 {
+        None,
+        Punchy,
+        Golden,
     };
 
     struct RenderGraphSettings {
@@ -64,10 +73,37 @@ namespace SFT::Renderer {
         f32 resolution_scale = 1.0f;
         glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
         f32 background_intensity = 1.0f;
-        ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Aces;
+        ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Agx;
         f32 tone_mapping_exposure = 1.0f;
         f32 tone_mapping_white_point = 1.0f;
         f32 tone_mapping_saturation = 1.0f;
+
+        // Consumer-requested nits (Engine::ToneMappingSettings). tone_mapping_hdr_output itself is
+        // NOT consumer-set here — Renderer derives it per-frame from the surface's actual
+        // PresentationSettings::hdr_enabled (see RendererLifecycle.cpp's render_frame_rhi) right
+        // before recording the tonemap pass, since only Renderer knows the swapchain's real color
+        // space at that point.
+        bool tone_mapping_hdr_output = false;
+        f32 tone_mapping_hdr_paper_white_nits = 203.0f;
+        f32 tone_mapping_hdr_peak_nits = 1000.0f;
+
+        AgxLook agx_look = AgxLook::None;
+
+        f32 hermite_toe_strength = 0.5f;
+        f32 hermite_toe_length = 0.5f;
+        f32 hermite_shoulder_strength = 2.0f;
+        f32 hermite_shoulder_length = 0.5f;
+        f32 hermite_shoulder_angle = 1.0f;
+
+        f32 psychov_highlights = 1.0f;
+        f32 psychov_shadows = 1.0f;
+        f32 psychov_contrast = 1.0f;
+        f32 psychov_purity_scale = 1.0f;
+        f32 psychov_gamut_compression = 1.0f;
+        bool psychov_gamut_compression_use_bt2020 = true;
+        f32 psychov_compression = 0.0f;
+        glm::vec3 psychov_adapted_gray_bt709{0.18f};
+        glm::vec3 psychov_background_gray_bt709{0.18f};
     };
 
     // Default transient target layout for the deferred path, expressed in RHI formats so the render graph
