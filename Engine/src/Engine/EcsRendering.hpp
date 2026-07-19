@@ -64,6 +64,7 @@ namespace SFT::Engine {
         Camera camera{};
         SceneLighting lighting{};
         RenderGraph render_graph{};
+        std::vector<SFT::Renderer::CustomPostProcessEffect> custom_post_processes;
         UString debug_label;
     };
 
@@ -77,6 +78,7 @@ namespace SFT::Engine {
         SFT::Renderer::DeferredTargetFormats deferred_formats{};
         std::shared_ptr<const RenderFrameRequests::RenderableList> renderables;
         RenderGraphDescription render_graph{};
+        std::vector<SFT::Renderer::CustomPostProcessEffect> custom_post_processes;
         u32 visibility_mask = ~0u;
         UString debug_label;
     };

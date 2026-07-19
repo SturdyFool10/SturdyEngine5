@@ -54,6 +54,7 @@ namespace SFT::Engine {
         [[nodiscard]] virtual UString primary_window_title(
             Engine &engine,
             const ApplicationFrameStats &stats) = 0;
+
         [[nodiscard]] virtual optional<RenderFrameParameters> request_render_frame(
             Engine &engine,
             Core::RenderSurfaceHandle surface,

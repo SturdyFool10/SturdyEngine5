@@ -573,6 +573,8 @@ namespace SFT::Renderer {
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
                 destroy_text_frame_resources(*device, old_slot.text_overlay_resources);
+                destroy_frame_bloom_targets(old_slot);
+                destroy_frame_composite_target(old_slot);
                 destroy_frame_deferred_targets(old_slot);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
@@ -671,7 +673,6 @@ namespace SFT::Renderer {
         if (Core::RendererResult deferred_targets = ensure_frame_deferred_targets(slot, render_extent, submission.deferred_formats); !deferred_targets.has_value()) {
             return deferred_targets;
         }
-
         // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
         // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
         if (submission.render_graph.render_scene && submission.render_graph.deferred_lighting) {
@@ -680,6 +681,30 @@ namespace SFT::Renderer {
             }
             if (auto lighting_pipeline = deferred_lighting_pipeline_for(submission.deferred_formats.lighting); !lighting_pipeline) {
                 return unexpected(lighting_pipeline.error());
+            }
+        }
+        constexpr RHI::Format bloom_format = RHI::Format::RG11B10Float;
+        const bool bloom_active = submission.render_graph.bloom && submission.render_graph.bloom_intensity > 0.0f;
+        if (bloom_active) {
+            if (Core::RendererResult bloom_ready = ensure_bloom_resources(bloom_format); !bloom_ready.has_value()) {
+                return bloom_ready;
+            }
+            if (Core::RendererResult bloom_targets = ensure_frame_bloom_targets(slot, render_extent, submission.render_graph.bloom_max_levels); !bloom_targets.has_value()) {
+                return bloom_targets;
+            }
+            if (Core::RendererResult composite_ready = ensure_bloom_composite_resources(); !composite_ready.has_value()) {
+                return composite_ready;
+            }
+            if (auto composite_pipeline = bloom_composite_pipeline_for(submission.deferred_formats.lighting); !composite_pipeline) {
+                return unexpected(composite_pipeline.error());
+            }
+            if (Core::RendererResult composite_target = ensure_frame_composite_target(slot, render_extent, submission.deferred_formats.lighting); !composite_target.has_value()) {
+                return composite_target;
+            }
+        }
+        for (const CustomPostProcessEffect &effect : submission.render_graph.custom_post_processes) {
+            if (Core::RendererResult custom_ready = ensure_custom_post_process(effect, submission.deferred_formats.lighting); !custom_ready.has_value()) {
+                return custom_ready;
             }
         }
         if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
@@ -914,11 +939,202 @@ namespace SFT::Renderer {
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
         }
 
-        // Tonemap post-process: sample HDR deferred lighting and resolve it to the swapchain.
-        // recreate_rhi_swapchain() above already picks RGB10A2Unorm/Hdr10St2084 for the swapchain
-        // itself once presentation.hdr_enabled is set — the tonemap pipeline's own color-attachment
-        // format must match, and the shader must know to PQ-encode instead of relying on an *Srgb
-        // format's automatic sRGB OETF (Vulkan applies no equivalent fixed-function curve for PQ).
+        // Applies every custom effect whose declared stage matches `stage`, in original declaration
+        // order, chaining source -> new transient target -> ... Reused for both BeforeBloom and
+        // AfterBloomBeforeToneMap so the two stages are identical machinery, just different insertion
+        // points around bloom.
+        const auto apply_custom_post_process_stage = [this, &graph, &submission, render_extent, frame_extent](
+            RenderGraphTextureHandle source, PostProcessStage stage) -> RenderGraphTextureHandle {
+            for (usize effect_index = 0; effect_index < submission.render_graph.custom_post_processes.size(); ++effect_index) {
+                if (submission.render_graph.custom_post_processes[effect_index].stage != stage) {
+                    continue;
+                }
+                const RenderGraphTextureHandle from = source;
+                const RenderGraphTextureHandle to = graph.create_texture(RenderGraphTextureDesc{
+                    .format = submission.deferred_formats.lighting,
+                    .extent = frame_extent,
+                    .label = "custom HDR post-process target",
+                });
+                graph.add_render_pass("custom HDR post-process")
+                    .add_color_attachment(RenderGraphColorAttachmentDesc{
+                        .texture = to,
+                        .load_op = RHI::LoadOp::DontCare,
+                        .store_op = RHI::StoreOp::Store,
+                    })
+                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = from})
+                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                    .set_execute([this, &submission, from, effect_index, render_extent](RenderGraphContext &context) -> Core::RendererResult {
+                        RHI::RenderPassEncoder &pass = context.render_pass();
+                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(render_extent.width), .height = static_cast<f32>(render_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
+                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                        return record_custom_post_process(pass, context.texture(from).default_view,
+                                                          submission.deferred_formats.lighting,
+                                                          submission.render_graph.custom_post_processes[effect_index],
+                                                          submission.transient_bind_groups);
+                    });
+                source = to;
+            }
+            return source;
+        };
+
+        // BeforeBloom effects run first: their result is both bloom's actual source (fixing the old
+        // bug where bloom always sampled the untouched deferred-lighting target) and, when bloom is
+        // inactive, the direct input to the AfterBloomBeforeToneMap chain below.
+        const RenderGraphTextureHandle post_process_source =
+            apply_custom_post_process_stage(scene_lighting, PostProcessStage::BeforeBloom);
+
+        RenderGraphTextureHandle after_bloom_source = post_process_source;
+        if (bloom_active) {
+            const vector<Core::Extent2D> &bloom_extents = slot.bloom_targets.extents;
+            const Core::Extent2D bloom_base_extent = bloom_extents.front();
+            const RenderGraphTextureHandle bloom_chain = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.bloom_targets.texture,
+                .default_view = slot.bloom_targets.views.front(),
+                .format = bloom_format,
+                .extent = RHI::Extent3D{.width = bloom_base_extent.width, .height = bloom_base_extent.height, .depth_or_layers = 1},
+                .mip_levels = static_cast<u32>(bloom_extents.size()),
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .initial_stage = RHI::PipelineStage::None,
+                .initial_access = RHI::AccessFlags::None,
+                .label = "persistent bloom mip chain",
+            });
+
+            for (usize level = 0; level < bloom_extents.size(); ++level) {
+                const RenderGraphTextureHandle source = level == 0 ? post_process_source : bloom_chain;
+                // Level 0's view/bind group can't be precomputed here like every other level: they're
+                // resolved/created inside the lambda below instead (see its comment).
+                const RHI::TextureViewHandle mip_source_view = level == 0
+                    ? RHI::TextureViewHandle{}
+                    : slot.bloom_targets.views[level - 1];
+                const RHI::TextureSubresourceRange source_subresources = level == 0
+                    ? RHI::TextureSubresourceRange{}
+                    : RHI::TextureSubresourceRange{.base_mip_level = static_cast<u32>(level - 1), .mip_level_count = 1};
+                const RHI::TextureSubresourceRange destination_subresources{
+                    .base_mip_level = static_cast<u32>(level), .mip_level_count = 1,
+                };
+                const Core::Extent2D source_extent = level == 0 ? render_extent : bloom_extents[level - 1];
+                const Core::Extent2D destination_extent = bloom_extents[level];
+                const RHI::BindGroupHandle cached_bind_group = slot.bloom_targets.downsample_bind_groups[level];
+                graph.add_render_pass("bloom downsample")
+                    .add_color_attachment(RenderGraphColorAttachmentDesc{
+                        .texture = bloom_chain,
+                        .view = slot.bloom_targets.views[level],
+                        .subresources = destination_subresources,
+                        .load_op = RHI::LoadOp::DontCare,
+                        .store_op = RHI::StoreOp::Store,
+                    })
+                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{
+                        .texture = source, .subresources = source_subresources,
+                    })
+                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height})
+                    .set_execute([this, &submission, post_process_source, mip_source_view, source_extent, destination_extent, level, cached_bind_group](RenderGraphContext &context) -> Core::RendererResult {
+                        RHI::RenderPassEncoder &pass = context.render_pass();
+                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
+                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height});
+                        RHI::TextureViewHandle source_view = mip_source_view;
+                        RHI::BindGroupHandle bind_group = cached_bind_group;
+                        if (level == 0) {
+                            // post_process_source may be a fresh transient texture every frame (whenever
+                            // there's a BeforeBloom effect), so unlike every other bloom mip its view
+                            // isn't known until the graph resolves it here, and FrameBloomTargets' cached
+                            // persistent bind group (built for the raw deferred-lighting view) would be
+                            // stale. Resolve and mint both fresh, retiring the bind group with this frame.
+                            source_view = context.texture(post_process_source).default_view;
+                            auto dynamic_bind_group = create_bloom_source_bind_group(source_view);
+                            if (!dynamic_bind_group.has_value()) {
+                                return unexpected(dynamic_bind_group.error());
+                            }
+                            submission.transient_bind_groups.push_back(*dynamic_bind_group);
+                            bind_group = *dynamic_bind_group;
+                        }
+                        return record_bloom_downsample(pass, source_view,
+                            glm::vec2{1.0f / static_cast<f32>(source_extent.width), 1.0f / static_cast<f32>(source_extent.height)},
+                            submission.render_graph, level == 0, bind_group);
+                    });
+            }
+
+            for (usize level = bloom_extents.size(); level-- > 1;) {
+                const RHI::TextureSubresourceRange source_subresources{
+                    .base_mip_level = static_cast<u32>(level), .mip_level_count = 1,
+                };
+                const RHI::TextureSubresourceRange destination_subresources{
+                    .base_mip_level = static_cast<u32>(level - 1), .mip_level_count = 1,
+                };
+                const Core::Extent2D source_extent = bloom_extents[level];
+                const Core::Extent2D destination_extent = bloom_extents[level - 1];
+                const RHI::TextureViewHandle source_view = slot.bloom_targets.views[level];
+                const RHI::BindGroupHandle bind_group = slot.bloom_targets.upsample_bind_groups[level];
+                graph.add_render_pass("bloom upsample")
+                    .add_color_attachment(RenderGraphColorAttachmentDesc{
+                        .texture = bloom_chain,
+                        .view = slot.bloom_targets.views[level - 1],
+                        .subresources = destination_subresources,
+                        .load_op = RHI::LoadOp::Load,
+                        .store_op = RHI::StoreOp::Store,
+                    })
+                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{
+                        .texture = bloom_chain, .subresources = source_subresources,
+                    })
+                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height})
+                    .set_execute([this, &submission, source_view, source_extent, destination_extent, bind_group](RenderGraphContext &context) -> Core::RendererResult {
+                        RHI::RenderPassEncoder &pass = context.render_pass();
+                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
+                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height});
+                        return record_bloom_upsample(pass, source_view,
+                            glm::vec2{1.0f / static_cast<f32>(source_extent.width), 1.0f / static_cast<f32>(source_extent.height)},
+                            submission.render_graph, bind_group);
+                    });
+            }
+
+            // Explicit HDR composite: the BeforeBloom result plus resolved bloom mip 0 become one
+            // scene-linear HDR image, so AfterBloomBeforeToneMap effects (and tonemapping) see a single
+            // plain texture and bloom is never sampled a second time later. Imported from the
+            // persistent per-frame-slot allocation ensure_frame_composite_target() above just ensured,
+            // not graph.create_texture()'d, so this doesn't mint a fresh VkImage/VkImageView every
+            // single frame for what is otherwise the exact same resource frame after frame — same
+            // Undefined-initial-layout convention every other persistent frame-slot target here uses
+            // (DontCare/Clear load ops mean nothing ever needs last frame's contents preserved).
+            const RenderGraphTextureHandle composite_destination = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.composite_target.texture,
+                .default_view = slot.composite_target.view,
+                .format = submission.deferred_formats.lighting,
+                .extent = frame_extent,
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .initial_stage = RHI::PipelineStage::None,
+                .initial_access = RHI::AccessFlags::None,
+                .label = "bloom composite target",
+            });
+            const RHI::TextureSubresourceRange bloom_mip0{.base_mip_level = 0, .mip_level_count = 1};
+            graph.add_render_pass("bloom composite")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = composite_destination,
+                    .load_op = RHI::LoadOp::DontCare,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = post_process_source})
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = bloom_chain, .subresources = bloom_mip0})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &submission, post_process_source, bloom_chain, render_extent](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(render_extent.width), .height = static_cast<f32>(render_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    return record_bloom_composite(pass, context.texture(post_process_source).default_view,
+                                                  context.texture(bloom_chain).default_view,
+                                                  submission.deferred_formats.lighting,
+                                                  submission.render_graph.bloom_intensity,
+                                                  submission.transient_bind_groups);
+                });
+            after_bloom_source = composite_destination;
+        }
+
+        after_bloom_source = apply_custom_post_process_stage(after_bloom_source, PostProcessStage::AfterBloomBeforeToneMap);
+
+        // Tonemap post-process: sample the final scene-linear HDR result (bloom already composited in
+        // above, if active) and resolve it to the swapchain. recreate_rhi_swapchain() above already picks
+        // RGB10A2Unorm/Hdr10St2084 for the swapchain itself once presentation.hdr_enabled is set — the
+        // tonemap pipeline's own color-attachment format must match, and the shader must know to
+        // PQ-encode instead of relying on an *Srgb format's automatic sRGB OETF (Vulkan applies no
+        // equivalent fixed-function curve for PQ).
         const bool hdr_output = static_cast<bool>(record.presentation.hdr_enabled);
         const RHI::Format swapchain_format = hdr_output ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb;
         submission.render_graph.tone_mapping_hdr_output = hdr_output;
@@ -929,12 +1145,12 @@ namespace SFT::Renderer {
                 .store_op = RHI::StoreOp::Store,
             })
             .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = scene_lighting,
+                .texture = after_bloom_source,
                 .stages = RHI::PipelineStage::FragmentShader,
                 .access = RHI::AccessFlags::ShaderRead,
             })
             .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
-            .set_execute([this, &submission, presentation_extent, scene_lighting, swapchain_format](RenderGraphContext &context) -> Core::RendererResult {
+            .set_execute([this, &submission, presentation_extent, after_bloom_source, swapchain_format](RenderGraphContext &context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = context.render_pass();
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
@@ -945,7 +1161,7 @@ namespace SFT::Renderer {
                     .max_depth = 1.0f,
                 });
                 pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
-                const RenderGraphTextureAccess source = context.texture(scene_lighting);
+                const RenderGraphTextureAccess source = context.texture(after_bloom_source);
                 return record_tonemap(pass, source.default_view, swapchain_format,
                                       submission.render_graph, submission.transient_bind_groups);
             });
@@ -1033,6 +1249,13 @@ namespace SFT::Renderer {
         if (*presented) {
             record.rhi_swapchain_dirty = true;
         }
+
+        if (submission.render_graph.wait_for_completion) {
+            ScopedRendererStageTimer timer{"wait explicitly requested frame completion"};
+            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
+                return unexpected(graphics_error_from_rhi(waited.error(), "wait explicitly requested frame completion"));
+            }
+        }
         return {};
     }
 
@@ -1057,6 +1280,8 @@ namespace SFT::Renderer {
             return {};
         }
 
+        // Bloom's cached first-level descriptor references scene_lighting_view.
+        destroy_frame_bloom_targets(slot);
         destroy_frame_deferred_targets(slot);
 
         auto create_target = [&](RHI::Format format, RHI::TextureUsage usage,
@@ -1161,6 +1386,183 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.depth, slot.deferred_targets.depth_view);
         }
         slot.deferred_targets = {};
+    }
+
+    Core::RendererResult Renderer::ensure_frame_bloom_targets(FrameInFlight &slot,
+                                                               Core::Extent2D extent,
+                                                               u32 requested_levels) {
+        requested_levels = std::clamp(requested_levels, 1u, 10u);
+        const bool matches = slot.bloom_targets.source_extent.width == extent.width &&
+            slot.bloom_targets.source_extent.height == extent.height &&
+            slot.bloom_targets.requested_levels == requested_levels &&
+            slot.bloom_targets.scene_source_view == slot.deferred_targets.scene_lighting_view &&
+            slot.bloom_targets.texture && !slot.bloom_targets.views.empty() &&
+            slot.bloom_targets.downsample_bind_groups.size() == slot.bloom_targets.views.size() &&
+            slot.bloom_targets.upsample_bind_groups.size() == slot.bloom_targets.views.size();
+        if (matches) return {};
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+        destroy_frame_bloom_targets(slot);
+        slot.bloom_targets.source_extent = extent;
+        slot.bloom_targets.requested_levels = requested_levels;
+        slot.bloom_targets.scene_source_view = slot.deferred_targets.scene_lighting_view;
+
+        Core::Extent2D level_extent{
+            .width = std::max(1u, extent.width / 2u),
+            .height = std::max(1u, extent.height / 2u),
+        };
+        for (u32 level = 0; level < requested_levels; ++level) {
+            slot.bloom_targets.extents.push_back(level_extent);
+            if (level_extent.width == 1u && level_extent.height == 1u) break;
+            level_extent.width = std::max(1u, level_extent.width / 2u);
+            level_extent.height = std::max(1u, level_extent.height / 2u);
+        }
+
+        const Core::Extent2D base_extent = slot.bloom_targets.extents.front();
+        auto texture = device->create_texture(RHI::TextureDesc{
+            .dimension = RHI::TextureDimension::Dim2D,
+            .format = RHI::Format::RG11B10Float,
+            .extent = RHI::Extent3D{.width = base_extent.width, .height = base_extent.height, .depth_or_layers = 1},
+            .mip_levels = static_cast<u32>(slot.bloom_targets.extents.size()),
+            .samples = RHI::SampleCount::X1,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+            .label = "persistent bloom mip chain",
+        });
+        if (!texture) {
+            destroy_frame_bloom_targets(slot);
+            return unexpected(graphics_error_from_rhi(texture.error(), "create persistent bloom mip chain"));
+        }
+        slot.bloom_targets.texture = *texture;
+        for (u32 level = 0; level < slot.bloom_targets.extents.size(); ++level) {
+            auto view = device->create_texture_view(RHI::TextureViewDesc{
+                .texture = *texture,
+                .view_type = RHI::TextureViewType::View2D,
+                .base_mip_level = level,
+                .mip_level_count = 1,
+                .label = "persistent bloom mip view",
+            });
+            if (!view) {
+                destroy_frame_bloom_targets(slot);
+                return unexpected(graphics_error_from_rhi(view.error(), "create persistent bloom mip view"));
+            }
+            slot.bloom_targets.views.push_back(*view);
+        }
+
+        auto bloom_guard = bloom_.lock();
+        if (!bloom_guard->ready || !bloom_guard->sampled_layout) {
+            destroy_frame_bloom_targets(slot);
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Bloom pipeline resources are not ready for persistent target binding.");
+        }
+        auto create_group = [&](RHI::TextureViewHandle source_view) -> Core::RendererExpected<RHI::BindGroupHandle> {
+            const array<RHI::BindGroupEntry, 2> entries{
+                RHI::BindGroupEntry{.binding = bloom_guard->image_binding, .texture_view = source_view},
+                RHI::BindGroupEntry{.binding = bloom_guard->sampler_binding, .sampler = bloom_guard->sampler},
+            };
+            auto group = device->create_bind_group(RHI::BindGroupDesc{
+                .layout = bloom_guard->sampled_layout,
+                .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+                .label = "persistent bloom source bind group",
+            });
+            if (!group) return unexpected(graphics_error_from_rhi(group.error(), "create persistent bloom bind group"));
+            return *group;
+        };
+
+        slot.bloom_targets.downsample_bind_groups.reserve(slot.bloom_targets.views.size());
+        slot.bloom_targets.upsample_bind_groups.resize(slot.bloom_targets.views.size());
+        for (usize level = 0; level < slot.bloom_targets.views.size(); ++level) {
+            const RHI::TextureViewHandle source_view = level == 0
+                ? slot.deferred_targets.scene_lighting_view
+                : slot.bloom_targets.views[level - 1];
+            auto group = create_group(source_view);
+            if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
+            slot.bloom_targets.downsample_bind_groups.push_back(*group);
+        }
+        for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
+            auto group = create_group(slot.bloom_targets.views[level]);
+            if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
+            slot.bloom_targets.upsample_bind_groups[level] = *group;
+        }
+        return {};
+    }
+
+    void Renderer::destroy_frame_bloom_targets(FrameInFlight &slot) noexcept {
+        if (RHI::RhiDevice *device = rhi_device()) {
+            for (RHI::BindGroupHandle group : slot.bloom_targets.downsample_bind_groups) {
+                if (group) device->destroy_bind_group(group);
+            }
+            for (RHI::BindGroupHandle group : slot.bloom_targets.upsample_bind_groups) {
+                if (group) device->destroy_bind_group(group);
+            }
+            for (RHI::TextureViewHandle view : slot.bloom_targets.views) {
+                if (view) device->destroy_texture_view(view);
+            }
+            if (slot.bloom_targets.texture) {
+                device->destroy_texture(slot.bloom_targets.texture);
+            }
+        }
+        slot.bloom_targets = {};
+    }
+
+    Core::RendererResult Renderer::ensure_frame_composite_target(FrameInFlight &slot,
+                                                                  Core::Extent2D extent,
+                                                                  RHI::Format format) {
+        const bool matches = slot.composite_target.extent.width == extent.width &&
+            slot.composite_target.extent.height == extent.height &&
+            slot.composite_target.format == format &&
+            slot.composite_target.texture && slot.composite_target.view;
+        if (matches) return {};
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+        destroy_frame_composite_target(slot);
+        slot.composite_target.extent = extent;
+        slot.composite_target.format = format;
+
+        auto texture = device->create_texture(RHI::TextureDesc{
+            .dimension = RHI::TextureDimension::Dim2D,
+            .format = format,
+            .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+            .samples = RHI::SampleCount::X1,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+            .label = "persistent bloom composite target",
+        });
+        if (!texture) {
+            destroy_frame_composite_target(slot);
+            return unexpected(graphics_error_from_rhi(texture.error(), "create persistent bloom composite target"));
+        }
+        slot.composite_target.texture = *texture;
+
+        auto view = device->create_texture_view(RHI::TextureViewDesc{
+            .texture = *texture,
+            .view_type = RHI::TextureViewType::View2D,
+            .label = "persistent bloom composite target view",
+        });
+        if (!view) {
+            destroy_frame_composite_target(slot);
+            return unexpected(graphics_error_from_rhi(view.error(), "create persistent bloom composite target view"));
+        }
+        slot.composite_target.view = *view;
+        return {};
+    }
+
+    void Renderer::destroy_frame_composite_target(FrameInFlight &slot) noexcept {
+        if (RHI::RhiDevice *device = rhi_device()) {
+            if (slot.composite_target.view) {
+                device->destroy_texture_view(slot.composite_target.view);
+            }
+            if (slot.composite_target.texture) {
+                device->destroy_texture(slot.composite_target.texture);
+            }
+        }
+        slot.composite_target = {};
     }
 
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
@@ -1281,6 +1683,8 @@ namespace SFT::Renderer {
             for (FrameInFlight &slot : record.frames_in_flight) {
                 reclaim_frame_slot(slot, true);
                 destroy_text_frame_resources(*device, slot.text_overlay_resources);
+                destroy_frame_bloom_targets(slot);
+                destroy_frame_composite_target(slot);
                 destroy_frame_deferred_targets(slot);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);

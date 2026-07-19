@@ -21,4 +21,22 @@ namespace SFT::Ecs {
         virtual void build(World &world, Schedule &schedule) = 0;
     };
 
+    // Minimal owning module for a consumer-defined event channel. The payload still uses
+    // SFT_ECS_EVENT for its stable canonical key; this class only removes repetitive ownership and
+    // bind_resource boilerplate. Keep the module alive as long as the World using it.
+    template <class T>
+    class EventModule final : public Module {
+      public:
+        void build(World &world, Schedule &schedule) override {
+            (void)schedule;
+            world.bind_resource(events_);
+        }
+
+        [[nodiscard]] Events<T> &events() noexcept { return events_; }
+        [[nodiscard]] const Events<T> &events() const noexcept { return events_; }
+
+      private:
+        Events<T> events_{};
+    };
+
 } // namespace SFT::Ecs

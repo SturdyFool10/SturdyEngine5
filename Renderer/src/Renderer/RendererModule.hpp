@@ -220,6 +220,31 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle depth_view{};
         };
 
+        struct FrameBloomTargets {
+            Core::Extent2D source_extent{};
+            u32 requested_levels = 0;
+            RHI::TextureViewHandle scene_source_view{};
+            vector<Core::Extent2D> extents;
+            RHI::TextureHandle texture{};
+            vector<RHI::TextureViewHandle> views;
+            vector<RHI::BindGroupHandle> downsample_bind_groups;
+            vector<RHI::BindGroupHandle> upsample_bind_groups;
+        };
+
+        // The bloom-composite output (see record_bloom_composite) is the same logical resource every
+        // frame bloom is active — same extent, same format — so like FrameDeferredTargets/
+        // FrameBloomTargets it's a persistent, resize-on-demand allocation rather than a
+        // graph.create_texture() the render graph would otherwise mint (and the RHI backend behind it
+        // would allocate a fresh VkImage/VkImageView for) fresh every single frame for no reason: the
+        // graph itself is rebuilt every frame, but the GPU resource backing this particular slot
+        // doesn't need to be.
+        struct FrameCompositeTarget {
+            Core::Extent2D extent{};
+            RHI::Format format = RHI::Format::Undefined;
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle view{};
+        };
+
         struct FrameInFlight {
             RHI::FenceHandle fence{};
             RHI::CommandBufferHandle command_buffer{};
@@ -238,6 +263,8 @@ namespace SFT::Renderer {
             vector<RHI::TextureHandle> retired_presentation_textures;
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
             FrameDeferredTargets deferred_targets{};
+            FrameBloomTargets bloom_targets{};
+            FrameCompositeTarget composite_target{};
             bool submitted = false;
         };
 
@@ -307,6 +334,73 @@ namespace SFT::Renderer {
             RHI::SamplerHandle sampler{};
             std::vector<TonemapPipelineVariant> pipeline_variants;
             bool ready = false;
+        };
+
+        struct BloomResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle prefilter_module{};
+            RHI::ShaderModuleHandle downsample_module{};
+            RHI::ShaderModuleHandle upsample_module{};
+            std::string vertex_entry_point;
+            std::string prefilter_entry_point;
+            std::string downsample_entry_point;
+            std::string upsample_entry_point;
+            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            std::vector<u32> bind_group_layout_sets;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            RHI::RenderPipelineHandle prefilter_pipeline{};
+            RHI::RenderPipelineHandle downsample_pipeline{};
+            RHI::RenderPipelineHandle upsample_pipeline{};
+            RHI::BindGroupLayoutHandle sampled_layout{};
+            u32 sampled_set = 0;
+            u32 image_binding = 0;
+            u32 sampler_binding = 0;
+            RHI::Format color_format = RHI::Format::Undefined;
+            bool ready = false;
+        };
+
+        // GPU state for the explicit bloom-composite pass (scene HDR + resolved bloom mip chain -> one
+        // scene-linear HDR result). Two sampled textures + one sampler in a single reflected bind
+        // group, one render pipeline per color format — same shape as TonemapResources used to have
+        // before bloom compositing moved out of the tonemap shader into its own pass.
+        struct BloomCompositePipelineVariant {
+            RHI::Format color_format = RHI::Format::Undefined;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+        struct BloomCompositeResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle fragment_module{};
+            std::string vertex_entry_point;
+            std::string fragment_entry_point;
+            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            std::vector<u32> bind_group_layout_sets;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            std::vector<BloomCompositePipelineVariant> pipeline_variants;
+            u32 scene_binding = 0;
+            u32 bloom_binding = 0;
+            u32 sampler_binding = 0;
+            bool ready = false;
+        };
+
+        struct CustomPostProcessResources {
+            std::string shader_path;
+            std::string module_name;
+            std::string fragment_entry_point;
+            RHI::Format color_format = RHI::Format::Undefined;
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle fragment_module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            RHI::RenderPipelineHandle pipeline{};
+            u32 set = 0;
+            u32 image_binding = 0;
+            u32 sampler_binding = 0;
         };
 
         struct DeferredLightingPipelineVariant {
@@ -413,6 +507,14 @@ namespace SFT::Renderer {
                                                                          Core::Extent2D extent,
                                                                          const DeferredTargetFormats &formats);
         void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
+        [[nodiscard]] Core::RendererResult ensure_frame_bloom_targets(FrameInFlight &slot,
+                                                                      Core::Extent2D extent,
+                                                                      u32 requested_levels);
+        void destroy_frame_bloom_targets(FrameInFlight &slot) noexcept;
+        [[nodiscard]] Core::RendererResult ensure_frame_composite_target(FrameInFlight &slot,
+                                                                         Core::Extent2D extent,
+                                                                         RHI::Format format);
+        void destroy_frame_composite_target(FrameInFlight &slot) noexcept;
         // Waits for every in-flight frame (of one window's ring) to finish, then reclaims its resources
         // (including retired swapchains/presentation textures — safe here specifically because of the
         // wait_idle, see reclaim_frame_slot's comment). The sanctioned heavy wait for teardown / periodic
@@ -487,6 +589,58 @@ namespace SFT::Renderer {
         void destroy_deferred_lighting_resources() noexcept;
         // Caller must already hold deferred_lighting_'s guard.
         void destroy_deferred_lighting_resources_locked(DeferredLightingResources &resources) noexcept;
+
+        [[nodiscard]] Core::RendererResult ensure_bloom_resources(RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_bloom_draw(RHI::RenderPassEncoder &pass,
+                                                              RHI::TextureViewHandle source_view,
+                                                              glm::vec2 source_texel_size,
+                                                              f32 threshold, f32 soft_knee, f32 scatter,
+                                                              bool prefilter, bool upsample,
+                                                              RHI::BindGroupHandle bind_group);
+        [[nodiscard]] Core::RendererResult record_bloom_downsample(RHI::RenderPassEncoder &pass,
+                                                                    RHI::TextureViewHandle source_view,
+                                                                    glm::vec2 source_texel_size,
+                                                                    const RenderGraphSettings &settings,
+                                                                    bool apply_threshold,
+                                                                    RHI::BindGroupHandle bind_group);
+        [[nodiscard]] Core::RendererResult record_bloom_upsample(RHI::RenderPassEncoder &pass,
+                                                                  RHI::TextureViewHandle source_view,
+                                                                  glm::vec2 source_texel_size,
+                                                                  const RenderGraphSettings &settings,
+                                                                  RHI::BindGroupHandle bind_group);
+        void destroy_bloom_resources() noexcept;
+        void destroy_bloom_resources_locked(BloomResources &resources) noexcept;
+
+        // Mints a one-off (source texture + bloom sampler) bind group against bloom_'s cached sampled
+        // layout. Used for bloom's level-0 downsample, whose source is the (possibly custom-effect-
+        // produced, therefore per-frame-transient) BeforeBloom result rather than a stable persistent
+        // view — so unlike every other bloom mip's bind group, it cannot be cached in FrameBloomTargets
+        // and must be created fresh per frame and retired with that frame (transient_bind_groups).
+        [[nodiscard]] Core::RendererExpected<RHI::BindGroupHandle> create_bloom_source_bind_group(
+            RHI::TextureViewHandle source_view);
+
+        // Explicit HDR bloom composite: scene HDR + resolved bloom mip chain -> one scene-linear HDR
+        // result, so AfterBloomBeforeToneMap custom effects and tonemapping both see a single plain
+        // texture instead of bloom being folded into the tonemap shader.
+        [[nodiscard]] Core::RendererResult ensure_bloom_composite_resources();
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> bloom_composite_pipeline_for(RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_bloom_composite(RHI::RenderPassEncoder &pass,
+                                                                   RHI::TextureViewHandle scene_view,
+                                                                   RHI::TextureViewHandle bloom_view,
+                                                                   RHI::Format color_format,
+                                                                   f32 bloom_intensity,
+                                                                   vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_bloom_composite_resources() noexcept;
+        void destroy_bloom_composite_resources_locked(BloomCompositeResources &resources) noexcept;
+
+        [[nodiscard]] Core::RendererResult ensure_custom_post_process(const CustomPostProcessEffect &effect,
+                                                                      RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_custom_post_process(RHI::RenderPassEncoder &pass,
+                                                                      RHI::TextureViewHandle source_view,
+                                                                      RHI::Format color_format,
+                                                                      const CustomPostProcessEffect &effect,
+                                                                      vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_custom_post_process_resources() noexcept;
 
         // Lazily compiles Shaders/fullscreen_tonemap.slang and builds its reflection-derived layouts +
         // sampler (once). Builds/caches the render pipeline for one swapchain color format. Records the
@@ -577,6 +731,8 @@ namespace SFT::Renderer {
         // or corrupt the cache. Each is fast once warm, so this only ever serializes the rare cold-start/
         // new-variant path, never per-frame recording or submission.
         Async::Mutex<DeferredLightingResources> deferred_lighting_;
+        Async::Mutex<BloomResources> bloom_;
+        Async::Mutex<BloomCompositeResources> bloom_composite_;
         Async::Mutex<TonemapResources> tonemap_;
         Async::Mutex<TextOverlayResources> text_overlay_;
         // material_pipeline_for()'s per-template pipeline_variants cache can't use the same Async::Mutex<T>
@@ -585,6 +741,8 @@ namespace SFT::Renderer {
         // (and therefore the vector) non-movable. A plain mutex covering just this one cache is the
         // exception here, not the rule.
         std::mutex material_pipeline_mutex_;
+        std::mutex custom_post_process_mutex_;
+        vector<CustomPostProcessResources> custom_post_process_resources_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

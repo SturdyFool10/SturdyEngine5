@@ -20,7 +20,16 @@ namespace SFT::Ecs {
     class Events {
       public:
         void send(T event) noexcept { buffer_.push_back(std::move(event)); }
+
+        template <class... Args>
+        T &emplace(Args &&...args) noexcept {
+            return buffer_.emplace_back(std::forward<Args>(args)...);
+        }
+
         [[nodiscard]] std::span<const T> read() const noexcept { return buffer_; }
+        [[nodiscard]] bool empty() const noexcept { return buffer_.empty(); }
+        [[nodiscard]] usize size() const noexcept { return buffer_.size(); }
+        void reserve(usize capacity) { buffer_.reserve(capacity); }
         void clear() noexcept { buffer_.clear(); }
 
       private:
@@ -44,6 +53,11 @@ namespace SFT::Ecs {
       public:
         void send(T event) noexcept { events_->send(std::move(event)); }
 
+        template <class... Args>
+        T &emplace(Args &&...args) noexcept {
+            return events_->emplace(std::forward<Args>(args)...);
+        }
+
       private:
         friend struct Detail::ResourceArgumentTraits<EventWriter<T>>;
         explicit EventWriter(Events<T> &events) noexcept : events_(&events) {}
@@ -58,6 +72,10 @@ namespace SFT::Ecs {
     class EventReader {
       public:
         [[nodiscard]] std::span<const T> read() const noexcept { return events_->read(); }
+        [[nodiscard]] bool empty() const noexcept { return events_->empty(); }
+        [[nodiscard]] usize size() const noexcept { return events_->size(); }
+        [[nodiscard]] auto begin() const noexcept { return read().begin(); }
+        [[nodiscard]] auto end() const noexcept { return read().end(); }
 
       private:
         friend struct Detail::ResourceArgumentTraits<EventReader<T>>;

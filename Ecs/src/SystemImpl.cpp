@@ -43,6 +43,20 @@ namespace SFT::Ecs {
             std::vector<usize> next_remaining;
             for (usize index : remaining) {
                 bool conflicts = false;
+                // Event consumers may not leapfrog an earlier registered producer merely because that
+                // producer was delayed by an unrelated component/resource conflict. Preserve the event
+                // pipeline's registration order across stage construction, not just within one stage.
+                for (ResourceKey read_event : systems_[index].access.event_reads) {
+                    for (usize pending_index : remaining) {
+                        if (pending_index >= index) continue;
+                        const auto &writes = systems_[pending_index].access.event_writes;
+                        if (std::find(writes.begin(), writes.end(), read_event) != writes.end()) {
+                            conflicts = true;
+                            break;
+                        }
+                    }
+                    if (conflicts) break;
+                }
                 for (usize placed_index : stage) {
                     if (system_access_conflicts(systems_[index].access, systems_[placed_index].access)) {
                         conflicts = true;
@@ -69,6 +83,7 @@ namespace SFT::Ecs {
     // register every EventWriter<T> system before any EventReader<T> system for the same T. Catch a
     // violation here, once, right after (re)building stages, instead of losing events at runtime.
     void Schedule::validate_event_ordering() const {
+        if (!config_.clear_events_on_run) return;
         std::unordered_map<ResourceKey, usize, ResourceKeyHash> max_writer_stage;
         for (usize stage_index = 0; stage_index < stages_.size(); ++stage_index) {
             for (usize system_index : stages_[stage_index]) {
@@ -119,7 +134,9 @@ namespace SFT::Ecs {
         const usize minimum_rows_per_task = std::max<usize>(1, config_.minimum_rows_per_task);
 
         ScheduledWorldScope scheduled_world{world};
-        Detail::WorldAccess::clear_event_resources(world);
+        if (config_.clear_events_on_run) {
+            Detail::WorldAccess::clear_event_resources(world);
+        }
         for (const std::vector<usize> &stage : stages_) {
             Detail::AsyncTaskList tasks;
             Detail::CommandBufferList command_buffers;

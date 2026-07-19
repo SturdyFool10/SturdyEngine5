@@ -191,6 +191,8 @@ namespace SFT::Renderer {
                 for (FrameInFlight &slot : record->frames_in_flight) {
                     reclaim_frame_slot(slot, true);
                     destroy_text_frame_resources(*device, slot.text_overlay_resources);
+                    destroy_frame_bloom_targets(slot);
+                    destroy_frame_composite_target(slot);
                     destroy_frame_deferred_targets(slot);
                     if (slot.fence) {
                         device->destroy_fence(slot.fence);
@@ -200,6 +202,11 @@ namespace SFT::Renderer {
             record->frames_in_flight.clear();
             destroy_rhi_presentation_resources(*record);
         }
+        // Frame-slot bloom bind groups reference bloom_'s cached layout and sampler, so they must be
+        // destroyed above before the shared pipeline resources are torn down.
+        destroy_bloom_resources();
+        destroy_bloom_composite_resources();
+        destroy_custom_post_process_resources();
     }
 
     Core::RendererResult Renderer::try_upload_mesh(MeshResource &mesh) {

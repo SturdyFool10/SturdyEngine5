@@ -74,6 +74,9 @@ namespace SFT::Ecs {
         // worker_count * tasks_per_worker without creating tiny scheduling-granularity tasks.
         usize minimum_rows_per_task = 128;
         usize tasks_per_worker = 2;
+        // Tick/update schedules normally clear Events<T> before producers run. Secondary schedules in
+        // the same frame can preserve those events so extraction/tooling systems observe the same tick.
+        bool clear_events_on_run = true;
     };
 
     namespace Detail {

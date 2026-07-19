@@ -21,6 +21,7 @@ namespace SFT::Engine {
         RenderGraph graph;
         graph.description_.scene.enabled = false;
         graph.description_.lighting.enabled = false;
+        graph.description_.bloom.enabled = false;
         graph.description_.debug_overlay.enabled = true;
         return graph;
     }
@@ -31,10 +32,13 @@ namespace SFT::Engine {
     SceneRenderSettings &RenderGraph::scene() noexcept { return description_.scene; }
     const LightingRenderSettings &RenderGraph::lighting() const noexcept { return description_.lighting; }
     LightingRenderSettings &RenderGraph::lighting() noexcept { return description_.lighting; }
+    const BloomSettings &RenderGraph::bloom() const noexcept { return description_.bloom; }
+    BloomSettings &RenderGraph::bloom() noexcept { return description_.bloom; }
     const ToneMappingSettings &RenderGraph::tone_mapping() const noexcept { return description_.tone_mapping; }
     ToneMappingSettings &RenderGraph::tone_mapping() noexcept { return description_.tone_mapping; }
     const DebugOverlayRenderSettings &RenderGraph::debug_overlay() const noexcept { return description_.debug_overlay; }
     DebugOverlayRenderSettings &RenderGraph::debug_overlay() noexcept { return description_.debug_overlay; }
+    RenderGraphExecutionMode RenderGraph::execution_mode() const noexcept { return description_.execution_mode; }
 
     bool RenderGraph::enabled(RenderFeature feature) const noexcept {
         switch (feature) {
@@ -42,6 +46,8 @@ namespace SFT::Engine {
                 return description_.scene.enabled;
             case RenderFeature::DeferredLighting:
                 return description_.lighting.enabled;
+            case RenderFeature::Bloom:
+                return description_.bloom.enabled;
             case RenderFeature::ToneMapping:
                 return description_.tone_mapping.enabled;
             case RenderFeature::DebugOverlay:
@@ -58,6 +64,9 @@ namespace SFT::Engine {
             case RenderFeature::DeferredLighting:
                 description_.lighting.enabled = enabled_value;
                 break;
+            case RenderFeature::Bloom:
+                description_.bloom.enabled = enabled_value;
+                break;
             case RenderFeature::ToneMapping:
                 description_.tone_mapping.enabled = enabled_value;
                 break;
@@ -70,6 +79,11 @@ namespace SFT::Engine {
 
     RenderGraph &RenderGraph::enable(RenderFeature feature) noexcept { return set_enabled(feature, true); }
     RenderGraph &RenderGraph::disable(RenderFeature feature) noexcept { return set_enabled(feature, false); }
+
+    RenderGraph &RenderGraph::set_execution_mode(RenderGraphExecutionMode mode) noexcept {
+        description_.execution_mode = mode;
+        return *this;
+    }
 
     RenderGraph &RenderGraph::set_resolution_scale(f32 scale) noexcept {
         description_.resolution_scale = scale;
@@ -117,6 +131,17 @@ namespace SFT::Engine {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidLightingSettings,
                 .message = UString{"Render graph background intensity must be finite and non-negative."_ustr},
+            });
+        }
+        const BloomSettings &bloom = description_.bloom;
+        if (!std::isfinite(bloom.threshold) || bloom.threshold < 0.0f ||
+            !std::isfinite(bloom.soft_knee) || bloom.soft_knee < 0.0f || bloom.soft_knee > 1.0f ||
+            !std::isfinite(bloom.intensity) || bloom.intensity < 0.0f ||
+            !std::isfinite(bloom.scatter) || bloom.scatter < 0.0f || bloom.scatter > 1.0f ||
+            bloom.max_levels < 1 || bloom.max_levels > 10) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidBloomSettings,
+                .message = UString{"Render graph bloom requires a non-negative threshold/intensity, soft_knee and scatter in [0, 1], and max_levels in [1, 10]."_ustr},
             });
         }
         const ToneMappingSettings &tone = description_.tone_mapping;
@@ -182,6 +207,11 @@ namespace SFT::Engine {
         desc.lighting.background_intensity = std::isfinite(desc.lighting.background_intensity)
                                                  ? std::max(desc.lighting.background_intensity, 0.0f)
                                                  : 1.0f;
+        desc.bloom.threshold = std::isfinite(desc.bloom.threshold) ? std::max(desc.bloom.threshold, 0.0f) : 1.0f;
+        desc.bloom.soft_knee = std::isfinite(desc.bloom.soft_knee) ? std::clamp(desc.bloom.soft_knee, 0.0f, 1.0f) : 0.5f;
+        desc.bloom.intensity = std::isfinite(desc.bloom.intensity) ? std::max(desc.bloom.intensity, 0.0f) : 0.08f;
+        desc.bloom.scatter = std::isfinite(desc.bloom.scatter) ? std::clamp(desc.bloom.scatter, 0.0f, 1.0f) : 0.7f;
+        desc.bloom.max_levels = std::clamp(desc.bloom.max_levels, 1u, 10u);
         desc.tone_mapping.exposure = std::isfinite(desc.tone_mapping.exposure)
                                          ? std::max(desc.tone_mapping.exposure, 0.0f)
                                          : 1.0f;

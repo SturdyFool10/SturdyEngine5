@@ -15,9 +15,18 @@ namespace SFT::Engine {
 
     // High-level, built-in operations rather than GPU pass kinds. Engine consumers choose what the
     // frame should do; Renderer still chooses attachments, formats, barriers, queues and allocation.
+    // Controls submission synchronization, not graph construction. A graph remains a lazy CPU recipe
+    // until Engine::render() records it. FireAndForget submits and returns after presentation is queued;
+    // WaitForCompletion additionally waits for that frame's GPU fence.
+    enum class RenderGraphExecutionMode : u8 {
+        FireAndForget,
+        WaitForCompletion,
+    };
+
     enum class RenderFeature : u8 {
         Scene,
         DeferredLighting,
+        Bloom,
         ToneMapping,
         DebugOverlay,
     };
@@ -90,6 +99,20 @@ namespace SFT::Engine {
         f32 background_intensity = 1.0f;
     };
 
+
+
+    // Mip-pyramid bloom based on the downsample/upsample approach popularized by the
+    // Call of Duty: Advanced Warfare post-processing presentation. Bright pixels are
+    // soft-thresholded into a progressively filtered pyramid, then accumulated back upward.
+    struct BloomSettings {
+        bool enabled = true;
+        f32 threshold = 1.0f; // Scene-linear brightness where bloom begins.
+        f32 soft_knee = 0.5f; // [0, 1]: smooth transition below threshold.
+        f32 intensity = 0.08f;
+        f32 scatter = 0.7f;   // [0, 1]: contribution from each wider pyramid level.
+        u32 max_levels = 6;   // [1, 10], additionally limited by render resolution.
+    };
+
     struct ToneMappingSettings {
         bool enabled = true;
         // AgX is the default now that ACES is no longer offered — see ToneMappingOperator's doc
@@ -120,8 +143,10 @@ namespace SFT::Engine {
     struct RenderGraphDescription {
         SceneRenderSettings scene{};
         LightingRenderSettings lighting{};
+        BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
         DebugOverlayRenderSettings debug_overlay{};
+        RenderGraphExecutionMode execution_mode = RenderGraphExecutionMode::FireAndForget;
 
         // Scales scene targets, not the presentation surface or UI. The final presentation pass
         // automatically samples at output resolution, so dynamic resolution requires no resource work
@@ -133,6 +158,7 @@ namespace SFT::Engine {
         InvalidResolutionScale,
         InvalidBackgroundColor,
         InvalidLightingSettings,
+        InvalidBloomSettings,
         InvalidToneMappingSettings,
         InvalidFeatureCombination,
     };
@@ -161,15 +187,19 @@ namespace SFT::Engine {
         [[nodiscard]] SceneRenderSettings &scene() noexcept;
         [[nodiscard]] const LightingRenderSettings &lighting() const noexcept;
         [[nodiscard]] LightingRenderSettings &lighting() noexcept;
+        [[nodiscard]] const BloomSettings &bloom() const noexcept;
+        [[nodiscard]] BloomSettings &bloom() noexcept;
         [[nodiscard]] const ToneMappingSettings &tone_mapping() const noexcept;
         [[nodiscard]] ToneMappingSettings &tone_mapping() noexcept;
         [[nodiscard]] const DebugOverlayRenderSettings &debug_overlay() const noexcept;
         [[nodiscard]] DebugOverlayRenderSettings &debug_overlay() noexcept;
+        [[nodiscard]] RenderGraphExecutionMode execution_mode() const noexcept;
 
         [[nodiscard]] bool enabled(RenderFeature feature) const noexcept;
         RenderGraph &set_enabled(RenderFeature feature, bool enabled) noexcept;
         RenderGraph &enable(RenderFeature feature) noexcept;
         RenderGraph &disable(RenderFeature feature) noexcept;
+        RenderGraph &set_execution_mode(RenderGraphExecutionMode mode) noexcept;
         RenderGraph &set_resolution_scale(f32 scale) noexcept;
         RenderGraph &set_background_color(glm::vec4 color) noexcept;
         RenderGraph &inherit_camera_background() noexcept;
@@ -191,6 +221,13 @@ namespace SFT::Engine {
             requires std::invocable<Configure, LightingRenderSettings &>
         RenderGraph &configure_lighting(Configure &&configure) {
             std::invoke(std::forward<Configure>(configure), description_.lighting);
+            return *this;
+        }
+
+        template <typename Configure>
+            requires std::invocable<Configure, BloomSettings &>
+        RenderGraph &configure_bloom(Configure &&configure) {
+            std::invoke(std::forward<Configure>(configure), description_.bloom);
             return *this;
         }
 

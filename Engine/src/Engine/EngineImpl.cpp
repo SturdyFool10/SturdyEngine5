@@ -52,7 +52,74 @@ namespace SFT::Engine {
 
     // The API-selection switch point now lives inside SFT::Renderer::Renderer. Engine owns the
     // high-level renderer, not the raw graphics backend.
-    Engine::Engine() = default;
+    Engine::Engine() {
+        ecs_world_.bind_resource(platform_event_inbox_);
+        ecs_world_.bind_resource(window_events_);
+        ecs_world_.bind_resource(keyboard_events_);
+        ecs_world_.bind_resource(text_input_events_);
+        ecs_world_.bind_resource(mouse_move_events_);
+        ecs_world_.bind_resource(mouse_button_events_);
+        ecs_world_.bind_resource(mouse_wheel_events_);
+        ecs_world_.bind_resource(window_state_events_);
+
+        update_schedule_.add_system(
+            [](Ecs::WriteResource<PlatformEventInbox> inbox,
+               Ecs::EventWriter<WindowEvent> window_events,
+               Ecs::EventWriter<KeyboardEvent> keyboard_events,
+               Ecs::EventWriter<TextInputEvent> text_events,
+               Ecs::EventWriter<MouseMoveEvent> mouse_move_events,
+               Ecs::EventWriter<MouseButtonEvent> mouse_button_events,
+               Ecs::EventWriter<MouseWheelEvent> mouse_wheel_events,
+               Ecs::EventWriter<WindowStateEvent> window_state_events) noexcept {
+                const vector<WindowEvent> pending = inbox->drain();
+                for (const WindowEvent &queued : pending) {
+                    window_events.send(queued);
+                    const Platform::Windowing::WindowEvent &event = queued.event;
+                    switch (event.kind) {
+                        case Platform::Windowing::WindowEventKind::KeyPressed:
+                        case Platform::Windowing::WindowEventKind::KeyReleased:
+                            keyboard_events.send(KeyboardEvent{
+                                .window = queued.window,
+                                .key = event.keyboard.key,
+                                .scancode = event.keyboard.scancode,
+                                .modifiers = event.keyboard.modifiers,
+                                .action = event.kind == Platform::Windowing::WindowEventKind::KeyPressed
+                                              ? ButtonAction::Pressed
+                                              : ButtonAction::Released,
+                                .repeat = event.keyboard.repeat,
+                            });
+                            break;
+                        case Platform::Windowing::WindowEventKind::TextInput:
+                            text_events.send(TextInputEvent{.window = queued.window, .text = event.text});
+                            break;
+                        case Platform::Windowing::WindowEventKind::MouseMoved:
+                            mouse_move_events.send(MouseMoveEvent{.window = queued.window, .mouse = event.mouse_move});
+                            break;
+                        case Platform::Windowing::WindowEventKind::MouseButtonPressed:
+                        case Platform::Windowing::WindowEventKind::MouseButtonReleased:
+                            mouse_button_events.send(MouseButtonEvent{
+                                .window = queued.window,
+                                .mouse = event.mouse_button,
+                                .action = event.kind == Platform::Windowing::WindowEventKind::MouseButtonPressed
+                                              ? ButtonAction::Pressed
+                                              : ButtonAction::Released,
+                            });
+                            break;
+                        case Platform::Windowing::WindowEventKind::MouseWheel:
+                            mouse_wheel_events.send(MouseWheelEvent{.window = queued.window, .wheel = event.mouse_wheel});
+                            break;
+                        default:
+                            window_state_events.send(WindowStateEvent{
+                                .window = queued.window,
+                                .kind = event.kind,
+                                .position = event.position,
+                                .resize = event.resize,
+                            });
+                            break;
+                    }
+                }
+            });
+    }
 
     Engine::~Engine() = default;
 
@@ -253,6 +320,7 @@ namespace SFT::Engine {
             .deferred_formats = SFT::Renderer::DeferredTargetFormats{},
             .renderables = render_frame_requests_.finish_frame(),
             .render_graph = graph,
+            .custom_post_processes = parameters.custom_post_processes,
             .visibility_mask = parameters.camera.culling_mask(),
             .debug_label = parameters.debug_label,
         };
@@ -268,11 +336,18 @@ namespace SFT::Engine {
         desc.view.render_graph = RendererApi::RenderGraphSettings{
             .render_scene = frame.render_graph.scene.enabled,
             .deferred_lighting = frame.render_graph.lighting.enabled,
+            .bloom = frame.render_graph.bloom.enabled,
             .tone_mapping = frame.render_graph.tone_mapping.enabled,
             .debug_overlay = frame.render_graph.debug_overlay.enabled,
+            .wait_for_completion = frame.render_graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
             .resolution_scale = frame.render_graph.resolution_scale,
             .background_color = frame.render_graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
             .background_intensity = frame.render_graph.lighting.background_intensity,
+            .bloom_threshold = frame.render_graph.bloom.threshold,
+            .bloom_soft_knee = frame.render_graph.bloom.soft_knee,
+            .bloom_intensity = frame.render_graph.bloom.intensity,
+            .bloom_scatter = frame.render_graph.bloom.scatter,
+            .bloom_max_levels = frame.render_graph.bloom.max_levels,
             .tone_mapping_operator = lower_tone_mapping(frame.render_graph.tone_mapping.operation),
             .tone_mapping_exposure = frame.render_graph.tone_mapping.exposure,
             .tone_mapping_white_point = frame.render_graph.tone_mapping.white_point,
@@ -294,6 +369,7 @@ namespace SFT::Engine {
             .psychov_compression = frame.render_graph.tone_mapping.psycho_v.compression,
             .psychov_adapted_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.adapted_gray_bt709,
             .psychov_background_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.background_gray_bt709,
+            .custom_post_processes = frame.custom_post_processes,
         };
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {

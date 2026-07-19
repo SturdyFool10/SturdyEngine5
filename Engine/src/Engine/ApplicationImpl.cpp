@@ -302,6 +302,14 @@ namespace SFT::Engine {
             }
 
             for (const ManagedWindowEvents &events : window_events) {
+                for (const Platform::Windowing::WindowEvent &event : events.events) {
+                    engine_->queue_window_event(events.window_id, event);
+                }
+            }
+            engine_->update();
+
+            for (const ManagedWindowEvents &events : window_events) {
+
                 if (events.close_requested) {
                     if (ManagedWindow *managed = find_managed_window(events.window_id)) {
                         managed->closing = true;

@@ -16,6 +16,7 @@
 #include <vector>
 #pragma endregion
 
+#include <Async/src/Mutex.hpp>
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Vulkan/VulkanAccelerationStructure.hpp>
 #include <Core/Vulkan/VulkanAllocator.hpp>
@@ -174,11 +175,23 @@ namespace SFT::Core::Vulkan {
             vector<rhi::BindGroupLayoutEntry> entries;
         };
 
-        // Each bind group owns a private pool sized to exactly its one set. Simple and correct; a
-        // shared growable pool allocator is a later optimization once bind-group churn matters.
+        // Backs the common (non-bindless) create_bind_group() path: a pool sized generously for many
+        // sets, shared across however many ordinary bind groups fit in it, instead of one dedicated
+        // vkCreateDescriptorPool per set. See create_bind_group()'s doc comment in the .cpp for why.
+        struct DescriptorPoolChunk {
+            VulkanDescriptorPool pool;
+            u32 live_sets = 0;
+        };
+
+        // Most bind groups are allocated from a shared DescriptorPoolChunk (shared_chunk_index >= 0,
+        // `pool` below left default/empty) — see create_bind_group(). Update-after-bind/variable-
+        // descriptor-count sets can't share a chunk that way (different pool creation requirements,
+        // and are rare/bindless-shaped in practice), so those still get a dedicated private pool sized
+        // to exactly their one set (shared_chunk_index stays -1).
         struct BindGroupRecord {
             VulkanDescriptorPool pool;
             VkDescriptorSet set = VK_NULL_HANDLE;
+            i32 shared_chunk_index = -1;
         };
 
         struct PipelineRecord {
@@ -271,6 +284,20 @@ namespace SFT::Core::Vulkan {
         VulkanRhiResourcePool<rhi::ShaderModuleHandle, VkShaderModule> shader_modules_;
         VulkanRhiResourcePool<rhi::BindGroupLayoutHandle, BindGroupLayoutRecord> bind_group_layouts_;
         VulkanRhiResourcePool<rhi::BindGroupHandle, BindGroupRecord> bind_groups_;
+        // Grows on demand (a new chunk whenever the last one's allocation fails) and never shrinks —
+        // chunks are cheap to keep once paid for, and re-creating them every time usage dipped to zero
+        // would reintroduce the exact per-call vkCreateDescriptorPool cost this exists to avoid.
+        // Declared after bind_groups_ so it's destroyed after (every BindGroupRecord referencing a
+        // chunk index must be gone, or at least its destruction must not need to touch these pools,
+        // before the pools themselves go away).
+        //
+        // Unlike bind_groups_ (a VulkanRhiResourcePool, internally mutex-guarded), this vector and the
+        // vkAllocateDescriptorSets/vkFreeDescriptorSets calls against its pools need their own guard:
+        // create_bind_group()/destroy_bind_group() are documented as safe to call concurrently from
+        // multiple windows' render calls, and the Vulkan spec requires external synchronization per
+        // VkDescriptorPool. Async::Mutex<T> rather than a bare std::mutex + vector so the vector is
+        // simply unreachable without holding the lock — nothing to accidentally get wrong.
+        Async::Mutex<vector<DescriptorPoolChunk>> descriptor_pool_chunks_;
         VulkanRhiResourcePool<rhi::PipelineLayoutHandle, VulkanPipelineLayout> pipeline_layouts_;
         VulkanRhiResourcePool<rhi::RenderPipelineHandle, PipelineRecord> render_pipelines_;
         VulkanRhiResourcePool<rhi::ComputePipelineHandle, PipelineRecord> compute_pipelines_;

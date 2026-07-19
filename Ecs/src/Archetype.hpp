@@ -13,13 +13,6 @@ namespace SFT::Ecs {
     // point of the archetype model: a system iterating one component type across every entity that
     // has it gets cache-friendly linear access, not a pointer-chase per entity). Rows across all
     // columns move in lockstep, indexed 0..size()-1; `entities_[row]` gives the Entity owning that row.
-    //
-    // First-cut scope: entities are only ever added at spawn (with their full, final component set)
-    // and removed at destroy — there is no add_component/remove_component archetype-transition support
-    // yet (that needs a type-erased column-by-column move from one archetype's row into another's,
-    // plus the archetype graph the design doc describes; deferred to a later session rather than
-    // shipped half-working). Nothing here forecloses adding that later: the column layout and
-    // move_construct/destroy plumbing below is exactly what a transition path would reuse.
     class Archetype {
       public:
         Archetype(Signature signature, const ComponentRegistry &registry);
@@ -53,6 +46,15 @@ namespace SFT::Ecs {
         // (World::destroy) must update that entity's recorded row.
         Entity remove_row(u32 row);
 
+        // Archetype-transition primitive backing World::add_component/remove_component. Moves every
+        // column `this` shares with `destination` from `row` into `destination`'s already-reserved
+        // `destination_row` (via destination.add_row()), then destroys whichever of `row`'s columns
+        // `destination` does not have, and swap-removes `row` here exactly like remove_row. Columns
+        // `destination` has that `this` doesn't (the newly added component, for an add_component call)
+        // are left uninitialized — the caller must placement-construct them into `destination` itself.
+        // Returns the Entity swap-moved into `row` here, with the same semantics as remove_row.
+        Entity move_row_into(u32 row, Archetype &destination, u32 destination_row);
+
       private:
         struct Column {
             ComponentId id{};
@@ -63,6 +65,11 @@ namespace SFT::Ecs {
         };
 
         void grow(usize new_capacity);
+
+        // Shared tail of remove_row/move_row_into: assumes `row`'s components have already been
+        // destroyed (or moved out) by the caller, and only needs to fill the resulting hole by
+        // swap-moving the last row into it (or just popping, if `row` already was the last row).
+        Entity compact_removed_row(u32 row) noexcept;
 
         Signature signature_;
         std::vector<Column> columns_;

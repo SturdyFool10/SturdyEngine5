@@ -3,7 +3,10 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <cstddef>
 #include <span>
+#include <string>
+#include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -65,14 +68,49 @@ namespace SFT::Renderer {
         Golden,
     };
 
+
+
+    // Where a custom effect sits relative to the built-in bloom/tonemap pipeline. Both stages carry
+    // scene-linear HDR; AfterBloomBeforeToneMap additionally has bloom already composited in, so an
+    // effect there sees exactly what tonemapping is about to see. Kept to two values deliberately —
+    // see Scene.hpp/RendererLifecycle.cpp's staged-HDR-effects docs before adding AfterToneMap: that
+    // stage needs display-linear-vs-encoded-output semantics this contract doesn't have yet.
+    enum class PostProcessStage : u8 {
+        BeforeBloom,
+        AfterBloomBeforeToneMap,
+    };
+
+    // Consumer-supplied one-input fullscreen HDR effect. The shader contract is intentionally small:
+    // vertexMain/fragmentMain, one Texture2D named sourceTexture, one sourceSampler, and optional push
+    // constants. Renderer owns compiled GPU objects; consumers own only source code and parameter bytes.
+    // Effects run in declaration order within their stage; order across different stages follows the
+    // fixed pipeline (every BeforeBloom effect before bloom, every AfterBloomBeforeToneMap effect after).
+    struct CustomPostProcessEffect {
+        std::string shader_path;
+        std::string module_name;
+        std::string fragment_entry_point = "fragmentMain";
+        std::vector<std::byte> push_constants;
+        UString label;
+        PostProcessStage stage = PostProcessStage::BeforeBloom;
+    };
+
     struct RenderGraphSettings {
         bool render_scene = true;
         bool deferred_lighting = true;
+        bool bloom = true;
         bool tone_mapping = true;
         bool debug_overlay = false;
+        // Default submission is asynchronous. Explicit completion waits are reserved for tooling,
+        // captures, deterministic tests, or other caller-requested synchronization points.
+        bool wait_for_completion = false;
         f32 resolution_scale = 1.0f;
         glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
         f32 background_intensity = 1.0f;
+        f32 bloom_threshold = 1.0f;
+        f32 bloom_soft_knee = 0.5f;
+        f32 bloom_intensity = 0.08f;
+        f32 bloom_scatter = 0.7f;
+        u32 bloom_max_levels = 6;
         ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Agx;
         f32 tone_mapping_exposure = 1.0f;
         f32 tone_mapping_white_point = 1.0f;
@@ -104,6 +142,7 @@ namespace SFT::Renderer {
         f32 psychov_compression = 0.0f;
         glm::vec3 psychov_adapted_gray_bt709{0.18f};
         glm::vec3 psychov_background_gray_bt709{0.18f};
+        std::vector<CustomPostProcessEffect> custom_post_processes;
     };
 
     // Default transient target layout for the deferred path, expressed in RHI formats so the render graph

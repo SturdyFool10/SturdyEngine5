@@ -85,14 +85,40 @@ void Archetype::grow(usize new_capacity) {
 }
 
 Entity Archetype::remove_row(u32 row) {
-    const usize last = entities_.size() - 1;
-    Entity moved{};
     for (Column &column : columns_) {
         std::byte *row_ptr = column.data + static_cast<usize>(row) * column.info.size;
         if (column.info.destroy != nullptr) {
             column.info.destroy(row_ptr, column.info.user_data);
         }
-        if (row != last) {
+    }
+    return compact_removed_row(row);
+}
+
+Entity Archetype::move_row_into(u32 row, Archetype &destination, u32 destination_row) {
+    for (Column &column : columns_) {
+        std::byte *source = column.data + static_cast<usize>(row) * column.info.size;
+        const u32 destination_column = destination.column_index_of(column.id);
+        if (destination_column != ~0u) {
+            std::byte *dest_ptr = static_cast<std::byte *>(destination.row_pointer(destination_column, destination_row));
+            if (column.info.move_construct != nullptr) {
+                column.info.move_construct(dest_ptr, source, column.info.user_data);
+            } else {
+                std::memcpy(dest_ptr, source, column.info.size);
+            }
+        }
+        if (column.info.destroy != nullptr) {
+            column.info.destroy(source, column.info.user_data);
+        }
+    }
+    return compact_removed_row(row);
+}
+
+Entity Archetype::compact_removed_row(u32 row) noexcept {
+    const usize last = entities_.size() - 1;
+    Entity moved{};
+    if (row != last) {
+        for (Column &column : columns_) {
+            std::byte *row_ptr = column.data + static_cast<usize>(row) * column.info.size;
             std::byte *last_ptr = column.data + last * column.info.size;
             if (column.info.move_construct != nullptr) {
                 column.info.move_construct(row_ptr, last_ptr, column.info.user_data);
@@ -103,8 +129,6 @@ Entity Archetype::remove_row(u32 row) {
                 column.info.destroy(last_ptr, column.info.user_data);
             }
         }
-    }
-    if (row != last) {
         entities_[row] = entities_[last];
         moved = entities_[row];
     }

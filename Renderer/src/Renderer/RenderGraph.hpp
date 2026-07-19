@@ -3,6 +3,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <expected>
 #include <functional>
 #include <span>
 #include <string>
@@ -59,6 +60,7 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle default_view{};
         RHI::Format format = RHI::Format::Undefined;
         RHI::Extent3D extent{};
+        u32 mip_levels = 1;
 
         // State at graph entry. Swapchain acquisition commonly starts Undefined; persistent resources will
         // usually enter in ShaderReadOnly/ColorAttachment/etc. The graph tracks from here.
@@ -78,6 +80,7 @@ namespace SFT::Renderer {
     struct RenderGraphColorAttachmentDesc {
         RenderGraphTextureHandle texture{};
         RHI::TextureViewHandle view{}; // null => imported texture default view
+        RHI::TextureSubresourceRange subresources{};
         RHI::LoadOp load_op = RHI::LoadOp::Clear;
         RHI::StoreOp store_op = RHI::StoreOp::Store;
         RHI::ClearColor clear_color{0.0f, 0.0f, 0.0f, 1.0f};
@@ -86,6 +89,7 @@ namespace SFT::Renderer {
     struct RenderGraphDepthStencilAttachmentDesc {
         RenderGraphTextureHandle texture{};
         RHI::TextureViewHandle view{}; // null => imported texture default view
+        RHI::TextureSubresourceRange subresources{};
         RHI::LoadOp depth_load_op = RHI::LoadOp::Clear;
         RHI::StoreOp depth_store_op = RHI::StoreOp::Store;
         RHI::LoadOp stencil_load_op = RHI::LoadOp::DontCare;
@@ -98,6 +102,7 @@ namespace SFT::Renderer {
     // texture's layout and memory visibility correct before the pass callback records draws/dispatches.
     struct RenderGraphSampledTextureReadDesc {
         RenderGraphTextureHandle texture{};
+        RHI::TextureSubresourceRange subresources{};
         RHI::PipelineStage stages = RHI::PipelineStage::FragmentShader;
         RHI::AccessFlags access = RHI::AccessFlags::ShaderRead;
     };
@@ -107,6 +112,7 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle default_view{};
         RHI::Format format = RHI::Format::Undefined;
         RHI::Extent3D extent{};
+        // Layout of mip 0 for legacy callers; pass execution tracks every mip independently.
         RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return texture && default_view; }
     };
@@ -220,8 +226,47 @@ namespace SFT::Renderer {
         RenderGraphExecuteFn execute_;
     };
 
+    // Structured compile() failure. Every code here reflects a graph the caller actually built wrong
+    // (not a transient GPU/allocation failure — those stay in execute()'s Core::RendererResult): a
+    // pass declared a handle that was never created by this graph, or a pass reads a transient
+    // texture no earlier pass produced (a genuinely uninitialized read — imported textures are
+    // always valid to read since something outside the graph already gave them real content).
+    enum class RenderGraphCompileErrorCode : u8 {
+        UnknownTextureHandle,
+        MissingProducer,
+    };
+
+    struct RenderGraphCompileError {
+        RenderGraphCompileErrorCode code = RenderGraphCompileErrorCode::UnknownTextureHandle;
+        string message;
+    };
+
     class RenderGraph {
       public:
+        // One kind + index pair identifying a declared pass; the compiled order is just these,
+        // reordered and with dead entries dropped. Public (not just an implementation detail) so a
+        // CPU-only test — or future tooling — can inspect a compiled plan without an RHI device.
+        enum class PassKind : u8 {
+            Render,
+            Blit,
+            Compute,
+            Copy,
+        };
+
+        struct OrderedPass {
+            PassKind kind = PassKind::Render;
+            u32 index = 0;
+        };
+
+        // The result of compile(): a dependency-ordered, dead-pass-culled pass list. A small wrapper
+        // struct (rather than a bare vector) so the type can grow (e.g. per-pass diagnostics) without
+        // changing compile()'s signature.
+        struct CompiledPlan {
+            vector<OrderedPass> order;
+        };
+
+        using CompileResult = std::expected<CompiledPlan, RenderGraphCompileError>;
+
         [[nodiscard]] RenderGraphTextureHandle import_texture(const RenderGraphImportedTextureDesc &desc);
 
         [[nodiscard]] RenderGraphTextureHandle create_texture(const RenderGraphTextureDesc &desc);
@@ -236,6 +281,17 @@ namespace SFT::Renderer {
 
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
 
+        // Pure-CPU compile step: derives a dependency-ordered, dead-pass-culled CompiledPlan from every
+        // pass/texture declared so far, or a structured RenderGraphCompileError if the graph itself is
+        // malformed (an unknown texture handle, or a transient texture read with no earlier producer).
+        // Needs no RHI device and performs no GPU work — safe to call from CPU-only tests/tooling, and
+        // execute() below is just this plus resource allocation, barrier recording, and pass dispatch.
+        [[nodiscard]] CompileResult compile() const;
+
+        // Lazy compile/record boundary. Until this is called, passes are declarations and transient
+        // textures are virtual: no GPU allocation or command recording occurs. Despite the historical
+        // name, execute() only compiles the dependency graph and records commands into `encoder`; queue
+        // submission remains asynchronous unless the high-level graph requests WaitForCompletion.
         [[nodiscard]] Core::RendererResult execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder);
 
         void destroy_transient_resources(RHI::RhiDevice &device) noexcept;
@@ -249,31 +305,35 @@ namespace SFT::Renderer {
 
         void reset() noexcept;
 
+        // First/last position a transient texture is read or written at, within a CompiledPlan's order
+        // — the input to interval-graph aliasing (see create_transient_resources() in RenderGraph.cpp).
+        // -1 means the texture was never used by any live pass, i.e. it gets no physical allocation at
+        // all. Public (not just an implementation detail) so a CPU-only test can confirm an unused
+        // create_texture() is correctly recognized as dead without needing an RHI device to observe
+        // that create_transient_resources() then skips allocating it.
+        struct TextureLifetime {
+            i32 first_use = -1;
+            i32 last_use = -1;
+        };
+        [[nodiscard]] vector<TextureLifetime> compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const;
+
       private:
-        enum class PassKind : u8 {
-            Render,
-            Blit,
-            Compute,
-            Copy,
-        };
-
-        struct OrderedPass {
-            PassKind kind = PassKind::Render;
-            u32 index = 0;
-        };
-
         // The actual GPU-visible backing for one or more virtual transient textures. Two virtual
         // textures whose lifetimes don't overlap (and whose creation desc matches exactly) are assigned
-        // the same PhysicalSlot by create_transient_resources()'s aliasing pass, so current_layout/stage/
-        // access is deliberately tracked per *physical* slot, not per virtual TextureRecord: it reflects
+        // the same PhysicalSlot by create_transient_resources()'s aliasing pass, so layout/stage/access
+        // state is tracked per mip of the *physical* slot, not per virtual TextureRecord: it reflects
         // real GPU state, which is shared whenever two virtual textures alias. Imported textures always
         // get a dedicated, non-owning slot (owns_resource = false — the graph never destroys it).
+        struct TextureState {
+            RHI::TextureLayout layout = RHI::TextureLayout::Undefined;
+            RHI::PipelineStage stage = RHI::PipelineStage::None;
+            RHI::AccessFlags access = RHI::AccessFlags::None;
+        };
+
         struct PhysicalSlot {
             RHI::TextureHandle texture{};
             RHI::TextureViewHandle default_view{};
-            RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
-            RHI::PipelineStage current_stage = RHI::PipelineStage::None;
-            RHI::AccessFlags current_access = RHI::AccessFlags::None;
+            vector<TextureState> mip_states;
             bool owns_resource = false;
         };
 
@@ -287,18 +347,11 @@ namespace SFT::Renderer {
             u32 physical_slot = ~0u;
             RHI::Format format = RHI::Format::Undefined;
             RHI::Extent3D extent{};
+            u32 mip_levels = 1;
             RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
             RHI::PipelineStage final_stage = RHI::PipelineStage::None;
             RHI::AccessFlags final_access = RHI::AccessFlags::None;
             string label;
-        };
-
-        // First/last position a transient texture is read or written at, in compile_execution_order()'s
-        // returned (culled, topo-sorted) order — the input to interval-graph aliasing. -1 means the
-        // texture was never used by any live pass.
-        struct TextureLifetime {
-            i32 first_use = -1;
-            i32 last_use = -1;
         };
 
         [[nodiscard]] TextureRecord *texture_record(RenderGraphTextureHandle handle) noexcept;
@@ -313,7 +366,8 @@ namespace SFT::Renderer {
                                                               RenderGraphTextureHandle handle,
                                                               RHI::TextureLayout next_layout,
                                                               RHI::PipelineStage next_stage,
-                                                              RHI::AccessFlags next_access);
+                                                              RHI::AccessFlags next_access,
+                                                              RHI::TextureSubresourceRange subresources = {});
 
         [[nodiscard]] Core::RendererResult execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass);
@@ -344,19 +398,10 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult create_transient_resources(RHI::RhiDevice &device,
                                                                       const vector<OrderedPass> &execution_order);
 
-        [[nodiscard]] vector<TextureLifetime> compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const;
-
         [[nodiscard]] Core::RendererResult transition_to_final_states(RHI::CommandEncoder &encoder);
 
-        // Derives the actual execution order from each pass's declared reads/writes instead of
-        // trusting insertion order blindly, and drops ("culls") any pass whose writes are neither
-        // externally visible (an imported texture — a transient one can't be observed outside the
-        // graph) nor read by another live pass. See RenderGraph.cpp's doc comment on the algorithm
-        // for why this reproduces today's plain insertion order exactly for every existing caller.
-        [[nodiscard]] vector<OrderedPass> compile_execution_order() const;
-
         // What one pass reads from and writes to, in RenderGraphTextureHandle terms — the input to
-        // compile_execution_order()'s dependency analysis. `always_live` covers a pass with no
+        // compile()'s dependency analysis. `always_live` covers a pass with no
         // declared attachments at all (doesn't happen from any call site today, but nothing stops
         // one existing): the graph can't reason about a side effect it never declared, so such a
         // pass is never culled. Member functions (not free functions) purely so they can read

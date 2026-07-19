@@ -9,6 +9,7 @@
 #pragma endregion
 
 #include "EcsRendering.hpp"
+#include "EcsEvents.hpp"
 #include "AssetManager.hpp"
 #include <Core/Core.hpp>
 #include <Ecs/src/System.hpp>
@@ -87,10 +88,17 @@ namespace SFT::Engine {
                                                                const RenderFrameParameters &parameters = {});
         Core::RendererResult render(const PreparedRenderFrame &frame);
 
+        // Publishes queued platform events into typed ECS event streams and runs gameplay/application
+        // systems. Application calls this once after pumping all windows and before requesting frames.
+        void update();
+        void queue_window_event(Platform::Windowing::WindowId window,
+                                const Platform::Windowing::WindowEvent &event);
+
         // Consumer extension points. Bind RenderFrameRequests as a World resource, then add
         // read-oriented extraction systems that submit into it.
         [[nodiscard]] Ecs::World &ecs_world() noexcept;
         [[nodiscard]] const Ecs::World &ecs_world() const noexcept;
+        [[nodiscard]] Ecs::Schedule &update_schedule() noexcept;
         [[nodiscard]] Ecs::Schedule &render_extraction_schedule() noexcept;
         [[nodiscard]] RenderFrameRequests &render_frame_requests() noexcept;
         [[nodiscard]] AssetManager &assets() noexcept;
@@ -121,7 +129,16 @@ namespace SFT::Engine {
         Ecs::ComponentRegistry ecs_component_registry_;
         RenderFrameRequests render_frame_requests_{assets_};
         Ecs::World ecs_world_{ecs_component_registry_};
-        Ecs::Schedule render_extraction_schedule_;
+        PlatformEventInbox platform_event_inbox_{};
+        Ecs::Events<WindowEvent> window_events_{};
+        Ecs::Events<KeyboardEvent> keyboard_events_{};
+        Ecs::Events<TextInputEvent> text_input_events_{};
+        Ecs::Events<MouseMoveEvent> mouse_move_events_{};
+        Ecs::Events<MouseButtonEvent> mouse_button_events_{};
+        Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
+        Ecs::Events<WindowStateEvent> window_state_events_{};
+        Ecs::Schedule update_schedule_;
+        Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;

@@ -67,11 +67,9 @@ namespace SFT::Ecs {
         std::shared_lock<std::shared_mutex> access_;
     };
 
-    // Owns every entity and archetype. First-cut scope: no add_component/remove_component yet — see
-    // Archetype.hpp's doc comment on why that (archetype-transition) support is deferred rather than
-    // shipped half-working. The registry is engine/application-owned and must outlive the World;
-    // sharing it across worlds gives every component the same dense ID while stable ComponentKeys
-    // remain portable across process/language boundaries.
+    // Owns every entity and archetype. The registry is engine/application-owned and must outlive the
+    // World; sharing it across worlds gives every component the same dense ID while stable
+    // ComponentKeys remain portable across process/language boundaries.
     class World {
       public:
         explicit World(ComponentRegistry &registry) noexcept : registry_(&registry) {}
@@ -97,6 +95,27 @@ namespace SFT::Ecs {
             auto access = acquire_direct_mutation("destroy entities");
             ensure_not_scheduled("destroy entities directly; use Commands::destroy() inside a system");
             destroy_unchecked(entity);
+        }
+
+        // Moves `entity` into the archetype for its current signature plus T, placement-constructing
+        // `component` into the new column. Contract violation if `entity` is dead or already has T —
+        // remove_component<T>() first if the intent is to replace it.
+        template <class T>
+        void add_component(Entity entity, T component) {
+            ensure_not_scheduled("add a component");
+            auto access = acquire_direct_mutation("add a component");
+            ensure_not_scheduled("add a component");
+            add_component_unchecked(entity, std::move(component));
+        }
+
+        // Moves `entity` into the archetype for its current signature minus T, destroying the removed
+        // column. Contract violation if `entity` is dead or doesn't have T.
+        template <class T>
+        void remove_component(Entity entity) {
+            ensure_not_scheduled("remove a component");
+            auto access = acquire_direct_mutation("remove a component");
+            ensure_not_scheduled("remove a component");
+            remove_component_unchecked<T>(entity);
         }
 
         [[nodiscard]] bool is_alive(Entity entity) const noexcept {
@@ -288,6 +307,81 @@ namespace SFT::Ecs {
             return entity;
         }
 
+        template <class T>
+        void add_component_unchecked(Entity entity, T component) {
+            static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "World::add_component<T>() expects an unqualified T.");
+            static_assert(std::is_nothrow_move_constructible_v<T>,
+                          "World::add_component<T>() requires a nothrow move-constructible T.");
+            if (!is_alive_unchecked(entity)) {
+                Detail::contract_violation(
+                    "ECS add_component<{}> on a dead or default-constructed entity.",
+                    Detail::component_name<T>());
+            }
+            const ComponentId new_id = registry_->component<T>();
+            EntityRecord &record = entity_records_[entity.index];
+            Signature destination_signature = archetypes_[record.archetype_index].signature();
+            if (archetypes_[record.archetype_index].column_index_of(new_id) != ~0u) {
+                Detail::contract_violation(
+                    "ECS add_component<{}>: entity already has this component.",
+                    Detail::component_name<T>());
+            }
+            destination_signature.insert(
+                std::lower_bound(destination_signature.begin(), destination_signature.end(), new_id),
+                new_id);
+
+            const u32 source_index = record.archetype_index;
+            const u32 source_row = record.row;
+            // archetype_index_for() may append to archetypes_ and invalidate any reference into it
+            // taken beforehand, so every Archetype& below is (re)fetched only after this call returns.
+            const u32 destination_index = archetype_index_for(destination_signature);
+            Archetype &destination = archetypes_[destination_index];
+            const u32 destination_row = destination.add_row(entity);
+            ::new (destination.row_pointer(destination.column_index_of(new_id), destination_row))
+                T(std::move(component));
+            const Entity moved = archetypes_[source_index].move_row_into(source_row, destination, destination_row);
+            if (moved) {
+                entity_records_[moved.index].row = source_row;
+            }
+            record.archetype_index = destination_index;
+            record.row = destination_row;
+        }
+
+        template <class T>
+        void remove_component_unchecked(Entity entity) {
+            static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "World::remove_component<T>() expects an unqualified T.");
+            if (!is_alive_unchecked(entity)) {
+                Detail::contract_violation(
+                    "ECS remove_component<{}> on a dead or default-constructed entity.",
+                    Detail::component_name<T>());
+            }
+            const std::optional<ComponentId> removed_id = registry_->find(component_key<T>());
+            EntityRecord &record = entity_records_[entity.index];
+            Archetype &source = archetypes_[record.archetype_index];
+            if (!removed_id || source.column_index_of(*removed_id) == ~0u) {
+                Detail::contract_violation(
+                    "ECS remove_component<{}>: entity does not have this component.",
+                    Detail::component_name<T>());
+            }
+            Signature destination_signature = source.signature();
+            destination_signature.erase(
+                std::remove(destination_signature.begin(), destination_signature.end(), *removed_id),
+                destination_signature.end());
+
+            const u32 source_index = record.archetype_index;
+            const u32 source_row = record.row;
+            // Same reference-invalidation caveat as add_component_unchecked: `source` above is not
+            // used again after this call.
+            const u32 destination_index = archetype_index_for(destination_signature);
+            Archetype &destination = archetypes_[destination_index];
+            const u32 destination_row = destination.add_row(entity);
+            const Entity moved = archetypes_[source_index].move_row_into(source_row, destination, destination_row);
+            if (moved) {
+                entity_records_[moved.index].row = source_row;
+            }
+            record.archetype_index = destination_index;
+            record.row = destination_row;
+        }
+
         void ensure_not_scheduled(string_view action) const noexcept {
             if (scheduled_execution_.load(std::memory_order_acquire)) {
                 Detail::contract_violation(
@@ -450,6 +544,16 @@ namespace SFT::Ecs {
 
             static void destroy(World &world, Entity entity) noexcept {
                 world.destroy_unchecked(entity);
+            }
+
+            template <class T>
+            static void add_component(World &world, Entity entity, T component) {
+                world.add_component_unchecked(entity, std::move(component));
+            }
+
+            template <class T>
+            static void remove_component(World &world, Entity entity) {
+                world.remove_component_unchecked<T>(entity);
             }
 
             // Empties every bound Events<T> resource. Called once at the top of Schedule::run(),

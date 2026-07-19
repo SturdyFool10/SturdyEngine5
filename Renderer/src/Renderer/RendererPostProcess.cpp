@@ -253,8 +253,8 @@ namespace SFT::Renderer {
         }
         const GeneratedBindGroupLayout &layout = generated.front();
         u32 image_binding = 0;
-        u32 sampler_binding = 0;
         bool has_image_binding = false;
+        u32 sampler_binding = 0;
         bool has_sampler_binding = false;
         for (const RHI::BindGroupLayoutEntry &entry : layout.entries) {
             if (entry.type == RHI::BindingType::SampledTexture && !has_image_binding) {

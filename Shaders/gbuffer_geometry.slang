@@ -51,8 +51,8 @@ GBufferOutput fragmentMain(VertexOutput input) {
     float3 normal = normalize(input.worldNormal);
     output.albedo = input.color;
     output.normal = encodeOctahedralNormal(normal);
-    // Baseline material defaults until physically-based material templates land:
-    // roughness=0.5, metallic=0.0, ambient occlusion=1.0, flags=0.0.
-    output.material = float4(0.5, 0.0, 1.0, 0.0);
+    // Temporarily glossy baseline until physically-based material templates expose these per asset:
+    // roughness=0.12, metallic=0.08, ambient occlusion=1.0, flags=0.0.
+    output.material = float4(0.12, 0.08, 1.0, 0.0);
     return output;
 }

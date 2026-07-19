@@ -69,6 +69,28 @@ namespace SFT::Ecs {
                 });
         }
 
+        // Deferred archetype transition: T is moved into the command buffer now, then placement-
+        // constructed into `entity`'s new archetype row at the stage boundary. Contract violation
+        // (at apply time) if `entity` is dead or already has T by then.
+        template <class T>
+        void add_component(Entity entity, T component) noexcept {
+            static_assert(std::is_nothrow_move_constructible_v<std::decay_t<T>>,
+                          "Commands::add_component must capture the component without throwing.");
+            buffer_->operations.emplace_back(
+                [entity, component = std::move(component)](World &world) mutable noexcept {
+                    Detail::WorldAccess::add_component(world, entity, std::move(component));
+                });
+        }
+
+        // Deferred archetype transition: destroys T on `entity` at the stage boundary. Contract
+        // violation (at apply time) if `entity` is dead or doesn't have T by then.
+        template <class T>
+        void remove_component(Entity entity) noexcept {
+            buffer_->operations.emplace_back([entity](World &world) noexcept {
+                Detail::WorldAccess::remove_component<T>(world, entity);
+            });
+        }
+
       private:
         friend struct Detail::CommandBuffer;
 

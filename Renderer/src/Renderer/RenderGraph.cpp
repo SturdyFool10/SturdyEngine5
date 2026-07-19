@@ -125,9 +125,11 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
             physical_slots_.push_back(PhysicalSlot{
                 .texture = desc.texture,
                 .default_view = desc.default_view,
-                .current_layout = desc.initial_layout,
-                .current_stage = desc.initial_stage,
-                .current_access = desc.initial_access,
+                .mip_states = vector<TextureState>(std::max(desc.mip_levels, 1u), TextureState{
+                    .layout = desc.initial_layout,
+                    .stage = desc.initial_stage,
+                    .access = desc.initial_access,
+                }),
                 .owns_resource = false,
             });
 
@@ -138,6 +140,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .physical_slot = slot_index,
                 .format = desc.format,
                 .extent = desc.extent,
+                .mip_levels = std::max(desc.mip_levels, 1u),
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
@@ -156,6 +159,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .physical_slot = ~0u,
                 .format = desc.format,
                 .extent = desc.extent,
+                .mip_levels = std::max(desc.mip_levels, 1u),
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
@@ -201,18 +205,26 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 .default_view = slot->default_view,
                 .format = record->format,
                 .extent = record->extent,
-                .current_layout = slot->current_layout,
+                .current_layout = slot->mip_states.empty() ? RHI::TextureLayout::Undefined : slot->mip_states.front().layout,
             };
         }
 
 // Derives execution order from resource dependencies and culls dead passes — see the header's doc
-// comment on compile_execution_order() and the PassUsage helpers above for what's being derived
-// from what. Algorithm, in three passes over the (small, per-frame) `ordered_passes_` list:
+// comment on compile() and the PassUsage helpers above for what's being derived from what.
+// Algorithm, in three passes over the (small, per-frame) `ordered_passes_` list:
 //
+// 0. Validation: every handle any pass declared must resolve to a texture this graph actually
+//    created/imported (UnknownTextureHandle otherwise), and every transient texture a pass reads
+//    must already have an earlier producer — either an earlier pass's write, or this same pass also
+//    writing it (the depth/stencil Load-op case below) — since an imported texture's entry content
+//    is always valid but an uninitialized transient read is a genuine bug in the caller's graph
+//    (MissingProducer). Both stop compilation before any GPU work happens.
 // 1. Build a `depends_on[i]` edge list: pass i depends on the most recent earlier pass that wrote
 //    a texture pass i reads (RAW), and on the most recent earlier pass that wrote a texture pass i
 //    ALSO writes (WAW — keeps two writers of the same texture in their original relative order;
-//    the topo-sort below is never free to swap them).
+//    the topo-sort below is never free to swap them). Multiple writes to the same texture are
+//    intentional in several existing passes (presentation + overlay, bloom mip updates) and are
+//    never rejected — only an uninitialized *read* is a compile error.
 // 2. Liveness: backward-reachability flood fill starting from every pass that writes an *imported*
 //    texture (the graph's only externally-visible output — nothing outside the graph can observe a
 //    transient one) or that declared no attachments at all (`always_live` — can't reason about an
@@ -227,11 +239,30 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
 //    verified by the deferred pipeline (gbuffer -> lighting -> tonemap -> UI) still rendering
 //    identically after this landed. A future caller that adds passes out of dependency order would
 //    still get correctly reordered instead of silently misrendering.
-[[nodiscard]] vector<RenderGraph::OrderedPass> RenderGraph::compile_execution_order() const {
+[[nodiscard]] RenderGraph::CompileResult RenderGraph::compile() const {
             const usize pass_count = ordered_passes_.size();
             vector<PassUsage> usage(pass_count);
             for (usize i = 0; i < pass_count; ++i) {
                 usage[i] = usage_of_ordered(ordered_passes_[i]);
+            }
+
+            for (usize i = 0; i < pass_count; ++i) {
+                for (RenderGraphTextureHandle handle : usage[i].reads) {
+                    if (texture_record(handle) == nullptr) {
+                        return std::unexpected(RenderGraphCompileError{
+                            .code = RenderGraphCompileErrorCode::UnknownTextureHandle,
+                            .message = "Render graph pass reads a texture handle this graph never created or imported.",
+                        });
+                    }
+                }
+                for (RenderGraphTextureHandle handle : usage[i].writes) {
+                    if (texture_record(handle) == nullptr) {
+                        return std::unexpected(RenderGraphCompileError{
+                            .code = RenderGraphCompileErrorCode::UnknownTextureHandle,
+                            .message = "Render graph pass writes a texture handle this graph never created or imported.",
+                        });
+                    }
+                }
             }
 
             vector<i64> last_writer(textures_.size(), -1);
@@ -240,6 +271,17 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 for (RenderGraphTextureHandle read : usage[i].reads) {
                     if (read.index < last_writer.size() && last_writer[read.index] >= 0) {
                         depends_on[i].push_back(static_cast<u32>(last_writer[read.index]));
+                        continue;
+                    }
+                    const TextureRecord *record = texture_record(read);
+                    const bool same_pass_write =
+                        std::find(usage[i].writes.begin(), usage[i].writes.end(), read) != usage[i].writes.end();
+                    if (record != nullptr && record->is_transient && !same_pass_write) {
+                        return std::unexpected(RenderGraphCompileError{
+                            .code = RenderGraphCompileErrorCode::MissingProducer,
+                            .message = string("Render graph pass reads transient texture '") + record->label +
+                                       "' before any earlier pass wrote it.",
+                        });
                     }
                 }
                 for (RenderGraphTextureHandle write : usage[i].writes) {
@@ -323,14 +365,19 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                     order.push_back(ordered_passes_[i]);
                 }
             }
-            return order;
+            return CompiledPlan{.order = std::move(order)};
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder) {
             // Order first: aliasing needs the culled, topo-sorted order to compute accurate lifetimes,
-            // and compile_execution_order() never touches physical resource state, so this is safe to
-            // run before any GPU texture exists yet.
-            const vector<OrderedPass> execution_order = compile_execution_order();
+            // and compile() never touches physical resource state, so this is safe to run before any
+            // GPU texture exists yet.
+            CompileResult compiled = compile();
+            if (!compiled.has_value()) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    compiled.error().message);
+            }
+            const vector<OrderedPass> &execution_order = compiled->order;
             if (Core::RendererResult created = create_transient_resources(device, execution_order); !created.has_value()) {
                 destroy_transient_resources(device);
                 return created;
@@ -460,31 +507,48 @@ void RenderGraph::reset() noexcept {
                                                               RenderGraphTextureHandle handle,
                                                               RHI::TextureLayout next_layout,
                                                               RHI::PipelineStage next_stage,
-                                                              RHI::AccessFlags next_access) {
+                                                              RHI::AccessFlags next_access,
+                                                              RHI::TextureSubresourceRange subresources) {
             PhysicalSlot *slot = physical_slot_for(handle);
-            if (slot == nullptr || !slot->texture) {
+            const TextureRecord *record = texture_record(handle);
+            if (slot == nullptr || record == nullptr || !slot->texture || slot->mip_states.empty()) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Render graph pass references an unknown texture.");
             }
 
-            if (slot->current_layout == next_layout && slot->current_stage == next_stage &&
-                slot->current_access == next_access) {
-                return {};
+            const u32 first_mip = subresources.base_mip_level;
+            const u32 available = first_mip < record->mip_levels ? record->mip_levels - first_mip : 0u;
+            const u32 mip_count = subresources.mip_level_count == RHI::all_remaining
+                ? available
+                : std::min(subresources.mip_level_count, available);
+            if (mip_count == 0) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Render graph pass references an invalid texture mip range.");
             }
 
-            const RHI::TextureBarrier barrier{
-                .texture = slot->texture,
-                .src_stage = slot->current_stage,
-                .src_access = slot->current_access,
-                .dst_stage = next_stage,
-                .dst_access = next_access,
-                .old_layout = slot->current_layout,
-                .new_layout = next_layout,
-            };
-            encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&barrier, 1});
-            slot->current_layout = next_layout;
-            slot->current_stage = next_stage;
-            slot->current_access = next_access;
+            for (u32 mip = first_mip; mip < first_mip + mip_count; ++mip) {
+                TextureState &state = slot->mip_states[mip];
+                if (state.layout == next_layout && state.stage == next_stage && state.access == next_access) {
+                    continue;
+                }
+                const RHI::TextureBarrier barrier{
+                    .texture = slot->texture,
+                    .src_stage = state.stage,
+                    .src_access = state.access,
+                    .dst_stage = next_stage,
+                    .dst_access = next_access,
+                    .old_layout = state.layout,
+                    .new_layout = next_layout,
+                    .range = RHI::TextureSubresourceRange{
+                        .base_mip_level = mip,
+                        .mip_level_count = 1,
+                        .base_array_layer = subresources.base_array_layer,
+                        .array_layer_count = subresources.array_layer_count,
+                    },
+                };
+                encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&barrier, 1});
+                state = TextureState{.layout = next_layout, .stage = next_stage, .access = next_access};
+            }
             return {};
         }
 
@@ -495,7 +559,8 @@ void RenderGraph::reset() noexcept {
                                                                      read.texture,
                                                                      RHI::TextureLayout::ShaderReadOnly,
                                                                      read.stages,
-                                                                     read.access);
+                                                                     read.access,
+                                                                     read.subresources);
                 if (!transition.has_value()) {
                     return transition;
                 }
@@ -514,7 +579,8 @@ void RenderGraph::reset() noexcept {
                                                                      attachment.texture,
                                                                      RHI::TextureLayout::ColorAttachment,
                                                                      RHI::PipelineStage::ColorAttachmentOutput,
-                                                                     RHI::AccessFlags::ColorAttachmentWrite);
+                                                                     RHI::AccessFlags::ColorAttachmentWrite,
+                                                                     attachment.subresources);
                 if (!transition.has_value()) {
                     return transition;
                 }
@@ -538,7 +604,8 @@ void RenderGraph::reset() noexcept {
                                                                      attachment.texture,
                                                                      RHI::TextureLayout::DepthStencilAttachment,
                                                                      RHI::PipelineStage::EarlyFragmentTests | RHI::PipelineStage::LateFragmentTests,
-                                                                     RHI::AccessFlags::DepthStencilAttachmentRead | RHI::AccessFlags::DepthStencilAttachmentWrite);
+                                                                     RHI::AccessFlags::DepthStencilAttachmentRead | RHI::AccessFlags::DepthStencilAttachmentWrite,
+                                                                     attachment.subresources);
                 if (!transition.has_value()) {
                     return transition;
                 }
@@ -740,8 +807,8 @@ void RenderGraph::reset() noexcept {
 // Assignment is greedy, sorted by first_use ascending (linear-scan register allocation): within a
 // signature bucket, a texture reuses the first open slot whose current occupant already finished
 // (last_use < this texture's first_use), or gets a brand new slot if none is free. A slot's
-// current_layout/stage/access is only seeded from its *first* occupant's declared initial state —
-// later occupants inherit whatever state the previous occupant actually left the physical resource in,
+// per-mip state is only seeded from its *first* occupant's declared initial state — later occupants
+// inherit whatever state the previous occupant actually left the physical resource in,
 // which is correct (and cheaper than resetting) since it's literally the same VkImage, not a separate
 // aliased allocation requiring its own hazard tracking.
 [[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device,
@@ -765,14 +832,17 @@ void RenderGraph::reset() noexcept {
                 vector<u32> members;
             };
             vector<Bucket> buckets;
-            vector<u32> solo; // transient textures with no declared use in the compiled graph — nothing to alias by
 
             for (usize i = 0; i < textures_.size(); ++i) {
                 if (!textures_[i].is_transient) {
                     continue;
                 }
                 if (lifetimes[i].first_use < 0) {
-                    solo.push_back(static_cast<u32>(i));
+                    // create_texture() was called but no live pass ever reads or writes it (dead code,
+                    // or a texture the caller created and simply never used) — leave physical_slot at
+                    // its default ~0u and skip straight to the next texture. No physical GPU resource
+                    // is allocated for it; nothing can legitimately dereference it later since nothing
+                    // live ever declared a use.
                     continue;
                 }
                 bool placed = false;
@@ -815,14 +885,6 @@ void RenderGraph::reset() noexcept {
                     }
                 }
             }
-            for (u32 texture_index : solo) {
-                const u32 slot_index = static_cast<u32>(physical_slots_.size());
-                physical_slots_.emplace_back();
-                pending.push_back(PendingSlot{.desc = textures_[texture_index].transient,
-                                              .label = textures_[texture_index].label});
-                textures_[texture_index].physical_slot = slot_index;
-            }
-
             const u32 first_new_slot = static_cast<u32>(physical_slots_.size() - pending.size());
             for (usize p = 0; p < pending.size(); ++p) {
                 PhysicalSlot &slot = physical_slots_[first_new_slot + p];
@@ -855,9 +917,11 @@ void RenderGraph::reset() noexcept {
 
                 slot.texture = *texture_handle;
                 slot.default_view = *view_handle;
-                slot.current_layout = pending_slot.desc.initial_layout;
-                slot.current_stage = pending_slot.desc.initial_stage;
-                slot.current_access = pending_slot.desc.initial_access;
+                slot.mip_states = vector<TextureState>(std::max(pending_slot.desc.mip_levels, 1u), TextureState{
+                    .layout = pending_slot.desc.initial_layout,
+                    .stage = pending_slot.desc.initial_stage,
+                    .access = pending_slot.desc.initial_access,
+                });
                 slot.owns_resource = true;
             }
             return {};
@@ -869,10 +933,9 @@ void RenderGraph::reset() noexcept {
                 if (record.final_layout == RHI::TextureLayout::Undefined) {
                     continue;
                 }
-                const PhysicalSlot *slot = physical_slot_for(RenderGraphTextureHandle{static_cast<u32>(i)});
-                if (slot != nullptr && slot->current_layout == record.final_layout &&
-                    slot->current_stage == record.final_stage &&
-                    slot->current_access == record.final_access) {
+                // A transient texture create_transient_resources() never allocated (dead: no live pass
+                // used it) has no physical_slot to transition — nothing to do, not an error.
+                if (record.is_transient && record.physical_slot >= physical_slots_.size()) {
                     continue;
                 }
                 Core::RendererResult transition = transition_texture(encoder,
