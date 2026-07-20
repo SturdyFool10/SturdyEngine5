@@ -1,0 +1,46 @@
+name: CI FreeBSD Arm64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: FreeBSD Arm64 (Debug) [best-effort]
+    # vmactions/freebsd-vm runs FreeBSD in QEMU on top of an x86-64 host runner regardless of the
+    # guest's own arch, so this stays on ubuntu-latest with arch: aarch64 selecting an Arm64 guest
+    # — there is no separate Arm64 host runner requirement here.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # FreeBSD has no official LunarG Vulkan SDK distribution, so this relies on whatever
+      # vulkan-loader/vulkan-headers the ports tree currently carries — it may lag the 1.4
+      # baseline the rest of the matrix uses. Kept best-effort (continue-on-error) for that
+      # reason. QEMU-emulated Arm64 FreeBSD is also inherently slower/flakier than the x86-64
+      # FreeBSD job (ci-freebsd-x86_64.yml), which runs FreeBSD's own x86-64 code natively under
+      # QEMU's faster path — another reason this stays best-effort.
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          arch: aarch64
+          usesh: true
+          # clang/clang++ ship in the FreeBSD base system already (no llvm port needed) and
+          # match the "clang"/"clang++" compiler names the base configure preset expects.
+          prepare: |
+            pkg install -y cmake ninja git pkgconf \
+              vulkan-loader vulkan-headers \
+              xorgproto libX11 libXrandr libXinerama libXcursor libXi \
+              libxkbcommon wayland wayland-protocols
+          run: |
+            cmake --preset arm64-freebsd-debug
+            cmake --build --preset runtime-arm64-freebsd-debug

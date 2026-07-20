@@ -82,6 +82,9 @@ namespace SFT::Engine {
             optional<Core::RenderSurfaceHandle> surface;
             bool primary = false;
             bool closing = false;
+            // Latched from WindowEventKind::FocusGained/FocusLost — Window exposes no direct getter
+            // for this, only the one-shot event (see WindowState.hpp).
+            bool focused = false;
             std::atomic<bool> resize_pending{false};
             std::deque<Async::TaskHandle<Core::RendererResult>> in_flight_frames;
             optional<Async::TaskHandle<void>> remove_surface_task;
@@ -154,6 +157,12 @@ namespace SFT::Engine {
         // outside of an active drag) keeps the default pipelined behavior for throughput.
         void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion = false);
         void report_frame_result(const Core::RendererResult &result) noexcept;
+
+        // Latches each managed window's focused state from this tick's events, then builds a fresh
+        // WindowSnapshot per window (querying the live Window on this, the window-owning thread) and
+        // publishes them to engine_->window_state(). Called once per run() tick, before
+        // engine_->update() runs any schedule that might read Ecs::ReadResource<WindowState>.
+        void sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events);
 
         Platform::Windowing::WindowManager window_manager_{
             Platform::Windowing::WindowManagerPolicy{.event_pump_mode = Platform::Windowing::WindowEventPumpMode::CallerThread,

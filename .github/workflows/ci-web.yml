@@ -1,0 +1,44 @@
+name: CI Web (Emscripten)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Web / Emscripten (Debug) [best-effort]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Install Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+          actions-cache-folder: emsdk-cache
+
+      - name: Cache third-party sources (.cache/deps)
+        uses: actions/cache@v4
+        with:
+          path: .cache/deps
+          key: deps-src-${{ hashFiles('cmake/SturdyDependencies.cmake') }}
+          restore-keys: deps-src-
+
+      - name: Configure
+        env:
+          STURDY_EMSCRIPTEN_ROOT: ${{ env.EMSDK }}/upstream/emscripten
+        run: cmake --preset x86-64-web-debug
+
+      - name: Build Runtime
+        run: cmake --build --preset runtime-x86-64-web-debug

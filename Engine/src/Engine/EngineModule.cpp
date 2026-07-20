@@ -29,6 +29,10 @@ namespace SFT::Engine {
 
     [[nodiscard]] const AssetManager &Engine::assets() const noexcept { return assets_; }
 
+    [[nodiscard]] WindowState &Engine::window_state() noexcept { return window_state_; }
+
+    [[nodiscard]] const WindowState &Engine::window_state() const noexcept { return window_state_; }
+
     [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &Engine::shaders() const noexcept { return shaders_; }
 
 } // namespace SFT::Engine

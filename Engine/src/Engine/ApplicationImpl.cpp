@@ -229,6 +229,49 @@ namespace SFT::Engine {
         }
     }
 
+    void Application::sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events) {
+        using namespace Platform::Windowing;
+
+        for (const ManagedWindowEvents &events : window_events) {
+            ManagedWindow *managed = find_managed_window(events.window_id);
+            if (managed == nullptr) {
+                continue;
+            }
+            for (const Platform::Windowing::WindowEvent &event : events.events) {
+                if (event.kind == WindowEventKind::FocusGained) {
+                    managed->focused = true;
+                } else if (event.kind == WindowEventKind::FocusLost) {
+                    managed->focused = false;
+                }
+            }
+        }
+
+        vector<WindowSnapshot> snapshots;
+        snapshots.reserve(windows_.size());
+        for (auto &managed : windows_) {
+            window_manager_.with_window(managed->window_id, [&](Window &window) {
+                WindowSnapshot snapshot{.id = managed->window_id, .focused = managed->focused};
+                if (auto size = window.size()) {
+                    snapshot.size = *size;
+                }
+                if (auto framebuffer_size = window.framebuffer_size()) {
+                    snapshot.framebuffer_size = *framebuffer_size;
+                }
+                if (auto position = window.position()) {
+                    snapshot.position = *position;
+                }
+                if (auto opacity = window.opacity()) {
+                    snapshot.opacity = *opacity;
+                }
+                snapshot.mouse_locked = window.mouse_locked();
+                snapshots.push_back(snapshot);
+                return true;
+            });
+        }
+
+        engine_->window_state().sync(std::move(snapshots), window_manager_.primary_window_id());
+    }
+
     bool Application::initialize() {
         using namespace Platform::Windowing;
 
@@ -306,6 +349,7 @@ namespace SFT::Engine {
                     engine_->queue_window_event(events.window_id, event);
                 }
             }
+            sync_window_state(window_events);
             engine_->update();
 
             for (const ManagedWindowEvents &events : window_events) {

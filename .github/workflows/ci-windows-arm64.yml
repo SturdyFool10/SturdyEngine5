@@ -1,0 +1,56 @@
+name: CI Windows Arm64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Builds the arm64-win-debug preset natively on GitHub's hosted Windows-on-Arm64 runner.
+jobs:
+  build:
+    name: Windows Arm64 (Debug, Clang)
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      # See ci-windows-x86_64.yml for why this (and no `shell: bash`) is needed even though the
+      # compiler is clang/clang++, not MSVC: linking still needs the Windows SDK/UCRT libs from
+      # the VS Developer environment, initialized here for the native arm64 toolset.
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: true
+          cache: true
+
+      - name: Cache third-party sources (.cache/deps)
+        uses: actions/cache@v4
+        with:
+          path: .cache/deps
+          key: deps-src-${{ hashFiles('cmake/SturdyDependencies.cmake') }}
+          restore-keys: deps-src-
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: windows-arm64-debug
+
+      - name: Configure
+        run: cmake --preset arm64-win-debug
+
+      - name: Build Runtime
+        run: cmake --build --preset runtime-arm64-win-debug

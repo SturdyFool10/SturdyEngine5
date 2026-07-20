@@ -10,6 +10,7 @@
 
 #include "EcsRendering.hpp"
 #include "EcsEvents.hpp"
+#include "WindowState.hpp"
 #include "AssetManager.hpp"
 #include <Core/Core.hpp>
 #include <Ecs/src/System.hpp>
@@ -104,6 +105,12 @@ namespace SFT::Engine {
         [[nodiscard]] AssetManager &assets() noexcept;
         [[nodiscard]] const AssetManager &assets() const noexcept;
 
+        // Read side of "what do the managed windows currently look like" for ECS consumers
+        // (Ecs::ReadResource<WindowState>). Application calls WindowState::sync() once per tick,
+        // before Application::run()'s per-window render loop — see WindowState.hpp.
+        [[nodiscard]] WindowState &window_state() noexcept;
+        [[nodiscard]] const WindowState &window_state() const noexcept;
+
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
         [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept;
@@ -137,6 +144,7 @@ namespace SFT::Engine {
         Ecs::Events<MouseButtonEvent> mouse_button_events_{};
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
+        WindowState window_state_{};
         Ecs::Schedule update_schedule_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};

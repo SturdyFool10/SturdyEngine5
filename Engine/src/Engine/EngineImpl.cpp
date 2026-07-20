@@ -61,6 +61,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_button_events_);
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
+        ecs_world_.bind_resource(window_state_);
 
         update_schedule_.add_system(
             [](Ecs::WriteResource<PlatformEventInbox> inbox,

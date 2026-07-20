@@ -1,0 +1,53 @@
+name: CI Linux Arm64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Builds the arm64-linux-debug preset natively on GitHub's free-tier hosted Arm64 Linux runner
+# (ubuntu-24.04-arm, GA for public repos since Aug 2025 — this repo is public).
+jobs:
+  build:
+    name: Linux Arm64 (Debug, Clang)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages (Ninja, Clang, GLFW's X11/Wayland dev deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build clang lld pkg-config \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          cache: true
+
+      - name: Cache third-party sources (.cache/deps)
+        uses: actions/cache@v4
+        with:
+          path: .cache/deps
+          key: deps-src-${{ hashFiles('cmake/SturdyDependencies.cmake') }}
+          restore-keys: deps-src-
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-arm64-debug
+
+      - name: Configure
+        run: cmake --preset arm64-linux-debug
+
+      - name: Build Runtime
+        run: cmake --build --preset runtime-arm64-linux-debug

@@ -1,0 +1,46 @@
+name: CI macOS Arm64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS Arm64 (Debug, Clang)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      - name: Install Vulkan SDK (MoltenVK)
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          cache: true
+
+      - name: Cache third-party sources (.cache/deps)
+        uses: actions/cache@v4
+        with:
+          path: .cache/deps
+          key: deps-src-${{ hashFiles('cmake/SturdyDependencies.cmake') }}
+          restore-keys: deps-src-
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos-arm64-debug
+
+      - name: Configure
+        run: cmake --preset arm64-macos-debug
+
+      - name: Build Runtime
+        run: cmake --build --preset runtime-arm64-macos-debug

@@ -1,0 +1,41 @@
+name: CI FreeBSD x86-64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: FreeBSD x86-64 (Debug) [best-effort]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # FreeBSD has no official LunarG Vulkan SDK distribution, so this relies on whatever
+      # vulkan-loader/vulkan-headers the ports tree currently carries — it may lag the 1.4
+      # baseline the rest of the matrix uses. Kept best-effort (continue-on-error) for that
+      # reason.
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          arch: x86_64
+          usesh: true
+          # clang/clang++ ship in the FreeBSD base system already (no llvm port needed) and
+          # match the "clang"/"clang++" compiler names the base configure preset expects.
+          prepare: |
+            pkg install -y cmake ninja git pkgconf \
+              vulkan-loader vulkan-headers \
+              xorgproto libX11 libXrandr libXinerama libXcursor libXi \
+              libxkbcommon wayland wayland-protocols
+          run: |
+            cmake --preset x86-64-freebsd-debug
+            cmake --build --preset runtime-x86-64-freebsd-debug
