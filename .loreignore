@@ -3,6 +3,7 @@
 
 # Git metadata
 .git/
+.github/
 
 # Agent coordination metadata
 agent_collaboration.md
@@ -24,6 +25,15 @@ out/
 # Upstream dependency licenses, copied in from each FetchContent source tree at build time
 # (see cmake/SturdyLicenses.cmake). Regenerated content, not tracked.
 /thirdparty/licenses/
+
+# JetBrains CLion / IDE build trees and per-developer config. Mirrors .gitignore's entry —
+# see there for why CMakePresets.json is regenerated/untracked too.
+/cmake-build-*/
+/CMakeUserPresets.json
+/CMakePresets.json
+
+# Stale/local root compile database file. Mirrors .gitignore's entry.
+/compile_commands.json
 
 # CMake generated files and directories
 **/CMakeFiles/
@@ -67,3 +77,4 @@ out/
 *.log
 *.dmp
 *.core
+core.*
