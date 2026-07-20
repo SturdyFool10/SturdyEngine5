@@ -203,10 +203,10 @@ namespace SFT::Core::Vulkan {
         // independent of this pool/fence.
         if (auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), graphics_queue_->family_index());
             pool.has_value()) {
-            upload_command_pool_ = std::move(*pool);
+            upload_.lock()->command_pool = std::move(*pool);
         }
         if (auto fence = VulkanFence::create(logical_device_->vk_handle()); fence.has_value()) {
-            upload_fence_ = std::move(*fence);
+            upload_.lock()->fence = std::move(*fence);
         }
     }
 

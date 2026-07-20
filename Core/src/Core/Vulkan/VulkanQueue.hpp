@@ -6,10 +6,11 @@
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
-#include <mutex>
 #include <span>
+#include <variant>
 #pragma endregion
 
+#include <Async/src/Mutex.hpp>
 #include <Core/GraphicsBackendError.hpp>
 
 using SFT::Core::graphics_backend_error;
@@ -63,7 +64,13 @@ namespace SFT::Core::Vulkan {
       private:
         VkQueue handle_ = VK_NULL_HANDLE;
         u32 family_index_ = 0;
-        mutable std::mutex mutex_;
+        // Pure external-synchronization lock for the four Vulkan queue calls below — handle_ itself
+        // is never concurrently mutated (moves happen during single-threaded setup), so there's
+        // nothing to guard; Async::Mutex<T> still needs some T, so this holds an empty marker purely
+        // for its lock()/MutexGuard semantics. Not moved on VulkanQueue's own move (Async::Mutex is
+        // itself non-movable, so — like the std::mutex this replaces — a fresh one is implicitly
+        // default-constructed in the destination; see the move constructor's doc comment above).
+        mutable Async::Mutex<std::monostate> submission_lock_;
     };
 
 } // namespace SFT::Core::Vulkan

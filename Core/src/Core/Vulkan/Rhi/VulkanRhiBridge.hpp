@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <expected>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -205,6 +204,13 @@ namespace SFT::Core::Vulkan {
             rhi::QueueLane queue{};
         };
 
+        // Backs upload_via_staging()'s reused one-shot command pool/fence pair — bundled so a single
+        // Async::Mutex guards both together instead of a bare std::mutex alongside two loose members.
+        struct UploadResources {
+            VulkanCommandPool command_pool;
+            VulkanFence fence;
+        };
+
         struct RenderBundleRecord {
             VulkanCommandPool pool;
             VulkanCommandBuffer command_buffer;
@@ -311,9 +317,7 @@ namespace SFT::Core::Vulkan {
         VulkanRhiResourcePool<rhi::SurfaceHandle, SurfaceRecord> surfaces_;
         VulkanRhiResourcePool<rhi::SwapchainHandle, SwapchainRecord> swapchains_;
 
-        VulkanCommandPool upload_command_pool_;
-        VulkanFence upload_fence_;
-        std::mutex upload_mutex_;
+        Async::Mutex<UploadResources> upload_;
 
         // Appended after the original bridge state to avoid shifting resource-pool offsets across module
         // implementation units while the project is still using fragile C++23 module/BMI generation.

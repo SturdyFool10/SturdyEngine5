@@ -137,8 +137,11 @@ namespace SFT::Renderer {
         vector<MaterialParameter> parameters;
         vector<MaterialTextureSlot> texture_slots;
 
-        // Lazily-built pipelines, one per attachment configuration seen at draw time.
-        vector<MaterialPipelineVariant> pipeline_variants;
+        // Lazily-built pipelines, one per attachment configuration seen at draw time, are NOT stored
+        // here — this resource lives by value inside vector<MaterialTemplateResource>, and the cache
+        // needs an Async::Mutex (see Renderer::material_pipeline_variants_'s doc comment), which would
+        // make this whole struct (and therefore that vector) non-movable. Looked up by `handle` in
+        // Renderer::material_pipeline_variants_ instead.
 
         bool alive = false;
     };

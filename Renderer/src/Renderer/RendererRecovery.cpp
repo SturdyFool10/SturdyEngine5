@@ -126,8 +126,12 @@ namespace SFT::Renderer {
             material_template.bind_group_layouts.clear();
             material_template.bind_group_layout_sets.clear();
             material_template.pipeline_layout = {};
-            material_template.pipeline_variants.clear();
         }
+        // Every template's cached pipeline handles above are invalid now the device is gone — see
+        // material_pipeline_variants_'s doc comment (RendererModule.hpp) for why this lives as one
+        // shared map instead of per-template storage; clearing it wholesale here is the equivalent of
+        // the per-template pipeline_variants.clear() this loop used to do.
+        material_pipeline_variants_.lock()->clear();
         for (MaterialInstanceResource &material_instance : material_instances_) {
             for (MaterialInstanceFrame &frame : material_instance.frames) {
                 frame.uniform_buffer = {};
@@ -163,6 +167,9 @@ namespace SFT::Renderer {
             }
         }
 
+        // Already-cleared in invalidate_gpu_resource_handles_no_destroy() (see its doc comment), but
+        // cheap and correct to ensure again here in case this is ever called without that first.
+        material_pipeline_variants_.lock()->clear();
         for (MaterialTemplateResource &material_template : material_templates_) {
             if (!material_template.alive) {
                 continue;
@@ -172,7 +179,6 @@ namespace SFT::Renderer {
             material_template.has_fragment = false;
             material_template.bind_group_layouts.clear();
             material_template.bind_group_layout_sets.clear();
-            material_template.pipeline_variants.clear();
             material_template.uniform_block_size = 0;
             material_template.uniform_set = 0;
             material_template.uniform_binding = 0;

@@ -4,10 +4,11 @@
 
 #pragma region Imports
 #include <atomic>
-#include <mutex>
 #include <unordered_map>
 #include <utility>
 #pragma endregion
+
+#include <Async/src/Mutex.hpp>
 
 namespace SFT::Core::Vulkan {
 
@@ -20,37 +21,40 @@ namespace SFT::Core::Vulkan {
     // Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
     // concurrently (see plans/parallel-renderer-submission.md) — each call's critical section is a
     // single map operation, never cross-pool, so one mutex per pool instance is sufficient.
+    // Async::Mutex<T> rather than a bare std::mutex + map so the map is simply unreachable without
+    // holding the lock. find()'s returned pointer is only valid while some lock on this pool is held
+    // (or trusted single-threaded use) — same contract a bare mutex + map would have given no
+    // generation check, just enforced by construction here instead of by convention.
     template <typename HandleT, typename Stored>
     class VulkanRhiResourcePool {
       public:
         [[nodiscard]] HandleT insert(Stored &&object) {
             const u64 id = next_id_.fetch_add(1, std::memory_order_relaxed);
-            std::lock_guard<std::mutex> lock(mutex_);
-            storage_.emplace(id, std::move(object));
+            auto storage = storage_.lock();
+            storage->emplace(id, std::move(object));
             return HandleT{id};
         }
 
         [[nodiscard]] Stored *find(HandleT handle) noexcept {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = storage_.find(handle.value);
-            return it != storage_.end() ? &it->second : nullptr;
+            auto storage = storage_.lock();
+            auto it = storage->find(handle.value);
+            return it != storage->end() ? &it->second : nullptr;
         }
 
         [[nodiscard]] const Stored *find(HandleT handle) const noexcept {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = storage_.find(handle.value);
-            return it != storage_.end() ? &it->second : nullptr;
+            auto storage = storage_.lock();
+            auto it = storage->find(handle.value);
+            return it != storage->end() ? &it->second : nullptr;
         }
 
         void erase(HandleT handle) noexcept {
-            std::lock_guard<std::mutex> lock(mutex_);
-            storage_.erase(handle.value);
+            auto storage = storage_.lock();
+            storage->erase(handle.value);
         }
 
       private:
         std::atomic<u64> next_id_ = 1;
-        mutable std::mutex mutex_;
-        std::unordered_map<u64, Stored> storage_;
+        mutable Async::Mutex<std::unordered_map<u64, Stored>> storage_;
     };
 
 } // namespace SFT::Core::Vulkan

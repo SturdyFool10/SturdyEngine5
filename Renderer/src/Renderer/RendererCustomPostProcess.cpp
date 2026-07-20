@@ -33,8 +33,8 @@ namespace SFT::Renderer {
         if (effect.shader_path.empty() || effect.module_name.empty() || effect.fragment_entry_point.empty()) {
             return unexpected(custom_effect_error("Custom post-process requires shader_path, module_name, and fragment_entry_point."));
         }
-        std::lock_guard lock{custom_post_process_mutex_};
-        for (const CustomPostProcessResources &resource : custom_post_process_resources_) {
+        auto resources = custom_post_process_resources_.lock();
+        for (const CustomPostProcessResources &resource : *resources) {
             if (resource.shader_path == effect.shader_path && resource.module_name == effect.module_name &&
                 resource.fragment_entry_point == effect.fragment_entry_point && resource.color_format == color_format) {
                 return {};
@@ -151,7 +151,7 @@ namespace SFT::Renderer {
         });
         if (!pipeline) { cleanup(); return unexpected(graphics_error_from_rhi(pipeline.error(), "create custom post-process pipeline")); }
         resource.pipeline = *pipeline;
-        custom_post_process_resources_.push_back(std::move(resource));
+        resources->push_back(std::move(resource));
         return {};
     }
 
@@ -161,9 +161,9 @@ namespace SFT::Renderer {
                                                                const CustomPostProcessEffect &effect,
                                                                vector<RHI::BindGroupHandle> &transient_bind_groups) {
         if (Core::RendererResult ready = ensure_custom_post_process(effect, color_format); !ready) return ready;
-        std::lock_guard lock{custom_post_process_mutex_};
+        auto resources = custom_post_process_resources_.lock();
         CustomPostProcessResources *resource = nullptr;
-        for (CustomPostProcessResources &candidate : custom_post_process_resources_) {
+        for (CustomPostProcessResources &candidate : *resources) {
             if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
                 candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format) {
                 resource = &candidate;
@@ -197,10 +197,10 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_custom_post_process_resources() noexcept {
-        std::lock_guard lock{custom_post_process_mutex_};
+        auto resources = custom_post_process_resources_.lock();
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
-            for (CustomPostProcessResources &resource : custom_post_process_resources_) {
+            for (CustomPostProcessResources &resource : *resources) {
                 if (resource.pipeline) device->destroy_render_pipeline(resource.pipeline);
                 if (resource.sampler) device->destroy_sampler(resource.sampler);
                 if (resource.pipeline_layout) device->destroy_pipeline_layout(resource.pipeline_layout);
@@ -209,6 +209,6 @@ namespace SFT::Renderer {
                 if (resource.vertex_module) device->destroy_shader_module(resource.vertex_module);
             }
         }
-        custom_post_process_resources_.clear();
+        resources->clear();
     }
 } // namespace SFT::Renderer

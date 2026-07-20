@@ -10,7 +10,6 @@
 #include <cstring>
 #include <expected>
 #include <filesystem>
-#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -383,7 +382,9 @@ namespace SFT::Renderer {
         tmpl->has_uniform_block = next.has_uniform_block;
         tmpl->parameters = std::move(next.parameters);
         tmpl->texture_slots = std::move(next.texture_slots);
-        tmpl->pipeline_variants.clear(); // rebuilt lazily by material_pipeline_for against the new layout
+        // destroy_material_template_gpu() above already erased this template's cached pipeline
+        // variants (see its doc comment); material_pipeline_for() rebuilds them lazily against the new
+        // layout on next use.
 
         // Fix up every instance of this template. Bind groups always rebuild (they were allocated against
         // the now-destroyed layouts); on a compatible reload the UBOs keep their size and only need a
@@ -466,11 +467,11 @@ namespace SFT::Renderer {
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
-        // See material_pipeline_mutex_'s doc comment (RendererModule.cppm) for why this is a plain mutex
-        // rather than an Async::Mutex<T> like the other lazy caches: pipeline_variants lives inside a
-        // MaterialTemplateResource stored by value in vector<MaterialTemplateResource>.
-        std::lock_guard<std::mutex> lock(material_pipeline_mutex_);
-        for (const MaterialPipelineVariant &variant : material_template.pipeline_variants) {
+        // See material_pipeline_variants_'s doc comment (RendererModule.hpp) for why the cache lives
+        // there, keyed by handle, rather than inline on MaterialTemplateResource like the struct used to.
+        auto variants_by_template = material_pipeline_variants_.lock();
+        vector<MaterialPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
+        for (const MaterialPipelineVariant &variant : pipeline_variants) {
             if (variant.depth_format == depth_format && variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -520,7 +521,7 @@ namespace SFT::Renderer {
         if (!pipeline) {
             return unexpected(graphics_error_from_rhi(pipeline.error(), "create material pipeline"));
         }
-        material_template.pipeline_variants.push_back(MaterialPipelineVariant{
+        pipeline_variants.push_back(MaterialPipelineVariant{
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
             .pipeline = *pipeline,
@@ -787,9 +788,19 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return;
         }
-        for (const MaterialPipelineVariant &variant : resource.pipeline_variants) {
-            if (variant.pipeline) {
-                device->destroy_render_pipeline(variant.pipeline);
+        // Destroys and forgets this template's cached pipelines, keyed by handle — see
+        // material_pipeline_variants_'s doc comment (RendererModule.hpp). A no-op for a resource whose
+        // handle was never used as a key (e.g. the scratch MaterialTemplateResource build_material_template_gpu()
+        // tears down on an early construction failure, before a handle is ever assigned).
+        {
+            auto variants_by_template = material_pipeline_variants_.lock();
+            if (auto entry = variants_by_template->find(resource.handle.value); entry != variants_by_template->end()) {
+                for (const MaterialPipelineVariant &variant : entry->second) {
+                    if (variant.pipeline) {
+                        device->destroy_render_pipeline(variant.pipeline);
+                    }
+                }
+                variants_by_template->erase(entry);
             }
         }
         if (resource.pipeline_layout) {

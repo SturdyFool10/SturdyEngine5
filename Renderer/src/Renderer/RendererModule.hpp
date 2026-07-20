@@ -6,7 +6,6 @@
 #include <chrono>
 #include <cstddef>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <span>
@@ -735,14 +734,14 @@ namespace SFT::Renderer {
         Async::Mutex<BloomCompositeResources> bloom_composite_;
         Async::Mutex<TonemapResources> tonemap_;
         Async::Mutex<TextOverlayResources> text_overlay_;
-        // material_pipeline_for()'s per-template pipeline_variants cache can't use the same Async::Mutex<T>
-        // pattern as above: MaterialTemplateResource lives by value inside vector<MaterialTemplateResource>
-        // material_templates_, and Async::Mutex<T> deletes move/copy, which would make the whole resource
-        // (and therefore the vector) non-movable. A plain mutex covering just this one cache is the
-        // exception here, not the rule.
-        std::mutex material_pipeline_mutex_;
-        std::mutex custom_post_process_mutex_;
-        vector<CustomPostProcessResources> custom_post_process_resources_;
+        // material_pipeline_for()'s per-template pipeline cache, keyed by MaterialTemplateHandle::value.
+        // Not stored inline on MaterialTemplateResource: that struct lives by value inside
+        // vector<MaterialTemplateResource> material_templates_, and an Async::Mutex<T> member would
+        // make it (and therefore that vector) non-movable. Keeping the cache here, external to the
+        // resource, sidesteps that entirely while still using the same Async::Mutex<T> pattern as
+        // every other lazy cache above instead of a bare std::mutex.
+        Async::Mutex<std::unordered_map<u64, vector<MaterialPipelineVariant>>> material_pipeline_variants_;
+        Async::Mutex<vector<CustomPostProcessResources>> custom_post_process_resources_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

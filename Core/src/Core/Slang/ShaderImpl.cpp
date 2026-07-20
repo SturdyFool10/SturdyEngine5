@@ -12,13 +12,13 @@
 #include <fstream>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <new>
 #include <string>
 #include <string_view>
 #include <vector>
 #pragma endregion
 
+#include <Async/src/Mutex.hpp>
 #include <Core/Slang/Shader.hpp>
 #include <Core/Slang/ShaderError.hpp>
 #include <Core/Slang/ShaderSource.hpp>
@@ -30,10 +30,8 @@ using std::exception;
 using std::find_if;
 using std::ifstream;
 using std::ios;
-using std::lock_guard;
 using std::make_shared;
 using std::memcpy;
-using std::mutex;
 using std::numeric_limits;
 using std::shared_ptr;
 using std::streamoff;
@@ -886,8 +884,10 @@ namespace SFT::Core::Slang {
     } // namespace
 
     struct ShaderCompilerState {
-        mutex mutex;
-        ::Slang::ComPtr<slang::IGlobalSession> global_session;
+        // Slang's global/session objects aren't safe for concurrent compile()/reflect() calls, so the
+        // whole call is serialized behind this lock (see both call sites below) — not just the lazy
+        // global-session creation.
+        Async::Mutex<::Slang::ComPtr<slang::IGlobalSession>> global_session;
     };
 
     struct ShaderState {
@@ -1137,18 +1137,18 @@ namespace SFT::Core::Slang {
         }
 
         try {
-            lock_guard lock(state_->mutex);
+            auto global_session = state_->global_session.lock();
 
-            if (!state_->global_session.get()) {
-                const SlangResult result = slang::createGlobalSession(state_->global_session.writeRef());
-                if (SLANG_FAILED(result) || !state_->global_session.get()) {
+            if (!global_session->get()) {
+                const SlangResult result = slang::createGlobalSession(global_session->writeRef());
+                if (SLANG_FAILED(result) || !global_session->get()) {
                     return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
                 }
             }
 
             // Reflection only — load the module and read its layout. No entry-point composition,
             // no link, no target codegen. This is the lightweight path used to inventory shaders.
-            auto shader_state = load_shader_module(state_->global_session.get(), source, options);
+            auto shader_state = load_shader_module(global_session->get(), source, options);
             if (!shader_state) {
                 return unexpected(shader_state.error());
             }
@@ -1169,16 +1169,16 @@ namespace SFT::Core::Slang {
         }
 
         try {
-            lock_guard lock(state_->mutex);
+            auto global_session = state_->global_session.lock();
 
-            if (!state_->global_session.get()) {
-                const SlangResult result = slang::createGlobalSession(state_->global_session.writeRef());
-                if (SLANG_FAILED(result) || !state_->global_session.get()) {
+            if (!global_session->get()) {
+                const SlangResult result = slang::createGlobalSession(global_session->writeRef());
+                if (SLANG_FAILED(result) || !global_session->get()) {
                     return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
                 }
             }
 
-            auto loaded_state = load_shader_module(state_->global_session.get(), source, options);
+            auto loaded_state = load_shader_module(global_session->get(), source, options);
             if (!loaded_state) {
                 return unexpected(loaded_state.error());
             }

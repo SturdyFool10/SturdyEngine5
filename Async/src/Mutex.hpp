@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <type_traits>
@@ -48,7 +49,7 @@ namespace SFT::Async {
         Mutex &operator=(Mutex &&) = delete;
 
         [[nodiscard]] MutexGuard<T> lock() noexcept {
-            return MutexGuard<T>(std::unique_lock<std::mutex>(mutex_), &value_);
+            return MutexGuard<T>(std::unique_lock<std::mutex>(mutex_), std::addressof(value_));
         }
 
         [[nodiscard]] std::optional<MutexGuard<T>> try_lock() noexcept {
@@ -56,7 +57,7 @@ namespace SFT::Async {
             if (!lock.owns_lock()) {
                 return std::nullopt;
             }
-            return MutexGuard<T>(std::move(lock), &value_);
+            return MutexGuard<T>(std::move(lock), std::addressof(value_));
         }
 
       private:

@@ -27,7 +27,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanQueue::submit(span<const VkSubmitInfo2> submits,
                                             VkFence fence) noexcept {
-            std::lock_guard lock(mutex_);
+            auto lock = submission_lock_.lock();
             const VkResult result = vkQueueSubmit2(handle_, static_cast<u32>(submits.size()), submits.data(), fence);
             if (result == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueSubmit2 reported device loss.");
@@ -56,7 +56,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
         }
 
 [[nodiscard]] RendererExpected<bool> VulkanQueue::present(const VkPresentInfoKHR &info) noexcept {
-            std::lock_guard lock(mutex_);
+            auto lock = submission_lock_.lock();
             VkResult res = vkQueuePresentKHR(handle_, &info);
             if (res == VK_SUCCESS)
                 return false;
@@ -68,7 +68,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
         }
 
 [[nodiscard]] RendererResult VulkanQueue::wait_idle() noexcept {
-            std::lock_guard lock(mutex_);
+            auto lock = submission_lock_.lock();
             const VkResult result = vkQueueWaitIdle(handle_);
             if (result == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueWaitIdle reported device loss.");
@@ -79,7 +79,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanQueue::bind_sparse(span<const VkBindSparseInfo> infos,
                                                  VkFence fence) noexcept {
-            std::lock_guard lock(mutex_);
+            auto lock = submission_lock_.lock();
             const VkResult result = vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence);
             if (result == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueBindSparse reported device loss.");
