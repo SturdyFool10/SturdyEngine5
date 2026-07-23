@@ -12,12 +12,10 @@
 // -------------------------------------------------------------------------------------------------
 
 static const float SFT_PI = 3.14159265358979323846;
-static const float SFT_TWO_PI = 6.28318530717958647692;
 static const float SFT_HALF_PI = 1.57079632679489661923;
 static const float SFT_INV_PI = 0.31830988618379067154;
 static const float SFT_INV_TWO_PI = 0.15915494309189533577;
 static const float SFT_EPSILON = 1.0e-6;
-static const float SFT_MIN_ROUGHNESS = 0.045;
 
 // -------------------------------------------------------------------------------------------------
 // Small shared types
@@ -29,12 +27,7 @@ struct SurfaceBasis {
     float3 bitangent;
 };
 
-struct PbrMaterial {
-    float3 albedo;
-    float roughness;
-    float metallic;
-    float ambientOcclusion;
-};
+
 
 // -------------------------------------------------------------------------------------------------
 // Scalar/vector math helpers
@@ -505,6 +498,53 @@ LinearColor oklchToLinearColor(OklchColor c) {
 }
 
 // -------------------------------------------------------------------------------------------------
+// Frustum culling
+// -------------------------------------------------------------------------------------------------
+
+// Six inward-facing clip planes (ax + by + cz + d >= 0 for a point inside), packed one per row —
+// row i is (a, b, c, d). GPU-side counterpart of Renderer::Frustum/frustum_from_view_projection
+// (Culling.hpp) — same Gribb/Hartmann extraction, same left/right/bottom/top/near/far order, kept
+// numerically identical so a GPU cull pass and its CPU fallback never disagree on borderline cases.
+float4x4 extractFrustumPlanesLeftRightBottomTop(float4x4 viewProjection) {
+    float4 r0 = float4(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0], viewProjection[3][0]);
+    float4 r1 = float4(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1], viewProjection[3][1]);
+    float4 r3 = float4(viewProjection[0][3], viewProjection[1][3], viewProjection[2][3], viewProjection[3][3]);
+    float4 left = r3 + r0;
+    float4 right = r3 - r0;
+    float4 bottom = r3 + r1;
+    float4 top = r3 - r1;
+    return float4x4(left, right, bottom, top);
+}
+
+float4x4 extractFrustumPlanesNearFar(float4x4 viewProjection) {
+    float4 r2 = float4(viewProjection[0][2], viewProjection[1][2], viewProjection[2][2], viewProjection[3][2]);
+    float4 r3 = float4(viewProjection[0][3], viewProjection[1][3], viewProjection[2][3], viewProjection[3][3]);
+    float4 near = r3 + r2;
+    float4 far = r3 - r2;
+    return float4x4(near, far, float4(0.0, 0.0, 0.0, 0.0), float4(0.0, 0.0, 0.0, 0.0));
+}
+
+bool frustumPlaneIntersectsSphere(float4 plane, float3 center, float radius) {
+    float3 normal = plane.xyz;
+    float invLength = rsqrt(max(dot(normal, normal), SFT_EPSILON));
+    return dot(normal * invLength, center) + plane.w * invLength >= -radius;
+}
+
+// Conservative sphere-vs-frustum test, matching Renderer::frustum_intersects_sphere's contract
+// exactly (false only when the sphere is fully outside at least one plane).
+bool frustumIntersectsSphere(float4x4 viewProjection, float3 center, float radius) {
+    float4x4 leftRightBottomTop = extractFrustumPlanesLeftRightBottomTop(viewProjection);
+    float4x4 nearFar = extractFrustumPlanesNearFar(viewProjection);
+    if (!frustumPlaneIntersectsSphere(leftRightBottomTop[0], center, radius)) return false;
+    if (!frustumPlaneIntersectsSphere(leftRightBottomTop[1], center, radius)) return false;
+    if (!frustumPlaneIntersectsSphere(leftRightBottomTop[2], center, radius)) return false;
+    if (!frustumPlaneIntersectsSphere(leftRightBottomTop[3], center, radius)) return false;
+    if (!frustumPlaneIntersectsSphere(nearFar[0], center, radius)) return false;
+    if (!frustumPlaneIntersectsSphere(nearFar[1], center, radius)) return false;
+    return true;
+}
+
+// -------------------------------------------------------------------------------------------------
 // Normal packing and geometric helpers
 // -------------------------------------------------------------------------------------------------
 
@@ -545,92 +585,10 @@ SurfaceBasis makeSurfaceBasis(float3 normal) {
     return basis;
 }
 
-// -------------------------------------------------------------------------------------------------
-// PBR building blocks
-// -------------------------------------------------------------------------------------------------
-
-float perceptualRoughnessToRoughness(float perceptualRoughness) {
-    return max(square(perceptualRoughness), SFT_MIN_ROUGHNESS);
-}
-
-float roughnessToPerceptualRoughness(float roughness) {
-    return sqrt(max(roughness, 0.0));
-}
-
-float diffuseWrap(float nDotL, float wrap) {
-    return saturate((nDotL + wrap) * safeRcp(1.0 + wrap));
-}
-
-float3 fresnelSchlick(float cosTheta, float3 f0) {
-    return f0 + (1.0 - f0) * pow5(1.0 - saturate(cosTheta));
-}
-
-float3 fresnelSchlickRoughness(float cosTheta, float3 f0, float roughness) {
-    return f0 + (max(float3(1.0 - roughness), f0) - f0) * pow5(1.0 - saturate(cosTheta));
-}
-
-float distributionGGX(float nDotH, float roughness) {
-    float a = max(roughness, SFT_MIN_ROUGHNESS);
-    float a2 = a * a;
-    float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
-    return a2 * SFT_INV_PI * safeRcp(d * d);
-}
-
-float geometrySchlickGGX(float nDotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) * 0.125;
-    return nDotV * safeRcp(nDotV * (1.0 - k) + k);
-}
-
-float geometrySmithGGX(float nDotV, float nDotL, float roughness) {
-    return geometrySchlickGGX(nDotV, roughness) * geometrySchlickGGX(nDotL, roughness);
-}
-
-float3 lambertDiffuse(float3 albedo) {
-    return albedo * SFT_INV_PI;
-}
-
-float3 dielectricF0(float reflectance) {
-    return float3(square((reflectance - 1.0) / (reflectance + 1.0)));
-}
-
-float3 pbrF0(float3 albedo, float metallic, float dielectricReflectance) {
-    return lerp(dielectricF0(dielectricReflectance), albedo, saturate(metallic));
-}
-
-// -------------------------------------------------------------------------------------------------
-// Low-cost deterministic hashes and noise seeds
-// -------------------------------------------------------------------------------------------------
-
-uint hashUint(uint x) {
-    x ^= x >> 16;
-    x *= 0x7feb352d;
-    x ^= x >> 15;
-    x *= 0x846ca68b;
-    x ^= x >> 16;
-    return x;
-}
-
-uint hashUint2(uint2 v) {
-    return hashUint(v.x ^ hashUint(v.y));
-}
-
-uint hashUint3(uint3 v) {
-    return hashUint(v.x ^ hashUint(v.y) ^ hashUint(v.z));
-}
-
-float hashToUnitFloat(uint x) {
-    return float(hashUint(x) & 0x00ffffffu) * (1.0 / 16777216.0);
-}
-
-float hash11(float p) {
-    return hashToUnitFloat(asuint(p));
-}
-
-float hash12(float2 p) {
-    return hashToUnitFloat(hashUint2(asuint(p)));
-}
-
-float hash13(float3 p) {
-    return hashToUnitFloat(hashUint3(asuint(p)));
+// Dielectric F0 (specular reflectance at normal incidence) from index of refraction. It returns a
+// scalar because a bare-dielectric F0 is achromatic; glTF's default ior=1.5 reproduces the fixed
+// 0.04 constant most PBR material encodings use.
+float dielectricF0FromIor(float ior) {
+    float f = (ior - 1.0) * safeRcp(ior + 1.0);
+    return f * f;
 }

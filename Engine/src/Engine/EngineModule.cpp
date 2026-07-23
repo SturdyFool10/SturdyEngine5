@@ -25,6 +25,8 @@ namespace SFT::Engine {
 
     [[nodiscard]] RenderFrameRequests &Engine::render_frame_requests() noexcept { return render_frame_requests_; }
 
+    [[nodiscard]] LightFrameRequests &Engine::light_frame_requests() noexcept { return light_frame_requests_; }
+
     [[nodiscard]] AssetManager &Engine::assets() noexcept { return assets_; }
 
     [[nodiscard]] const AssetManager &Engine::assets() const noexcept { return assets_; }

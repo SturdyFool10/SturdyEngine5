@@ -108,9 +108,14 @@ namespace SFT::Renderer {
     }
 
     void Renderer::invalidate_gpu_resource_handles_no_destroy() noexcept {
+        // The old device (and every buffer it owned, including the shared vertex/index arenas) is
+        // gone — reset the arenas to empty so restore_gpu_resources_after_recovery()'s per-mesh
+        // try_upload_mesh() replay rebuilds them from scratch via the ordinary growth path.
+        vertex_arena_ = GeometryArena{.usage = vertex_arena_.usage};
+        index_arena_ = GeometryArena{.usage = index_arena_.usage};
         for (MeshResource &mesh : meshes_) {
-            mesh.vertex_buffer = {};
-            mesh.index_buffer = {};
+            mesh.vertex_offset = 0;
+            mesh.index_offset = 0;
             mesh.gpu_resident = false;
         }
 
@@ -132,6 +137,7 @@ namespace SFT::Renderer {
         // shared map instead of per-template storage; clearing it wholesale here is the equivalent of
         // the per-template pipeline_variants.clear() this loop used to do.
         material_pipeline_variants_.lock()->clear();
+        depth_only_pipeline_variants_.lock()->clear();
         for (MaterialInstanceResource &material_instance : material_instances_) {
             for (MaterialInstanceFrame &frame : material_instance.frames) {
                 frame.uniform_buffer = {};
@@ -150,7 +156,7 @@ namespace SFT::Renderer {
             }
         }
         scene_frame_resources_.clear();
-        *deferred_lighting_.lock() = {};
+        *shadow_lighting_.lock() = {};
         *tonemap_.lock() = {};
 
         frame_draws_.clear();

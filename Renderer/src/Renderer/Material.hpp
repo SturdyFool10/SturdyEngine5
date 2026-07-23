@@ -96,6 +96,22 @@ namespace SFT::Renderer {
     struct MaterialPipelineVariant {
         vector<RHI::Format> color_formats;
         RHI::Format depth_format = RHI::Format::Undefined;
+        // False (the deferred G-buffer pass's own default): depth test is Equal/no-write, since the
+        // Z-prepass already wrote the definitive depth for every surviving fragment this frame and
+        // this pass only needs to confirm the match. True: a standard Less/write depth test instead —
+        // for forward-rendered draws with no Z-prepass of their own (e.g. debug gizmos), where an
+        // Equal-against-unrelated-scene-depth test would reject nearly every fragment.
+        bool standard_depth_test = false;
+        RHI::RenderPipelineHandle pipeline{};
+    };
+
+    // A template's depth-only (Z prepass) pipeline for one depth format — see
+    // Renderer::depth_only_pipeline_for's doc comment.
+    struct DepthOnlyPipelineVariant {
+        RHI::Format depth_format = RHI::Format::Undefined;
+        bool shadow_map = false;
+        f32 depth_bias = 0.0f;
+        f32 slope_bias = 0.0f;
         RHI::RenderPipelineHandle pipeline{};
     };
 
@@ -121,6 +137,16 @@ namespace SFT::Renderer {
         string vertex_entry_point;
         string fragment_entry_point;
         bool has_fragment = false;
+        // A second, optional fragment entry point compiled from the same shader source/module as
+        // fragment_module — used only by the Z prepass (depth_only_pipeline_for) for alpha-tested
+        // cutout materials, where the prepass needs to sample base_color_texture/alpha_cutoff to
+        // decide whether a fragment survives, but writes no color output. Requested via
+        // ShaderAssetDesc::depth_only_fragment_entry_point at load_shader() time; most templates
+        // don't set one and has_depth_only_fragment stays false (depth_only_pipeline_for then builds
+        // a pure position-only depth pipeline with no fragment stage at all).
+        RHI::ShaderModuleHandle depth_only_fragment_module{};
+        string depth_only_fragment_entry_point;
+        bool has_depth_only_fragment = false;
         vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
         // The register-space / set index each entry of bind_group_layouts targets, in the same order —
         // so an instance can build one bind group per set and bind it at the right index.

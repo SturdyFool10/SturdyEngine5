@@ -166,6 +166,9 @@ namespace SFT::Core::Vulkan {
             RHI::Feature::ShaderDrawParameters,
             RHI::Feature::BufferDeviceAddress,
         });
+        if (supportedFeatures.features.imageCubeArray) {
+            supported_rhi_features.set(RHI::Feature::ImageCubeArray);
+        }
         const bool supports_mesh_shader = this->physicalDevice.supports_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
                                           supportedMeshFeatures.meshShader;
         const bool supports_task_shader = supports_mesh_shader && supportedMeshFeatures.taskShader;
@@ -307,6 +310,9 @@ namespace SFT::Core::Vulkan {
         // Near-universal on real GPUs; guarded because portability-subset implementations may lack it.
         if (supportedFeatures.features.samplerAnisotropy) {
             features.features.samplerAnisotropy = VK_TRUE;
+        }
+        if (enabled_rhi_features.has(RHI::Feature::ImageCubeArray)) {
+            features.features.imageCubeArray = VK_TRUE;
         }
 
         // Discover queue families. Graphics was already verified by discoverGraphicsQueue;

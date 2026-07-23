@@ -5,7 +5,6 @@
 #include <expected>
 #include <functional>
 #include <optional>
-#include <type_traits>
 #include <utility>
 
 #include <glm/vec3.hpp>
@@ -25,7 +24,7 @@ namespace SFT::Engine {
 
     enum class RenderFeature : u8 {
         Scene,
-        DeferredLighting,
+        Shadows,
         Bloom,
         ToneMapping,
         DebugOverlay,
@@ -91,16 +90,29 @@ namespace SFT::Engine {
         bool enabled = true;
         // Empty inherits Camera::clear_color(). This is display-independent linear color.
         std::optional<glm::vec4> background_color;
-    };
-
-    struct LightingRenderSettings {
-        bool enabled = true;
         // Multiplies the background before it enters the HDR scene target.
         f32 background_intensity = 1.0f;
     };
 
-
-
+    // View-level policy for the renderer's rasterized shadow atlas. Defaults provide four stable
+    // sun cascades and a bounded set of PCSS-filtered punctual-light shadows without requiring any
+    // optional GPU feature. Atlas allocation and light prioritization remain renderer-owned.
+    struct ShadowSettings {
+        bool enabled = true;
+        u32 atlas_size = 4096;
+        u32 cascade_count = 4;
+        f32 max_distance = 250.0f;
+        f32 cascade_split_lambda = 0.65f;
+        f32 cascade_blend = 0.10f;
+        f32 depth_bias = 0.75f;
+        f32 slope_bias = 1.0f;
+        // Receiver offset in shadow texels, not world units. Keeping this scale-relative prevents
+        // thin geometry from losing contact shadows as cascade/local-light coverage changes.
+        f32 normal_bias = 0.75f;
+        u32 max_shadowed_spot_lights = 8;
+        u32 max_shadowed_point_lights = 4;
+        bool contact_hardening = true;
+    };
     // Mip-pyramid bloom based on the downsample/upsample approach popularized by the
     // Call of Duty: Advanced Warfare post-processing presentation. Bright pixels are
     // soft-thresholded into a progressively filtered pyramid, then accumulated back upward.
@@ -142,7 +154,7 @@ namespace SFT::Engine {
 
     struct RenderGraphDescription {
         SceneRenderSettings scene{};
-        LightingRenderSettings lighting{};
+        ShadowSettings shadows{};
         BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
         DebugOverlayRenderSettings debug_overlay{};
@@ -157,7 +169,7 @@ namespace SFT::Engine {
     enum class RenderGraphErrorCode : u8 {
         InvalidResolutionScale,
         InvalidBackgroundColor,
-        InvalidLightingSettings,
+        InvalidShadowSettings,
         InvalidBloomSettings,
         InvalidToneMappingSettings,
         InvalidFeatureCombination,
@@ -185,8 +197,8 @@ namespace SFT::Engine {
 
         [[nodiscard]] const SceneRenderSettings &scene() const noexcept;
         [[nodiscard]] SceneRenderSettings &scene() noexcept;
-        [[nodiscard]] const LightingRenderSettings &lighting() const noexcept;
-        [[nodiscard]] LightingRenderSettings &lighting() noexcept;
+        [[nodiscard]] const ShadowSettings &shadows() const noexcept;
+        [[nodiscard]] ShadowSettings &shadows() noexcept;
         [[nodiscard]] const BloomSettings &bloom() const noexcept;
         [[nodiscard]] BloomSettings &bloom() noexcept;
         [[nodiscard]] const ToneMappingSettings &tone_mapping() const noexcept;
@@ -218,12 +230,11 @@ namespace SFT::Engine {
         }
 
         template <typename Configure>
-            requires std::invocable<Configure, LightingRenderSettings &>
-        RenderGraph &configure_lighting(Configure &&configure) {
-            std::invoke(std::forward<Configure>(configure), description_.lighting);
+            requires std::invocable<Configure, ShadowSettings &>
+        RenderGraph &configure_shadows(Configure &&configure) {
+            std::invoke(std::forward<Configure>(configure), description_.shadows);
             return *this;
         }
-
         template <typename Configure>
             requires std::invocable<Configure, BloomSettings &>
         RenderGraph &configure_bloom(Configure &&configure) {

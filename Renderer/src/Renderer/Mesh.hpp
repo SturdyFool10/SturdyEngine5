@@ -98,6 +98,12 @@ namespace SFT::Renderer {
         // isn't assumed to share a smooth surface.
         [[nodiscard]] static Mesh from_triangles(span<const Core::Triangle> triangles, const char *label = nullptr);
 
+        // Builds a mesh from already-indexed vertex data (e.g. a glTF primitive's
+        // position/normal/uv/color accessors) — unlike from_triangles(), vertices are shared across
+        // triangles via `indices` rather than tripled per-face with a synthesized flat normal.
+        [[nodiscard]] static Mesh from_vertices(span<const GeometryVertex> vertices, span<const u32> indices,
+                                                 const char *label = nullptr);
+
         [[nodiscard]] static Mesh uv_sphere(const UvSphereParams &params = {}, const char *label = nullptr);
         [[nodiscard]] static Mesh ico_sphere(const IcoSphereParams &params = {}, const char *label = nullptr);
         [[nodiscard]] static Mesh cylinder(const CylinderParams &params = {}, const char *label = nullptr);

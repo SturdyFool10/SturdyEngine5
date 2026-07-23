@@ -4,14 +4,15 @@
 
 #pragma region Imports
 #include <chrono>
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <optional>
-#include <shared_mutex>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
@@ -22,6 +23,7 @@
 #include <RHI/RHI.hpp>
 #include <Platform/Platform.hpp>
 #include <Text/Text.hpp>
+#include "Culling.hpp"
 #include "Mesh.hpp"
 #include "Material.hpp"
 #include "Scene.hpp"
@@ -213,10 +215,84 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle gbuffer_normal_view{};
             RHI::TextureHandle gbuffer_material{};
             RHI::TextureViewHandle gbuffer_material_view{};
-            RHI::TextureHandle scene_lighting{};
-            RHI::TextureViewHandle scene_lighting_view{};
+            RHI::TextureHandle scene_color{};
+            RHI::TextureViewHandle scene_color_view{};
             RHI::TextureHandle depth{};
             RHI::TextureViewHandle depth_view{};
+        };
+
+        static constexpr u32 max_directional_shadow_cascades = 4;
+        static constexpr u32 max_lighting_spot_lights = 8;
+        static constexpr u32 max_lighting_point_lights = 8;
+        static constexpr u32 max_shadowed_point_lights = 4;
+        static constexpr u32 max_shadow_views = max_directional_shadow_cascades +
+                                                max_lighting_spot_lights +
+                                                max_shadowed_point_lights * 6;
+
+        // All GPU shadow/lighting structs contain only 16-byte-aligned vectors and matrices. Their
+        // matching definitions live in Shaders/deferred_shadow_lighting.slang; static assertions in
+        // RendererShadow.cpp guard the constant-buffer ABI against accidental packing drift.
+        struct alignas(16) ShadowViewGpuData {
+            glm::mat4 view_projection{1.0f};
+            glm::vec4 atlas_scale_bias{}; // scale.xy, bias.xy
+            glm::vec4 depth_params{};     // near, far, perspective(0/1), light radius in local UV
+            // World-space tile span (orthographic) or span at unit depth (perspective), followed by
+            // tile resolution. Used to express receiver bias in texels instead of arbitrary meters.
+            glm::vec4 filter_params{};
+        };
+
+        struct alignas(16) DirectionalLightGpuData {
+            glm::vec4 direction_angular_radius{};
+            glm::vec4 radiance_shadow{};
+            glm::vec4 cascade_splits{};
+            glm::vec4 cascade_params{}; // cascade count, blend fraction, first view, unused
+        };
+
+        struct alignas(16) SpotLightGpuData {
+            glm::vec4 position_range{};
+            glm::vec4 direction_outer_cos{};
+            glm::vec4 radiance_inner_cos{};
+            glm::vec4 shadow_params{}; // view index (-1 = none), source radius, unused...
+        };
+
+        struct alignas(16) PointLightGpuData {
+            glm::vec4 position_range{};
+            glm::vec4 radiance_source_radius{};
+            glm::vec4 shadow_params{}; // first cube-face view (-1 = none), unused...
+        };
+
+        struct alignas(16) ShadowLightingGpuData {
+            glm::mat4 inverse_view_projection{1.0f};
+            glm::mat4 view{1.0f};
+            glm::vec4 camera_position_near{};
+            glm::vec4 ambient_radiance_exposure{};
+            glm::vec4 background_color{};
+            glm::vec4 counts{};       // spot lights, point lights, shadow views, shadows enabled
+            glm::vec4 shadow_params{}; // atlas texel, normal bias, PCSS enabled, max distance
+            DirectionalLightGpuData sun{};
+            std::array<SpotLightGpuData, max_lighting_spot_lights> spot_lights{};
+            std::array<PointLightGpuData, max_lighting_point_lights> point_lights{};
+            std::array<ShadowViewGpuData, max_shadow_views> shadow_views{};
+        };
+
+        struct ShadowRenderView {
+            glm::mat4 view_projection{1.0f};
+            Frustum frustum{};
+            RHI::Rect2D viewport{};
+        };
+
+        struct PreparedShadowFrame {
+            ShadowLightingGpuData gpu{};
+            vector<ShadowRenderView> render_views;
+            bool atlas_used = false;
+        };
+
+        struct FrameShadowTargets {
+            u32 atlas_size = 0;
+            RHI::Format format = RHI::Format::D32Float;
+            RHI::TextureHandle atlas{};
+            RHI::TextureViewHandle atlas_view{};
+            RHI::BufferHandle lighting_buffer{};
         };
 
         struct FrameBloomTargets {
@@ -244,6 +320,35 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle view{};
         };
 
+        // Per-ring-slot GPU per-pass timing (debug-overlay only — see render_frame_rhi's debug_overlay
+        // gate). `query_set` holds 2 Timestamp slots per RenderGraph pass (begin+end); `pending` is
+        // the label/slot-index list RenderGraph::execute() just filled for the frame this slot is
+        // about to submit. `has_pending_results` is set once that submission happens and cleared once
+        // read back — which only ever happens the NEXT time this same ring slot is reused, right
+        // after waiting on its fence (the earliest point the GPU is guaranteed to have written every
+        // timestamp from that prior submission).
+        struct FrameGpuTimingTarget {
+            RHI::QuerySetHandle query_set{};
+            u32 capacity = 0;
+            vector<RenderGraph::GpuPassTiming> pending;
+            bool has_pending_results = false;
+        };
+
+        // Per-ring-slot CPU timing, mirroring FrameGpuTimingTarget above but with no query
+        // set/fence delay to wait on — `pass_timings`/`stage_timings` are both ready the instant
+        // render_frame_rhi finishes recording this slot's frame. Still surfaced one frame stale
+        // like the GPU numbers, purely because the debug-overlay text for frame N is built before
+        // frame N's own RenderGraph::execute() call runs (see render_frame_rhi).
+        // `pass_timings`: one entry per RenderGraph pass, wall-clock CPU cost of recording it
+        // (RenderGraph::CpuPassTiming). `stage_timings`: coarser top-of-render_frame_rhi stages
+        // (ScopedRendererStageTimer's accumulate_into) plus whatever the caller staged into
+        // FrameSubmission::pre_dispatch_stage_timings_ms before render_frame_rhi ever started.
+        struct FrameCpuTimingTarget {
+            vector<RenderGraph::CpuPassTiming> pass_timings;
+            vector<std::pair<string, f64>> stage_timings;
+            bool has_pending_results = false;
+        };
+
         struct FrameInFlight {
             RHI::FenceHandle fence{};
             RHI::CommandBufferHandle command_buffer{};
@@ -262,8 +367,11 @@ namespace SFT::Renderer {
             vector<RHI::TextureHandle> retired_presentation_textures;
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
             FrameDeferredTargets deferred_targets{};
+            FrameShadowTargets shadow_targets{};
             FrameBloomTargets bloom_targets{};
             FrameCompositeTarget composite_target{};
+            FrameGpuTimingTarget gpu_timing{};
+            FrameCpuTimingTarget cpu_timing{};
             bool submitted = false;
         };
 
@@ -295,6 +403,21 @@ namespace SFT::Renderer {
             u32 sort_key = 0;
         };
 
+        // Tracks what record_render_item last bound within one render pass so a run of draws sharing
+        // (material, mesh) — the order render_frame_dispatch sorts submission.draws into — can skip
+        // rebinding a pipeline/bind-group/vertex-buffer that's already current. Default-constructed
+        // (all-zero handles) at the top of each pass; every field is invalid before the first draw, so
+        // the first item in a pass always binds everything regardless.
+        struct RenderItemBindingState {
+            RHI::RenderPipelineHandle pipeline{};
+            MaterialInstanceHandle material{};
+            u32 material_frame_slot = ~0u;
+            // Every mesh shares one vertex/index arena buffer (see Renderer::vertex_arena_/
+            // index_arena_), so the buffer binding itself only needs to happen once per pass, not
+            // per-mesh — this just tracks whether that first bind has happened yet.
+            bool arena_bound = false;
+        };
+
         // Fully call-local replacement for what used to be six Renderer-wide "current frame" member
         // fields (frame_draws_/frame_camera_/frame_view_projection_/frame_lighting_/deferred_formats_/
         // frame_transient_bind_groups_) — those raced directly when two windows rendered concurrently
@@ -303,6 +426,9 @@ namespace SFT::Renderer {
         // and everything it calls.
         struct FrameSubmission {
             vector<RenderItem> draws;
+            // Light-position debug gizmos — recorded in their own forward pass (record_render_item
+            // with a single color target), never fed through the Z-prepass/G-buffer passes.
+            vector<RenderItem> gizmo_draws;
             glm::mat4 view_projection{1.0f};
             CameraView camera{};
             SceneLighting lighting{};
@@ -312,6 +438,12 @@ namespace SFT::Renderer {
             vector<RHI::BufferHandle> transient_buffers;
             TextAtlasRetiredResources retired_text_atlas_resources;
             UString debug_label;
+            // CPU stage timings the caller (render_frame/render_frame_dispatch) measured before
+            // render_frame_rhi even started — extraction from SceneRenderable into `draws`, then
+            // sorting them by (material, mesh). Folded into the same per-slot debug-overlay report
+            // as render_frame_rhi's own internal stage timings and RenderGraph's per-pass CPU
+            // timings, so the overlay shows the full CPU picture, not just the RHI-facing half.
+            vector<std::pair<string, f64>> pre_dispatch_stage_timings_ms;
         };
 
         // GPU state for the fullscreen tonemap post-process pass: the compiled shader + modules, its
@@ -321,6 +453,65 @@ namespace SFT::Renderer {
             RHI::Format color_format = RHI::Format::Undefined;
             RHI::RenderPipelineHandle pipeline{};
         };
+        // Layout mirrors VkDrawIndexedIndirectCommand field-for-field — see Shaders/
+        // gpu_instance_cull.slang's matching struct and record_instanced_batches's doc comment
+        // (RendererGpuCulling.cpp). CPU-written each frame with instance_count left at 0; the cull
+        // compute shader atomically increments it per surviving instance.
+        struct GpuDrawIndexedIndirectCommand {
+            u32 index_count = 0;
+            u32 instance_count = 0;
+            u32 first_index = 0;
+            i32 vertex_offset = 0;
+            u32 first_instance = 0;
+        };
+
+        // One contiguous run of a sorted RenderItem list sharing (mesh, material), large enough to
+        // be worth a GPU-culled instanced indirect draw instead of N separate CPU-recorded ones —
+        // see Renderer::detect_instanced_batches (RendererGpuCulling.cpp).
+        struct InstancedBatch {
+            MeshHandle mesh{};
+            MaterialInstanceHandle material{};
+            // Index into the sorted RenderItem list this batch was detected from, and (since
+            // prepare_scene_gpu_data uploads SceneObjectGpuData in that same order) into this
+            // frame's object buffer too.
+            u32 first_object_index = 0;
+            u32 instance_count = 0;
+        };
+
+        // Lazily-built resources for the GPU-driven instanced-batch cull compute pass (Shaders/
+        // gpu_instance_cull.slang) and the instanced vertex stage it feeds (Shaders/
+        // gbuffer_geometry_instanced.slang) — see instanced_pipeline_for's doc comment for why the
+        // latter's bind-group layout (instance_data_bind_group_layout, set 1) is hand-built here
+        // rather than derived from a material template's own reflection.
+        struct InstanceCullResources {
+            Core::Slang::Shader cull_shader;
+            RHI::ShaderModuleHandle cull_module{};
+            RHI::BindGroupLayoutHandle cull_bind_group_layout{};
+            RHI::PipelineLayoutHandle cull_pipeline_layout{};
+            RHI::ComputePipelineHandle cull_pipeline{};
+
+            Core::Slang::Shader instanced_vertex_shader;
+            RHI::ShaderModuleHandle instanced_vertex_module{};
+            RHI::BindGroupLayoutHandle instance_data_bind_group_layout{};
+
+            bool ready = false;
+        };
+
+        // One material template's instanced-draw pipeline, keyed by (color formats, depth format)
+        // like MaterialPipelineVariant. `pipeline_layout` combines the template's own reflected set
+        // 0 (reused as-is) with InstanceCullResources::instance_data_bind_group_layout at set 1 —
+        // built once per template, cached alongside its pipelines here rather than rebuilt per
+        // variant.
+        struct InstancedPipelineVariant {
+            vector<RHI::Format> color_formats;
+            RHI::Format depth_format = RHI::Format::Undefined;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+        struct InstancedTemplateResources {
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            vector<InstancedPipelineVariant> pipeline_variants;
+        };
+
         struct TonemapResources {
             Core::Slang::Shader shader;
             RHI::ShaderModuleHandle vertex_module{};
@@ -332,6 +523,26 @@ namespace SFT::Renderer {
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::SamplerHandle sampler{};
             std::vector<TonemapPipelineVariant> pipeline_variants;
+            bool ready = false;
+        };
+
+        struct ShadowLightingPipelineVariant {
+            RHI::Format color_format = RHI::Format::Undefined;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+
+        struct ShadowLightingResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle fragment_module{};
+            string vertex_entry_point;
+            string fragment_entry_point;
+            vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            vector<u32> bind_group_layout_sets;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle gbuffer_sampler{};
+            RHI::SamplerHandle shadow_sampler{};
+            vector<ShadowLightingPipelineVariant> pipeline_variants;
             bool ready = false;
         };
 
@@ -402,33 +613,24 @@ namespace SFT::Renderer {
             u32 sampler_binding = 0;
         };
 
-        struct DeferredLightingPipelineVariant {
-            RHI::Format color_format = RHI::Format::Undefined;
-            RHI::RenderPipelineHandle pipeline{};
-        };
-        struct DeferredLightingResources {
-            Core::Slang::Shader shader;
-            RHI::ShaderModuleHandle vertex_module{};
-            RHI::ShaderModuleHandle fragment_module{};
-            std::string vertex_entry_point;
-            std::string fragment_entry_point;
-            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
-            std::vector<u32> bind_group_layout_sets;
-            RHI::PipelineLayoutHandle pipeline_layout{};
-            RHI::SamplerHandle sampler{};
-            std::vector<DeferredLightingPipelineVariant> pipeline_variants;
-            bool ready = false;
-        };
-
         struct SceneFrameGpuResources {
             RHI::BufferHandle view_buffer{};
             RHI::BufferHandle object_buffer{};
             usize object_capacity = 0;
+            // GPU-driven instanced-batch draw path (Renderer::record_instanced_batches,
+            // RendererGpuCulling.cpp) — one GpuDrawIndexedIndirectCommand per detected batch, and a
+            // shared compacted-instance-index buffer every batch writes its own region of. Both
+            // resized (never shrunk within a frame) to this frame's batch count / total candidate
+            // instance count; see ensure_instance_cull_frame_resources.
+            RHI::BufferHandle indirect_commands_buffer{};
+            usize indirect_commands_capacity = 0;
+            RHI::BufferHandle compacted_indices_buffer{};
+            usize compacted_indices_capacity = 0;
         };
 
         // Lazily-built resources for the debug HUD text overlay (scene label, camera, FPS, ...)
         // rendered each frame in render_frame_rhi(). Same lazy-build-once-and-cache pattern as
-        // tonemap_/deferred_lighting_ above.
+        // the other fullscreen resources above.
         struct TextOverlayResources {
             struct CachedLine {
                 UString source;
@@ -506,6 +708,11 @@ namespace SFT::Renderer {
                                                                          Core::Extent2D extent,
                                                                          const DeferredTargetFormats &formats);
         void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
+        [[nodiscard]] Core::RendererResult ensure_frame_shadow_targets(FrameInFlight &slot, u32 atlas_size);
+        void destroy_frame_shadow_targets(FrameInFlight &slot) noexcept;
+        [[nodiscard]] Core::RendererResult prepare_shadow_frame(const FrameSubmission &submission,
+                                                                 FrameShadowTargets &targets,
+                                                                 PreparedShadowFrame &prepared);
         [[nodiscard]] Core::RendererResult ensure_frame_bloom_targets(FrameInFlight &slot,
                                                                       Core::Extent2D extent,
                                                                       u32 requested_levels);
@@ -514,6 +721,14 @@ namespace SFT::Renderer {
                                                                          Core::Extent2D extent,
                                                                          RHI::Format format);
         void destroy_frame_composite_target(FrameInFlight &slot) noexcept;
+
+        // Grows (never shrinks) `slot.gpu_timing.query_set` to at least `2 * required_pass_count`
+        // slots — a RenderGraph's pass count is data-dependent (for example, on bloom levels), so
+        // this resizes on demand like every other frame target here rather than
+        // assuming a fixed upper bound. Destroys and recreates (losing any not-yet-read-back pending
+        // results) only when growing; existing capacity is always reused for a same-or-smaller frame.
+        [[nodiscard]] Core::RendererResult ensure_frame_gpu_timing_target(FrameInFlight &slot, u32 required_pass_count);
+        void destroy_frame_gpu_timing_target(FrameInFlight &slot) noexcept;
         // Waits for every in-flight frame (of one window's ring) to finish, then reclaims its resources
         // (including retired swapchains/presentation textures — safe here specifically because of the
         // wait_idle, see reclaim_frame_slot's comment). The sanctioned heavy wait for teardown / periodic
@@ -535,12 +750,118 @@ namespace SFT::Renderer {
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
         void destroy_scene_gpu_resources() noexcept;
-        [[nodiscard]] Core::RendererResult record_render_item(RHI::RenderPassEncoder &pass,
+        // `depth_only`: skip the material's color pipeline/attachments entirely and draw with its
+        // depth-only variant instead (see depth_only_pipeline_for's doc comment) — used by the Z
+        // prepass that runs before "deferred gbuffer geometry" to eliminate occluded-fragment shading
+        // cost. Material bind groups are still bound either way: the depth-only fragment (when the
+        // template has one) needs base_color_texture + alpha_cutoff to alpha-test correctly.
+        // `standard_depth_test`: only meaningful when depth_only is false — see
+        // material_pipeline_for's doc comment. Defaulted so every existing (Z-prepass-backed) caller
+        // is unaffected; a forward-rendered draw with no prepass of its own (e.g. debug gizmos) must
+        // pass true or its fragments will fail material_pipeline_for's default Equal-depth-test almost
+        // universally.
+        // `binding_state`: carries the previous call's bound pipeline/mesh/material within the same
+        // render pass so repeated draws that share state (after the caller sorts submission.draws by
+        // (material, mesh) — see render_frame_dispatch) skip redundant set_pipeline/set_bind_group/
+        // set_vertex_buffer/set_index_buffer calls instead of reissuing them every single draw.
+        // CPU frustum cull: true if `item`'s world-space bounding sphere (its mesh's object-space
+        // bounds, transformed by world_transform — see MeshResource::bounds_center/bounds_radius)
+        // intersects `frustum`. An unknown mesh conservatively returns true so record_render_item's
+        // own lookup produces the real error instead of this silently skipping it.
+        [[nodiscard]] bool render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept;
+
+        // Templated on encoder type so the same recording logic works against both
+        // RHI::RenderPassEncoder (the primary, serial path) and RHI::RenderBundleEncoder (the
+        // per-thread secondary path used by record_render_items_culled) — the two share an
+        // identical draw/bind/push-constant surface (RHI/Command.hpp) but no common base class.
+        // Defined in RendererLifecycle.cpp; every instantiation is used from within that same
+        // translation unit, so the definition doesn't need to live in this header.
+        template <typename Encoder>
+        [[nodiscard]] Core::RendererResult record_render_item(Encoder &pass,
                                                               const RenderItem &item,
                                                               span<const RHI::Format> color_formats,
                                                               RHI::Format depth_format,
                                                               u64 frame_index,
-                                                              const glm::mat4 &view_projection);
+                                                              const glm::mat4 &view_projection,
+                                                               bool depth_only,
+                                                               RenderItemBindingState &binding_state,
+                                                               bool standard_depth_test = false,
+                                                               bool shadow_map = false,
+                                                               f32 shadow_depth_bias = 0.0f,
+                                                               f32 shadow_slope_bias = 0.0f);
+
+        // Frustum-culls `items` against `frustum` (render_item_visible), then records survivors
+        // into `pass`. Below kParallelRecordThreshold survivors, or with no worker threads
+        // available, this is just today's single serial loop. Above the threshold, survivors are
+        // split into contiguous chunks (preserving the caller's (material, mesh) sort-coherence
+        // within each chunk) and recorded concurrently, each chunk into its own
+        // RHI::RenderBundleEncoder via Async::Scheduler::spawn — the exact chunking pattern
+        // prepare_scene_gpu_data already uses for object-buffer packing (RendererScene.cpp) — then
+        // stitched into `pass` with one execute_bundles call. `bundle_label` names the bundles for
+        // any GPU-side debug tooling.
+        //
+        // Materials are pre-warmed (prepare_material_frame called once per distinct material, on
+        // this thread, before any worker task starts) specifically so concurrent per-chunk calls to
+        // record_render_item never race on the same MaterialInstanceFrame's bind-group rebuild —
+        // prepare_material_frame only mutates state when a frame's dirty flags are set, and warming
+        // them here first means every worker thread's later call is a pure read.
+        [[nodiscard]] Core::RendererResult record_render_items_culled(RHI::RenderPassEncoder &pass,
+                                                                       span<const RenderItem> items,
+                                                                       const Frustum &frustum,
+                                                                       span<const RHI::Format> color_formats,
+                                                                       RHI::Format depth_format,
+                                                                       u64 frame_index,
+                                                                       const glm::mat4 &view_projection,
+                                                                       bool depth_only,
+                                                                       bool standard_depth_test,
+                                                                       const char *bundle_label,
+                                                                       bool shadow_map = false,
+                                                                       f32 shadow_depth_bias = 0.0f,
+                                                                       f32 shadow_slope_bias = 0.0f);
+
+        // ── GPU-driven instanced batch draws (RendererGpuCulling.cpp) ──
+        // Scans `sorted_draws` (already sorted by (material, mesh) — see render_frame_dispatch) for
+        // contiguous same-(mesh, material) runs at or above the minimum batch size and returns one
+        // InstancedBatch per run found. Callers route a batch's instances through
+        // record_instanced_batches instead of the individual record_render_items_culled path.
+        [[nodiscard]] vector<InstancedBatch> detect_instanced_batches(span<const RenderItem> sorted_draws) const;
+
+        [[nodiscard]] Core::RendererResult ensure_instance_cull_resources();
+        // Analogous to prepare_scene_gpu_data: called once per frame, before the render graph is
+        // declared. (Re)allocates `resources`' indirect-command/compacted-index buffers if this
+        // frame's batches need more room than last frame's, then writes every batch's
+        // GpuDrawIndexedIndirectCommand (index_count/first_index/vertex_offset from its mesh,
+        // instance_count left at 0 for the cull compute shader to fill in).
+        [[nodiscard]] Core::RendererResult prepare_instance_cull_gpu_data(span<const InstancedBatch> batches,
+                                                                          SceneFrameGpuResources &resources);
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> instanced_pipeline_for(
+            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format);
+
+        // Records one compute dispatch per batch (frustum cull + compaction) into `pass`, writing
+        // into `resources`' indirect-command/compacted-index buffers — see
+        // Shaders/gpu_instance_cull.slang's header comment for the buffer protocol. Caller must
+        // insert a compute-write -> indirect-draw-read barrier (RenderGraph's compute-pass builder
+        // only tracks texture hazards) before any of `record_instanced_batches`'s draws run.
+        [[nodiscard]] Core::RendererResult record_instance_cull(RHI::ComputePassEncoder &pass,
+                                                                span<const InstancedBatch> batches,
+                                                                const glm::mat4 &view_projection,
+                                                                SceneFrameGpuResources &resources,
+                                                                vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        // Records one draw_indexed_indirect per batch into `pass`, consuming the buffers
+        // record_instance_cull wrote (after the caller's barrier). Every batch shares the material
+        // template's existing per-instance bind group (set 0, from prepare_material_frame — the
+        // material system is completely unaware batching exists) plus one instance-data bind group
+        // (set 1) bound once per batch with a dynamic offset into the shared compacted-indices
+        // buffer.
+        [[nodiscard]] Core::RendererResult record_instanced_batches(RHI::RenderPassEncoder &pass,
+                                                                    span<const InstancedBatch> batches,
+                                                                    span<const RHI::Format> color_formats,
+                                                                    RHI::Format depth_format,
+                                                                    u64 frame_index,
+                                                                    const glm::mat4 &view_projection,
+                                                                    SceneFrameGpuResources &resources,
+                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups);
 
         [[nodiscard]] Core::RendererResult try_upload_mesh(MeshResource &mesh);
 
@@ -554,8 +875,23 @@ namespace SFT::Renderer {
         // a material always has something valid to sample.
         [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_white_texture();
         // Lazily builds + caches the render pipeline for one attachment configuration on a template.
+        // By default (`standard_depth_test = false`) assumes a prior Z prepass already wrote the
+        // definitive depth for this frame (depth_compare == Equal, depth_write_enable == false) —
+        // true for the "deferred gbuffer geometry" pass, which always runs after "z prepass". Pass
+        // `standard_depth_test = true` for a forward-rendered draw with no Z-prepass of its own (e.g.
+        // debug gizmos) — a standard Less-compare, depth-writing test against whatever's already in
+        // the depth buffer, instead of an Equal test that would reject nearly every fragment.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> material_pipeline_for(
-            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format);
+            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
+            bool standard_depth_test = false);
+        // Lazily builds + caches a template's depth-only pipeline: same vertex stage + (if the
+        // template's shader declared one) the depth-only fragment entry for alpha-tested cutout, zero
+        // color attachments, real depth write (depth_compare == Less) — this is the pipeline the Z
+        // prepass itself draws with.
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> depth_only_pipeline_for(
+            MaterialTemplateResource &material_template, RHI::Format depth_format,
+            bool shadow_map = false, f32 depth_bias = 0.0f, f32 slope_bias = 0.0f);
+
         // Ensures instance frame slot `frame_slot`'s UBO reflects the CPU value block and its per-set
         // bind groups exist/are rebuilt, then returns the bind groups to bind (index == set order).
         [[nodiscard]] Core::RendererExpected<span<const RHI::BindGroupHandle>> prepare_material_frame(
@@ -574,21 +910,24 @@ namespace SFT::Renderer {
         void destroy_material_template_gpu(MaterialTemplateResource &resource) noexcept;
         void destroy_material_instance_gpu(MaterialInstanceResource &resource) noexcept;
 
-        // ── Deferred lighting and fullscreen tonemap post-processes ──
-        // Both ensure_*/*_pipeline_for() pairs are lazy-build-once-and-cache, guarded by their own
-        // Async::Mutex so concurrent first use cannot double-build or corrupt either cache.
-        [[nodiscard]] Core::RendererResult ensure_deferred_lighting_resources();
-        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> deferred_lighting_pipeline_for(RHI::Format color_format);
-        [[nodiscard]] Core::RendererResult record_deferred_lighting(RHI::RenderPassEncoder &pass,
-                                                                    RHI::TextureViewHandle albedo_view,
-                                                                    RHI::TextureViewHandle normal_view,
-                                                                    RHI::TextureViewHandle material_view,
-                                                                    RHI::Format color_format,
-                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups);
-        void destroy_deferred_lighting_resources() noexcept;
-        // Caller must already hold deferred_lighting_'s guard.
-        void destroy_deferred_lighting_resources_locked(DeferredLightingResources &resources) noexcept;
+        // ── Deferred lighting + raster shadows ──
+        [[nodiscard]] Core::RendererResult ensure_shadow_lighting_resources();
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> shadow_lighting_pipeline_for(
+            RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_shadow_lighting(
+            RHI::RenderPassEncoder &pass,
+            RHI::TextureViewHandle albedo_view,
+            RHI::TextureViewHandle normal_view,
+            RHI::TextureViewHandle material_view,
+            RHI::TextureViewHandle depth_view,
+            RHI::TextureViewHandle shadow_atlas_view,
+            RHI::BufferHandle lighting_buffer,
+            RHI::Format color_format,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_shadow_lighting_resources() noexcept;
+        void destroy_shadow_lighting_resources_locked(ShadowLightingResources &resources) noexcept;
 
+        // ── Fullscreen post-processes ──
         [[nodiscard]] Core::RendererResult ensure_bloom_resources(RHI::Format color_format);
         [[nodiscard]] Core::RendererResult record_bloom_draw(RHI::RenderPassEncoder &pass,
                                                               RHI::TextureViewHandle source_view,
@@ -706,6 +1045,21 @@ namespace SFT::Renderer {
         // only needs the lock for the brief lookup, then keeps using the (stable) pointer unlocked.
         mutable Async::Mutex<vector<unique_ptr<WindowSurfaceRecord>>> window_surfaces_;
         Core::RendererCapabilities capabilities_{};
+        // A single growable GPU buffer that mesh uploads sub-allocate append-only ranges from, instead
+        // of each Mesh owning its own dedicated VkBuffer — see try_upload_mesh/grow_geometry_arena.
+        // Growth (doubling) re-uploads every already-resident mesh's retained CPU-side vertices/indices
+        // at their existing (stable) offsets into the new, bigger buffer; this only happens during
+        // asset loading, never mid-frame, so its O(resident data) cost is a non-issue.
+        struct GeometryArena {
+            RHI::BufferHandle buffer{};
+            RHI::BufferUsage usage = RHI::BufferUsage::None;
+            u64 capacity_bytes = 0;
+            u64 used_bytes = 0;
+        };
+        [[nodiscard]] Core::RendererResult grow_geometry_arena(GeometryArena &arena, u64 required_bytes,
+                                                               const char *label);
+        GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferDst};
+        GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferDst};
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;
@@ -729,9 +1083,9 @@ namespace SFT::Renderer {
         // check-then-build body, so concurrent first-use from two windows' render calls can't double-build
         // or corrupt the cache. Each is fast once warm, so this only ever serializes the rare cold-start/
         // new-variant path, never per-frame recording or submission.
-        Async::Mutex<DeferredLightingResources> deferred_lighting_;
         Async::Mutex<BloomResources> bloom_;
         Async::Mutex<BloomCompositeResources> bloom_composite_;
+        Async::Mutex<ShadowLightingResources> shadow_lighting_;
         Async::Mutex<TonemapResources> tonemap_;
         Async::Mutex<TextOverlayResources> text_overlay_;
         // material_pipeline_for()'s per-template pipeline cache, keyed by MaterialTemplateHandle::value.
@@ -741,7 +1095,14 @@ namespace SFT::Renderer {
         // resource, sidesteps that entirely while still using the same Async::Mutex<T> pattern as
         // every other lazy cache above instead of a bare std::mutex.
         Async::Mutex<std::unordered_map<u64, vector<MaterialPipelineVariant>>> material_pipeline_variants_;
+        // depth_only_pipeline_for()'s per-template cache, same rationale/shape as
+        // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
+        Async::Mutex<std::unordered_map<u64, vector<DepthOnlyPipelineVariant>>> depth_only_pipeline_variants_;
         Async::Mutex<vector<CustomPostProcessResources>> custom_post_process_resources_;
+        Async::Mutex<InstanceCullResources> instance_cull_;
+        // instanced_pipeline_for()'s per-template cache, same rationale/shape as
+        // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
+        Async::Mutex<std::unordered_map<u64, InstancedTemplateResources>> instanced_pipeline_variants_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

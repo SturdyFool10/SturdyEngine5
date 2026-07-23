@@ -540,16 +540,15 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = normalize_slang_int(type_layout->getBindingRangeFirstDescriptorRangeIndex(range_index));
             range.descriptor_range_count = normalize_slang_int(type_layout->getBindingRangeDescriptorRangeCount(range_index));
             range.count = normalize_slang_int(type_layout->getBindingRangeBindingCount(range_index));
-            // Only *storage* image/texel-buffer ranges carry a decorated image format, and only those
-            // have a non-null leaf variable inside Slang. getBindingRangeImageFormat unconditionally
-            // dereferences that leaf variable (`leafVar->findModifier<FormatAttribute>()` in
-            // slang-reflection-api.cpp), so calling it for a *sampled* Texture/TypedBuffer — whose leaf
-            // var is null — segfaults inside Slang. Restrict the query to the mutable (RW) kinds; sampled
-            // textures have no storage format to report anyway.
-            if (range.type == ShaderBindingType::MutableTexture ||
-                range.type == ShaderBindingType::MutableTypedBuffer) {
-                range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
-            }
+            // getBindingRangeImageFormat unconditionally dereferences a "leaf variable"
+            // (`leafVar->findModifier<FormatAttribute>()` in slang-reflection-api.cpp) that Slang
+            // only synthesizes for a binding range with an explicit `[format(...)]`/similar
+            // attribute in the shader source. Restricting the call to mutable (RW) binding-range
+            // kinds isn't sufficient on its own — an unannotated mutable texture or typed-buffer
+            // binding can still have a null leaf var, so calling this accessor still segfaults.
+            // Nothing in this codebase reads range.image_format, so the safe fix is
+            // to never call this accessor at all rather than try to further characterize which mutable
+            // ranges happen to have an attribute.
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);
 
             if (range.descriptor_range_count > 0 && range.descriptor_range_count != numeric_limits<u32>::max() &&

@@ -1,10 +1,15 @@
 #include "RenderGraph.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <set>
 #include <utility>
 
 namespace SFT::Renderer {
+
+    namespace {
+        using CpuClock = std::chrono::steady_clock;
+    } // namespace
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphRenderPassBuilder &pass) {
             PassUsage usage;
@@ -236,8 +241,8 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
 //    next. Every existing caller in this codebase already calls add_render_pass()/add_blit_pass()
 //    in dependency order (a pass reads what an earlier add_*_pass call wrote), which is already a
 //    valid topological order — so "smallest ready index first" reproduces that exact order,
-//    verified by the deferred pipeline (gbuffer -> lighting -> tonemap -> UI) still rendering
-//    identically after this landed. A future caller that adds passes out of dependency order would
+//    verified by the scene/post-process pipeline preserving insertion order. A future caller that
+//    adds passes out of dependency order would
 //    still get correctly reordered instead of silently misrendering.
 [[nodiscard]] RenderGraph::CompileResult RenderGraph::compile() const {
             const usize pass_count = ordered_passes_.size();
@@ -368,7 +373,10 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             return CompiledPlan{.order = std::move(order)};
         }
 
-[[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder) {
+[[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                         RHI::QuerySetHandle timestamp_query_set,
+                                                         vector<GpuPassTiming> *out_pass_timings,
+                                                         vector<CpuPassTiming> *out_cpu_pass_timings) {
             // Order first: aliasing needs the culled, topo-sorted order to compute accurate lifetimes,
             // and compile() never touches physical resource state, so this is safe to run before any
             // GPU texture exists yet.
@@ -383,11 +391,31 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 return created;
             }
 
+            const bool timing_enabled = static_cast<bool>(timestamp_query_set) && out_pass_timings != nullptr;
+            if (timing_enabled) {
+                out_pass_timings->clear();
+                out_pass_timings->reserve(execution_order.size());
+                encoder.reset_query_set(timestamp_query_set, 0, static_cast<u32>(execution_order.size() * 2));
+            }
+            const bool cpu_timing_enabled = out_cpu_pass_timings != nullptr;
+            if (cpu_timing_enabled) {
+                out_cpu_pass_timings->clear();
+                out_cpu_pass_timings->reserve(execution_order.size());
+            }
+
+            u32 next_query_index = 0;
             for (const OrderedPass &ordered : execution_order) {
                 Core::RendererResult result = {};
+                const u32 begin_query_index = next_query_index;
+                if (timing_enabled) {
+                    encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, next_query_index++);
+                }
+                const CpuClock::time_point cpu_begin = cpu_timing_enabled ? CpuClock::now() : CpuClock::time_point{};
+                string_view label;
                 switch (ordered.kind) {
                     case PassKind::Render: {
                         RenderGraphRenderPassBuilder &pass = render_passes_[ordered.index];
+                        label = pass.label_;
                         result = with_debug_group(encoder, pass.label_, [&]() {
                             return execute_render_pass(encoder, pass);
                         });
@@ -395,6 +423,7 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                     }
                     case PassKind::Blit: {
                         const RenderGraphBlitDesc &pass = blit_passes_[ordered.index];
+                        label = pass.label ? pass.label : "render graph blit";
                         result = with_debug_group(encoder, pass.label ? pass.label : "render graph blit", [&]() {
                             return execute_blit_pass(encoder, pass);
                         });
@@ -402,6 +431,7 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                     }
                     case PassKind::Compute: {
                         RenderGraphComputePassBuilder &pass = compute_passes_[ordered.index];
+                        label = pass.label_;
                         result = with_debug_group(encoder, pass.label_, [&]() {
                             return execute_compute_pass(encoder, pass);
                         });
@@ -409,6 +439,7 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                     }
                     case PassKind::Copy: {
                         const RenderGraphCopyDesc &pass = copy_passes_[ordered.index];
+                        label = pass.label ? pass.label : "render graph copy";
                         result = with_debug_group(encoder, pass.label ? pass.label : "render graph copy", [&]() {
                             return execute_copy_pass(encoder, pass);
                         });
@@ -418,6 +449,19 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 if (!result.has_value()) {
                     destroy_transient_resources(device);
                     return result;
+                }
+                if (cpu_timing_enabled) {
+                    const f64 ms = std::chrono::duration<f64, std::milli>(CpuClock::now() - cpu_begin).count();
+                    out_cpu_pass_timings->push_back(CpuPassTiming{.label = string{label}, .duration_ms = ms});
+                }
+                if (timing_enabled) {
+                    const u32 end_query_index = next_query_index++;
+                    encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, end_query_index);
+                    out_pass_timings->push_back(GpuPassTiming{
+                        .label = string{label},
+                        .begin_query_index = begin_query_index,
+                        .end_query_index = end_query_index,
+                    });
                 }
             }
 

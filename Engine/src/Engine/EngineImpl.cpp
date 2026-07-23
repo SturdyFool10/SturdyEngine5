@@ -48,6 +48,7 @@ namespace SFT::Engine {
             }
             return RendererApi::AgxLook::None;
         }
+
     } // namespace
 
     // The API-selection switch point now lives inside SFT::Renderer::Renderer. Engine owns the
@@ -297,7 +298,10 @@ namespace SFT::Engine {
                                                      const Core::FrameInput &frame,
                                                      const RenderFrameParameters &parameters) {
         render_frame_requests_.begin_frame();
+        light_frame_requests_.begin_frame();
         render_extraction_schedule_.run(ecs_world_);
+
+        const std::shared_ptr<const LightFrameRequests::ExtractedLights> lights = light_frame_requests_.finish_frame();
 
         if (RenderGraphResult graph_validation = parameters.render_graph.validate(); !graph_validation) {
             Foundation::log_error("Invalid high-level render graph: {} Using its normalized safe form.",
@@ -317,9 +321,13 @@ namespace SFT::Engine {
             .lighting = SFT::Renderer::SceneLighting{
                 .ambient_radiance = parameters.lighting.ambient_radiance,
                 .exposure = parameters.lighting.exposure * parameters.camera.exposure_multiplier(),
+                .sun = lights->sun.value_or(SFT::Renderer::DirectionalLight{}),
+                .spot_lights = lights->spot_lights,
+                .point_lights = lights->point_lights,
             },
             .deferred_formats = SFT::Renderer::DeferredTargetFormats{},
             .renderables = render_frame_requests_.finish_frame(),
+            .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
             .render_graph = graph,
             .custom_post_processes = parameters.custom_post_processes,
             .visibility_mask = parameters.camera.culling_mask(),
@@ -336,14 +344,25 @@ namespace SFT::Engine {
         desc.view.deferred_formats = frame.deferred_formats;
         desc.view.render_graph = RendererApi::RenderGraphSettings{
             .render_scene = frame.render_graph.scene.enabled,
-            .deferred_lighting = frame.render_graph.lighting.enabled,
+            .shadows = frame.render_graph.shadows.enabled,
             .bloom = frame.render_graph.bloom.enabled,
             .tone_mapping = frame.render_graph.tone_mapping.enabled,
             .debug_overlay = frame.render_graph.debug_overlay.enabled,
             .wait_for_completion = frame.render_graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
             .resolution_scale = frame.render_graph.resolution_scale,
             .background_color = frame.render_graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
-            .background_intensity = frame.render_graph.lighting.background_intensity,
+            .background_intensity = frame.render_graph.scene.background_intensity,
+            .shadow_atlas_size = frame.render_graph.shadows.atlas_size,
+            .shadow_cascade_count = frame.render_graph.shadows.cascade_count,
+            .shadow_max_distance = frame.render_graph.shadows.max_distance,
+            .shadow_cascade_split_lambda = frame.render_graph.shadows.cascade_split_lambda,
+            .shadow_cascade_blend = frame.render_graph.shadows.cascade_blend,
+            .shadow_depth_bias = frame.render_graph.shadows.depth_bias,
+            .shadow_slope_bias = frame.render_graph.shadows.slope_bias,
+            .shadow_normal_bias = frame.render_graph.shadows.normal_bias,
+            .max_shadowed_spot_lights = frame.render_graph.shadows.max_shadowed_spot_lights,
+            .max_shadowed_point_lights = frame.render_graph.shadows.max_shadowed_point_lights,
+            .shadow_contact_hardening = frame.render_graph.shadows.contact_hardening,
             .bloom_threshold = frame.render_graph.bloom.threshold,
             .bloom_soft_knee = frame.render_graph.bloom.soft_knee,
             .bloom_intensity = frame.render_graph.bloom.intensity,
@@ -377,6 +396,11 @@ namespace SFT::Engine {
             desc.view.renderables = span<const RendererApi::SceneRenderable>{
                 frame.renderables->data(),
                 frame.renderables->size()};
+        }
+        if (frame.gizmo_renderables) {
+            desc.view.gizmo_renderables = span<const RendererApi::SceneRenderable>{
+                frame.gizmo_renderables->data(),
+                frame.gizmo_renderables->size()};
         }
         desc.view.debug_label = frame.debug_label;
         return renderer_.render_frame(desc);

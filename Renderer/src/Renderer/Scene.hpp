@@ -15,6 +15,7 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 #include "Handles.hpp"
+#include "Light.hpp"
 
 using std::span;
 
@@ -47,6 +48,9 @@ namespace SFT::Renderer {
     struct SceneLighting {
         glm::vec3 ambient_radiance{0.02f, 0.02f, 0.02f};
         f32 exposure = 1.0f;
+        DirectionalLight sun{};
+        std::vector<SpotLight> spot_lights;
+        std::vector<PointLight> point_lights;
     };
 
     // Renderer-facing lowering of Engine's programmable graph recipe. These are semantic choices,
@@ -94,9 +98,11 @@ namespace SFT::Renderer {
         PostProcessStage stage = PostProcessStage::BeforeBloom;
     };
 
+
+
     struct RenderGraphSettings {
         bool render_scene = true;
-        bool deferred_lighting = true;
+        bool shadows = true;
         bool bloom = true;
         bool tone_mapping = true;
         bool debug_overlay = false;
@@ -106,6 +112,21 @@ namespace SFT::Renderer {
         f32 resolution_scale = 1.0f;
         glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
         f32 background_intensity = 1.0f;
+
+        // Raster shadow stack. The atlas is divided into 8x8 cells: directional cascades receive
+        // 2x2 cells each and local-light faces receive one. Local lights are importance-ranked when
+        // demand exceeds the fixed budget, keeping memory and worst-case raster cost deterministic.
+        u32 shadow_atlas_size = 4096;
+        u32 shadow_cascade_count = 4;
+        f32 shadow_max_distance = 250.0f;
+        f32 shadow_cascade_split_lambda = 0.65f;
+        f32 shadow_cascade_blend = 0.10f;
+        f32 shadow_depth_bias = 0.75f;
+        f32 shadow_slope_bias = 1.0f;
+        f32 shadow_normal_bias = 0.75f; // Receiver offset measured in shadow texels.
+        u32 max_shadowed_spot_lights = 8;
+        u32 max_shadowed_point_lights = 4;
+        bool shadow_contact_hardening = true;
         f32 bloom_threshold = 1.0f;
         f32 bloom_soft_knee = 0.5f;
         f32 bloom_intensity = 0.08f;
@@ -148,7 +169,7 @@ namespace SFT::Renderer {
     // Default transient target layout for the deferred path, expressed in RHI formats so the render graph
     // can create everything through dynamic rendering. The first implementation still shades through the
     // simple geometry path, but these defaults establish the G-buffer contract future material variants
-    // should target: albedo, world/view normal, material properties, HDR lighting, and depth.
+    // should target: albedo, world/view normal, material properties, HDR scene color, and depth.
     struct DeferredTargetFormats {
         RHI::Format albedo = RHI::Format::RGBA8Unorm;
         // Octahedral-encoded (Shaders/sturdy_common.slang's encodeOctahedralNormal/
@@ -156,17 +177,21 @@ namespace SFT::Renderer {
         // bandwidth versus a raw xyz-in-RGBA16F encode for the same per-channel precision.
         RHI::Format normal = RHI::Format::RG16Float;
         RHI::Format material = RHI::Format::RGBA8Unorm;
-        RHI::Format lighting = RHI::Format::RGBA16Float;
+        RHI::Format scene_color = RHI::Format::RGBA16Float;
         RHI::Format depth = RHI::Format::D32Float;
     };
 
     // One camera's view of a scene. The immediate goal is a high-level submission seam; future renderer
-    // passes can hang culling settings, shadow views, fog/sky, reflection probes, and post-process volumes
-    // off this structure without exposing RHI details to game code.
+    // passes can hang culling settings, fog/sky, reflection probes, and post-process volumes off this
+    // structure without exposing RHI details to game code.
     struct RenderViewDesc {
         CameraView camera{};
         SceneLighting lighting{};
         span<const SceneRenderable> renderables{};
+        // Always-on debug markers (e.g. light-position icospheres) — drawn through a separate,
+        // single-color-target forward pass over the HDR background, never visibility-mask-filtered
+        // (they're a dev aid, not gameplay-visibility-relevant).
+        span<const SceneRenderable> gizmo_renderables{};
         u32 visibility_mask = ~0u;
         DeferredTargetFormats deferred_formats{};
         RenderGraphSettings render_graph{};
@@ -188,8 +213,8 @@ namespace SFT::Renderer {
         glm::mat4 model{1.0f};
     };
 
-    // GPU-facing per-view payload for deferred rendering. This becomes the stable set-0 view buffer used
-    // by G-buffer, lighting, shadow, and post-processing passes; fields are vec4/mat4 aligned so the same
+    // GPU-facing per-view payload for scene rendering. This becomes the stable set-0 view buffer used
+    // by geometry and post-processing passes; fields are vec4/mat4 aligned so the same
     // layout maps cleanly to GLSL/HLSL/Slang constant-buffer rules.
     struct SceneViewGpuData {
         glm::mat4 view{1.0f};

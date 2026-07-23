@@ -105,17 +105,44 @@ namespace SFT::Ecs {
             minimum_rows_per_chunk = std::max<usize>(1, minimum_rows_per_chunk);
             target_parallelism = std::max<usize>(1, target_parallelism);
 
+            usize total_rows = 0;
+            for (u32 archetype_index : archetype_indices_) {
+                const usize row_count = (*archetypes_)[archetype_index].size();
+                if (row_count > std::numeric_limits<u32>::max()) {
+                    Detail::contract_violation(
+                        "ECS query archetype contains {} rows, exceeding the 32-bit row index contract.",
+                        row_count);
+                }
+                if (row_count > std::numeric_limits<usize>::max() - total_rows) {
+                    Detail::contract_violation(
+                        "ECS query row count overflow while partitioning {} matching archetypes.",
+                        archetype_indices_.size());
+                }
+                total_rows += row_count;
+            }
+
             std::vector<Chunk> result;
+            if (total_rows == 0) {
+                return result;
+            }
+
+            const usize parallel_rows = total_rows / target_parallelism +
+                                        static_cast<usize>(total_rows % target_parallelism != 0);
+            const usize rows_per_chunk = std::max(minimum_rows_per_chunk, parallel_rows);
+
+            usize chunk_count = 0;
+            for (u32 archetype_index : archetype_indices_) {
+                const usize row_count = (*archetypes_)[archetype_index].size();
+                chunk_count += row_count / rows_per_chunk +
+                               static_cast<usize>(row_count % rows_per_chunk != 0);
+            }
+            result.reserve(chunk_count);
+
             for (u32 archetype_index : archetype_indices_) {
                 Archetype &archetype = (*archetypes_)[archetype_index];
                 const usize row_count = archetype.size();
                 if (row_count == 0) {
                     continue;
-                }
-                if (row_count > std::numeric_limits<u32>::max()) {
-                    Detail::contract_violation(
-                        "ECS query archetype contains {} rows, exceeding the 32-bit row index contract.",
-                        row_count);
                 }
 
                 std::array<u32, ComponentCount> columns{};
@@ -128,17 +155,15 @@ namespace SFT::Ecs {
                     }
                 }
 
-                const usize parallel_rows = row_count / target_parallelism +
-                                            static_cast<usize>(row_count % target_parallelism != 0);
-                const usize rows_per_chunk = std::max(minimum_rows_per_chunk, parallel_rows);
-                for (usize begin = 0; begin < row_count; begin += rows_per_chunk) {
-                    const usize end = std::min(row_count, begin + rows_per_chunk);
+                for (usize begin = 0; begin < row_count;) {
+                    const usize end = begin + std::min(rows_per_chunk, row_count - begin);
                     result.push_back(Chunk{
                         &archetype,
                         columns,
                         static_cast<u32>(begin),
                         static_cast<u32>(end),
                         direct_access_token_});
+                    begin = end;
                 }
             }
             return result;

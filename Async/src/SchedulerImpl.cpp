@@ -5,7 +5,6 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <thread>
 #include <vector>
 #include <Async/src/Scheduler.hpp>
@@ -14,12 +13,8 @@
 
 using std::condition_variable;
 using std::deque;
-using std::lock_guard;
 using std::make_unique;
-using std::mt19937;
-using std::random_device;
 using std::thread;
-using std::uniform_int_distribution;
 using std::unique_lock;
 using std::unique_ptr;
 using std::vector;
@@ -73,7 +68,10 @@ namespace SFT::Async {
             vector<unique_ptr<WorkerDeque>> deques;
             WorkerDeque injector; // fallback queue fed by non-worker threads
             std::atomic<bool> running{false};
-            std::atomic<u32> pending_count{0}; // hint for idle workers; correctness never depends on it
+            // Tasks available in a deque, excluding work already executing. This keeps idle workers
+            // asleep while the pool is fully occupied by long-running tasks.
+            std::atomic<u32> queued_count{0};
+            std::atomic<u32> waiting_worker_count{0};
             std::mutex wake_mutex;
             condition_variable wake_cv;
             SchedulerConfig config{};
@@ -86,40 +84,54 @@ namespace SFT::Async {
 
         // -1 on any thread that isn't a scheduler worker (the main thread, an app thread, ...).
         thread_local i32 t_worker_index = -1;
+        thread_local u32 t_steal_cursor = 0;
 
-        [[nodiscard]] unique_ptr<Detail::TaskBase> try_take_task(Pool &p, u32 index, mt19937 &rng) noexcept {
+        [[nodiscard]] unique_ptr<Detail::TaskBase> try_take_task(Pool &p, u32 index) noexcept {
             unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back();
             if (!task) {
                 task = p.injector.steal();
             }
             if (!task && p.deques.size() > 1) {
                 const auto worker_total = static_cast<u32>(p.deques.size());
-                uniform_int_distribution<u32> pick_victim(0, worker_total - 1);
-                for (u32 attempt = 0; attempt < worker_total && !task; ++attempt) {
-                    const u32 victim = pick_victim(rng);
+                const u32 first_victim = t_steal_cursor;
+                if (++t_steal_cursor == worker_total) {
+                    t_steal_cursor = 0;
+                }
+
+                u32 victim = first_victim;
+                for (u32 offset = 0; offset < worker_total && !task; ++offset) {
                     if (victim != index) {
                         task = p.deques[victim]->steal();
+                    }
+                    if (++victim == worker_total) {
+                        victim = 0;
                     }
                 }
             }
             return task;
         }
 
+        [[nodiscard]] bool execute_one_task(Pool &p, u32 index) noexcept {
+            unique_ptr<Detail::TaskBase> task = try_take_task(p, index);
+            if (!task) {
+                return false;
+            }
+
+            p.queued_count.fetch_sub(1, std::memory_order_acq_rel);
+            task->execute();
+            return true;
+        }
+
         void worker_loop(u32 index) noexcept {
             t_worker_index = static_cast<i32>(index);
             Pool &p = pool();
-            mt19937 rng(random_device{}());
             u32 idle_spins = 0;
             u32 idle_yields = 0;
 
             while (p.running.load(std::memory_order_acquire)) {
-                unique_ptr<Detail::TaskBase> task = try_take_task(p, index, rng);
-
-                if (task) {
+                if (execute_one_task(p, index)) {
                     idle_spins = 0;
                     idle_yields = 0;
-                    task->execute();
-                    p.pending_count.fetch_sub(1, std::memory_order_acq_rel);
                     continue;
                 }
 
@@ -140,7 +152,7 @@ namespace SFT::Async {
                 // costs up to this timeout, never correctness.
                 unique_lock<std::mutex> idle_lock(p.wake_mutex);
                 p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), [&p]() {
-                    return !p.running.load(std::memory_order_acquire) || p.pending_count.load(std::memory_order_acquire) > 0;
+                    return !p.running.load(std::memory_order_acquire) || p.queued_count.load(std::memory_order_acquire) > 0;
                 });
                 idle_spins = 0;
                 idle_yields = 0;
@@ -148,6 +160,44 @@ namespace SFT::Async {
         }
 
     } // namespace
+
+    void Detail::notify_scheduler_task_completion() noexcept {
+        Pool &p = pool();
+        if (p.waiting_worker_count.load(std::memory_order_acquire) > 0) {
+            p.wake_cv.notify_all();
+        }
+    }
+
+    void Detail::wait_for_task(std::atomic<bool> &done) noexcept {
+        if (done.load(std::memory_order_acquire)) {
+            return;
+        }
+        if (t_worker_index < 0) {
+            done.wait(false, std::memory_order_acquire);
+            return;
+        }
+
+        Pool &p = pool();
+        const u32 worker_index = static_cast<u32>(t_worker_index);
+        p.waiting_worker_count.fetch_add(1, std::memory_order_acq_rel);
+        while (!done.load(std::memory_order_acquire)) {
+            if (execute_one_task(p, worker_index)) {
+                continue;
+            }
+
+            // A worker cannot use done.wait() after an empty scan: work enqueued later may be
+            // required to complete `done`, but enqueueing that work does not modify this atomic.
+            unique_lock<std::mutex> idle_lock(p.wake_mutex);
+            p.wake_cv.wait_for(
+                idle_lock,
+                std::chrono::microseconds(p.config.idle_sleep_microseconds),
+                [&done, &p]() {
+                    return done.load(std::memory_order_acquire) ||
+                           p.queued_count.load(std::memory_order_acquire) > 0;
+                });
+        }
+        p.waiting_worker_count.fetch_sub(1, std::memory_order_acq_rel);
+    }
 
     void Scheduler::initialize(u32 worker_count) noexcept {
         SchedulerConfig config{};
@@ -214,7 +264,7 @@ namespace SFT::Async {
         p.threads.clear();
         p.deques.clear();
         p.injector.clear();
-        p.pending_count.store(0, std::memory_order_release);
+        p.queued_count.store(0, std::memory_order_release);
     }
 
     bool Scheduler::is_running() noexcept {
@@ -235,13 +285,14 @@ namespace SFT::Async {
             initialize();
         }
 
+        // Publish the count before the queue entry so a worker can never dequeue and decrement from
+        // zero. Seeing a positive count slightly early is harmless: it is only an idle-wakeup hint.
+        p.queued_count.fetch_add(1, std::memory_order_acq_rel);
         if (t_worker_index >= 0) {
             p.deques[static_cast<usize>(t_worker_index)]->push_back(std::move(task));
         } else {
             p.injector.push_back(std::move(task));
         }
-
-        p.pending_count.fetch_add(1, std::memory_order_acq_rel);
         if (p.config.notify_all_on_enqueue) {
             p.wake_cv.notify_all();
         } else {

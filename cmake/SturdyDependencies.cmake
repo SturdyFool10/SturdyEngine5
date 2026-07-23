@@ -52,6 +52,13 @@ set(STURDY_MSDFGEN_TAG "v1.13" CACHE STRING "msdfgen git tag to fetch.")
 # standard way to consume it. Only stb_image.h is used (decoding the PNG blobs HarfBuzz's
 # hb-ot-color API returns for bitmap-format color emoji glyphs — CBDT/sbix).
 set(STURDY_STB_TAG "31c1ad37456438565541f4919958214b6e762fb4" CACHE STRING "stb git commit to fetch.")
+# cgltf (github.com/jkuhlmann/cgltf, MIT) — single-header glTF 2.0 (.gltf/.glb) parser used by the
+# glTF import path (plans/gltf-import.md). Thin parser only; engine code owns GPU upload.
+set(STURDY_CGLTF_TAG "v1.15" CACHE STRING "cgltf git tag to fetch.")
+# KhronosGroup/glTF-Sample-Assets (CC-BY, per-model licensing) — real-world glTF content used only
+# to exercise the glTF import path locally (STURDY_FETCH_SAMPLE_ASSETS). Not a build dependency, so
+# pinned to a commit like every other fetched source but never fetched unless explicitly requested.
+set(STURDY_GLTF_SAMPLE_ASSETS_TAG "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf" CACHE STRING "glTF-Sample-Assets git commit to fetch.")
 # Microsoft's official, MIT-licensed native D3D12/DXGI headers (no NuGet/.NET tooling involved —
 # plain C/C++ headers only). Only fetched when STURDY_OS is Windows.
 set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2-preview" CACHE STRING "DirectX-Headers git tag to fetch.")
@@ -172,6 +179,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_clay()
         sturdy_fetch_msdfgen()
         sturdy_fetch_stb_image()
+        sturdy_fetch_cgltf()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
@@ -200,6 +208,7 @@ function(sturdy_configure_dependencies)
         sturdy_find_clay()
         find_package(msdfgen CONFIG REQUIRED)
         sturdy_find_stb_image()
+        sturdy_find_cgltf()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
@@ -211,6 +220,10 @@ function(sturdy_configure_dependencies)
 
     if(STURDY_OS STREQUAL "Web")
         sturdy_configure_webgpu()
+    endif()
+
+    if(STURDY_FETCH_SAMPLE_ASSETS)
+        sturdy_fetch_gltf_sample_assets()
     endif()
 
     sturdy_normalize_dependency_targets()
@@ -1015,6 +1028,49 @@ function(sturdy_find_stb_image)
     endif()
 endfunction()
 
+function(sturdy_fetch_cgltf)
+    # cgltf.h is a single header with no CMakeLists.txt of its own — wire up the include directory
+    # by hand, same shape as sturdy_fetch_stb_image().
+    sturdy_fetchcontent_declare(cgltf
+        GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+        GIT_TAG ${STURDY_CGLTF_TAG}
+    )
+    FetchContent_MakeAvailable(cgltf)
+
+    if(NOT TARGET cgltf)
+        add_library(cgltf INTERFACE)
+        target_include_directories(cgltf INTERFACE "${cgltf_SOURCE_DIR}")
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(cgltf)
+    sturdy_register_license(cgltf "${cgltf_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_cgltf)
+    find_path(STURDY_CGLTF_INCLUDE_DIR NAMES cgltf.h)
+    if(NOT STURDY_CGLTF_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find cgltf.h. Install cgltf or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+
+    if(NOT TARGET cgltf)
+        add_library(cgltf INTERFACE)
+        target_include_directories(cgltf INTERFACE "${STURDY_CGLTF_INCLUDE_DIR}")
+    endif()
+endfunction()
+
+function(sturdy_fetch_gltf_sample_assets)
+    # Asset-only checkout, no CMakeLists.txt/build target of its own — same shape as the stb/cgltf
+    # header fetches, minus the INTERFACE library since there is no code to expose, only a source
+    # directory path for Runtime's glTF demo hook to find sample .gltf/.glb models under.
+    sturdy_fetchcontent_declare(gltf_sample_assets
+        GIT_REPOSITORY https://github.com/KhronosGroup/glTF-Sample-Assets.git
+        GIT_TAG ${STURDY_GLTF_SAMPLE_ASSETS_TAG}
+    )
+    FetchContent_MakeAvailable(gltf_sample_assets)
+    set(STURDY_GLTF_SAMPLE_ASSETS_DIR "${gltf_sample_assets_SOURCE_DIR}" CACHE PATH
+        "Local checkout of KhronosGroup/glTF-Sample-Assets, populated by STURDY_FETCH_SAMPLE_ASSETS." FORCE)
+    sturdy_register_license(gltf_sample_assets "${gltf_sample_assets_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::GLM
         glm::glm
@@ -1111,6 +1167,10 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::StbImage
         stb_image
+    )
+
+    sturdy_alias_existing_target(Sturdy::cgltf
+        cgltf
     )
 endfunction()
 

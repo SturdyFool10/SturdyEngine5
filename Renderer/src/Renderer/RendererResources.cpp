@@ -1,10 +1,14 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <expected>
+#include <limits>
 #include <span>
 #include <string>
 #include <utility>
+#include <glm/common.hpp>
+#include <glm/geometric.hpp>
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>
@@ -61,19 +65,15 @@ namespace SFT::Renderer {
             return;
         }
 
-        if (RHI::RhiDevice *device = rhi_device()) {
-            if (resource->vertex_buffer) {
-                device->destroy_buffer(resource->vertex_buffer);
-            }
-            if (resource->index_buffer) {
-                device->destroy_buffer(resource->index_buffer);
-            }
-        }
-
+        // The mesh's bytes live in the shared vertex/index arenas (try_upload_mesh), not a dedicated
+        // buffer this resource owns, so there's nothing to individually free here — only whole-arena
+        // teardown (destroy_all_resources) or a real free-list allocator (not implemented yet; nothing
+        // else in the engine reclaims evicted GPU memory either — see asset-manager.md) could reclaim
+        // this range. Evicting a mesh here just stops it from being drawn/replayed on future growth.
         resource->vertices.clear();
         resource->indices.clear();
-        resource->vertex_buffer = {};
-        resource->index_buffer = {};
+        resource->vertex_offset = 0;
+        resource->index_offset = 0;
         resource->gpu_resident = false;
         resource->alive = false;
     }
@@ -154,7 +154,6 @@ namespace SFT::Renderer {
         material_templates_.clear();
 
         destroy_tonemap_resources();
-        destroy_deferred_lighting_resources();
         destroy_text_overlay_resources();
 
         for (MeshResource &resource : meshes_) {
@@ -162,6 +161,16 @@ namespace SFT::Renderer {
                 destroy_mesh(resource.handle);
             }
         }
+        if (RHI::RhiDevice *device = rhi_device()) {
+            if (vertex_arena_.buffer) {
+                device->destroy_buffer(vertex_arena_.buffer);
+            }
+            if (index_arena_.buffer) {
+                device->destroy_buffer(index_arena_.buffer);
+            }
+        }
+        vertex_arena_ = GeometryArena{.usage = vertex_arena_.usage};
+        index_arena_ = GeometryArena{.usage = index_arena_.usage};
         for (MaterialResource &resource : materials_) {
             resource.alive = false;
             resource.label.clear();
@@ -193,6 +202,7 @@ namespace SFT::Renderer {
                     destroy_text_frame_resources(*device, slot.text_overlay_resources);
                     destroy_frame_bloom_targets(slot);
                     destroy_frame_composite_target(slot);
+                    destroy_frame_shadow_targets(slot);
                     destroy_frame_deferred_targets(slot);
                     if (slot.fence) {
                         device->destroy_fence(slot.fence);
@@ -206,7 +216,67 @@ namespace SFT::Renderer {
         // destroyed above before the shared pipeline resources are torn down.
         destroy_bloom_resources();
         destroy_bloom_composite_resources();
+        destroy_shadow_lighting_resources();
         destroy_custom_post_process_resources();
+    }
+
+    Core::RendererResult Renderer::grow_geometry_arena(GeometryArena &arena, u64 required_bytes, const char *label) {
+        RHI::RhiDevice *device = rhi_device();
+        if (!device) {
+            return {};
+        }
+
+        u64 new_capacity = std::max<u64>(required_bytes, std::max<u64>(arena.capacity_bytes * 2, 1u << 20));
+        RHI::BufferDesc desc{
+            .size = new_capacity,
+            .usage = arena.usage,
+            .memory = RHI::MemoryLocation::DeviceLocal,
+            .label = label,
+        };
+        auto new_buffer = device->create_buffer(desc);
+        if (!new_buffer) {
+            return unexpected(graphics_error_from_rhi(new_buffer.error(), "grow geometry arena"));
+        }
+
+        // Replay every already-resident mesh's retained CPU-side data at its existing offset — arena
+        // offsets are append-only/stable across growth, so nothing needs renumbering, just recopying
+        // into the new, bigger buffer. Only runs on a (rare, load-time) growth event.
+        const bool is_vertex_arena = &arena == &vertex_arena_;
+        for (const MeshResource &existing : meshes_) {
+            if (!existing.alive || !existing.gpu_resident) {
+                continue;
+            }
+            if (is_vertex_arena) {
+                if (existing.vertices.empty()) {
+                    continue;
+                }
+                auto write = device->write_buffer(*new_buffer,
+                    static_cast<u64>(existing.vertex_offset) * sizeof(GeometryVertex),
+                    std::as_bytes(span<const GeometryVertex>{existing.vertices.data(), existing.vertices.size()}));
+                if (!write) {
+                    device->destroy_buffer(*new_buffer);
+                    return unexpected(graphics_error_from_rhi(write.error(), "replay vertex arena growth"));
+                }
+            } else {
+                if (existing.indices.empty()) {
+                    continue;
+                }
+                auto write = device->write_buffer(*new_buffer,
+                    static_cast<u64>(existing.index_offset) * sizeof(u32),
+                    std::as_bytes(span<const u32>{existing.indices.data(), existing.indices.size()}));
+                if (!write) {
+                    device->destroy_buffer(*new_buffer);
+                    return unexpected(graphics_error_from_rhi(write.error(), "replay index arena growth"));
+                }
+            }
+        }
+
+        if (arena.buffer) {
+            device->destroy_buffer(arena.buffer);
+        }
+        arena.buffer = *new_buffer;
+        arena.capacity_bytes = new_capacity;
+        return {};
     }
 
     Core::RendererResult Renderer::try_upload_mesh(MeshResource &mesh) {
@@ -216,66 +286,63 @@ namespace SFT::Renderer {
         }
 
         const u64 vertex_bytes = static_cast<u64>(mesh.vertices.size() * sizeof(GeometryVertex));
-        RHI::BufferDesc vertex_desc{
-            .size = vertex_bytes,
-            .usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferDst,
-            .memory = RHI::MemoryLocation::DeviceLocal,
-            .label = mesh.label.empty() ? "renderer mesh vertex buffer" : mesh.label.c_str(),
-        };
-        auto vertex_buffer = device->create_buffer(vertex_desc);
-        if (!vertex_buffer) {
-            if (vertex_buffer.error().code == RHI::RhiErrorCode::Unsupported) {
-                return {};
+        if (vertex_arena_.used_bytes + vertex_bytes > vertex_arena_.capacity_bytes) {
+            if (Core::RendererResult grown =
+                    grow_geometry_arena(vertex_arena_, vertex_arena_.used_bytes + vertex_bytes, "renderer vertex arena");
+                !grown.has_value()) {
+                if (grown.error().code == Core::GraphicsBackendErrorCode::Unsupported) {
+                    return {};
+                }
+                return grown;
             }
-            return unexpected(graphics_error_from_rhi(vertex_buffer.error(), "create vertex buffer"));
         }
-
         auto vertex_write = device->write_buffer(
-            *vertex_buffer,
-            0,
+            vertex_arena_.buffer,
+            vertex_arena_.used_bytes,
             std::as_bytes(span<const GeometryVertex>{mesh.vertices.data(), mesh.vertices.size()}));
         if (!vertex_write) {
-            device->destroy_buffer(*vertex_buffer);
             if (vertex_write.error().code == RHI::RhiErrorCode::Unsupported) {
                 return {};
             }
             return unexpected(graphics_error_from_rhi(vertex_write.error(), "upload vertex buffer"));
         }
-        mesh.vertex_buffer = *vertex_buffer;
+        mesh.vertex_offset = static_cast<u32>(vertex_arena_.used_bytes / sizeof(GeometryVertex));
+        vertex_arena_.used_bytes += vertex_bytes;
 
         if (!mesh.indices.empty()) {
             const u64 index_bytes = static_cast<u64>(mesh.indices.size() * sizeof(u32));
-            RHI::BufferDesc index_desc{
-                .size = index_bytes,
-                .usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferDst,
-                .memory = RHI::MemoryLocation::DeviceLocal,
-                .label = mesh.label.empty() ? "renderer mesh index buffer" : mesh.label.c_str(),
-            };
-            auto index_buffer = device->create_buffer(index_desc);
-            if (!index_buffer) {
-                device->destroy_buffer(mesh.vertex_buffer);
-                mesh.vertex_buffer = {};
-                if (index_buffer.error().code == RHI::RhiErrorCode::Unsupported) {
-                    return {};
+            if (index_arena_.used_bytes + index_bytes > index_arena_.capacity_bytes) {
+                if (Core::RendererResult grown =
+                        grow_geometry_arena(index_arena_, index_arena_.used_bytes + index_bytes, "renderer index arena");
+                    !grown.has_value()) {
+                    if (grown.error().code == Core::GraphicsBackendErrorCode::Unsupported) {
+                        return {};
+                    }
+                    return grown;
                 }
-                return unexpected(graphics_error_from_rhi(index_buffer.error(), "create index buffer"));
             }
-
             auto index_write = device->write_buffer(
-                *index_buffer,
-                0,
+                index_arena_.buffer,
+                index_arena_.used_bytes,
                 std::as_bytes(span<const u32>{mesh.indices.data(), mesh.indices.size()}));
             if (!index_write) {
-                device->destroy_buffer(mesh.vertex_buffer);
-                device->destroy_buffer(*index_buffer);
-                mesh.vertex_buffer = {};
                 if (index_write.error().code == RHI::RhiErrorCode::Unsupported) {
                     return {};
                 }
                 return unexpected(graphics_error_from_rhi(index_write.error(), "upload index buffer"));
             }
-            mesh.index_buffer = *index_buffer;
+            mesh.index_offset = static_cast<u32>(index_arena_.used_bytes / sizeof(u32));
+            index_arena_.used_bytes += index_bytes;
         }
+
+        glm::vec3 bounds_min{std::numeric_limits<f32>::max()};
+        glm::vec3 bounds_max{std::numeric_limits<f32>::lowest()};
+        for (const GeometryVertex &vertex : mesh.vertices) {
+            bounds_min = glm::min(bounds_min, vertex.position);
+            bounds_max = glm::max(bounds_max, vertex.position);
+        }
+        mesh.bounds_center = (bounds_min + bounds_max) * 0.5f;
+        mesh.bounds_radius = glm::length(bounds_max - mesh.bounds_center);
 
         mesh.gpu_resident = true;
         return {};

@@ -17,6 +17,12 @@ namespace SFT::Renderer {
         glm::vec3 normal{};
         glm::vec2 uv{};
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+        // xyz = tangent direction, w = bitangent handedness sign (+1/-1) — matches glTF's TANGENT
+        // accessor convention exactly, so glTF-imported vertices map onto this field directly. Only
+        // meaningful once a mesh source actually populates it (glTF's TANGENT attribute, or generated
+        // per-triangle when a primitive omits it — see GltfImport.cpp); procedural Mesh primitives
+        // (uv_sphere/cube/...) leave it at this default and don't support normal mapping yet.
+        glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     };
 
 } // namespace SFT::Renderer

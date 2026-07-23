@@ -14,6 +14,8 @@ project(SturdyEngine5
     LANGUAGES C CXX
 )
 
+include(CTest)
+
 set(STURDY_CPP_STANDARD 23 CACHE STRING "C++ standard used by SturdyEngine targets. 23 is the latest published stable ISO C++ standard.")
 set(CMAKE_CXX_STANDARD ${STURDY_CPP_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +25,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)
+# Off by default: KhronosGroup/glTF-Sample-Assets is a large, ever-growing asset repo, not a build
+# dependency — only needed when exercising the glTF import path (plans/gltf-import.md) against real
+# content. Turn on to let Runtime's glTF demo hook find real sample models via FetchContent's usual
+# shared-cache mechanism, same as any other STURDY_FETCH_DEPENDENCIES source.
+option(STURDY_FETCH_SAMPLE_ASSETS "Fetch KhronosGroup/glTF-Sample-Assets for local glTF import testing." OFF)
 option(STURDY_BUILD_SHARED_LIBS "Build SturdyEngine targets as shared libraries." OFF)
 option(STURDY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for SturdyEngine targets." OFF)
 option(STURDY_USE_COMPILER_LAUNCHER "Use sccache/ccache when available to speed repeated C/C++ builds." ON)

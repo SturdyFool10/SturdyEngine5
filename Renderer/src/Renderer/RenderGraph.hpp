@@ -53,8 +53,8 @@ namespace SFT::Renderer {
         const char *label = nullptr;
     };
 
-    // A texture already owned outside the graph: swapchain images, persistent history buffers, imported
-    // shadow atlases, etc.
+    // A texture already owned outside the graph: swapchain images, persistent history buffers, cached
+    // post-process targets, etc.
     struct RenderGraphImportedTextureDesc {
         RHI::TextureHandle texture{};
         RHI::TextureViewHandle default_view{};
@@ -267,6 +267,28 @@ namespace SFT::Renderer {
 
         using CompileResult = std::expected<CompiledPlan, RenderGraphCompileError>;
 
+        // One executed pass's GPU timing, filled by execute() when a valid `timestamp_query_set` is
+        // passed in. `begin_query_index`/`end_query_index` are slots in that query set (both written
+        // at PipelineStage::AllCommands, immediately before/after the pass's own work — bracketing
+        // exactly that pass's GPU duration); the caller resolves them to nanoseconds via
+        // RHI::DeviceLimits::timestamp_period_ns once this frame's fence proves the GPU wrote them.
+        struct GpuPassTiming {
+            string label;
+            u32 begin_query_index = 0;
+            u32 end_query_index = 0;
+        };
+
+        // One executed pass's CPU recording cost — wall-clock time spent inside that pass's
+        // execute_ callback dispatch (barrier insertion + the callback itself). Unlike
+        // GpuPassTiming this needs no query set/fence round trip: it's ready the instant execute()
+        // returns, so the caller can log/display it immediately rather than one frame stale (though
+        // in practice most callers still stash it a frame, same as GpuPassTiming, simply because
+        // debug-overlay text for frame N is built before frame N's own execute() call runs).
+        struct CpuPassTiming {
+            string label;
+            f64 duration_ms = 0.0;
+        };
+
         [[nodiscard]] RenderGraphTextureHandle import_texture(const RenderGraphImportedTextureDesc &desc);
 
         [[nodiscard]] RenderGraphTextureHandle create_texture(const RenderGraphTextureDesc &desc);
@@ -292,7 +314,19 @@ namespace SFT::Renderer {
         // textures are virtual: no GPU allocation or command recording occurs. Despite the historical
         // name, execute() only compiles the dependency graph and records commands into `encoder`; queue
         // submission remains asynchronous unless the high-level graph requests WaitForCompletion.
-        [[nodiscard]] Core::RendererResult execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder);
+        // `timestamp_query_set`/`out_pass_timings`: optional GPU per-pass timing. When
+        // `timestamp_query_set` is a valid Timestamp query set with at least `2 * compile()`'s pass
+        // count slots, execute() resets it and brackets every executed pass with a begin/end
+        // timestamp, appending a GpuPassTiming to `*out_pass_timings` per pass (cleared first). Pass
+        // an invalid handle (the default) to skip timing entirely — no queries written, no cost.
+        // `out_cpu_pass_timings`: optional CPU per-pass timing, independent of the GPU parameters
+        // above — pass a non-null pointer to have execute() clear it then append a CpuPassTiming
+        // (wall-clock steady_clock duration) per executed pass. No RHI cost either way; skip by
+        // leaving it null.
+        [[nodiscard]] Core::RendererResult execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                    RHI::QuerySetHandle timestamp_query_set = {},
+                                                    vector<GpuPassTiming> *out_pass_timings = nullptr,
+                                                    vector<CpuPassTiming> *out_cpu_pass_timings = nullptr);
 
         void destroy_transient_resources(RHI::RhiDevice &device) noexcept;
 

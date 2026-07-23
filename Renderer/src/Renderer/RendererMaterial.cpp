@@ -94,14 +94,28 @@ namespace SFT::Renderer {
             return !a.empty() && fs::path{a}.filename() == fs::path{b}.filename();
         }
 
-        // Find the first entry point matching `stage`; returns its reflected name or empty.
-        [[nodiscard]] optional<string> entry_point_name(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
+        // Every entry point matching `stage`, in reflection order (which mirrors the compile request's
+        // entry_points order) — a template asking for a depth-only fragment entry
+        // (ShaderAssetDesc::depth_only_fragment_entry_point) compiles two Fragment-stage entries from
+        // the same module, so callers that need "the main one" vs. "the depth-only one" pick by index
+        // rather than by a single first-match.
+        [[nodiscard]] vector<string> entry_point_names(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
+            vector<string> names;
             for (const slang::ShaderEntryPointReflection &entry : reflection.entry_points) {
                 if (entry.stage == stage) {
-                    return entry.name;
+                    names.push_back(entry.name);
                 }
             }
-            return std::nullopt;
+            return names;
+        }
+
+        // Find the first entry point matching `stage`; returns its reflected name or empty.
+        [[nodiscard]] optional<string> entry_point_name(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
+            vector<string> names = entry_point_names(reflection, stage);
+            if (names.empty()) {
+                return std::nullopt;
+            }
+            return std::move(names.front());
         }
 
         // The set/binding of the shader's default (global) constant buffer, if it has one — scanned from
@@ -127,13 +141,14 @@ namespace SFT::Renderer {
             return UniformLocation{.present = true, .set = 0, .binding = reflection.global_constant_buffer_binding};
         }
 
-        // The GeometryVertex input layout every material pipeline binds (position/normal/uv/color).
-        constexpr array<RHI::VertexAttribute, 4> geometry_vertex_attributes() {
+        // The GeometryVertex input layout every material pipeline binds (position/normal/uv/color/tangent).
+        constexpr array<RHI::VertexAttribute, 5> geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, normal), .shader_location = 1},
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x2, .offset = offsetof(GeometryVertex, uv), .shader_location = 2},
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, color), .shader_location = 3},
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, tangent), .shader_location = 4},
             };
         }
 
@@ -189,6 +204,28 @@ namespace SFT::Renderer {
             }
             resource.fragment_module = *fragment_module;
             resource.has_fragment = true;
+
+            const vector<string> fragment_names = entry_point_names(reflection, slang::ShaderStage::Fragment);
+            if (fragment_names.size() > 1) {
+                resource.depth_only_fragment_entry_point = fragment_names[1];
+                auto depth_only_code = shader.entry_point_code(resource.depth_only_fragment_entry_point);
+                if (!depth_only_code) {
+                    destroy_material_template_gpu(resource);
+                    return unexpected(material_error(
+                        "Failed to generate material depth-only fragment bytecode: " + depth_only_code.error().message));
+                }
+                auto depth_only_module = device->create_shader_module(RHI::ShaderModuleDesc{
+                    .language = RHI::ShaderLanguage::SpirV,
+                    .code = span<const std::byte>{depth_only_code->bytes.data(), depth_only_code->bytes.size()},
+                    .label = "material depth-only fragment module",
+                });
+                if (!depth_only_module) {
+                    destroy_material_template_gpu(resource);
+                    return unexpected(graphics_error_from_rhi(depth_only_module.error(), "create material depth-only fragment module"));
+                }
+                resource.depth_only_fragment_module = *depth_only_module;
+                resource.has_depth_only_fragment = true;
+            }
         }
 
         // — Reflection-derived bind-group + pipeline layouts —
@@ -373,6 +410,9 @@ namespace SFT::Renderer {
         tmpl->vertex_entry_point = std::move(next.vertex_entry_point);
         tmpl->fragment_entry_point = std::move(next.fragment_entry_point);
         tmpl->has_fragment = next.has_fragment;
+        tmpl->depth_only_fragment_module = next.depth_only_fragment_module;
+        tmpl->depth_only_fragment_entry_point = std::move(next.depth_only_fragment_entry_point);
+        tmpl->has_depth_only_fragment = next.has_depth_only_fragment;
         tmpl->bind_group_layouts = std::move(next.bind_group_layouts);
         tmpl->bind_group_layout_sets = std::move(next.bind_group_layout_sets);
         tmpl->pipeline_layout = next.pipeline_layout;
@@ -463,7 +503,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
-        MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format) {
+        MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
+        bool standard_depth_test) {
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
@@ -472,7 +513,8 @@ namespace SFT::Renderer {
         auto variants_by_template = material_pipeline_variants_.lock();
         vector<MaterialPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
         for (const MaterialPipelineVariant &variant : pipeline_variants) {
-            if (variant.depth_format == depth_format && variant.color_formats.size() == color_formats.size() &&
+            if (variant.depth_format == depth_format && variant.standard_depth_test == standard_depth_test &&
+                variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
             }
@@ -483,7 +525,7 @@ namespace SFT::Renderer {
             return unexpected(material_error("Cannot build a material pipeline without an RHI device."));
         }
 
-        const array<RHI::VertexAttribute, 4> attributes = geometry_vertex_attributes();
+        const array<RHI::VertexAttribute, 5> attributes = geometry_vertex_attributes();
         const RHI::VertexBufferLayout vertex_layout{
             .stride = sizeof(GeometryVertex),
             .step_mode = RHI::VertexStepMode::Vertex,
@@ -496,12 +538,25 @@ namespace SFT::Renderer {
         }
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
-            depth_stencil = RHI::DepthStencilState{
-                .format = depth_format,
-                .depth_test_enable = true,
-                .depth_write_enable = true,
-                .depth_compare = RHI::CompareOp::Less,
-            };
+            depth_stencil = standard_depth_test
+                ? RHI::DepthStencilState{
+                      // No Z-prepass of its own (debug gizmos, other forward-rendered draws) — a
+                      // normal depth test/write against whatever's already in the buffer.
+                      .format = depth_format,
+                      .depth_test_enable = true,
+                      .depth_write_enable = true,
+                      .depth_compare = RHI::CompareOp::Less,
+                  }
+                : RHI::DepthStencilState{
+                      .format = depth_format,
+                      .depth_test_enable = true,
+                      // The Z prepass ("z prepass", recorded via depth_only_pipeline_for) already wrote the
+                      // definitive nearest depth for every surviving (non-alpha-discarded) fragment this
+                      // frame — this pass only needs to match it, not write it again, so a fragment whose
+                      // depth doesn't exactly equal the prepass result never runs full PBR shading.
+                      .depth_write_enable = false,
+                      .depth_compare = RHI::CompareOp::Equal,
+                  };
         }
 
         RHI::RenderPipelineDesc desc{
@@ -512,7 +567,12 @@ namespace SFT::Renderer {
                             : RHI::ShaderEntry{},
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
-            .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
+            // Default RasterizationState (CullMode::Back, FrontFace::CounterClockwise) matches
+            // glTF's front-face winding convention (triangles wound CCW when viewed from outside) —
+            // was previously overridden to CullMode::None, meaning every triangle's backface still
+            // rasterized and ran full fragment shading, doubling geometry-pass fragment work for no
+            // reason on closed/mostly-closed meshes.
+            .rasterization = RHI::RasterizationState{},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
             .label = "material pipeline",
@@ -524,6 +584,78 @@ namespace SFT::Renderer {
         pipeline_variants.push_back(MaterialPipelineVariant{
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
+            .standard_depth_test = standard_depth_test,
+            .pipeline = *pipeline,
+        });
+        return *pipeline;
+    }
+
+    Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::depth_only_pipeline_for(
+        MaterialTemplateResource &material_template, RHI::Format depth_format, bool shadow_map,
+        f32 depth_bias, f32 slope_bias) {
+        if (depth_format == RHI::Format::Undefined) {
+            return unexpected(material_error("Cannot build a depth-only pipeline without a depth format."));
+        }
+        auto variants_by_template = depth_only_pipeline_variants_.lock();
+        vector<DepthOnlyPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
+        for (const DepthOnlyPipelineVariant &variant : pipeline_variants) {
+            if (variant.depth_format == depth_format && variant.shadow_map == shadow_map &&
+                variant.depth_bias == depth_bias && variant.slope_bias == slope_bias) {
+                return variant.pipeline;
+            }
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return unexpected(material_error("Cannot build a depth-only pipeline without an RHI device."));
+        }
+
+        const array<RHI::VertexAttribute, 5> attributes = geometry_vertex_attributes();
+        const RHI::VertexBufferLayout vertex_layout{
+            .stride = sizeof(GeometryVertex),
+            .step_mode = RHI::VertexStepMode::Vertex,
+            .attributes = span<const RHI::VertexAttribute>{attributes.data(), attributes.size()},
+        };
+
+        RHI::RenderPipelineDesc desc{
+            .layout = material_template.pipeline_layout,
+            .vertex = RHI::ShaderEntry{.module = material_template.vertex_module, .entry_point = material_template.vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
+            // No fragment stage at all for a template with no alpha-tested cutout entry — the prepass
+            // is then pure rasterization + depth write, nothing else runs per fragment.
+            .fragment = material_template.has_depth_only_fragment
+                            ? RHI::ShaderEntry{.module = material_template.depth_only_fragment_module, .entry_point = material_template.depth_only_fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment}
+                            : RHI::ShaderEntry{},
+            .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
+            .topology = RHI::PrimitiveTopology::TriangleList,
+            .rasterization = shadow_map
+                ? RHI::RasterizationState{
+                      // Shadow casters are deliberately two-sided. This keeps thin planes, leaves,
+                      // wires, and imperfect imported winding from becoming holes when the light is
+                      // behind their authored front face. Closed meshes still resolve to the nearest
+                      // surface because the depth test selects their light-facing shell.
+                      .cull_mode = RHI::CullMode::None,
+                      .depth_bias_constant = depth_bias,
+                      .depth_bias_slope_scale = slope_bias,
+                  }
+                : RHI::RasterizationState{},
+            .depth_stencil = RHI::DepthStencilState{
+                .format = depth_format,
+                .depth_test_enable = true,
+                .depth_write_enable = true,
+                .depth_compare = RHI::CompareOp::Less,
+            },
+            .color_targets = {},
+            .label = "material depth-only pipeline",
+        };
+        auto pipeline = device->create_render_pipeline(desc);
+        if (!pipeline) {
+            return unexpected(graphics_error_from_rhi(pipeline.error(), "create material depth-only pipeline"));
+        }
+        pipeline_variants.push_back(DepthOnlyPipelineVariant{
+            .depth_format = depth_format,
+            .shadow_map = shadow_map,
+            .depth_bias = depth_bias,
+            .slope_bias = slope_bias,
             .pipeline = *pipeline,
         });
         return *pipeline;
@@ -803,11 +935,25 @@ namespace SFT::Renderer {
                 variants_by_template->erase(entry);
             }
         }
+        {
+            auto variants_by_template = depth_only_pipeline_variants_.lock();
+            if (auto entry = variants_by_template->find(resource.handle.value); entry != variants_by_template->end()) {
+                for (const DepthOnlyPipelineVariant &variant : entry->second) {
+                    if (variant.pipeline) {
+                        device->destroy_render_pipeline(variant.pipeline);
+                    }
+                }
+                variants_by_template->erase(entry);
+            }
+        }
         if (resource.pipeline_layout) {
             device->destroy_pipeline_layout(resource.pipeline_layout);
         }
         for (RHI::BindGroupLayoutHandle layout : resource.bind_group_layouts) {
             device->destroy_bind_group_layout(layout);
+        }
+        if (resource.depth_only_fragment_module) {
+            device->destroy_shader_module(resource.depth_only_fragment_module);
         }
         if (resource.fragment_module) {
             device->destroy_shader_module(resource.fragment_module);

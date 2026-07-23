@@ -5,16 +5,20 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <cstddef>
 #include <expected>
 #include <format>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+#include <glm/geometric.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>
@@ -61,17 +65,39 @@ namespace SFT::Renderer {
             explicit ScopedRendererStageTimer(const char *stage) noexcept
                 : stage_(stage), start_(steady_clock::now()) {}
 
+            // `accumulate_into`: when non-null, this stage's duration is also appended (in
+            // milliseconds) so a caller can build a full per-frame CPU stage breakdown — the
+            // hitch-warning behavior above is unconditional either way, this is purely additive.
+            ScopedRendererStageTimer(const char *stage, vector<std::pair<string, f64>> *accumulate_into) noexcept
+                : stage_(stage), start_(steady_clock::now()), accumulate_into_(accumulate_into) {}
+
             ~ScopedRendererStageTimer() noexcept {
                 const f64 seconds = duration<f64>(steady_clock::now() - start_).count();
                 if (seconds >= renderer_stage_hitch_threshold_seconds) {
                     Foundation::log_warn("Renderer stage '{}' took {}", stage_, Foundation::human_readable_time(seconds));
+                }
+                if (accumulate_into_ != nullptr) {
+                    accumulate_into_->emplace_back(string{stage_}, seconds * 1000.0);
                 }
             }
 
           private:
             const char *stage_;
             steady_clock::time_point start_;
+            vector<std::pair<string, f64>> *accumulate_into_ = nullptr;
         };
+
+        // Collapses a pass label's numbered-instance suffix (for example, a bloom mip level) down
+        // to its category by truncating at the first digit, so the GPU/CPU timing breakdowns sum
+        // same-kind passes into one line. Labels with no digit pass through unchanged.
+        [[nodiscard]] string render_graph_pass_timing_category(std::string_view label) noexcept {
+            const usize digit = label.find_first_of("0123456789");
+            string category{digit == std::string_view::npos ? label : label.substr(0, digit)};
+            while (!category.empty() && category.back() == ' ') {
+                category.pop_back();
+            }
+            return category;
+        }
 
         [[nodiscard]] Core::Extent2D framebuffer_extent(Platform::Windowing::Window &window) {
             if (auto size = window.framebuffer_size()) {
@@ -248,26 +274,50 @@ namespace SFT::Renderer {
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
         submission.debug_label = desc.view.debug_label;
 
-        submission.draws.reserve(desc.view.renderables.size());
-        for (const SceneRenderable &renderable : desc.view.renderables) {
-            if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
-                continue;
+        {
+            ScopedRendererStageTimer timer{"extract render items",
+                                           desc.view.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+            submission.draws.reserve(desc.view.renderables.size());
+            for (const SceneRenderable &renderable : desc.view.renderables) {
+                if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
+                    continue;
+                }
+                if (mesh(renderable.mesh) == nullptr) {
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Scene renderable references an unknown mesh.");
+                }
+                if (material_instance(renderable.material) == nullptr) {
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Scene renderable references an unknown material instance.");
+                }
+                submission.draws.push_back(RenderItem{
+                    .mesh = renderable.mesh,
+                    .material = renderable.material,
+                    .world_transform = renderable.world_transform,
+                    .stable_id = renderable.stable_id,
+                    .sort_key = renderable.sort_key,
+                });
             }
-            if (mesh(renderable.mesh) == nullptr) {
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    "Scene renderable references an unknown mesh.");
+
+            // Gizmos are never visibility-mask-filtered (a dev aid, not gameplay-visibility-relevant).
+            submission.gizmo_draws.reserve(desc.view.gizmo_renderables.size());
+            for (const SceneRenderable &renderable : desc.view.gizmo_renderables) {
+                if (mesh(renderable.mesh) == nullptr) {
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Gizmo renderable references an unknown mesh.");
+                }
+                if (material_instance(renderable.material) == nullptr) {
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Gizmo renderable references an unknown material instance.");
+                }
+                submission.gizmo_draws.push_back(RenderItem{
+                    .mesh = renderable.mesh,
+                    .material = renderable.material,
+                    .world_transform = renderable.world_transform,
+                    .stable_id = renderable.stable_id,
+                    .sort_key = renderable.sort_key,
+                });
             }
-            if (material_instance(renderable.material) == nullptr) {
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    "Scene renderable references an unknown material instance.");
-            }
-            submission.draws.push_back(RenderItem{
-                .mesh = renderable.mesh,
-                .material = renderable.material,
-                .world_transform = renderable.world_transform,
-                .stable_id = renderable.stable_id,
-                .sort_key = renderable.sort_key,
-            });
         }
 
         return render_frame_dispatch(desc.surface, desc.frame, submission);
@@ -296,6 +346,20 @@ namespace SFT::Renderer {
         if (record == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer surface is not registered.");
+        }
+
+        // Group draws by (material, mesh) so every geometry pass below sees runs of consecutive
+        // items that share a pipeline/bind-group/vertex-buffer,
+        // which record_render_item's binding_state then skips rebinding for (see its doc comment).
+        {
+            ScopedRendererStageTimer timer{"sort render items",
+                                           submission.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+            std::sort(submission.draws.begin(), submission.draws.end(), [](const RenderItem &a, const RenderItem &b) {
+                if (!(a.material == b.material)) {
+                    return a.material.value < b.material.value;
+                }
+                return a.mesh.value < b.mesh.value;
+            });
         }
 
         Core::RendererResult result = render_frame_rhi(*record, frame, submission);
@@ -366,14 +430,35 @@ namespace SFT::Renderer {
         return recreate_rhi_swapchain(record);
     }
 
-    Core::RendererResult Renderer::record_render_item(RHI::RenderPassEncoder &pass,
+    bool Renderer::render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept {
+        const MeshResource *mesh_resource = mesh(item.mesh);
+        if (mesh_resource == nullptr) {
+            return true;
+        }
+        const f32 scale_x = glm::length(glm::vec3{item.world_transform[0]});
+        const f32 scale_y = glm::length(glm::vec3{item.world_transform[1]});
+        const f32 scale_z = glm::length(glm::vec3{item.world_transform[2]});
+        const f32 max_scale = std::max({scale_x, scale_y, scale_z});
+        const glm::vec3 world_center =
+            glm::vec3{item.world_transform * glm::vec4{mesh_resource->bounds_center, 1.0f}};
+        return frustum_intersects_sphere(frustum, world_center, mesh_resource->bounds_radius * max_scale);
+    }
+
+    template <typename Encoder>
+    Core::RendererResult Renderer::record_render_item(Encoder &pass,
                                                       const RenderItem &item,
                                                       span<const RHI::Format> color_formats,
                                                       RHI::Format depth_format,
                                                       u64 frame_index,
-                                                      const glm::mat4 &view_projection) {
+                                                      const glm::mat4 &view_projection,
+                                                      bool depth_only,
+                                                      RenderItemBindingState &binding_state,
+                                                      bool standard_depth_test,
+                                                      bool shadow_map,
+                                                      f32 shadow_depth_bias,
+                                                      f32 shadow_slope_bias) {
         MeshResource *mesh_resource = mesh(item.mesh);
-        if (mesh_resource == nullptr || !mesh_resource->gpu_resident || !mesh_resource->vertex_buffer) {
+        if (mesh_resource == nullptr || !mesh_resource->gpu_resident || !vertex_arena_.buffer) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Render item references a mesh that is not GPU-resident.");
         }
@@ -389,11 +474,20 @@ namespace SFT::Renderer {
                                                 "Render item material references an unknown material template.");
         }
 
-        auto pipeline = material_pipeline_for(*material_template_resource, color_formats, depth_format);
+        auto pipeline = depth_only
+                            ? depth_only_pipeline_for(*material_template_resource, depth_format, shadow_map,
+                                                      shadow_depth_bias, shadow_slope_bias)
+                            : material_pipeline_for(*material_template_resource, color_formats, depth_format, standard_depth_test);
         if (!pipeline) {
             return unexpected(pipeline.error());
         }
-        pass.set_pipeline(*pipeline);
+        // Redundant-state elision: submission.draws is sorted by (material, mesh) before any pass
+        // records it (see render_frame_dispatch), so consecutive RenderItems very often share a
+        // pipeline/bind-group/vertex-buffer — skip reissuing state that's already bound in this pass.
+        if (!(binding_state.pipeline == *pipeline)) {
+            pass.set_pipeline(*pipeline);
+            binding_state.pipeline = *pipeline;
+        }
 
         const SceneDrawConstants draw_constants{
             .view_projection = view_projection,
@@ -402,8 +496,11 @@ namespace SFT::Renderer {
         pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
                                 std::as_bytes(span<const SceneDrawConstants>{&draw_constants, 1}));
 
-        if (!material_resource->frames.empty()) {
-            const u32 frame_slot = static_cast<u32>(frame_index % material_resource->frames.size());
+        const u32 frame_slot = material_resource->frames.empty()
+                                    ? 0u
+                                    : static_cast<u32>(frame_index % material_resource->frames.size());
+        if (!material_resource->frames.empty() &&
+            (!(binding_state.material == item.material) || binding_state.material_frame_slot != frame_slot)) {
             auto bind_groups = prepare_material_frame(*material_resource, frame_slot);
             if (!bind_groups) {
                 return unexpected(bind_groups.error());
@@ -411,18 +508,192 @@ namespace SFT::Renderer {
             for (usize i = 0; i < bind_groups->size() && i < material_template_resource->bind_group_layout_sets.size(); ++i) {
                 pass.set_bind_group(material_template_resource->bind_group_layout_sets[i], (*bind_groups)[i]);
             }
+            binding_state.material = item.material;
+            binding_state.material_frame_slot = frame_slot;
         }
 
-        pass.set_vertex_buffer(0, mesh_resource->vertex_buffer);
-        if (mesh_resource->index_buffer && !mesh_resource->indices.empty()) {
-            pass.set_index_buffer(mesh_resource->index_buffer, RHI::IndexFormat::Uint32);
-            pass.draw_indexed(RHI::DrawIndexedArgs{.index_count = static_cast<u32>(mesh_resource->indices.size())});
+        // Every mesh lives in the same shared vertex/index arena (see try_upload_mesh), so the buffer
+        // binding itself is constant for the whole pass regardless of which mesh is being drawn —
+        // only the per-draw base_vertex/first_index offset changes. binding_state.mesh here is really
+        // "has *any* draw in this pass bound the arena yet", not a per-mesh rebind.
+        if (!binding_state.arena_bound) {
+            pass.set_vertex_buffer(0, vertex_arena_.buffer);
+            if (index_arena_.buffer) {
+                pass.set_index_buffer(index_arena_.buffer, RHI::IndexFormat::Uint32);
+            }
+            binding_state.arena_bound = true;
+        }
+        if (index_arena_.buffer && !mesh_resource->indices.empty()) {
+            pass.draw_indexed(RHI::DrawIndexedArgs{
+                .index_count = static_cast<u32>(mesh_resource->indices.size()),
+                .first_index = mesh_resource->index_offset,
+                .base_vertex = static_cast<i32>(mesh_resource->vertex_offset),
+            });
         } else {
-            pass.draw(RHI::DrawArgs{.vertex_count = static_cast<u32>(mesh_resource->vertices.size())});
+            pass.draw(RHI::DrawArgs{
+                .vertex_count = static_cast<u32>(mesh_resource->vertices.size()),
+                .first_vertex = mesh_resource->vertex_offset,
+            });
         }
         return {};
     }
 
+    namespace {
+        // Below this many surviving (post-frustum-cull) items, recording directly against the
+        // primary pass wins outright — spinning up per-thread RenderBundleEncoders costs more than
+        // it saves. Chosen the same order of magnitude as prepare_scene_gpu_data's own
+        // async-packing threshold (RendererScene.cpp), which faces the same per-item-vs-per-task
+        // overhead tradeoff.
+        constexpr usize kParallelRecordThreshold = 128;
+    } // namespace
+
+    Core::RendererResult Renderer::record_render_items_culled(RHI::RenderPassEncoder &pass,
+                                                               span<const RenderItem> items,
+                                                               const Frustum &frustum,
+                                                               span<const RHI::Format> color_formats,
+                                                               RHI::Format depth_format,
+                                                               u64 frame_index,
+                                                               const glm::mat4 &view_projection,
+                                                               bool depth_only,
+                                                               bool standard_depth_test,
+                                                               const char *bundle_label,
+                                                               bool shadow_map,
+                                                               f32 shadow_depth_bias,
+                                                               f32 shadow_slope_bias) {
+        vector<const RenderItem *> visible;
+        visible.reserve(items.size());
+        for (const RenderItem &item : items) {
+            if (render_item_visible(item, frustum)) {
+                visible.push_back(&item);
+            }
+        }
+
+        const u32 worker_count = Async::Scheduler::worker_count();
+        // Shadow atlas views change viewport/scissor between light faces. Vulkan render bundles
+        // (secondary command buffers) do not portably inherit that dynamic state from the primary
+        // pass, so keep shadow-view recording on the primary encoder. Geometry passes use one fixed
+        // full-frame viewport and retain the parallel bundle path.
+        if (shadow_map || visible.size() < kParallelRecordThreshold || worker_count <= 1) {
+            RenderItemBindingState binding_state{};
+            for (const RenderItem *item : visible) {
+                if (Core::RendererResult recorded = record_render_item(
+                        pass, *item, color_formats, depth_format, frame_index, view_projection,
+                        depth_only, binding_state, standard_depth_test, shadow_map,
+                        shadow_depth_bias, shadow_slope_bias);
+                    !recorded.has_value()) {
+                    return recorded;
+                }
+            }
+            return {};
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+
+        // Pre-warm every distinct material's bind groups on this thread first — see this function's
+        // doc comment in RendererModule.hpp for why: it turns every worker thread's later
+        // prepare_material_frame call (inside record_render_item) into a pure read of already-clean
+        // state instead of a racy rebuild.
+        {
+            std::unordered_map<u64, bool> warmed;
+            for (const RenderItem *item : visible) {
+                if (!warmed.try_emplace(item->material.value, true).second) {
+                    continue;
+                }
+                MaterialInstanceResource *material_resource = material_instance(item->material);
+                if (material_resource == nullptr || material_resource->frames.empty()) {
+                    continue;
+                }
+                const u32 frame_slot = static_cast<u32>(frame_index % material_resource->frames.size());
+                if (auto prepared = prepare_material_frame(*material_resource, frame_slot); !prepared) {
+                    return unexpected(prepared.error());
+                }
+            }
+        }
+
+        const RHI::RenderBundleDesc bundle_desc{
+            .color_formats = color_formats,
+            .depth_stencil_format = depth_format,
+            .samples = RHI::SampleCount::X1,
+            .view_mask = 0,
+            .label = bundle_label,
+        };
+
+        const usize chunk_count = std::min<usize>(worker_count, visible.size());
+        const usize chunk_size = (visible.size() + chunk_count - 1) / chunk_count;
+
+        struct ChunkResult {
+            Core::RendererResult status{};
+            RHI::RenderBundleHandle bundle{};
+        };
+        vector<ChunkResult> results(chunk_count);
+        vector<Async::TaskHandle<void>> tasks;
+        tasks.reserve(chunk_count);
+        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+            const usize begin = chunk * chunk_size;
+            const usize end = std::min(visible.size(), begin + chunk_size);
+            if (begin >= end) {
+                continue;
+            }
+            tasks.push_back(Async::Scheduler::spawn([this, &visible, &results, chunk, begin, end, device, bundle_desc,
+                                                      color_formats, depth_format, frame_index, view_projection,
+                                                      depth_only, standard_depth_test, shadow_map,
+                                                      shadow_depth_bias, shadow_slope_bias]() {
+                auto encoder = device->create_render_bundle_encoder(bundle_desc);
+                if (!encoder) {
+                    results[chunk].status = unexpected(graphics_error_from_rhi(encoder.error(), "create render bundle encoder"));
+                    return;
+                }
+                RenderItemBindingState binding_state{};
+                for (usize i = begin; i < end; ++i) {
+                    if (Core::RendererResult recorded = record_render_item(
+                            **encoder, *visible[i], color_formats, depth_format, frame_index, view_projection,
+                            depth_only, binding_state, standard_depth_test, shadow_map,
+                            shadow_depth_bias, shadow_slope_bias);
+                        !recorded.has_value()) {
+                        results[chunk].status = recorded;
+                        return;
+                    }
+                }
+                auto finished = (*encoder)->finish();
+                if (!finished) {
+                    results[chunk].status = unexpected(graphics_error_from_rhi(finished.error(), "finish render bundle"));
+                    return;
+                }
+                results[chunk].bundle = *finished;
+            }));
+        }
+        for (const Async::TaskHandle<void> &task : tasks) {
+            task.wait();
+        }
+
+        vector<RHI::RenderBundleHandle> bundles;
+        bundles.reserve(chunk_count);
+        Core::RendererResult first_error{};
+        bool has_error = false;
+        for (ChunkResult &result : results) {
+            if (!result.status.has_value() && !has_error) {
+                first_error = result.status;
+                has_error = true;
+            }
+            if (result.bundle) {
+                bundles.push_back(result.bundle);
+            }
+        }
+        if (!bundles.empty()) {
+            pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
+        }
+        for (RHI::RenderBundleHandle bundle : bundles) {
+            device->destroy_render_bundle(bundle);
+        }
+        if (has_error) {
+            return first_error;
+        }
+        return {};
+    }
 
     Core::RendererResult Renderer::ensure_rhi_depth_resources(WindowSurfaceRecord &record) {
         RHI::RhiDevice *device = rhi_device();
@@ -575,11 +846,19 @@ namespace SFT::Renderer {
                 destroy_text_frame_resources(*device, old_slot.text_overlay_resources);
                 destroy_frame_bloom_targets(old_slot);
                 destroy_frame_composite_target(old_slot);
+                destroy_frame_gpu_timing_target(old_slot);
+                destroy_frame_shadow_targets(old_slot);
                 destroy_frame_deferred_targets(old_slot);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
         }
         FrameInFlight &slot = record.frames_in_flight[frame.frame_index % frame_count];
+
+        // Collects this call's own CPU stage costs (wait fence, swapchain recreate/acquire, graph
+        // execute, submit, present — whichever of those actually run this frame) so they can be
+        // stashed on `slot` for the debug overlay to display next time this ring slot comes round —
+        // see FrameCpuTimingTarget's doc comment for why "next time", not "this frame".
+        vector<std::pair<string, f64>> current_frame_cpu_stage_timings_ms;
 
         // Backpressure — the one sanctioned per-frame CPU wait (plans/async-submission-model.md). Waits on
         // the *specific* frame that last used this ring slot (frame_count frames ago), never a full-device
@@ -594,7 +873,7 @@ namespace SFT::Renderer {
         // maybe_flush_retired_swapchains() below periodically clears them with a real wait_idle().
         if (slot.submitted) {
             {
-                ScopedRendererStageTimer timer{"wait in-flight frame fence"};
+                ScopedRendererStageTimer timer{"wait in-flight frame fence", &current_frame_cpu_stage_timings_ms};
                 if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
                     return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
                 }
@@ -605,6 +884,74 @@ namespace SFT::Renderer {
             reclaim_frame_slot(slot, false);
             slot.submitted = false;
         }
+
+        // GPU pass timing readback — the fence wait just above (when this slot had a prior submission)
+        // is the earliest point the GPU is guaranteed to have written every timestamp RenderGraph::
+        // execute() queued for it last time this ring slot was used (see FrameGpuTimingTarget's doc
+        // comment). Read once here rather than at the point the graph executes further down, since
+        // this frame's own about-to-be-recorded timestamps land in the SAME query set slots.
+        vector<std::pair<string, f64>> gpu_pass_timings_ms;
+        if (slot.gpu_timing.has_pending_results) {
+            const f32 period_ns = device->limits().timestamp_period_ns;
+            if (period_ns > 0.0f && !slot.gpu_timing.pending.empty()) {
+                // Only the slots RenderGraph::execute() actually reset+wrote *this specific prior
+                // frame* (2 per pass it recorded that frame) are valid to read — not the query set's
+                // full allocated capacity, which can exceed that (headroom from ensure_frame_gpu_
+                // timing_target's resize policy, or simply a larger pass count from an earlier frame
+                // that grew capacity but isn't this frame's). Reading an unwritten slot is a real
+                // "query not reset" validation error, not just wasted work.
+                u32 used_query_count = 0;
+                for (const RenderGraph::GpuPassTiming &timing : slot.gpu_timing.pending) {
+                    used_query_count = std::max(used_query_count, timing.begin_query_index + 1);
+                    used_query_count = std::max(used_query_count, timing.end_query_index + 1);
+                }
+                vector<u64> raw_ticks(used_query_count, 0);
+                auto read = device->get_query_set_results(
+                    slot.gpu_timing.query_set, 0, used_query_count,
+                    std::as_writable_bytes(span<u64>{raw_ticks.data(), raw_ticks.size()}), sizeof(u64),
+                    RHI::QueryResultFlags::Result64Bit | RHI::QueryResultFlags::Wait);
+                if (read.has_value()) {
+                    std::unordered_map<string, f64> totals_ms;
+                    for (const RenderGraph::GpuPassTiming &timing : slot.gpu_timing.pending) {
+                        if (timing.begin_query_index >= raw_ticks.size() || timing.end_query_index >= raw_ticks.size()) {
+                            continue;
+                        }
+                        const u64 begin_ticks = raw_ticks[timing.begin_query_index];
+                        const u64 end_ticks = raw_ticks[timing.end_query_index];
+                        if (end_ticks <= begin_ticks) {
+                            continue;
+                        }
+                        const f64 ms = static_cast<f64>(end_ticks - begin_ticks) * static_cast<f64>(period_ns) / 1.0e6;
+                        totals_ms[render_graph_pass_timing_category(timing.label)] += ms;
+                    }
+                    gpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
+                    std::sort(gpu_pass_timings_ms.begin(), gpu_pass_timings_ms.end(),
+                             [](const auto &a, const auto &b) { return a.second > b.second; });
+                }
+            }
+            slot.gpu_timing.has_pending_results = false;
+        }
+
+        // CPU pass/stage timing readback — no query/fence dependency (it's wall-clock CPU time,
+        // ready the instant last frame's render_frame_rhi call returned), but still read back here
+        // rather than computed fresh below: this frame's debug-overlay text is built (see further
+        // down) before this frame's own RenderGraph::execute() call has run, so "this frame's own
+        // numbers" don't exist yet either way — same one-frame-stale contract as GPU timing above,
+        // just for a different reason.
+        vector<std::pair<string, f64>> cpu_pass_timings_ms;
+        vector<std::pair<string, f64>> cpu_stage_timings_ms;
+        if (slot.cpu_timing.has_pending_results) {
+            std::unordered_map<string, f64> totals_ms;
+            for (const RenderGraph::CpuPassTiming &timing : slot.cpu_timing.pass_timings) {
+                totals_ms[render_graph_pass_timing_category(timing.label)] += timing.duration_ms;
+            }
+            cpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
+            std::sort(cpu_pass_timings_ms.begin(), cpu_pass_timings_ms.end(),
+                     [](const auto &a, const auto &b) { return a.second > b.second; });
+            cpu_stage_timings_ms = slot.cpu_timing.stage_timings;
+            slot.cpu_timing.has_pending_results = false;
+        }
+
         if (!slot.fence) {
             auto fence = device->create_fence(RHI::FenceDesc{.label = "renderer frame fence"});
             if (!fence) {
@@ -636,7 +983,7 @@ namespace SFT::Renderer {
             // gate either never fires (frozen at the pre-drag size until the drag pauses) or caps
             // the resize to a fixed cadence — both look laggy compared to just recreating every time.
             {
-                ScopedRendererStageTimer timer{"recreate swapchain"};
+                ScopedRendererStageTimer timer{"recreate swapchain", &current_frame_cpu_stage_timings_ms};
                 if (Core::RendererResult recreated = recreate_rhi_swapchain(record, frame.frame_index, extent); !recreated.has_value()) {
                     return recreated;
                 }
@@ -667,22 +1014,83 @@ namespace SFT::Renderer {
         if (Core::RendererResult depth_resources = ensure_rhi_depth_resources(record); !depth_resources.has_value()) {
             return depth_resources;
         }
-        if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index, submission); !scene_gpu_data.has_value()) {
-            return scene_gpu_data;
+        {
+            ScopedRendererStageTimer timer{"prepare scene GPU data", &current_frame_cpu_stage_timings_ms};
+            if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index, submission); !scene_gpu_data.has_value()) {
+                return scene_gpu_data;
+            }
         }
+
+        // GPU-driven instanced batches: contiguous same-(mesh, material) runs of submission.draws
+        // large enough to be worth one compute-culled indirect draw instead of many individual
+        // per-item ones — see detect_instanced_batches's doc comment (RendererModule.hpp) and
+        // Shaders/gpu_instance_cull.slang's header comment for the full design. Scoped to the
+        // deferred gbuffer geometry pass only for now: batched instances still go through the
+        // ordinary z-prepass per-item path below unfiltered (their own pipeline variant uses a
+        // standard depth test/write instead of relying on a prior z-prepass write — see
+        // instanced_pipeline_for's doc comment — so skipping them there is harmless, just leaves
+        // some overdraw-elimination on the table for this specific batch).
+        const vector<InstancedBatch> instanced_batches =
+            submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
+        const u32 scene_frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
+        SceneFrameGpuResources &instance_cull_resources = scene_frame_resources_[frame.frame_index % scene_frame_count];
+        if (!instanced_batches.empty()) {
+            ScopedRendererStageTimer timer{"prepare instance cull GPU data", &current_frame_cpu_stage_timings_ms};
+            if (Core::RendererResult prepared = prepare_instance_cull_gpu_data(instanced_batches, instance_cull_resources);
+                !prepared.has_value()) {
+                return prepared;
+            }
+        }
+        // The gbuffer pass draws every batched instance once via its own indirect draw (below); the
+        // per-item path must skip them so they aren't drawn twice. The z-prepass remains unaffected
+        // and consumes the full, unfiltered submission.draws — see the comment above.
+        vector<RenderItem> gbuffer_individual_draws_storage;
+        span<const RenderItem> gbuffer_draws = submission.draws;
+        if (!instanced_batches.empty()) {
+            gbuffer_individual_draws_storage.reserve(submission.draws.size());
+            usize batch_cursor = 0;
+            for (usize i = 0; i < submission.draws.size(); ++i) {
+                if (batch_cursor < instanced_batches.size() &&
+                    i >= instanced_batches[batch_cursor].first_object_index &&
+                    i < static_cast<usize>(instanced_batches[batch_cursor].first_object_index) + instanced_batches[batch_cursor].instance_count) {
+                    if (i + 1 == static_cast<usize>(instanced_batches[batch_cursor].first_object_index) + instanced_batches[batch_cursor].instance_count) {
+                        ++batch_cursor;
+                    }
+                    continue;
+                }
+                gbuffer_individual_draws_storage.push_back(submission.draws[i]);
+            }
+            gbuffer_draws = gbuffer_individual_draws_storage;
+        }
+
         if (Core::RendererResult deferred_targets = ensure_frame_deferred_targets(slot, render_extent, submission.deferred_formats); !deferred_targets.has_value()) {
             return deferred_targets;
         }
-        // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
-        // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
-        if (submission.render_graph.render_scene && submission.render_graph.deferred_lighting) {
-            if (Core::RendererResult deferred_lighting_ready = ensure_deferred_lighting_resources(); !deferred_lighting_ready.has_value()) {
-                return deferred_lighting_ready;
+        PreparedShadowFrame shadow_frame{};
+        if (submission.render_graph.render_scene) {
+            const u32 requested_shadow_atlas = submission.render_graph.shadows
+                                                   ? submission.render_graph.shadow_atlas_size
+                                                   : 0u;
+            if (Core::RendererResult shadow_targets = ensure_frame_shadow_targets(slot, requested_shadow_atlas);
+                !shadow_targets.has_value()) {
+                return shadow_targets;
             }
-            if (auto lighting_pipeline = deferred_lighting_pipeline_for(submission.deferred_formats.lighting); !lighting_pipeline) {
+            if (Core::RendererResult shadow_resources = ensure_shadow_lighting_resources();
+                !shadow_resources.has_value()) {
+                return shadow_resources;
+            }
+            if (auto lighting_pipeline = shadow_lighting_pipeline_for(submission.deferred_formats.scene_color);
+                !lighting_pipeline) {
                 return unexpected(lighting_pipeline.error());
             }
+            if (Core::RendererResult shadow_prepared = prepare_shadow_frame(submission, slot.shadow_targets,
+                                                                            shadow_frame);
+                !shadow_prepared.has_value()) {
+                return shadow_prepared;
+            }
         }
+        // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
+        // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
         constexpr RHI::Format bloom_format = RHI::Format::RG11B10Float;
         const bool bloom_active = submission.render_graph.bloom && submission.render_graph.bloom_intensity > 0.0f;
         if (bloom_active) {
@@ -695,15 +1103,15 @@ namespace SFT::Renderer {
             if (Core::RendererResult composite_ready = ensure_bloom_composite_resources(); !composite_ready.has_value()) {
                 return composite_ready;
             }
-            if (auto composite_pipeline = bloom_composite_pipeline_for(submission.deferred_formats.lighting); !composite_pipeline) {
+            if (auto composite_pipeline = bloom_composite_pipeline_for(submission.deferred_formats.scene_color); !composite_pipeline) {
                 return unexpected(composite_pipeline.error());
             }
-            if (Core::RendererResult composite_target = ensure_frame_composite_target(slot, render_extent, submission.deferred_formats.lighting); !composite_target.has_value()) {
+            if (Core::RendererResult composite_target = ensure_frame_composite_target(slot, render_extent, submission.deferred_formats.scene_color); !composite_target.has_value()) {
                 return composite_target;
             }
         }
         for (const CustomPostProcessEffect &effect : submission.render_graph.custom_post_processes) {
-            if (Core::RendererResult custom_ready = ensure_custom_post_process(effect, submission.deferred_formats.lighting); !custom_ready.has_value()) {
+            if (Core::RendererResult custom_ready = ensure_custom_post_process(effect, submission.deferred_formats.scene_color); !custom_ready.has_value()) {
                 return custom_ready;
             }
         }
@@ -715,7 +1123,7 @@ namespace SFT::Renderer {
         }
 
         auto acquired = [&]() {
-            ScopedRendererStageTimer timer{"acquire swapchain texture"};
+            ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
             return device->acquire_next_texture(record.rhi_swapchain);
         }();
         if (!acquired) {
@@ -743,7 +1151,7 @@ namespace SFT::Renderer {
             // instance uploads; only the two changing counter lines need reshaping each frame.
             const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
             const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
-            const array<UString, 7> overlay_lines{
+            vector<UString> overlay_lines{
                 submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
                 std::format("Renderables: {}", submission.draws.size()),
                 std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
@@ -755,6 +1163,48 @@ namespace SFT::Renderer {
                 std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
                 std::format("Frame: {}", frame.frame_index),
             };
+            // GPU pass timing breakdown — one frame stale (this frame's own timestamps aren't
+            // available until its fence signals; see gpu_pass_timings_ms's own comment above), same
+            // one-frame-behind tradeoff every other per-frame stat here already accepts implicitly.
+            if (!gpu_pass_timings_ms.empty()) {
+                f64 gpu_total_ms = 0.0;
+                for (const auto &[category, ms] : gpu_pass_timings_ms) {
+                    gpu_total_ms += ms;
+                }
+                overlay_lines.push_back(std::format("GPU total: {:.2f} ms", gpu_total_ms));
+                for (const auto &[category, ms] : gpu_pass_timings_ms) {
+                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
+                }
+            }
+            // CPU stage timing breakdown — the coarse top-level stages (extraction/sort in
+            // render_frame, then render_frame_rhi's own fence-wait/graph-execute/submit/present
+            // stages). One frame stale, same reason as the GPU numbers above.
+            if (!cpu_stage_timings_ms.empty()) {
+                f64 cpu_stage_total_ms = 0.0;
+                for (const auto &[stage, ms] : cpu_stage_timings_ms) {
+                    cpu_stage_total_ms += ms;
+                }
+                overlay_lines.push_back(std::format("CPU frame total: {:.2f} ms", cpu_stage_total_ms));
+                for (const auto &[stage, ms] : cpu_stage_timings_ms) {
+                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", stage, ms));
+                }
+            }
+            // CPU pass-recording breakdown — how long the CPU spent recording each RenderGraph pass
+            // (barrier insertion + record_render_items_culled/etc.), the direct counterpart to the
+            // GPU breakdown above. This is what makes parallel-vs-serial recording wins (and, once
+            // GPU-driven culling lands, the drop from many CPU draw calls to one compute-culled
+            // indirect draw) visible per pass instead of only as one lump "execute render graph"
+            // stage total.
+            if (!cpu_pass_timings_ms.empty()) {
+                f64 cpu_pass_total_ms = 0.0;
+                for (const auto &[category, ms] : cpu_pass_timings_ms) {
+                    cpu_pass_total_ms += ms;
+                }
+                overlay_lines.push_back(std::format("CPU pass recording total: {:.2f} ms", cpu_pass_total_ms));
+                for (const auto &[category, ms] : cpu_pass_timings_ms) {
+                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
+                }
+            }
             // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
             // return (nothing has been submitted yet, so there's nothing else to unwind).
             if (Core::RendererResult text_prepared =
@@ -770,6 +1220,12 @@ namespace SFT::Renderer {
         }
 
         RenderGraph graph;
+        // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
+        // (every add_render_pass/add_compute_pass/set_execute call, down to just before "execute
+        // render graph" starts), which is too much code to wrap in one extra brace level without
+        // touching every line in between. Measured by hand instead — see its matching read-out
+        // right before the "execute render graph" scope.
+        const steady_clock::time_point declare_graph_start = steady_clock::now();
         const glm::vec4 background{
             submission.render_graph.background_color.r * submission.render_graph.background_intensity,
             submission.render_graph.background_color.g * submission.render_graph.background_intensity,
@@ -820,16 +1276,16 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer material",
         });
-        // HDR deferred lighting target: tonemap samples this instead of the swapchain seeing geometry directly.
-        const RenderGraphTextureHandle scene_lighting = graph.import_texture(RenderGraphImportedTextureDesc{
-            .texture = slot.deferred_targets.scene_lighting,
-            .default_view = slot.deferred_targets.scene_lighting_view,
-            .format = submission.deferred_formats.lighting,
+        // HDR scene-color target consumed by gizmos and post-processing.
+        const RenderGraphTextureHandle scene_color = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.scene_color,
+            .default_view = slot.deferred_targets.scene_color_view,
+            .format = submission.deferred_formats.scene_color,
             .extent = frame_extent,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
-            .label = "deferred scene lighting (HDR)",
+            .label = "scene color (HDR)",
         });
         const RenderGraphTextureHandle depth_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.depth,
@@ -844,8 +1300,145 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::DepthStencilAttachmentWrite,
             .label = "deferred depth",
         });
+        RenderGraphTextureHandle shadow_atlas{};
+        if (shadow_frame.atlas_used) {
+            shadow_atlas = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.shadow_targets.atlas,
+                .default_view = slot.shadow_targets.atlas_view,
+                .format = slot.shadow_targets.format,
+                .extent = RHI::Extent3D{.width = slot.shadow_targets.atlas_size,
+                                        .height = slot.shadow_targets.atlas_size,
+                                        .depth_or_layers = 1},
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .initial_stage = RHI::PipelineStage::None,
+                .initial_access = RHI::AccessFlags::None,
+                .final_layout = RHI::TextureLayout::ShaderReadOnly,
+                .final_stage = RHI::PipelineStage::FragmentShader,
+                .final_access = RHI::AccessFlags::ShaderRead,
+                .label = "raster shadow atlas",
+            });
+        }
+
+        // Shared by "z prepass" and "deferred gbuffer geometry" below — both draw the same
+        // submission.draws against the same camera view, so items outside the camera frustum never
+        // need a draw call issued for either pass.
+        const Frustum camera_frustum = frustum_from_view_projection(submission.view_projection);
+
+        if (!instanced_batches.empty()) {
+            graph.add_compute_pass("gpu instance cull")
+                .set_execute([this, &submission, &instanced_batches, &instance_cull_resources](
+                                 RenderGraphComputeContext &context) -> Core::RendererResult {
+                    RHI::ComputePassEncoder &pass = context.compute_pass();
+                    if (Core::RendererResult culled = record_instance_cull(
+                            pass, instanced_batches, submission.view_projection, instance_cull_resources,
+                            submission.transient_bind_groups);
+                        !culled.has_value()) {
+                        return culled;
+                    }
+                    // Manual barrier: RenderGraphComputePassBuilder only auto-tracks texture hazards
+                    // (add_sampled_texture/add_storage_texture), not buffers — see this pass's
+                    // declaration and record_instanced_batches's doc comment. Safe to record here
+                    // (not "inside an active render pass"): unlike a graphics render pass, this RHI's
+                    // compute-pass encoder is a lightweight logical wrapper, not a real GPU scope
+                    // (VulkanRhiDeviceBridge::begin_compute_pass records nothing at begin/end), so a
+                    // barrier on the underlying command encoder here is ordered correctly.
+                    const array<RHI::BufferBarrier, 2> buffer_barriers{
+                        RHI::BufferBarrier{
+                            .buffer = instance_cull_resources.indirect_commands_buffer,
+                            .src_stage = RHI::PipelineStage::ComputeShader,
+                            .src_access = RHI::AccessFlags::ShaderWrite,
+                            .dst_stage = RHI::PipelineStage::DrawIndirect,
+                            .dst_access = RHI::AccessFlags::IndirectCommandRead,
+                        },
+                        RHI::BufferBarrier{
+                            .buffer = instance_cull_resources.compacted_indices_buffer,
+                            .src_stage = RHI::PipelineStage::ComputeShader,
+                            .src_access = RHI::AccessFlags::ShaderWrite,
+                            .dst_stage = RHI::PipelineStage::VertexShader,
+                            .dst_access = RHI::AccessFlags::ShaderRead,
+                        },
+                    };
+                    context.command_encoder().barrier(span<const RHI::GlobalBarrier>{},
+                                                      span<const RHI::BufferBarrier>{buffer_barriers.data(), buffer_barriers.size()},
+                                                      span<const RHI::TextureBarrier>{});
+                    return {};
+                });
+        }
 
         if (submission.render_graph.render_scene) {
+            if (shadow_frame.atlas_used) {
+                graph.add_render_pass("raster shadow atlas")
+                    .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                        .texture = shadow_atlas,
+                        .depth_load_op = RHI::LoadOp::Clear,
+                        .depth_store_op = RHI::StoreOp::Store,
+                        .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
+                    })
+                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
+                                                 .width = slot.shadow_targets.atlas_size,
+                                                 .height = slot.shadow_targets.atlas_size})
+                    .set_execute([this, &submission, &shadow_frame, &slot, frame](
+                                     RenderGraphContext &context) -> Core::RendererResult {
+                        RHI::RenderPassEncoder &pass = context.render_pass();
+                        const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
+                                                          ? std::max(submission.render_graph.shadow_depth_bias, 0.0f)
+                                                          : 0.75f;
+                        const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
+                                                          ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
+                                                          : 1.0f;
+                        for (usize view_index = 0; view_index < shadow_frame.render_views.size(); ++view_index) {
+                            const ShadowRenderView &shadow_view = shadow_frame.render_views[view_index];
+                            pass.set_viewport(RHI::Viewport{
+                                .x = static_cast<f32>(shadow_view.viewport.x),
+                                .y = static_cast<f32>(shadow_view.viewport.y),
+                                .width = static_cast<f32>(shadow_view.viewport.width),
+                                .height = static_cast<f32>(shadow_view.viewport.height),
+                                .min_depth = 0.0f,
+                                .max_depth = 1.0f,
+                            });
+                            pass.set_scissor(shadow_view.viewport);
+                            if (Core::RendererResult recorded = record_render_items_culled(
+                                    pass, submission.draws, shadow_view.frustum, span<const RHI::Format>{},
+                                    slot.shadow_targets.format, frame.frame_index,
+                                    shadow_view.view_projection, /*depth_only=*/true,
+                                    /*standard_depth_test=*/false, "raster shadow casters",
+                                    /*shadow_map=*/true, shadow_depth_bias, shadow_slope_bias);
+                                !recorded.has_value()) {
+                                return recorded;
+                            }
+                        }
+                        return {};
+                    });
+            }
+
+            // Z prepass: writes real depth for every surviving (alpha-tested-or-not) fragment before
+            // any color shading happens, so "deferred gbuffer geometry" below can require an exact
+            // depth match instead of writing depth itself — a fragment that isn't the visible surface
+            // never runs full PBR shading, eliminating occluded-fragment overdraw cost. See
+            // Renderer::depth_only_pipeline_for's doc comment.
+            graph.add_render_pass("z prepass")
+                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                    .texture = depth_texture,
+                    .depth_load_op = RHI::LoadOp::Clear,
+                    .depth_store_op = RHI::StoreOp::Store,
+                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
+                })
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &submission, render_extent, frame, camera_frustum](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f, .y = 0.0f,
+                        .width = static_cast<f32>(render_extent.width),
+                        .height = static_cast<f32>(render_extent.height),
+                        .min_depth = 0.0f, .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    return record_render_items_culled(pass, submission.draws, camera_frustum,
+                                                       span<const RHI::Format>{}, submission.deferred_formats.depth,
+                                                       frame.frame_index, submission.view_projection,
+                                                       /*depth_only=*/true, /*standard_depth_test=*/false, "z prepass");
+                });
+
             graph.add_render_pass("deferred gbuffer geometry")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = gbuffer_albedo,
@@ -867,12 +1460,13 @@ namespace SFT::Renderer {
                 })
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = depth_texture,
-                    .depth_load_op = RHI::LoadOp::Clear,
+                    // The Z prepass above already cleared+wrote this frame's depth — load, don't clear.
+                    .depth_load_op = RHI::LoadOp::Load,
                     .depth_store_op = RHI::StoreOp::Store,
-                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-                .set_execute([this, &submission, render_extent, frame](RenderGraphContext &context) -> Core::RendererResult {
+                .set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
+                             &instance_cull_resources](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
@@ -886,32 +1480,104 @@ namespace SFT::Renderer {
                         submission.deferred_formats.normal,
                         submission.deferred_formats.material,
                     };
-                    for (const RenderItem &item : submission.draws) {
-                        if (Core::RendererResult recorded = record_render_item(
-                                pass, item,
-                                span<const RHI::Format>{gbuffer_formats.data(), gbuffer_formats.size()},
-                                submission.deferred_formats.depth, frame.frame_index, submission.view_projection);
-                            !recorded.has_value()) {
-                            return recorded;
+                    const span<const RHI::Format> gbuffer_formats_span{gbuffer_formats.data(), gbuffer_formats.size()};
+                    if (Core::RendererResult recorded = record_render_items_culled(
+                            pass, gbuffer_draws, camera_frustum, gbuffer_formats_span, submission.deferred_formats.depth,
+                            frame.frame_index, submission.view_projection, /*depth_only=*/false,
+                            /*standard_depth_test=*/false, "deferred gbuffer geometry");
+                        !recorded.has_value()) {
+                        return recorded;
+                    }
+                    if (!instanced_batches.empty()) {
+                        if (Core::RendererResult recorded_instanced = record_instanced_batches(
+                                pass, instanced_batches, gbuffer_formats_span, submission.deferred_formats.depth,
+                                frame.frame_index, submission.view_projection, instance_cull_resources,
+                                submission.transient_bind_groups);
+                            !recorded_instanced.has_value()) {
+                            return recorded_instanced;
                         }
                     }
                     return {};
                 });
         }
 
-        if (submission.render_graph.render_scene && submission.render_graph.deferred_lighting) {
-            graph.add_render_pass("deferred lighting")
+        if (submission.render_graph.render_scene) {
+            RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting");
+            lighting_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
+                .texture = scene_color,
+                .load_op = RHI::LoadOp::DontCare,
+                .store_op = RHI::StoreOp::Store,
+            });
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_albedo});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_normal});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture});
+            if (shadow_frame.atlas_used) {
+                lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
+            }
+            lighting_pass
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
+                              gbuffer_material, depth_texture, shadow_atlas, &shadow_frame](
+                                 RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f, .y = 0.0f,
+                        .width = static_cast<f32>(render_extent.width),
+                        .height = static_cast<f32>(render_extent.height),
+                        .min_depth = 0.0f, .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0,
+                                                 .width = render_extent.width, .height = render_extent.height});
+                    const RHI::TextureViewHandle atlas_view = shadow_frame.atlas_used
+                        ? context.texture(shadow_atlas).default_view
+                        : context.texture(depth_texture).default_view;
+                    return record_shadow_lighting(
+                        pass,
+                        context.texture(gbuffer_albedo).default_view,
+                        context.texture(gbuffer_normal).default_view,
+                        context.texture(gbuffer_material).default_view,
+                        context.texture(depth_texture).default_view,
+                        atlas_view,
+                        slot.shadow_targets.lighting_buffer,
+                        submission.deferred_formats.scene_color,
+                        submission.transient_bind_groups);
+                });
+        } else {
+            // Overlay-only views still need a defined HDR source for gizmos and post-processing.
+            graph.add_render_pass("scene background")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = scene_lighting,
+                    .texture = scene_color,
                     .load_op = RHI::LoadOp::Clear,
                     .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
                 })
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_albedo})
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_normal})
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width,
+                                             .height = render_extent.height});
+        }
+
+        // Always-on debug markers (e.g. light-position icospheres, Shaders/geometry_color.slang).
+        // A separate, single-color-target forward pass rather than folding gizmos into the deferred
+        // G-buffer pass: that pass's pipelines are built for a 3-target GBufferOutput, and a debug
+        // marker's pass-through shader only ever writes one SV_Target. When scene geometry ran, load
+        // its depth so occluded gizmos stay hidden; otherwise clear depth for a defined overlay-only pass.
+        if (!submission.gizmo_draws.empty()) {
+            const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
+            graph.add_render_pass("light gizmos")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = scene_color,
+                    .load_op = RHI::LoadOp::Load,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                    .texture = depth_texture,
+                    .depth_load_op = submission.render_graph.render_scene ? RHI::LoadOp::Load : RHI::LoadOp::Clear,
+                    .depth_store_op = RHI::StoreOp::Store,
+                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
+                })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-                .set_execute([this, &submission, render_extent, gbuffer_albedo, gbuffer_normal, gbuffer_material](RenderGraphContext &context) -> Core::RendererResult {
+                .set_execute([this, &submission, render_extent, frame, gizmo_color_formats](
+                                 RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
@@ -920,23 +1586,18 @@ namespace SFT::Renderer {
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                    const RenderGraphTextureAccess albedo = context.texture(gbuffer_albedo);
-                    const RenderGraphTextureAccess normal = context.texture(gbuffer_normal);
-                    const RenderGraphTextureAccess material = context.texture(gbuffer_material);
-                    return record_deferred_lighting(pass, albedo.default_view, normal.default_view, material.default_view,
-                                                    submission.deferred_formats.lighting, submission.transient_bind_groups);
+                    RenderItemBindingState binding_state{};
+                    for (const RenderItem &item : submission.gizmo_draws) {
+                        if (Core::RendererResult recorded = record_render_item(
+                                pass, item, span<const RHI::Format>{gizmo_color_formats.data(), gizmo_color_formats.size()},
+                                submission.deferred_formats.depth, frame.frame_index, submission.view_projection,
+                                /*depth_only=*/false, binding_state, /*standard_depth_test=*/true);
+                            !recorded.has_value()) {
+                            return recorded;
+                        }
+                    }
+                    return {};
                 });
-        } else {
-            // A clear-only HDR pass keeps overlay-only/empty-scene recipes valid without inventing a
-            // consumer-visible texture or requiring a special presentation path.
-            graph.add_render_pass("scene background")
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = scene_lighting,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
         }
 
         // Applies every custom effect whose declared stage matches `stage`, in original declaration
@@ -951,7 +1612,7 @@ namespace SFT::Renderer {
                 }
                 const RenderGraphTextureHandle from = source;
                 const RenderGraphTextureHandle to = graph.create_texture(RenderGraphTextureDesc{
-                    .format = submission.deferred_formats.lighting,
+                    .format = submission.deferred_formats.scene_color,
                     .extent = frame_extent,
                     .label = "custom HDR post-process target",
                 });
@@ -968,7 +1629,7 @@ namespace SFT::Renderer {
                         pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(render_extent.width), .height = static_cast<f32>(render_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
                         pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                         return record_custom_post_process(pass, context.texture(from).default_view,
-                                                          submission.deferred_formats.lighting,
+                                                          submission.deferred_formats.scene_color,
                                                           submission.render_graph.custom_post_processes[effect_index],
                                                           submission.transient_bind_groups);
                     });
@@ -977,11 +1638,10 @@ namespace SFT::Renderer {
             return source;
         };
 
-        // BeforeBloom effects run first: their result is both bloom's actual source (fixing the old
-        // bug where bloom always sampled the untouched deferred-lighting target) and, when bloom is
-        // inactive, the direct input to the AfterBloomBeforeToneMap chain below.
+        // BeforeBloom effects run first: their result is both bloom's actual source and, when bloom
+        // is inactive, the direct input to the AfterBloomBeforeToneMap chain below.
         const RenderGraphTextureHandle post_process_source =
-            apply_custom_post_process_stage(scene_lighting, PostProcessStage::BeforeBloom);
+            apply_custom_post_process_stage(scene_color, PostProcessStage::BeforeBloom);
 
         RenderGraphTextureHandle after_bloom_source = post_process_source;
         if (bloom_active) {
@@ -1037,8 +1697,8 @@ namespace SFT::Renderer {
                             // post_process_source may be a fresh transient texture every frame (whenever
                             // there's a BeforeBloom effect), so unlike every other bloom mip its view
                             // isn't known until the graph resolves it here, and FrameBloomTargets' cached
-                            // persistent bind group (built for the raw deferred-lighting view) would be
-                            // stale. Resolve and mint both fresh, retiring the bind group with this frame.
+                            // persistent bind group (built for the base scene-color view) would be stale.
+                            // Resolve and mint both fresh, retiring the bind group with this frame.
                             source_view = context.texture(post_process_source).default_view;
                             auto dynamic_bind_group = create_bloom_source_bind_group(source_view);
                             if (!dynamic_bind_group.has_value()) {
@@ -1097,7 +1757,7 @@ namespace SFT::Renderer {
             const RenderGraphTextureHandle composite_destination = graph.import_texture(RenderGraphImportedTextureDesc{
                 .texture = slot.composite_target.texture,
                 .default_view = slot.composite_target.view,
-                .format = submission.deferred_formats.lighting,
+                .format = submission.deferred_formats.scene_color,
                 .extent = frame_extent,
                 .initial_layout = RHI::TextureLayout::Undefined,
                 .initial_stage = RHI::PipelineStage::None,
@@ -1120,7 +1780,7 @@ namespace SFT::Renderer {
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
                     return record_bloom_composite(pass, context.texture(post_process_source).default_view,
                                                   context.texture(bloom_chain).default_view,
-                                                  submission.deferred_formats.lighting,
+                                                  submission.deferred_formats.scene_color,
                                                   submission.render_graph.bloom_intensity,
                                                   submission.transient_bind_groups);
                 });
@@ -1192,10 +1852,39 @@ namespace SFT::Renderer {
                 });
         }
 
+        if (submission.render_graph.debug_overlay) {
+            const f64 seconds = duration<f64>(steady_clock::now() - declare_graph_start).count();
+            current_frame_cpu_stage_timings_ms.emplace_back("declare render graph", seconds * 1000.0);
+        }
+        const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
+        if (gpu_timing_enabled) {
+            // compile() is pure-CPU and cheap (see its own doc comment) — calling it here just to
+            // learn the pass count for query-set sizing, then letting execute() below recompile
+            // internally, is simpler than threading a precomputed CompiledPlan through execute()'s
+            // public signature for what's a debug-only feature.
+            const RenderGraph::CompileResult precompiled = graph.compile();
+            const u32 pass_count = precompiled.has_value() ? static_cast<u32>(precompiled->order.size()) : 0;
+            if (Core::RendererResult timing_target = ensure_frame_gpu_timing_target(slot, pass_count);
+                !timing_target.has_value()) {
+                return timing_target;
+            }
+        }
         {
-            ScopedRendererStageTimer timer{"execute render graph"};
-            if (Core::RendererResult graph_result = graph.execute(*device, **encoder); !graph_result.has_value()) {
+            ScopedRendererStageTimer timer{"execute render graph", &current_frame_cpu_stage_timings_ms};
+            // CPU per-pass timing rides the same debug_overlay gate as GPU per-pass timing
+            // (gpu_timing_enabled) even though it needs no query set of its own — keeps the two
+            // breakdowns' pass lists in lockstep and avoids per-frame vector churn when the overlay
+            // (the only current consumer) is off.
+            Core::RendererResult graph_result = gpu_timing_enabled
+                ? graph.execute(*device, **encoder, slot.gpu_timing.query_set, &slot.gpu_timing.pending,
+                                &slot.cpu_timing.pass_timings)
+                : graph.execute(*device, **encoder);
+            if (!graph_result.has_value()) {
                 return graph_result;
+            }
+            if (gpu_timing_enabled) {
+                slot.gpu_timing.has_pending_results = true;
+                slot.cpu_timing.has_pending_results = true;
             }
         }
 
@@ -1217,7 +1906,7 @@ namespace SFT::Renderer {
             .label = "renderer frame submit",
         };
         {
-            ScopedRendererStageTimer timer{"submit RHI frame"};
+            ScopedRendererStageTimer timer{"submit RHI frame", &current_frame_cpu_stage_timings_ms};
             if (auto submitted = device->submit(submit_desc); !submitted) {
                 graph.destroy_transient_resources(*device);
                 device->destroy_command_buffer(*command_buffer);
@@ -1237,7 +1926,7 @@ namespace SFT::Renderer {
         slot.submitted = true;
 
         auto presented = [&]() {
-            ScopedRendererStageTimer timer{"present RHI frame"};
+            ScopedRendererStageTimer timer{"present RHI frame", &current_frame_cpu_stage_timings_ms};
             return device->present(RHI::PresentDesc{.texture = texture, .label = "renderer present"});
         }();
         if (!presented) {
@@ -1251,10 +1940,24 @@ namespace SFT::Renderer {
         }
 
         if (submission.render_graph.wait_for_completion) {
-            ScopedRendererStageTimer timer{"wait explicitly requested frame completion"};
+            ScopedRendererStageTimer timer{"wait explicitly requested frame completion", &current_frame_cpu_stage_timings_ms};
             if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait explicitly requested frame completion"));
             }
+        }
+
+        // Stash this call's CPU stage timings on the slot for next-frame readback (see
+        // FrameCpuTimingTarget's doc comment) — folding in whatever render_frame/render_frame_dispatch
+        // staged before this function ever started (extraction + sort), so the eventual overlay report
+        // covers the full CPU frame, not just the RHI-facing tail of it. Only bother when the pass
+        // timings above were actually collected (gpu_timing_enabled); otherwise leave the slot's
+        // previous (already-consumed) contents alone rather than overwriting them with a partial,
+        // untimed-pass picture.
+        if (gpu_timing_enabled) {
+            slot.cpu_timing.stage_timings = std::move(current_frame_cpu_stage_timings_ms);
+            slot.cpu_timing.stage_timings.insert(slot.cpu_timing.stage_timings.end(),
+                                                 submission.pre_dispatch_stage_timings_ms.begin(),
+                                                 submission.pre_dispatch_stage_timings_ms.end());
         }
         return {};
     }
@@ -1274,13 +1977,13 @@ namespace SFT::Renderer {
             slot.deferred_targets.formats.albedo == formats.albedo &&
             slot.deferred_targets.formats.normal == formats.normal &&
             slot.deferred_targets.formats.material == formats.material &&
-            slot.deferred_targets.formats.lighting == formats.lighting &&
+            slot.deferred_targets.formats.scene_color == formats.scene_color &&
             slot.deferred_targets.formats.depth == formats.depth;
         if (matches) {
             return {};
         }
 
-        // Bloom's cached first-level descriptor references scene_lighting_view.
+        // Bloom's cached first-level descriptor references scene_color_view.
         destroy_frame_bloom_targets(slot);
         destroy_frame_deferred_targets(slot);
 
@@ -1327,21 +2030,22 @@ namespace SFT::Renderer {
             device->destroy_texture(albedo->first);
             return unexpected(material.error());
         }
-        auto lighting = create_target(formats.lighting, color_usage, "persistent deferred scene lighting");
-        if (!lighting) {
+        auto scene_color = create_target(formats.scene_color, color_usage, "persistent scene color");
+        if (!scene_color) {
             device->destroy_texture_view(material->second);
             device->destroy_texture(material->first);
             device->destroy_texture_view(normal->second);
             device->destroy_texture(normal->first);
             device->destroy_texture_view(albedo->second);
             device->destroy_texture(albedo->first);
-            return unexpected(lighting.error());
+            return unexpected(scene_color.error());
         }
-        auto depth = create_target(formats.depth, RHI::TextureUsage::DepthStencilAttachment,
+        auto depth = create_target(formats.depth,
+                                   RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
                                    "persistent deferred depth");
         if (!depth) {
-            device->destroy_texture_view(lighting->second);
-            device->destroy_texture(lighting->first);
+            device->destroy_texture_view(scene_color->second);
+            device->destroy_texture(scene_color->first);
             device->destroy_texture_view(material->second);
             device->destroy_texture(material->first);
             device->destroy_texture_view(normal->second);
@@ -1360,8 +2064,8 @@ namespace SFT::Renderer {
             .gbuffer_normal_view = normal->second,
             .gbuffer_material = material->first,
             .gbuffer_material_view = material->second,
-            .scene_lighting = lighting->first,
-            .scene_lighting_view = lighting->second,
+            .scene_color = scene_color->first,
+            .scene_color_view = scene_color->second,
             .depth = depth->first,
             .depth_view = depth->second,
         };
@@ -1382,7 +2086,7 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.gbuffer_albedo, slot.deferred_targets.gbuffer_albedo_view);
             destroy_target(slot.deferred_targets.gbuffer_normal, slot.deferred_targets.gbuffer_normal_view);
             destroy_target(slot.deferred_targets.gbuffer_material, slot.deferred_targets.gbuffer_material_view);
-            destroy_target(slot.deferred_targets.scene_lighting, slot.deferred_targets.scene_lighting_view);
+            destroy_target(slot.deferred_targets.scene_color, slot.deferred_targets.scene_color_view);
             destroy_target(slot.deferred_targets.depth, slot.deferred_targets.depth_view);
         }
         slot.deferred_targets = {};
@@ -1395,7 +2099,7 @@ namespace SFT::Renderer {
         const bool matches = slot.bloom_targets.source_extent.width == extent.width &&
             slot.bloom_targets.source_extent.height == extent.height &&
             slot.bloom_targets.requested_levels == requested_levels &&
-            slot.bloom_targets.scene_source_view == slot.deferred_targets.scene_lighting_view &&
+            slot.bloom_targets.scene_source_view == slot.deferred_targets.scene_color_view &&
             slot.bloom_targets.texture && !slot.bloom_targets.views.empty() &&
             slot.bloom_targets.downsample_bind_groups.size() == slot.bloom_targets.views.size() &&
             slot.bloom_targets.upsample_bind_groups.size() == slot.bloom_targets.views.size();
@@ -1409,7 +2113,7 @@ namespace SFT::Renderer {
         destroy_frame_bloom_targets(slot);
         slot.bloom_targets.source_extent = extent;
         slot.bloom_targets.requested_levels = requested_levels;
-        slot.bloom_targets.scene_source_view = slot.deferred_targets.scene_lighting_view;
+        slot.bloom_targets.scene_source_view = slot.deferred_targets.scene_color_view;
 
         Core::Extent2D level_extent{
             .width = std::max(1u, extent.width / 2u),
@@ -1476,7 +2180,7 @@ namespace SFT::Renderer {
         slot.bloom_targets.upsample_bind_groups.resize(slot.bloom_targets.views.size());
         for (usize level = 0; level < slot.bloom_targets.views.size(); ++level) {
             const RHI::TextureViewHandle source_view = level == 0
-                ? slot.deferred_targets.scene_lighting_view
+                ? slot.deferred_targets.scene_color_view
                 : slot.bloom_targets.views[level - 1];
             auto group = create_group(source_view);
             if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
@@ -1563,6 +2267,44 @@ namespace SFT::Renderer {
             }
         }
         slot.composite_target = {};
+    }
+
+    Core::RendererResult Renderer::ensure_frame_gpu_timing_target(FrameInFlight &slot, u32 required_pass_count) {
+        const u32 required_capacity = required_pass_count * 2;
+        if (required_capacity == 0 || slot.gpu_timing.capacity >= required_capacity) {
+            return {};
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+        // Growing loses any not-yet-read-back results from this slot's previous query set — harmless,
+        // it's a debug-only readout and the very next frame's readback attempt just finds nothing
+        // pending (has_pending_results already gets cleared below).
+        destroy_frame_gpu_timing_target(slot);
+
+        // A little headroom over the exact requirement so a modest pass-count wobble from optional
+        // post-process stages doesn't immediately force another resize.
+        const u32 capacity = required_capacity + 16;
+        auto query_set = device->create_query_set(RHI::QuerySetDesc{
+            .type = RHI::QueryType::Timestamp,
+            .count = capacity,
+            .label = "renderer gpu pass timing",
+        });
+        if (!query_set) {
+            return unexpected(graphics_error_from_rhi(query_set.error(), "create GPU pass timing query set"));
+        }
+        slot.gpu_timing.query_set = *query_set;
+        slot.gpu_timing.capacity = capacity;
+        return {};
+    }
+
+    void Renderer::destroy_frame_gpu_timing_target(FrameInFlight &slot) noexcept {
+        if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.gpu_timing.query_set) {
+            device->destroy_query_set(slot.gpu_timing.query_set);
+        }
+        slot.gpu_timing = {};
     }
 
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
@@ -1685,6 +2427,8 @@ namespace SFT::Renderer {
                 destroy_text_frame_resources(*device, slot.text_overlay_resources);
                 destroy_frame_bloom_targets(slot);
                 destroy_frame_composite_target(slot);
+                destroy_frame_shadow_targets(slot);
+                destroy_frame_gpu_timing_target(slot);
                 destroy_frame_deferred_targets(slot);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);
@@ -1693,7 +2437,6 @@ namespace SFT::Renderer {
                 slot.submitted = false;
             }
             record.frames_in_flight.clear();
-
             if (record.depth_view) {
                 device->destroy_texture_view(record.depth_view);
             }

@@ -20,7 +20,7 @@ namespace SFT::Engine {
     RenderGraph RenderGraph::overlay_only() noexcept {
         RenderGraph graph;
         graph.description_.scene.enabled = false;
-        graph.description_.lighting.enabled = false;
+        graph.description_.shadows.enabled = false;
         graph.description_.bloom.enabled = false;
         graph.description_.debug_overlay.enabled = true;
         return graph;
@@ -30,8 +30,8 @@ namespace SFT::Engine {
     RenderGraphDescription &RenderGraph::description() noexcept { return description_; }
     const SceneRenderSettings &RenderGraph::scene() const noexcept { return description_.scene; }
     SceneRenderSettings &RenderGraph::scene() noexcept { return description_.scene; }
-    const LightingRenderSettings &RenderGraph::lighting() const noexcept { return description_.lighting; }
-    LightingRenderSettings &RenderGraph::lighting() noexcept { return description_.lighting; }
+    const ShadowSettings &RenderGraph::shadows() const noexcept { return description_.shadows; }
+    ShadowSettings &RenderGraph::shadows() noexcept { return description_.shadows; }
     const BloomSettings &RenderGraph::bloom() const noexcept { return description_.bloom; }
     BloomSettings &RenderGraph::bloom() noexcept { return description_.bloom; }
     const ToneMappingSettings &RenderGraph::tone_mapping() const noexcept { return description_.tone_mapping; }
@@ -44,8 +44,8 @@ namespace SFT::Engine {
         switch (feature) {
             case RenderFeature::Scene:
                 return description_.scene.enabled;
-            case RenderFeature::DeferredLighting:
-                return description_.lighting.enabled;
+            case RenderFeature::Shadows:
+                return description_.shadows.enabled;
             case RenderFeature::Bloom:
                 return description_.bloom.enabled;
             case RenderFeature::ToneMapping:
@@ -61,8 +61,8 @@ namespace SFT::Engine {
             case RenderFeature::Scene:
                 description_.scene.enabled = enabled_value;
                 break;
-            case RenderFeature::DeferredLighting:
-                description_.lighting.enabled = enabled_value;
+            case RenderFeature::Shadows:
+                description_.shadows.enabled = enabled_value;
                 break;
             case RenderFeature::Bloom:
                 description_.bloom.enabled = enabled_value;
@@ -126,11 +126,26 @@ namespace SFT::Engine {
                 .message = UString{"Render graph background color must contain only finite values."_ustr},
             });
         }
-        if (!std::isfinite(description_.lighting.background_intensity) ||
-            description_.lighting.background_intensity < 0.0f) {
+        if (!std::isfinite(description_.scene.background_intensity) ||
+            description_.scene.background_intensity < 0.0f) {
             return std::unexpected(RenderGraphError{
-                .code = RenderGraphErrorCode::InvalidLightingSettings,
+                .code = RenderGraphErrorCode::InvalidBackgroundColor,
                 .message = UString{"Render graph background intensity must be finite and non-negative."_ustr},
+            });
+        }
+        const ShadowSettings &shadows = description_.shadows;
+        if (shadows.atlas_size < 512 || shadows.atlas_size > 16384 || shadows.atlas_size % 8 != 0 ||
+            shadows.cascade_count < 1 || shadows.cascade_count > 4 ||
+            !std::isfinite(shadows.max_distance) || shadows.max_distance <= 0.0f ||
+            !std::isfinite(shadows.cascade_split_lambda) || shadows.cascade_split_lambda < 0.0f || shadows.cascade_split_lambda > 1.0f ||
+            !std::isfinite(shadows.cascade_blend) || shadows.cascade_blend < 0.0f || shadows.cascade_blend > 0.5f ||
+            !std::isfinite(shadows.depth_bias) || shadows.depth_bias < 0.0f ||
+            !std::isfinite(shadows.slope_bias) || shadows.slope_bias < 0.0f ||
+            !std::isfinite(shadows.normal_bias) || shadows.normal_bias < 0.0f || shadows.normal_bias > 4.0f ||
+            shadows.max_shadowed_spot_lights > 8 || shadows.max_shadowed_point_lights > 4) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidShadowSettings,
+                .message = UString{"Shadow settings are outside their supported atlas, cascade, bias, or local-light ranges."_ustr},
             });
         }
         const BloomSettings &bloom = description_.bloom;
@@ -186,12 +201,7 @@ namespace SFT::Engine {
                 .message = UString{"Render graph PsychoV settings must be finite, with positive highlights/shadows/contrast, non-negative purity/compression, gamut_compression in [0, 1], and positive adapted/background gray points."_ustr},
             });
         }
-        if (description_.scene.enabled && !description_.lighting.enabled) {
-            return std::unexpected(RenderGraphError{
-                .code = RenderGraphErrorCode::InvalidFeatureCombination,
-                .message = UString{"The deferred scene feature requires deferred lighting; disable both for an overlay-only graph."_ustr},
-            });
-        }
+
         return {};
     }
 
@@ -204,9 +214,26 @@ namespace SFT::Engine {
         if (desc.scene.background_color && !finite(*desc.scene.background_color)) {
             desc.scene.background_color.reset();
         }
-        desc.lighting.background_intensity = std::isfinite(desc.lighting.background_intensity)
-                                                 ? std::max(desc.lighting.background_intensity, 0.0f)
-                                                 : 1.0f;
+        desc.scene.background_intensity = std::isfinite(desc.scene.background_intensity)
+                                              ? std::max(desc.scene.background_intensity, 0.0f)
+                                              : 1.0f;
+        ShadowSettings &shadows = desc.shadows;
+        shadows.atlas_size = std::clamp(shadows.atlas_size, 512u, 16384u);
+        shadows.atlas_size -= shadows.atlas_size % 8u;
+        shadows.cascade_count = std::clamp(shadows.cascade_count, 1u, 4u);
+        shadows.max_distance = std::isfinite(shadows.max_distance) && shadows.max_distance > 0.0f
+                                   ? shadows.max_distance : 250.0f;
+        shadows.cascade_split_lambda = std::isfinite(shadows.cascade_split_lambda)
+                                           ? std::clamp(shadows.cascade_split_lambda, 0.0f, 1.0f) : 0.65f;
+        shadows.cascade_blend = std::isfinite(shadows.cascade_blend)
+                                    ? std::clamp(shadows.cascade_blend, 0.0f, 0.5f) : 0.10f;
+        shadows.depth_bias = std::isfinite(shadows.depth_bias) ? std::max(shadows.depth_bias, 0.0f) : 0.75f;
+        shadows.slope_bias = std::isfinite(shadows.slope_bias) ? std::max(shadows.slope_bias, 0.0f) : 1.0f;
+        shadows.normal_bias = std::isfinite(shadows.normal_bias)
+                                  ? std::clamp(shadows.normal_bias, 0.0f, 4.0f)
+                                  : 0.75f;
+        shadows.max_shadowed_spot_lights = std::min(shadows.max_shadowed_spot_lights, 8u);
+        shadows.max_shadowed_point_lights = std::min(shadows.max_shadowed_point_lights, 4u);
         desc.bloom.threshold = std::isfinite(desc.bloom.threshold) ? std::max(desc.bloom.threshold, 0.0f) : 1.0f;
         desc.bloom.soft_knee = std::isfinite(desc.bloom.soft_knee) ? std::clamp(desc.bloom.soft_knee, 0.0f, 1.0f) : 0.5f;
         desc.bloom.intensity = std::isfinite(desc.bloom.intensity) ? std::max(desc.bloom.intensity, 0.0f) : 0.08f;
@@ -248,9 +275,7 @@ namespace SFT::Engine {
             psycho_v.background_gray_bt709.x <= 0.0f || psycho_v.background_gray_bt709.y <= 0.0f || psycho_v.background_gray_bt709.z <= 0.0f) {
             psycho_v.background_gray_bt709 = glm::vec3{0.18f};
         }
-        if (!desc.lighting.enabled) {
-            desc.scene.enabled = false;
-        }
+
         return result;
     }
 

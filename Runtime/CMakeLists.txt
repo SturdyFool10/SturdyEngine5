@@ -8,6 +8,14 @@ sturdy_add_package(Runtime
     DEBUG_PUBLIC_DEPS
 )
 
+# Only defined when STURDY_FETCH_SAMPLE_ASSETS pulled KhronosGroup/glTF-Sample-Assets in — gates the
+# glTF import demo hook in RuntimeClient.cpp so a normal build (the option defaults OFF) never
+# depends on this large, non-build asset checkout being present.
+if(STURDY_GLTF_SAMPLE_ASSETS_DIR)
+    target_compile_definitions(Runtime PRIVATE
+        "STURDY_GLTF_SAMPLE_ASSETS_DIR=\"${STURDY_GLTF_SAMPLE_ASSETS_DIR}\"")
+endif()
+
 if(WIN32)
     # Shell32 provides CommandLineToArgvW, used by Sturdy.Runtime.Cli to tokenize the raw command
     # line for the WinMain entry point. Kernel32 (GetCommandLineW / WideCharToMultiByte / LocalFree)

@@ -252,6 +252,15 @@ namespace SFT::Engine {
                 .stage = Core::Slang::ShaderStage::Fragment,
             },
         };
+        if (!desc.depth_only_fragment_entry_point.empty()) {
+            // A second Fragment-stage entry point from the same module — build_material_template_gpu
+            // (RendererMaterial.cpp) picks the first reflected Fragment entry as the main fragment and
+            // this second one as the depth-only entry, by request order.
+            options.entry_points.push_back(Core::Slang::ShaderEntryPointRequest{
+                .name = desc.depth_only_fragment_entry_point.cpp_string(),
+                .stage = Core::Slang::ShaderStage::Fragment,
+            });
+        }
         options.macros.reserve(desc.defines.size());
         for (const ShaderDefine &define : desc.defines) {
             options.macros.push_back(Core::Slang::ShaderMacro{
@@ -365,6 +374,26 @@ namespace SFT::Engine {
             record->source = source;
         }
         return texture;
+    }
+
+    AssetExpected<Asset> AssetManager::create_texture_from_encoded_bytes(
+        std::span<const std::byte> encoded,
+        TextureColorSpace color_space,
+        UString label) {
+        auto decoded = Detail::decode_image_rgba8(encoded, {});
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        if (label.empty()) {
+            label = UString{"texture"_ustr};
+        }
+        return create_texture(TextureAssetDesc{
+            .width = decoded->width,
+            .height = decoded->height,
+            .color_space = color_space,
+            .rgba8 = std::move(decoded->pixels),
+            .label = std::move(label),
+        });
     }
 
     AssetExpected<Asset> AssetManager::load_sound(const std::filesystem::path &source, UString label) {

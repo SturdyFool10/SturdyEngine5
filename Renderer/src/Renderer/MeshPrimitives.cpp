@@ -220,6 +220,14 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    Mesh Mesh::from_vertices(span<const GeometryVertex> vertices, span<const u32> indices, const char *label) {
+        Mesh mesh;
+        mesh.label_ = label ? label : "";
+        mesh.vertices_.assign(vertices.begin(), vertices.end());
+        mesh.indices_.assign(indices.begin(), indices.end());
+        return mesh;
+    }
+
     Mesh Mesh::uv_sphere(const UvSphereParams &params, const char *label) {
         Mesh mesh;
         mesh.label_ = label ? label : "";

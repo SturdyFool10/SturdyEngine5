@@ -102,6 +102,7 @@ namespace SFT::Engine {
         [[nodiscard]] Ecs::Schedule &update_schedule() noexcept;
         [[nodiscard]] Ecs::Schedule &render_extraction_schedule() noexcept;
         [[nodiscard]] RenderFrameRequests &render_frame_requests() noexcept;
+        [[nodiscard]] LightFrameRequests &light_frame_requests() noexcept;
         [[nodiscard]] AssetManager &assets() noexcept;
         [[nodiscard]] const AssetManager &assets() const noexcept;
 
@@ -135,6 +136,7 @@ namespace SFT::Engine {
         AssetManager assets_{renderer_};
         Ecs::ComponentRegistry ecs_component_registry_;
         RenderFrameRequests render_frame_requests_{assets_};
+        LightFrameRequests light_frame_requests_{};
         Ecs::World ecs_world_{ecs_component_registry_};
         PlatformEventInbox platform_event_inbox_{};
         Ecs::Events<WindowEvent> window_events_{};

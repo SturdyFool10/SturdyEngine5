@@ -37,6 +37,11 @@ namespace SFT::Engine {
         UString module_name;
         UString vertex_entry_point{UString{"vertexMain"_ustr}};
         UString fragment_entry_point{UString{"fragmentMain"_ustr}};
+        // Optional second fragment entry point, compiled from the same source, for the material's Z
+        // prepass (alpha-tested cutout materials need it to sample base_color_texture/alpha_cutoff
+        // there too — see Renderer::depth_only_pipeline_for). Empty (the default) means the template
+        // has no depth-only fragment; its prepass pipeline is then a bare position-only depth write.
+        UString depth_only_fragment_entry_point;
         std::vector<ShaderDefine> defines;
     };
 
@@ -110,6 +115,15 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<Asset> load_texture(const std::filesystem::path &source,
                                                         TextureColorSpace color_space = TextureColorSpace::Srgb,
                                                         UString label = {});
+
+        // Decodes an already-in-memory encoded image (PNG/JPEG) and uploads it, for sources that
+        // aren't a standalone file on disk — e.g. a glTF .glb's embedded buffer-view images or a
+        // data: URI's decoded bytes. load_texture()'s file-based API can't reach these since it
+        // always reads its own bytes from `source`.
+        [[nodiscard]] AssetExpected<Asset> create_texture_from_encoded_bytes(
+            std::span<const std::byte> encoded,
+            TextureColorSpace color_space = TextureColorSpace::Srgb,
+            UString label = {});
 
         [[nodiscard]] AssetExpected<Asset> load_sound(const std::filesystem::path &source,
                                                       UString label = {});
