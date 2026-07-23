@@ -65,8 +65,12 @@ namespace SFT::Renderer {
             f32 psychov_background_gray_r = 0.18f;
             f32 psychov_background_gray_g = 0.18f;
             f32 psychov_background_gray_b = 0.18f;
+
+            u32 anti_aliasing_mode = 0;
+            f32 anti_aliasing_subpixel = 0.75f;
+            f32 anti_aliasing_edge_threshold = 0.125f;
         };
-        static_assert(sizeof(TonemapConstants) == 104);
+        static_assert(sizeof(TonemapConstants) == 116);
 
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -319,6 +323,9 @@ namespace SFT::Renderer {
             .psychov_background_gray_r = settings.psychov_background_gray_bt709.r,
             .psychov_background_gray_g = settings.psychov_background_gray_bt709.g,
             .psychov_background_gray_b = settings.psychov_background_gray_bt709.b,
+            .anti_aliasing_mode = settings.post_process_aa,
+            .anti_aliasing_subpixel = settings.aa_subpixel_quality,
+            .anti_aliasing_edge_threshold = settings.aa_edge_threshold,
         };
         pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
                                 std::as_bytes(span<const TonemapConstants>{&constants, 1}));

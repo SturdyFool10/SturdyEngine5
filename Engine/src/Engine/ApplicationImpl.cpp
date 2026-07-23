@@ -27,6 +27,14 @@ namespace SFT::Engine {
 
     Application::~Application() {
         drain_render_thread();
+        if (engine_) {
+            // drain_render_thread() only awaits each frame's CPU-side recording/submission task,
+            // not the GPU's own completion of that work (the async submission model lets the CPU
+            // run frames_in_flight ahead of the GPU) — client_->on_shutdown() is documented as safe
+            // to destroy live GPU objects in, so the device must actually be idle first.
+            engine_->wait_idle();
+            client_->on_shutdown(*engine_);
+        }
         render_thread_.reset();
         engine_.reset();
         Async::Scheduler::shutdown();
@@ -397,6 +405,18 @@ namespace SFT::Engine {
                 }
 
                 if (managed.surface) {
+                    // Removing the last surface tears down the RHI device itself (not just that
+                    // window), so this is the actual point of no return for any GPU resource the
+                    // client owns — earlier than ~Application() when there's no explicit "shut
+                    // down now" moment otherwise. Every in-flight frame for every window has already
+                    // been confirmed drained above, but that only awaited each frame's CPU-side
+                    // submission task (the async submission model lets the CPU run frames_in_flight
+                    // ahead of the GPU) — an explicit wait_idle() is what actually guarantees the
+                    // GPU itself is done with everything client_->on_shutdown() is about to destroy.
+                    if (windows_.size() == 1) {
+                        engine_->wait_idle();
+                        client_->on_shutdown(*engine_);
+                    }
                     const Core::RenderSurfaceHandle surface = *managed.surface;
                     managed.surface.reset();
                     if (render_thread_) {

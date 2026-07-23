@@ -504,7 +504,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
-        bool standard_depth_test) {
+        bool standard_depth_test, RHI::SampleCount samples) {
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
@@ -514,6 +514,7 @@ namespace SFT::Renderer {
         vector<MaterialPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
         for (const MaterialPipelineVariant &variant : pipeline_variants) {
             if (variant.depth_format == depth_format && variant.standard_depth_test == standard_depth_test &&
+                variant.samples == samples &&
                 variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -573,6 +574,7 @@ namespace SFT::Renderer {
             // rasterized and ran full fragment shading, doubling geometry-pass fragment work for no
             // reason on closed/mostly-closed meshes.
             .rasterization = RHI::RasterizationState{},
+            .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
             .label = "material pipeline",
@@ -585,6 +587,7 @@ namespace SFT::Renderer {
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
             .standard_depth_test = standard_depth_test,
+            .samples = samples,
             .pipeline = *pipeline,
         });
         return *pipeline;
@@ -592,7 +595,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::depth_only_pipeline_for(
         MaterialTemplateResource &material_template, RHI::Format depth_format, bool shadow_map,
-        f32 depth_bias, f32 slope_bias) {
+        f32 depth_bias, f32 slope_bias, RHI::SampleCount samples) {
         if (depth_format == RHI::Format::Undefined) {
             return unexpected(material_error("Cannot build a depth-only pipeline without a depth format."));
         }
@@ -600,7 +603,8 @@ namespace SFT::Renderer {
         vector<DepthOnlyPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
         for (const DepthOnlyPipelineVariant &variant : pipeline_variants) {
             if (variant.depth_format == depth_format && variant.shadow_map == shadow_map &&
-                variant.depth_bias == depth_bias && variant.slope_bias == slope_bias) {
+                variant.depth_bias == depth_bias && variant.slope_bias == slope_bias &&
+                variant.samples == samples) {
                 return variant.pipeline;
             }
         }
@@ -638,6 +642,7 @@ namespace SFT::Renderer {
                       .depth_bias_slope_scale = slope_bias,
                   }
                 : RHI::RasterizationState{},
+            .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = RHI::DepthStencilState{
                 .format = depth_format,
                 .depth_test_enable = true,
@@ -656,6 +661,7 @@ namespace SFT::Renderer {
             .shadow_map = shadow_map,
             .depth_bias = depth_bias,
             .slope_bias = slope_bias,
+            .samples = samples,
             .pipeline = *pipeline,
         });
         return *pipeline;

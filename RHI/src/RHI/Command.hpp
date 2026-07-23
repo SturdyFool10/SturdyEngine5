@@ -50,6 +50,10 @@ namespace SFT::RHI {
 
     struct DepthStencilAttachment {
         TextureViewHandle view{};
+        // Optional single-sample destination for a multisampled depth attachment. Minimum is the
+        // useful geometry-visibility resolve for conventional (near=0) depth buffers.
+        TextureViewHandle resolve_view{};
+        ResolveMode depth_resolve_mode = ResolveMode::SampleZero;
         LoadOp depth_load_op = LoadOp::Clear;
         StoreOp depth_store_op = StoreOp::Store;
         LoadOp stencil_load_op = LoadOp::DontCare;

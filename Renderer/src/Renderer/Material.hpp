@@ -102,6 +102,7 @@ namespace SFT::Renderer {
         // for forward-rendered draws with no Z-prepass of their own (e.g. debug gizmos), where an
         // Equal-against-unrelated-scene-depth test would reject nearly every fragment.
         bool standard_depth_test = false;
+        RHI::SampleCount samples = RHI::SampleCount::X1;
         RHI::RenderPipelineHandle pipeline{};
     };
 
@@ -112,6 +113,7 @@ namespace SFT::Renderer {
         bool shadow_map = false;
         f32 depth_bias = 0.0f;
         f32 slope_bias = 0.0f;
+        RHI::SampleCount samples = RHI::SampleCount::X1;
         RHI::RenderPipelineHandle pipeline{};
     };
 

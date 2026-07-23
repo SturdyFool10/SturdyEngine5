@@ -209,6 +209,7 @@ namespace SFT::Renderer {
         struct FrameDeferredTargets {
             Core::Extent2D extent{};
             DeferredTargetFormats formats{};
+            RHI::SampleCount samples = RHI::SampleCount::X1;
             RHI::TextureHandle gbuffer_albedo{};
             RHI::TextureViewHandle gbuffer_albedo_view{};
             RHI::TextureHandle gbuffer_normal{};
@@ -219,6 +220,14 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle scene_color_view{};
             RHI::TextureHandle depth{};
             RHI::TextureViewHandle depth_view{};
+            RHI::TextureHandle msaa_gbuffer_albedo{};
+            RHI::TextureViewHandle msaa_gbuffer_albedo_view{};
+            RHI::TextureHandle msaa_gbuffer_normal{};
+            RHI::TextureViewHandle msaa_gbuffer_normal_view{};
+            RHI::TextureHandle msaa_gbuffer_material{};
+            RHI::TextureViewHandle msaa_gbuffer_material_view{};
+            RHI::TextureHandle msaa_depth{};
+            RHI::TextureViewHandle msaa_depth_view{};
         };
 
         static constexpr u32 max_directional_shadow_cascades = 4;
@@ -269,6 +278,8 @@ namespace SFT::Renderer {
             glm::vec4 background_color{};
             glm::vec4 counts{};       // spot lights, point lights, shadow views, shadows enabled
             glm::vec4 shadow_params{}; // atlas texel, normal bias, PCSS enabled, max distance
+            glm::vec4 gtao_params{};    // radius, falloff start, thin-feature thickness, intensity
+            glm::vec4 viewport_params{}; // inverse extent xy, projection Y scale, quality+1 (0=off)
             DirectionalLightGpuData sun{};
             std::array<SpotLightGpuData, max_lighting_spot_lights> spot_lights{};
             std::array<PointLightGpuData, max_lighting_point_lights> point_lights{};
@@ -505,6 +516,7 @@ namespace SFT::Renderer {
         struct InstancedPipelineVariant {
             vector<RHI::Format> color_formats;
             RHI::Format depth_format = RHI::Format::Undefined;
+            RHI::SampleCount samples = RHI::SampleCount::X1;
             RHI::RenderPipelineHandle pipeline{};
         };
         struct InstancedTemplateResources {
@@ -706,13 +718,15 @@ namespace SFT::Renderer {
         void reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation = false) noexcept;
         [[nodiscard]] Core::RendererResult ensure_frame_deferred_targets(FrameInFlight &slot,
                                                                          Core::Extent2D extent,
-                                                                         const DeferredTargetFormats &formats);
+                                                                         const DeferredTargetFormats &formats,
+                                                                         RHI::SampleCount samples);
         void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
         [[nodiscard]] Core::RendererResult ensure_frame_shadow_targets(FrameInFlight &slot, u32 atlas_size);
         void destroy_frame_shadow_targets(FrameInFlight &slot) noexcept;
         [[nodiscard]] Core::RendererResult prepare_shadow_frame(const FrameSubmission &submission,
                                                                  FrameShadowTargets &targets,
-                                                                 PreparedShadowFrame &prepared);
+                                                                 PreparedShadowFrame &prepared,
+                                                                 Core::Extent2D render_extent);
         [[nodiscard]] Core::RendererResult ensure_frame_bloom_targets(FrameInFlight &slot,
                                                                       Core::Extent2D extent,
                                                                       u32 requested_levels);
@@ -788,7 +802,8 @@ namespace SFT::Renderer {
                                                                bool standard_depth_test = false,
                                                                bool shadow_map = false,
                                                                f32 shadow_depth_bias = 0.0f,
-                                                               f32 shadow_slope_bias = 0.0f);
+                                                               f32 shadow_slope_bias = 0.0f,
+                                                               RHI::SampleCount samples = RHI::SampleCount::X1);
 
         // Frustum-culls `items` against `frustum` (render_item_visible), then records survivors
         // into `pass`. Below kParallelRecordThreshold survivors, or with no worker threads
@@ -817,7 +832,8 @@ namespace SFT::Renderer {
                                                                        const char *bundle_label,
                                                                        bool shadow_map = false,
                                                                        f32 shadow_depth_bias = 0.0f,
-                                                                       f32 shadow_slope_bias = 0.0f);
+                                                                       f32 shadow_slope_bias = 0.0f,
+                                                                       RHI::SampleCount samples = RHI::SampleCount::X1);
 
         // ── GPU-driven instanced batch draws (RendererGpuCulling.cpp) ──
         // Scans `sorted_draws` (already sorted by (material, mesh) — see render_frame_dispatch) for
@@ -835,7 +851,8 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult prepare_instance_cull_gpu_data(span<const InstancedBatch> batches,
                                                                           SceneFrameGpuResources &resources);
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> instanced_pipeline_for(
-            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format);
+            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
+            RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
 
         // Records one compute dispatch per batch (frustum cull + compaction) into `pass`, writing
         // into `resources`' indirect-command/compacted-index buffers — see
@@ -861,7 +878,8 @@ namespace SFT::Renderer {
                                                                     u64 frame_index,
                                                                     const glm::mat4 &view_projection,
                                                                     SceneFrameGpuResources &resources,
-                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups);
+                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                                    RHI::SampleCount samples = RHI::SampleCount::X1);
 
         [[nodiscard]] Core::RendererResult try_upload_mesh(MeshResource &mesh);
 
@@ -883,14 +901,15 @@ namespace SFT::Renderer {
         // the depth buffer, instead of an Equal test that would reject nearly every fragment.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> material_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
-            bool standard_depth_test = false);
+            bool standard_depth_test = false, RHI::SampleCount samples = RHI::SampleCount::X1);
         // Lazily builds + caches a template's depth-only pipeline: same vertex stage + (if the
         // template's shader declared one) the depth-only fragment entry for alpha-tested cutout, zero
         // color attachments, real depth write (depth_compare == Less) — this is the pipeline the Z
         // prepass itself draws with.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> depth_only_pipeline_for(
             MaterialTemplateResource &material_template, RHI::Format depth_format,
-            bool shadow_map = false, f32 depth_bias = 0.0f, f32 slope_bias = 0.0f);
+            bool shadow_map = false, f32 depth_bias = 0.0f, f32 slope_bias = 0.0f,
+            RHI::SampleCount samples = RHI::SampleCount::X1);
 
         // Ensures instance frame slot `frame_slot`'s UBO reflects the CPU value block and its per-set
         // bind groups exist/are rebuilt, then returns the bind groups to bind (index == set order).

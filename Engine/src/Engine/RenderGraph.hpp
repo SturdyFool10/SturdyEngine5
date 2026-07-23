@@ -25,9 +25,27 @@ namespace SFT::Engine {
     enum class RenderFeature : u8 {
         Scene,
         Shadows,
+        AmbientOcclusion,
+        AntiAliasing,
         Bloom,
         ToneMapping,
         DebugOverlay,
+    };
+
+    enum class AmbientOcclusionQuality : u8 {
+        Low,
+        Medium,
+        High,
+        Ultra,
+    };
+
+    // Deliberately spatial-only. Temporal AA and supersample AA are not part of the built-in
+    // renderer contract; MSAA is configured separately below and can be combined with either
+    // post-process edge treatment.
+    enum class PostProcessAntiAliasing : u8 {
+        None,
+        Fxaa,
+        ConservativeMorphological,
     };
 
     // ACES is deliberately not offered here. It has well-known highlight/hue-shift problems (see
@@ -113,6 +131,27 @@ namespace SFT::Engine {
         u32 max_shadowed_point_lights = 4;
         bool contact_hardening = true;
     };
+
+    struct AmbientOcclusionSettings {
+        bool enabled = true;
+        f32 radius = 1.0f;       // View/world-space hemisphere radius.
+        f32 falloff = 0.8f;      // Fraction of radius at which distance attenuation begins.
+        f32 thickness = 0.15f;   // Thin-occluder compensation in view-space units.
+        f32 intensity = 1.0f;
+        AmbientOcclusionQuality quality = AmbientOcclusionQuality::High;
+    };
+
+    struct AntiAliasingSettings {
+        // Supported values are 1, 2, 4, and 8. Renderer clamps this to the color/depth sample
+        // counts exposed by the active GPU.
+        u32 msaa_samples = 1;
+        PostProcessAntiAliasing post_process = PostProcessAntiAliasing::Fxaa;
+        // FXAA sub-pixel reconstruction strength. 0 preserves maximum sharpness; 1 is smoothest.
+        f32 subpixel_quality = 0.75f;
+        // Local-luminance edge threshold shared by the two spatial post-AA modes.
+        f32 edge_threshold = 0.125f;
+    };
+
     // Mip-pyramid bloom based on the downsample/upsample approach popularized by the
     // Call of Duty: Advanced Warfare post-processing presentation. Bright pixels are
     // soft-thresholded into a progressively filtered pyramid, then accumulated back upward.
@@ -155,6 +194,8 @@ namespace SFT::Engine {
     struct RenderGraphDescription {
         SceneRenderSettings scene{};
         ShadowSettings shadows{};
+        AmbientOcclusionSettings ambient_occlusion{};
+        AntiAliasingSettings anti_aliasing{};
         BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
         DebugOverlayRenderSettings debug_overlay{};
@@ -170,6 +211,8 @@ namespace SFT::Engine {
         InvalidResolutionScale,
         InvalidBackgroundColor,
         InvalidShadowSettings,
+        InvalidAmbientOcclusionSettings,
+        InvalidAntiAliasingSettings,
         InvalidBloomSettings,
         InvalidToneMappingSettings,
         InvalidFeatureCombination,
@@ -199,6 +242,10 @@ namespace SFT::Engine {
         [[nodiscard]] SceneRenderSettings &scene() noexcept;
         [[nodiscard]] const ShadowSettings &shadows() const noexcept;
         [[nodiscard]] ShadowSettings &shadows() noexcept;
+        [[nodiscard]] const AmbientOcclusionSettings &ambient_occlusion() const noexcept;
+        [[nodiscard]] AmbientOcclusionSettings &ambient_occlusion() noexcept;
+        [[nodiscard]] const AntiAliasingSettings &anti_aliasing() const noexcept;
+        [[nodiscard]] AntiAliasingSettings &anti_aliasing() noexcept;
         [[nodiscard]] const BloomSettings &bloom() const noexcept;
         [[nodiscard]] BloomSettings &bloom() noexcept;
         [[nodiscard]] const ToneMappingSettings &tone_mapping() const noexcept;

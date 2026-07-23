@@ -203,7 +203,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::instanced_pipeline_for(
-        MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format) {
+        MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
+        RHI::Format depth_format, RHI::SampleCount samples) {
         if (color_formats.empty()) {
             return unexpected(instance_cull_error("Cannot build an instanced pipeline without at least one color target."));
         }
@@ -219,7 +220,8 @@ namespace SFT::Renderer {
         InstancedTemplateResources &template_resources = (*templates)[material_template.handle.value];
 
         for (const InstancedPipelineVariant &variant : template_resources.pipeline_variants) {
-            if (variant.depth_format == depth_format && variant.color_formats.size() == color_formats.size() &&
+            if (variant.depth_format == depth_format && variant.samples == samples &&
+                variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
             }
@@ -291,6 +293,7 @@ namespace SFT::Renderer {
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = RHI::RasterizationState{},
+            .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
             .label = "instanced gbuffer pipeline",
@@ -302,6 +305,7 @@ namespace SFT::Renderer {
         template_resources.pipeline_variants.push_back(InstancedPipelineVariant{
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
+            .samples = samples,
             .pipeline = *pipeline,
         });
         return *pipeline;
@@ -463,7 +467,8 @@ namespace SFT::Renderer {
                                                              span<const RHI::Format> color_formats, RHI::Format depth_format,
                                                              u64 frame_index, const glm::mat4 &view_projection,
                                                              SceneFrameGpuResources &resources,
-                                                             vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                             vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                             RHI::SampleCount samples) {
         if (batches.empty()) {
             return {};
         }
@@ -509,7 +514,7 @@ namespace SFT::Renderer {
             if (material_template_resource == nullptr) {
                 return unexpected(instance_cull_error("Instanced batch material references an unknown material template."));
             }
-            auto pipeline = instanced_pipeline_for(*material_template_resource, color_formats, depth_format);
+            auto pipeline = instanced_pipeline_for(*material_template_resource, color_formats, depth_format, samples);
             if (!pipeline) {
                 return unexpected(pipeline.error());
             }

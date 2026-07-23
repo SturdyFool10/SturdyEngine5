@@ -4,10 +4,12 @@
 
 #pragma region Imports
 #include <cstddef>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #pragma endregion
@@ -16,6 +18,7 @@
 #include <RHI/RHI.hpp>
 #include "Handles.hpp"
 #include "Light.hpp"
+#include "TextAtlas.hpp"
 
 using std::span;
 
@@ -100,9 +103,34 @@ namespace SFT::Renderer {
 
 
 
+    // Optional final overlay hook, run as the very last pass before present — after tone mapping
+    // and the debug text overlay, straight onto the swapchain target (Load/Store, no depth). This
+    // is the seam Sturdy.UI's UiRenderer plugs into (plans/clay-ui-renderer.md) without Renderer
+    // needing to know Clay/UI exists at all: both callbacks only ever see plain RHI types. Mirrors
+    // the two-phase prepare()/draw() split the debug text overlay already uses
+    // (Renderer::prepare_text_overlay()/draw_text_overlay()) for the same reason — `prepare` runs
+    // with a live CommandEncoder before any render pass is declared (so it can record atlas
+    // uploads), `draw` runs with a live RenderPassEncoder already bound to the swapchain target.
+    // `prepare`'s last two parameters are this frame's transient-staging-buffer and retired-atlas-
+    // resource sinks (the exact same ones the debug text overlay's own prepare_text_overlay() call
+    // appends to) — a hook using Renderer::TextAtlas of its own (as UiRenderer does) appends to
+    // these instead of inventing its own deferred-destruction bookkeeping, so its resources are
+    // freed on the same already-correct fence-retirement schedule. Both callbacks are empty
+    // (skipped entirely) unless a consumer sets them.
+    using UiOverlayPrepareFn = std::function<Core::RendererResult(
+        RHI::RhiDevice &, RHI::CommandEncoder &, glm::vec2, std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &)>;
+    using UiOverlayDrawFn = std::function<Core::RendererResult(RHI::RenderPassEncoder &, glm::vec2)>;
+
+    struct UiOverlayHooks {
+        UiOverlayPrepareFn prepare;
+        UiOverlayDrawFn draw;
+        [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(prepare) && static_cast<bool>(draw); }
+    };
+
     struct RenderGraphSettings {
         bool render_scene = true;
         bool shadows = true;
+        bool ambient_occlusion = true;
         bool bloom = true;
         bool tone_mapping = true;
         bool debug_overlay = false;
@@ -127,6 +155,15 @@ namespace SFT::Renderer {
         u32 max_shadowed_spot_lights = 8;
         u32 max_shadowed_point_lights = 4;
         bool shadow_contact_hardening = true;
+        f32 gtao_radius = 1.0f;
+        f32 gtao_falloff = 0.8f;
+        f32 gtao_thickness = 0.15f;
+        f32 gtao_intensity = 1.0f;
+        u32 gtao_quality = 2;
+        u32 msaa_samples = 1;
+        u32 post_process_aa = 1; // 0 none, 1 FXAA, 2 conservative morphological.
+        f32 aa_subpixel_quality = 0.75f;
+        f32 aa_edge_threshold = 0.125f;
         f32 bloom_threshold = 1.0f;
         f32 bloom_soft_knee = 0.5f;
         f32 bloom_intensity = 0.08f;
@@ -164,6 +201,7 @@ namespace SFT::Renderer {
         glm::vec3 psychov_adapted_gray_bt709{0.18f};
         glm::vec3 psychov_background_gray_bt709{0.18f};
         std::vector<CustomPostProcessEffect> custom_post_processes;
+        UiOverlayHooks ui_overlay;
     };
 
     // Default transient target layout for the deferred path, expressed in RHI formats so the render graph

@@ -67,6 +67,8 @@ struct ShadowLightingGpuData {
     float4 backgroundColor;
     float4 counts;
     float4 shadowParams;
+    float4 gtaoParams;
+    float4 viewportParams;
     DirectionalLightGpuData sun;
     SpotLightGpuData spotLights[SFT_MAX_SPOT_LIGHTS];
     PointLightGpuData pointLights[SFT_MAX_POINT_LIGHTS];
@@ -344,6 +346,132 @@ float punctualAttenuation(float distanceToLight, float range) {
     return square(window) / max(distanceToLight * distanceToLight, 0.01);
 }
 
+float3 reconstructViewPosition(float2 uv, float depth) {
+    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    float4 worldH = mul(clip, lightingData.inverseViewProjection);
+    float3 world = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
+    return mul(float4(world, 1.0), lightingData.view).xyz;
+}
+
+// Jimenez et al. GTAO horizon integration. This is deliberately spatial-only: the per-pixel
+// rotation is a stable interleaved pattern and enough horizon samples are taken that no temporal
+// history is needed. Distance attenuation and a minimum separation reject depth discontinuities
+// and sub-pixel slivers that would otherwise become leaking dark halos.
+float groundTruthAmbientOcclusion(float2 uv, float depth, float3 worldNormal, float2 pixelPosition) {
+    uint quality = (uint)lightingData.viewportParams.w;
+    if (quality == 0u) {
+        return 1.0;
+    }
+
+    float3 viewPosition = reconstructViewPosition(uv, depth);
+    float viewDepth = max(abs(viewPosition.z), lightingData.cameraPositionNear.w);
+    float3 viewDirection = safeNormalizeOr(-viewPosition, float3(0.0, 0.0, 1.0));
+    float3 viewNormal = safeNormalizeOr(
+        mul(float4(worldNormal, 0.0), lightingData.view).xyz, float3(0.0, 0.0, 1.0));
+
+    float radius = lightingData.gtaoParams.x;
+    float screenRadius = 0.5 * radius * lightingData.viewportParams.z / viewDepth;
+    float radiusClamp = min(1.0, 0.25 / max(screenRadius, SFT_EPSILON));
+    screenRadius *= radiusClamp;
+    float effectiveRadius = radius * radiusClamp;
+
+    uint directionCount = min(quality * 2u + 2u, 8u);
+    uint stepCount = min(quality + 1u, 5u);
+    float stableNoise = frac(dot(floor(pixelPosition), float2(0.06711056, 0.00583715)));
+    float visibility = 0.0;
+    float visibilityNormalization = 0.0;
+
+    [loop]
+    for (uint directionIndex = 0u; directionIndex < directionCount; ++directionIndex) {
+        float phi = SFT_PI * (float(directionIndex) + stableNoise) / float(directionCount);
+        float2 omega = float2(cos(phi), sin(phi));
+        float3 sliceDirection = float3(omega, 0.0);
+        float3 sliceAxis = safeNormalizeOr(cross(sliceDirection, viewDirection), float3(0.0, 1.0, 0.0));
+        float3 projectedNormal = viewNormal - sliceAxis * dot(viewNormal, sliceAxis);
+        float projectedLength = length(projectedNormal);
+        if (projectedLength <= SFT_EPSILON) {
+            continue;
+        }
+        projectedNormal /= projectedLength;
+
+        float signedNormal = dot(cross(viewDirection, projectedNormal), sliceAxis) < 0.0 ? -1.0 : 1.0;
+        float cosNormal = saturate(dot(projectedNormal, viewDirection));
+        float normalAngle = signedNormal * acos(cosNormal);
+        float sliceVisibility = 0.0;
+
+        [unroll]
+        for (uint side = 0u; side < 2u; ++side) {
+            float sideSign = side == 0u ? -1.0 : 1.0;
+            float horizonCos = -1.0;
+            [loop]
+            for (uint step = 0u; step < 5u; ++step) {
+                if (step >= stepCount) {
+                    break;
+                }
+                float stepFraction = (float(step) + 0.5 + stableNoise * 0.35) / float(stepCount);
+                // Contact occlusion has the most fine geometry, so distribute more taps nearby.
+                stepFraction *= stepFraction;
+                float2 sampleUv = uv + sideSign * omega * screenRadius * stepFraction;
+                if (any(sampleUv <= 0.0) || any(sampleUv >= 1.0)) {
+                    continue;
+                }
+                float sampleDepth = gbufferDepth.SampleLevel(gbufferSampler, sampleUv, 0.0);
+                if (sampleDepth >= 0.999999) {
+                    continue;
+                }
+                float3 samplePosition = reconstructViewPosition(sampleUv, sampleDepth);
+                float3 delta = samplePosition - viewPosition;
+                float distanceToSample = length(delta);
+                float minimumSeparation = max(
+                    effectiveRadius * 0.0025,
+                    viewDepth * max(lightingData.viewportParams.x, lightingData.viewportParams.y));
+                if (distanceToSample <= minimumSeparation || distanceToSample >= effectiveRadius) {
+                    continue;
+                }
+                float falloffStart = effectiveRadius * lightingData.gtaoParams.y;
+                float distanceWeight = saturate(
+                    (effectiveRadius - distanceToSample) /
+                    max(effectiveRadius - falloffStart, SFT_EPSILON));
+                float candidate = dot(delta / distanceToSample, viewDirection);
+                float weightedCandidate = lerp(-1.0, candidate, distanceWeight);
+                if (weightedCandidate >= horizonCos) {
+                    horizonCos = weightedCandidate;
+                } else if (candidate < horizonCos) {
+                    // A lone close-depth texel is often foliage or a silhouette discontinuity, not
+                    // an infinitely thick blocker. Let later lower samples relax the horizon by a
+                    // bounded amount instead of turning that texel into a broad dark leak.
+                    float thinCompensation =
+                        0.1 * saturate(lightingData.gtaoParams.z / max(effectiveRadius, SFT_EPSILON));
+                    horizonCos = max(weightedCandidate, horizonCos - thinCompensation);
+                }
+            }
+
+            float horizonAngle = normalAngle + clamp(
+                sideSign * acos(clamp(horizonCos, -1.0, 1.0)) - normalAngle,
+                -0.5 * SFT_PI, 0.5 * SFT_PI);
+            sliceVisibility +=
+                (cosNormal + 2.0 * horizonAngle * sin(normalAngle) -
+                 cos(2.0 * horizonAngle - normalAngle)) * 0.25;
+        }
+
+        visibility += sliceVisibility * projectedLength;
+        visibilityNormalization +=
+            (normalAngle * sin(normalAngle) + cosNormal) * projectedLength;
+    }
+
+    float ao = saturate(visibility / max(visibilityNormalization, SFT_EPSILON));
+    return pow(ao, lightingData.gtaoParams.w);
+}
+
+float3 gtaoMultiBounce(float visibility, float3 albedo) {
+    // Fitted near-field color bounce from the GTAO paper keeps colored surfaces from losing all
+    // indirect energy when the scalar visibility term is low.
+    float3 a = 2.0404 * albedo - 0.3324;
+    float3 b = -4.7951 * albedo + 0.6417;
+    float3 c = 2.7552 * albedo + 0.6903;
+    return max(float3(visibility), ((a * visibility + b) * visibility + c) * visibility);
+}
+
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float depth = gbufferDepth.SampleLevel(gbufferSampler, input.uv, 0.0);
@@ -367,8 +495,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 worldDy = ddy(worldPosition);
     float viewDepth = abs(mul(float4(worldPosition, 1.0), lightingData.view).z);
     float2 pixelPosition = input.position.xy;
+    ambientOcclusion *= groundTruthAmbientOcclusion(input.uv, depth, normal, pixelPosition);
 
-    float3 hdr = albedo * lightingData.ambientRadianceExposure.rgb * ambientOcclusion;
+    float3 hdr = albedo * lightingData.ambientRadianceExposure.rgb *
+                 gtaoMultiBounce(ambientOcclusion, albedo);
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     float sunVisibility = directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
                                             viewDepth, pixelPosition);

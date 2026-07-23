@@ -63,6 +63,8 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
         ecs_world_.bind_resource(window_state_);
+        ecs_world_.bind_resource(ui_pointer_state_);
+        ecs_world_.bind_resource(ui_context_);
 
         update_schedule_.add_system(
             [](Ecs::WriteResource<PlatformEventInbox> inbox,
@@ -121,9 +123,38 @@ namespace SFT::Engine {
                     }
                 }
             });
+
+        // Keeps UiPointerState current for every ECS app, the same way FlyCameraState-style
+        // consumers already fold MouseMoveEvent/MouseButtonEvent themselves — this is the built-in
+        // version so UI consumers don't each have to duplicate it (see EcsUi.hpp).
+        update_schedule_.add_system(
+            [](Ecs::WriteResource<UiPointerState> pointer,
+               Ecs::EventReader<MouseMoveEvent> mouse_move,
+               Ecs::EventReader<MouseButtonEvent> mouse_button) noexcept {
+                for (const MouseMoveEvent &event : mouse_move.read()) {
+                    pointer->set_position({event.mouse.x, event.mouse.y});
+                }
+                constexpr u8 left_mouse_button = 1; // SDL_BUTTON_LEFT
+                for (const MouseButtonEvent &event : mouse_button.read()) {
+                    if (event.mouse.button == left_mouse_button) {
+                        pointer->set_down(event.action == ButtonAction::Pressed);
+                    }
+                }
+            });
     }
 
-    Engine::~Engine() = default;
+    Engine::~Engine() {
+        // ui_context_ owns raw GPU objects (a UI::UiRenderer) Engine itself created — wait_idle()
+        // first for the same reason Application's own shutdown path needs it (drained CPU-side
+        // frame tasks only confirm submission, not GPU completion; see async-submission-model.md),
+        // regardless of whether the embedding Application already did this.
+        if (initialized_) {
+            wait_idle();
+            if (RHI::RhiDevice *device = rhi_device()) {
+                ui_context_.destroy(*device);
+            }
+        }
+    }
 
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(Platform::Windowing::Window &window,
                                                                          const EngineConfig &config) {
@@ -330,6 +361,7 @@ namespace SFT::Engine {
             .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
             .render_graph = graph,
             .custom_post_processes = parameters.custom_post_processes,
+            .ui_overlay = parameters.ui_overlay,
             .visibility_mask = parameters.camera.culling_mask(),
             .debug_label = parameters.debug_label,
         };
@@ -345,6 +377,7 @@ namespace SFT::Engine {
         desc.view.render_graph = RendererApi::RenderGraphSettings{
             .render_scene = frame.render_graph.scene.enabled,
             .shadows = frame.render_graph.shadows.enabled,
+            .ambient_occlusion = frame.render_graph.ambient_occlusion.enabled,
             .bloom = frame.render_graph.bloom.enabled,
             .tone_mapping = frame.render_graph.tone_mapping.enabled,
             .debug_overlay = frame.render_graph.debug_overlay.enabled,
@@ -363,6 +396,15 @@ namespace SFT::Engine {
             .max_shadowed_spot_lights = frame.render_graph.shadows.max_shadowed_spot_lights,
             .max_shadowed_point_lights = frame.render_graph.shadows.max_shadowed_point_lights,
             .shadow_contact_hardening = frame.render_graph.shadows.contact_hardening,
+            .gtao_radius = frame.render_graph.ambient_occlusion.radius,
+            .gtao_falloff = frame.render_graph.ambient_occlusion.falloff,
+            .gtao_thickness = frame.render_graph.ambient_occlusion.thickness,
+            .gtao_intensity = frame.render_graph.ambient_occlusion.intensity,
+            .gtao_quality = static_cast<u32>(frame.render_graph.ambient_occlusion.quality),
+            .msaa_samples = frame.render_graph.anti_aliasing.msaa_samples,
+            .post_process_aa = static_cast<u32>(frame.render_graph.anti_aliasing.post_process),
+            .aa_subpixel_quality = frame.render_graph.anti_aliasing.subpixel_quality,
+            .aa_edge_threshold = frame.render_graph.anti_aliasing.edge_threshold,
             .bloom_threshold = frame.render_graph.bloom.threshold,
             .bloom_soft_knee = frame.render_graph.bloom.soft_knee,
             .bloom_intensity = frame.render_graph.bloom.intensity,
@@ -390,6 +432,7 @@ namespace SFT::Engine {
             .psychov_adapted_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.adapted_gray_bt709,
             .psychov_background_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.background_gray_bt709,
             .custom_post_processes = frame.custom_post_processes,
+            .ui_overlay = frame.ui_overlay,
         };
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {

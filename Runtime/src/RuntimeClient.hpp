@@ -2,6 +2,8 @@
 
 #include <Engine/Engine.hpp>
 #include <Ecs/src/Module.hpp>
+#include <Text/Text.hpp>
+#include <UI/UI.hpp>
 
 #include <optional>
 #include <vector>
@@ -62,12 +64,21 @@ namespace SFT::Runtime {
             Engine::Engine &engine,
             Core::RenderSurfaceHandle surface,
             const Core::FrameInput &frame) override;
+        void on_shutdown(Engine::Engine &engine) noexcept override;
 
       private:
         [[nodiscard]] Engine::AssetResult create_demo_content(Engine::Engine &engine);
         void configure_render_extraction(Engine::Engine &engine);
         void configure_event_systems(Engine::Engine &engine);
         void spawn_demo_entities(Engine::Engine &engine);
+
+        // Best-effort, lazy (needs an RHI device that isn't necessarily ready before the first
+        // request_render_frame() call): ensures engine.ui_context() is ready (Engine-owned GPU
+        // resources, see Engine/src/Engine/EcsUi.hpp) and registers a bundled font — proving out
+        // plans/clay-ui-renderer.md's Phase 1/2 pipeline with a small interactive demo panel.
+        // Returns false (UI simply skipped this frame) on any failure rather than hard-failing.
+        [[nodiscard]] bool ensure_ui_resources(Engine::Engine &engine);
+        void build_demo_ui_panel(Engine::Engine &engine, glm::vec2 viewport_size);
 
         Engine::ApplicationConfig config_{};
         Engine::Asset gltf_shader_{};
@@ -79,6 +90,16 @@ namespace SFT::Runtime {
         Ecs::Entity bloom_controls_entity_{};
         Ecs::Entity camera_control_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
+
+        // register_font()'s non-owning contract requires the font outlive every frame that
+        // references it — engine.ui_context() only owns the Context/UiRenderer pair, not any font,
+        // since font choice/discovery is app policy (see EcsUi.hpp's doc comment).
+        Text::Font ui_font_{};
+        bool ui_font_registered_ = false;
+
+        // Demo-only: which color swatch build_demo_ui_panel() last saw clicked, proving out
+        // UI::Context::clicked(id)/hovered(id) end to end. -1 = none yet.
+        i32 selected_swatch_ = -1;
     };
 
 } // namespace SFT::Runtime

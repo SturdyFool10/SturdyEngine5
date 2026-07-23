@@ -7,6 +7,7 @@ sturdy_add_package(EngineComponents
         Sturdy::Renderer
         Sturdy::Platform
         Sturdy::box3d
+        Sturdy::UI
 
     PRIVATE_DEPS
         Sturdy::StbImage

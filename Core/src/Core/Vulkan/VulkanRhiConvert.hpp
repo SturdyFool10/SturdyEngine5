@@ -108,6 +108,16 @@ namespace SFT::Core::Vulkan {
         return VK_SAMPLE_COUNT_1_BIT;
     }
 
+    [[nodiscard]] constexpr VkResolveModeFlagBits to_vk(rhi::ResolveMode mode) noexcept {
+        switch (mode) {
+            case rhi::ResolveMode::SampleZero: return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+            case rhi::ResolveMode::Average: return VK_RESOLVE_MODE_AVERAGE_BIT;
+            case rhi::ResolveMode::Minimum: return VK_RESOLVE_MODE_MIN_BIT;
+            case rhi::ResolveMode::Maximum: return VK_RESOLVE_MODE_MAX_BIT;
+        }
+        return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    }
+
     [[nodiscard]] constexpr VkIndexType to_vk(rhi::IndexFormat format) noexcept {
         return format == rhi::IndexFormat::Uint16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
     }

@@ -116,6 +116,24 @@ namespace SFT::Core::Vulkan {
         limits_.max_vertex_buffers = limits.maxVertexInputBindings;
         limits_.max_vertex_attributes = limits.maxVertexInputAttributes;
         limits_.max_color_attachments = limits.maxColorAttachments;
+        const VkSampleCountFlags framebuffer_samples =
+            limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts;
+        limits_.framebuffer_sample_counts = framebuffer_samples;
+        limits_.max_framebuffer_sample_count =
+            (framebuffer_samples & VK_SAMPLE_COUNT_16_BIT) != 0 ? 16u :
+            (framebuffer_samples & VK_SAMPLE_COUNT_8_BIT) != 0 ? 8u :
+            (framebuffer_samples & VK_SAMPLE_COUNT_4_BIT) != 0 ? 4u :
+            (framebuffer_samples & VK_SAMPLE_COUNT_2_BIT) != 0 ? 2u : 1u;
+        VkPhysicalDeviceDepthStencilResolveProperties depth_resolve_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES,
+        };
+        VkPhysicalDeviceProperties2 extended_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &depth_resolve_properties,
+        };
+        vkGetPhysicalDeviceProperties2(physical_device.vk_handle(), &extended_properties);
+        limits_.supports_minimum_depth_resolve =
+            (depth_resolve_properties.supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT) != 0;
         limits_.max_compute_workgroup_size_x = limits.maxComputeWorkGroupSize[0];
         limits_.max_compute_workgroup_size_y = limits.maxComputeWorkGroupSize[1];
         limits_.max_compute_workgroup_size_z = limits.maxComputeWorkGroupSize[2];

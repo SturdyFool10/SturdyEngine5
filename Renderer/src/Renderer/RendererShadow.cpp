@@ -256,16 +256,17 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::prepare_shadow_frame(const FrameSubmission &submission,
                                                         FrameShadowTargets &targets,
-                                                        PreparedShadowFrame &prepared) {
+                                                        PreparedShadowFrame &prepared,
+                                                        Core::Extent2D render_extent) {
         static_assert(sizeof(ShadowViewGpuData) == 112);
         static_assert(sizeof(DirectionalLightGpuData) == 64);
         static_assert(sizeof(SpotLightGpuData) == 64);
         static_assert(sizeof(PointLightGpuData) == 48);
-        static_assert(sizeof(ShadowLightingGpuData) == 5200);
-        static_assert(offsetof(ShadowLightingGpuData, sun) == 208);
-        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 272);
-        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 784);
-        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1168);
+        static_assert(sizeof(ShadowLightingGpuData) == 5232);
+        static_assert(offsetof(ShadowLightingGpuData, sun) == 240);
+        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 304);
+        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 816);
+        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1200);
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !targets.lighting_buffer) {
             return unexpected(shadow_error("Cannot prepare shadow lighting without its per-frame constant buffer."));
@@ -287,6 +288,20 @@ namespace SFT::Renderer {
                                          submission.render_graph.background_intensity,
                                          submission.render_graph.background_intensity,
                                          1.0f};
+        gpu.gtao_params = glm::vec4{
+            std::max(finite_or(submission.render_graph.gtao_radius, 1.0f), 0.001f),
+            std::clamp(finite_or(submission.render_graph.gtao_falloff, 0.8f), 0.0f, 0.999f),
+            std::max(finite_or(submission.render_graph.gtao_thickness, 0.15f), 0.0f),
+            std::clamp(finite_or(submission.render_graph.gtao_intensity, 1.0f), 0.0f, 4.0f),
+        };
+        gpu.viewport_params = glm::vec4{
+            1.0f / static_cast<f32>(std::max(render_extent.width, 1u)),
+            1.0f / static_cast<f32>(std::max(render_extent.height, 1u)),
+            std::abs(submission.camera.projection[1][1]),
+            submission.render_graph.ambient_occlusion
+                ? static_cast<f32>(std::min(submission.render_graph.gtao_quality, 3u) + 1u)
+                : 0.0f,
+        };
 
         const DirectionalLight &sun = submission.lighting.sun;
         const glm::vec3 sun_direction = safe_normalize(sun.direction, glm::vec3{0.0f, -1.0f, 0.0f});

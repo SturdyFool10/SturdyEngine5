@@ -15,6 +15,9 @@ namespace SFT::Renderer {
             PassUsage usage;
             for (const RenderGraphColorAttachmentDesc &attachment : pass.color_attachments_) {
                 usage.writes.push_back(attachment.texture);
+                if (attachment.resolve_texture) {
+                    usage.writes.push_back(attachment.resolve_texture);
+                }
             }
             if (pass.has_depth_stencil_attachment_) {
                 // Counted as both: a Load op reads the prior contents and either store op writes
@@ -23,6 +26,9 @@ namespace SFT::Renderer {
                 // never wrong.
                 usage.writes.push_back(pass.depth_stencil_attachment_.texture);
                 usage.reads.push_back(pass.depth_stencil_attachment_.texture);
+                if (pass.depth_stencil_attachment_.resolve_texture) {
+                    usage.writes.push_back(pass.depth_stencil_attachment_.resolve_texture);
+                }
             }
             for (const RenderGraphSampledTextureReadDesc &read : pass.sampled_texture_reads_) {
                 usage.reads.push_back(read.texture);
@@ -628,8 +634,29 @@ void RenderGraph::reset() noexcept {
                 if (!transition.has_value()) {
                     return transition;
                 }
+                RHI::TextureViewHandle resolve_view{};
+                if (attachment.resolve_texture) {
+                    PhysicalSlot *resolve_slot = physical_slot_for(attachment.resolve_texture);
+                    if (resolve_slot == nullptr) {
+                        return Core::graphics_backend_error(
+                            Core::GraphicsBackendErrorCode::OperationFailed,
+                            "Render graph color resolve references an unknown texture.");
+                    }
+                    transition = transition_texture(encoder,
+                                                    attachment.resolve_texture,
+                                                    RHI::TextureLayout::ColorAttachment,
+                                                    RHI::PipelineStage::ColorAttachmentOutput,
+                                                    RHI::AccessFlags::ColorAttachmentWrite,
+                                                    attachment.resolve_subresources);
+                    if (!transition.has_value()) {
+                        return transition;
+                    }
+                    resolve_view = attachment.resolve_view ? attachment.resolve_view
+                                                           : resolve_slot->default_view;
+                }
                 color_attachments.push_back(RHI::ColorAttachment{
                     .view = attachment.view ? attachment.view : slot->default_view,
+                    .resolve_view = resolve_view,
                     .load_op = attachment.load_op,
                     .store_op = attachment.store_op,
                     .clear_color = attachment.clear_color,
@@ -653,8 +680,31 @@ void RenderGraph::reset() noexcept {
                 if (!transition.has_value()) {
                     return transition;
                 }
+                RHI::TextureViewHandle resolve_view{};
+                if (attachment.resolve_texture) {
+                    PhysicalSlot *resolve_slot = physical_slot_for(attachment.resolve_texture);
+                    if (resolve_slot == nullptr) {
+                        return Core::graphics_backend_error(
+                            Core::GraphicsBackendErrorCode::OperationFailed,
+                            "Render graph depth resolve references an unknown texture.");
+                    }
+                    transition = transition_texture(encoder,
+                                                    attachment.resolve_texture,
+                                                    RHI::TextureLayout::DepthStencilAttachment,
+                                                    RHI::PipelineStage::EarlyFragmentTests |
+                                                        RHI::PipelineStage::LateFragmentTests,
+                                                    RHI::AccessFlags::DepthStencilAttachmentWrite,
+                                                    attachment.resolve_subresources);
+                    if (!transition.has_value()) {
+                        return transition;
+                    }
+                    resolve_view = attachment.resolve_view ? attachment.resolve_view
+                                                           : resolve_slot->default_view;
+                }
                 depth_stencil = RHI::DepthStencilAttachment{
                     .view = attachment.view ? attachment.view : slot->default_view,
+                    .resolve_view = resolve_view,
+                    .depth_resolve_mode = attachment.depth_resolve_mode,
                     .depth_load_op = attachment.depth_load_op,
                     .depth_store_op = attachment.depth_store_op,
                     .stencil_load_op = attachment.stencil_load_op,

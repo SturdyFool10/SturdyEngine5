@@ -59,6 +59,18 @@ namespace SFT::Engine {
             Engine &engine,
             Core::RenderSurfaceHandle surface,
             const Core::FrameInput &frame) = 0;
+
+        // Called by Application once every in-flight frame has been drained but before the RHI
+        // device is actually torn down — the one point where a client that owns its own raw RHI
+        // resources (e.g. a UI::UiRenderer built outside Engine/Renderer, per
+        // plans/clay-ui-renderer.md) can still safely call engine.rhi_device() to release them.
+        // Fires when the last managed window's surface is about to be removed (that's what actually
+        // destroys the device, not ~Application() — there's no separate "shut down now" moment
+        // otherwise), and once more from ~Application() as a harmless fallback for any path that
+        // skips the first call. May therefore run more than once; implementations must tolerate
+        // that (e.g. by resetting whatever they destroyed so a second call is a no-op). Default
+        // no-op: most clients own no GPU resources of their own and don't need to override this.
+        virtual void on_shutdown(Engine & /*engine*/) noexcept {}
     };
 
     // Process host: owns the WindowManager and the engine, runs the main loop, and forwards OS events,

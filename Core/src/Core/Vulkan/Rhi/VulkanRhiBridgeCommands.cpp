@@ -482,13 +482,24 @@ namespace SFT::Core::Vulkan {
                                        view->format() == VK_FORMAT_D32_SFLOAT || view->format() == VK_FORMAT_D32_SFLOAT_S8_UINT;
                 const bool has_stencil = view->format() == VK_FORMAT_D24_UNORM_S8_UINT || view->format() == VK_FORMAT_D32_SFLOAT_S8_UINT;
                 if (has_depth) {
-                    rendering.set_depth(DepthAttachment{
+                    DepthAttachment depth{
                         .view = view->vk_handle(),
                         .layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
                         .load_op = to_vk(desc.depth_stencil.depth_load_op),
                         .store_op = to_vk(desc.depth_stencil.depth_store_op),
                         .clear_depth = desc.depth_stencil.clear_value.depth,
-                    });
+                    };
+                    if (desc.depth_stencil.resolve_view.is_valid()) {
+                        VulkanImageView *resolve = bridge_.texture_views_.find(desc.depth_stencil.resolve_view);
+                        if (resolve == nullptr) {
+                            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                                  "begin_render_pass: unknown depth resolve view handle.");
+                        }
+                        depth.resolve_mode = to_vk(desc.depth_stencil.depth_resolve_mode);
+                        depth.resolve_view = resolve->vk_handle();
+                        depth.resolve_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                    }
+                    rendering.set_depth(depth);
                 }
                 if (has_stencil) {
                     rendering.set_stencil(StencilAttachment{

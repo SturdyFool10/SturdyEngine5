@@ -100,6 +100,10 @@ namespace SFT::RHI {
         u32 max_vertex_buffers = 0;
         u32 max_vertex_attributes = 0;
         u32 max_color_attachments = 0;
+        u32 max_framebuffer_sample_count = 1;
+        // Bit N is set when N samples are supported (Vulkan's native bit layout is 1/2/4/...).
+        u32 framebuffer_sample_counts = 1;
+        bool supports_minimum_depth_resolve = false;
         u32 max_compute_workgroup_size_x = 0;
         u32 max_compute_workgroup_size_y = 0;
         u32 max_compute_workgroup_size_z = 0;

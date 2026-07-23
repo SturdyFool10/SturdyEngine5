@@ -10,6 +10,7 @@
 
 #include "EcsRendering.hpp"
 #include "EcsEvents.hpp"
+#include "EcsUi.hpp"
 #include "WindowState.hpp"
 #include "AssetManager.hpp"
 #include <Core/Core.hpp>
@@ -112,6 +113,13 @@ namespace SFT::Engine {
         [[nodiscard]] WindowState &window_state() noexcept;
         [[nodiscard]] const WindowState &window_state() const noexcept;
 
+        // ECS-visible UI resources (Ecs::WriteResource<UiContext>/Ecs::ReadResource<UiPointerState>)
+        // — see EcsUi.hpp. ui_pointer_state() is kept current automatically (a built-in system
+        // registered in Engine's own constructor); ui_context() is a bare Context/UiRenderer pair
+        // any system can build a tree against or query hovered()/clicked() on.
+        [[nodiscard]] UiContext &ui_context() noexcept;
+        [[nodiscard]] const UiPointerState &ui_pointer_state() const noexcept;
+
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
         [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept;
@@ -147,6 +155,8 @@ namespace SFT::Engine {
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
         WindowState window_state_{};
+        UiPointerState ui_pointer_state_{};
+        UiContext ui_context_{};
         Ecs::Schedule update_schedule_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};

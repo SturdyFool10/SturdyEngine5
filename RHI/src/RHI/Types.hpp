@@ -101,6 +101,13 @@ namespace SFT::RHI {
         X16 = 16,
     };
 
+    enum class ResolveMode : u32 {
+        SampleZero,
+        Average,
+        Minimum,
+        Maximum,
+    };
+
     enum class IndexFormat : u32 {
         Uint16,
         Uint32,

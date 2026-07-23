@@ -21,6 +21,8 @@ namespace SFT::Engine {
         RenderGraph graph;
         graph.description_.scene.enabled = false;
         graph.description_.shadows.enabled = false;
+        graph.description_.ambient_occlusion.enabled = false;
+        graph.description_.anti_aliasing.post_process = PostProcessAntiAliasing::None;
         graph.description_.bloom.enabled = false;
         graph.description_.debug_overlay.enabled = true;
         return graph;
@@ -32,6 +34,10 @@ namespace SFT::Engine {
     SceneRenderSettings &RenderGraph::scene() noexcept { return description_.scene; }
     const ShadowSettings &RenderGraph::shadows() const noexcept { return description_.shadows; }
     ShadowSettings &RenderGraph::shadows() noexcept { return description_.shadows; }
+    const AmbientOcclusionSettings &RenderGraph::ambient_occlusion() const noexcept { return description_.ambient_occlusion; }
+    AmbientOcclusionSettings &RenderGraph::ambient_occlusion() noexcept { return description_.ambient_occlusion; }
+    const AntiAliasingSettings &RenderGraph::anti_aliasing() const noexcept { return description_.anti_aliasing; }
+    AntiAliasingSettings &RenderGraph::anti_aliasing() noexcept { return description_.anti_aliasing; }
     const BloomSettings &RenderGraph::bloom() const noexcept { return description_.bloom; }
     BloomSettings &RenderGraph::bloom() noexcept { return description_.bloom; }
     const ToneMappingSettings &RenderGraph::tone_mapping() const noexcept { return description_.tone_mapping; }
@@ -46,6 +52,11 @@ namespace SFT::Engine {
                 return description_.scene.enabled;
             case RenderFeature::Shadows:
                 return description_.shadows.enabled;
+            case RenderFeature::AmbientOcclusion:
+                return description_.ambient_occlusion.enabled;
+            case RenderFeature::AntiAliasing:
+                return description_.anti_aliasing.msaa_samples > 1 ||
+                       description_.anti_aliasing.post_process != PostProcessAntiAliasing::None;
             case RenderFeature::Bloom:
                 return description_.bloom.enabled;
             case RenderFeature::ToneMapping:
@@ -63,6 +74,16 @@ namespace SFT::Engine {
                 break;
             case RenderFeature::Shadows:
                 description_.shadows.enabled = enabled_value;
+                break;
+            case RenderFeature::AmbientOcclusion:
+                description_.ambient_occlusion.enabled = enabled_value;
+                break;
+            case RenderFeature::AntiAliasing:
+                description_.anti_aliasing.post_process =
+                    enabled_value ? PostProcessAntiAliasing::Fxaa : PostProcessAntiAliasing::None;
+                if (!enabled_value) {
+                    description_.anti_aliasing.msaa_samples = 1;
+                }
                 break;
             case RenderFeature::Bloom:
                 description_.bloom.enabled = enabled_value;
@@ -146,6 +167,26 @@ namespace SFT::Engine {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidShadowSettings,
                 .message = UString{"Shadow settings are outside their supported atlas, cascade, bias, or local-light ranges."_ustr},
+            });
+        }
+        const AmbientOcclusionSettings &ao = description_.ambient_occlusion;
+        if (!std::isfinite(ao.radius) || ao.radius <= 0.0f ||
+            !std::isfinite(ao.falloff) || ao.falloff < 0.0f || ao.falloff >= 1.0f ||
+            !std::isfinite(ao.thickness) || ao.thickness < 0.0f ||
+            !std::isfinite(ao.intensity) || ao.intensity < 0.0f || ao.intensity > 4.0f) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidAmbientOcclusionSettings,
+                .message = UString{"GTAO requires a positive radius, falloff in [0, 1), and finite non-negative thickness/intensity."_ustr},
+            });
+        }
+        const AntiAliasingSettings &aa = description_.anti_aliasing;
+        if ((aa.msaa_samples != 1 && aa.msaa_samples != 2 &&
+             aa.msaa_samples != 4 && aa.msaa_samples != 8) ||
+            !std::isfinite(aa.subpixel_quality) || aa.subpixel_quality < 0.0f || aa.subpixel_quality > 1.0f ||
+            !std::isfinite(aa.edge_threshold) || aa.edge_threshold < 0.0312f || aa.edge_threshold > 0.5f) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidAntiAliasingSettings,
+                .message = UString{"Anti-aliasing requires 1/2/4/8 MSAA samples, subpixel quality in [0, 1], and edge threshold in [0.0312, 0.5]."_ustr},
             });
         }
         const BloomSettings &bloom = description_.bloom;
@@ -234,6 +275,20 @@ namespace SFT::Engine {
                                   : 0.75f;
         shadows.max_shadowed_spot_lights = std::min(shadows.max_shadowed_spot_lights, 8u);
         shadows.max_shadowed_point_lights = std::min(shadows.max_shadowed_point_lights, 4u);
+        AmbientOcclusionSettings &ao = desc.ambient_occlusion;
+        ao.radius = std::isfinite(ao.radius) && ao.radius > 0.0f ? ao.radius : 1.0f;
+        ao.falloff = std::isfinite(ao.falloff) ? std::clamp(ao.falloff, 0.0f, 0.999f) : 0.8f;
+        ao.thickness = std::isfinite(ao.thickness) ? std::max(ao.thickness, 0.0f) : 0.15f;
+        ao.intensity = std::isfinite(ao.intensity) ? std::clamp(ao.intensity, 0.0f, 4.0f) : 1.0f;
+        AntiAliasingSettings &aa = desc.anti_aliasing;
+        if (aa.msaa_samples != 1 && aa.msaa_samples != 2 &&
+            aa.msaa_samples != 4 && aa.msaa_samples != 8) {
+            aa.msaa_samples = 1;
+        }
+        aa.subpixel_quality = std::isfinite(aa.subpixel_quality)
+                                  ? std::clamp(aa.subpixel_quality, 0.0f, 1.0f) : 0.75f;
+        aa.edge_threshold = std::isfinite(aa.edge_threshold)
+                                ? std::clamp(aa.edge_threshold, 0.0312f, 0.5f) : 0.125f;
         desc.bloom.threshold = std::isfinite(desc.bloom.threshold) ? std::max(desc.bloom.threshold, 0.0f) : 1.0f;
         desc.bloom.soft_knee = std::isfinite(desc.bloom.soft_knee) ? std::clamp(desc.bloom.soft_knee, 0.0f, 1.0f) : 0.5f;
         desc.bloom.intensity = std::isfinite(desc.bloom.intensity) ? std::max(desc.bloom.intensity, 0.0f) : 0.08f;

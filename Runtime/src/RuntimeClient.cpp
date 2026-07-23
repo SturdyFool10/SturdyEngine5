@@ -1,10 +1,15 @@
 #include <Runtime/src/RuntimeClient.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <optional>
 #include <span>
+#include <string>
+#include <vector>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/vec3.hpp>
@@ -44,6 +49,9 @@ namespace SFT::Runtime {
             .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 1.0f)
             .configure_bloom([](Engine::BloomSettings &bloom) { bloom.threshold = 3.20f; })
             .enable(Engine::RenderFeature::DebugOverlay);
+        // Exercise the hardware coverage path in the reference scene; FXAA remains enabled as the
+        // spatial cleanup for shader/specular aliasing that MSAA cannot see.
+        render_graph_.anti_aliasing().msaa_samples = 8;
     }
 
     const Engine::ApplicationConfig &RuntimeClient::application_config() const noexcept {
@@ -311,18 +319,17 @@ namespace SFT::Runtime {
         }
 
         // Always-on debug marker at a light's position: a low-poly (base, unsubdivided) icosphere,
-        // tinted by the light's own radiance (normalized so a bright light doesn't just look white)
+        // tinted by the light's scene-linear radiance so the HDR marker participates in bloom
         // — see RuntimeClient.hpp/EcsRendering.hpp's LightGizmoRenderer doc comment for why this
         // needs its own component/pass rather than reusing ModelRenderer.
         const auto spawn_light_gizmo = [&](glm::vec3 position, glm::vec3 radiance) {
-            const f32 peak = std::max({radiance.r, radiance.g, radiance.b, 0.001f});
             auto model = engine.assets().create_model(Engine::ModelAssetDesc{
                 .label = UString{"light gizmo"_ustr},
                 .primitives = {
                     Engine::ModelPrimitiveDesc{
                         .mesh = RendererApi::Mesh::ico_sphere({.radius = 0.15f, .subdivisions = 0}),
                         .shader = gizmo_shader_,
-                        .vertex_color = glm::vec4{radiance / peak, 1.0f},
+                        .vertex_color = glm::vec4{glm::max(radiance, glm::vec3{0.0f}), 1.0f},
                     },
                 },
             });
@@ -364,6 +371,136 @@ namespace SFT::Runtime {
 #else
         (void)engine;
 #endif
+    }
+
+    namespace {
+
+        [[nodiscard]] std::optional<std::vector<std::byte>> read_file_bytes(const std::string &path) {
+            std::ifstream file(path, std::ios::binary | std::ios::ate);
+            if (!file) {
+                return std::nullopt;
+            }
+            const std::streamsize size = file.tellg();
+            if (size <= 0) {
+                return std::nullopt;
+            }
+            file.seekg(0);
+            std::vector<std::byte> bytes(static_cast<usize>(size));
+            if (!file.read(reinterpret_cast<char *>(bytes.data()), size)) {
+                return std::nullopt;
+            }
+            return bytes;
+        }
+
+    } // namespace
+
+    bool RuntimeClient::ensure_ui_resources(Engine::Engine &engine) {
+        RHI::RhiDevice *device = engine.rhi_device();
+        if (device == nullptr) {
+            return false;
+        }
+        // Matches the debug text overlay's own hardcoded pipeline format
+        // (Renderer::ensure_text_overlay_resources()) — the UI overlay pass, like the debug
+        // overlay pass, always targets the swapchain in its ordinary SDR format.
+        if (!engine.ui_context().ensure_ready(*device, RHI::Format::BGRA8UnormSrgb)) {
+            return false;
+        }
+        if (ui_font_registered_) {
+            return true;
+        }
+
+        // Same bundled-font discovery Renderer's debug text overlay uses
+        // (Renderer/RendererTextOverlay.cpp's build_font_database()/find_default_font_path()).
+        const std::vector<std::string> search_dirs{"Fonts"};
+        const Text::FontDatabase database =
+            Text::FontDatabase::create(std::span<const std::string>{search_dirs.data(), search_dirs.size()});
+        std::optional<std::string> font_path;
+        static const std::array<UString, 3> preferred_families{
+            UString{"Maple Mono NF"_ustr}, UString{"Noto Sans"_ustr}, UString{"DejaVu Sans"_ustr}};
+        for (const UString &family : preferred_families) {
+            if (auto found = database.find(family.as_ustr())) {
+                font_path = found;
+                break;
+            }
+        }
+        if (!font_path && !database.faces().empty()) {
+            font_path = database.faces().front().file_path;
+        }
+        if (!font_path) {
+            Foundation::log_error("Runtime UI demo: no usable font found; skipping the UI overlay.");
+            return false;
+        }
+        std::optional<std::vector<std::byte>> font_bytes = read_file_bytes(*font_path);
+        if (!font_bytes) {
+            Foundation::log_error("Runtime UI demo: failed to read font file {}; skipping the UI overlay.", *font_path);
+            return false;
+        }
+        auto font = Text::Font::load(std::span<const std::byte>{font_bytes->data(), font_bytes->size()});
+        if (!font) {
+            Foundation::log_error("Runtime UI demo: failed to parse font file {}; skipping the UI overlay.", *font_path);
+            return false;
+        }
+        ui_font_ = std::move(*font);
+        engine.ui_context().context().register_font(0, ui_font_);
+        ui_font_registered_ = true;
+        return true;
+    }
+
+    void RuntimeClient::build_demo_ui_panel(Engine::Engine &engine, glm::vec2 viewport_size) {
+        UI::Context &ctx = engine.ui_context().context();
+        ctx.begin_layout(viewport_size, engine.ui_pointer_state().state());
+        {
+            auto panel = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(340.0f), UI::SizingAxis::fixed(180.0f)},
+                .padding = UI::Padding::all(18),
+                .child_gap = 10,
+                .direction = UI::LayoutDirection::TopToBottom,
+                .background_color = UI::Color{18.0f, 22.0f, 30.0f, 232.0f},
+                .corner_radius = UI::CornerRadius::all(14.0f),
+                .border = UI::BorderStyle{.color = UI::Color{90.0f, 150.0f, 230.0f, 255.0f}, .width = UI::BorderWidth::all(2)},
+            });
+            ctx.text("Sturdy UI"_ustr, UI::TextStyle{.color = UI::Color{255.0f, 255.0f, 255.0f, 255.0f}, .font_id = 0, .font_size = 24});
+            ctx.text("Clay layout + batched GPU text/quads"_ustr,
+                     UI::TextStyle{.color = UI::Color{195.0f, 205.0f, 225.0f, 255.0f}, .font_id = 0, .font_size = 14});
+            {
+                auto row = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(56.0f)},
+                    .child_gap = 10,
+                });
+                (void)row;
+                const std::array<UI::Color, 3> swatch_colors{
+                    UI::Color{225.0f, 90.0f, 90.0f, 255.0f},
+                    UI::Color{90.0f, 205.0f, 130.0f, 255.0f},
+                    UI::Color{230.0f, 190.0f, 80.0f, 255.0f},
+                };
+                for (usize i = 0; i < swatch_colors.size(); ++i) {
+                    // Proves out UI::Context::hovered(id)/clicked(id) end to end: clicking a swatch
+                    // "selects" it (a white outline), hovering brightens it — both queried before
+                    // this element() call, per hovered()'s own doc comment on why that ordering works.
+                    const UString swatch_id{std::format("runtime demo swatch {}", i)};
+                    if (ctx.clicked(swatch_id)) {
+                        selected_swatch_ = static_cast<i32>(i);
+                    }
+                    UI::Color fill = swatch_colors[i];
+                    if (ctx.hovered(swatch_id)) {
+                        fill.r = std::min(255.0f, fill.r + 30.0f);
+                        fill.g = std::min(255.0f, fill.g + 30.0f);
+                        fill.b = std::min(255.0f, fill.b + 30.0f);
+                    }
+                    const bool is_selected = selected_swatch_ == static_cast<i32>(i);
+                    auto swatch = ctx.element(UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(56.0f), UI::SizingAxis::fixed(56.0f)},
+                        .background_color = fill,
+                        .corner_radius = UI::CornerRadius::all(10.0f),
+                        .border = is_selected ? UI::BorderStyle{.color = UI::Color{255.0f, 255.0f, 255.0f, 255.0f},
+                                                                .width = UI::BorderWidth::all(3)}
+                                             : UI::BorderStyle{},
+                        .id = swatch_id,
+                    });
+                    (void)swatch;
+                }
+            }
+        }
     }
 
     std::optional<Engine::RenderFrameParameters> RuntimeClient::request_render_frame(
@@ -424,6 +561,20 @@ namespace SFT::Runtime {
         }
         camera_.set_viewport_size(frame.framebuffer_width, frame.framebuffer_height);
 
+        // Builds the UI tree and finishes it into a FrameSnapshot right here, synchronously, on
+        // this (calling) thread — Context's own mutable state (Clay's arena, TextBridge's shape
+        // cache) is not safe to touch from Engine's dedicated render thread, which is where the
+        // ui_overlay hooks below actually run. The snapshot itself is fully self-contained and
+        // owns everything it references, so it's safe to hand off; see UI::Context::finish_frame()
+        // and UI::FrameSnapshot's doc comments.
+        RendererApi::UiOverlayHooks ui_overlay;
+        if (ensure_ui_resources(engine)) {
+            const glm::vec2 viewport_size{static_cast<f32>(frame.framebuffer_width), static_cast<f32>(frame.framebuffer_height)};
+            build_demo_ui_panel(engine, viewport_size);
+            auto snapshot = std::make_shared<UI::FrameSnapshot>(engine.ui_context().context().finish_frame(viewport_size));
+            ui_overlay = engine.ui_context().build_overlay_hooks(snapshot, engine.renderer());
+        }
+
         return Engine::RenderFrameParameters{
             .camera = camera_,
             .lighting = Engine::SceneLighting{
@@ -432,8 +583,14 @@ namespace SFT::Runtime {
             },
             .render_graph = render_graph_,
             .custom_post_processes = std::move(custom_post_processes),
+            .ui_overlay = std::move(ui_overlay),
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
+    }
+
+    void RuntimeClient::on_shutdown(Engine::Engine & /*engine*/) noexcept {
+        // Nothing to do: engine.ui_context() is an Engine-owned resource now (see EcsUi.hpp) —
+        // ~Engine() destroys its GPU resources itself, the same as any other Engine/Renderer state.
     }
 
 } // namespace SFT::Runtime

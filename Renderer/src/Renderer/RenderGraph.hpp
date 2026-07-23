@@ -61,6 +61,7 @@ namespace SFT::Renderer {
         RHI::Format format = RHI::Format::Undefined;
         RHI::Extent3D extent{};
         u32 mip_levels = 1;
+        RHI::SampleCount samples = RHI::SampleCount::X1;
 
         // State at graph entry. Swapchain acquisition commonly starts Undefined; persistent resources will
         // usually enter in ShaderReadOnly/ColorAttachment/etc. The graph tracks from here.
@@ -81,6 +82,9 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle texture{};
         RHI::TextureViewHandle view{}; // null => imported texture default view
         RHI::TextureSubresourceRange subresources{};
+        RenderGraphTextureHandle resolve_texture{};
+        RHI::TextureViewHandle resolve_view{};
+        RHI::TextureSubresourceRange resolve_subresources{};
         RHI::LoadOp load_op = RHI::LoadOp::Clear;
         RHI::StoreOp store_op = RHI::StoreOp::Store;
         RHI::ClearColor clear_color{0.0f, 0.0f, 0.0f, 1.0f};
@@ -90,6 +94,10 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle texture{};
         RHI::TextureViewHandle view{}; // null => imported texture default view
         RHI::TextureSubresourceRange subresources{};
+        RenderGraphTextureHandle resolve_texture{};
+        RHI::TextureViewHandle resolve_view{};
+        RHI::TextureSubresourceRange resolve_subresources{};
+        RHI::ResolveMode depth_resolve_mode = RHI::ResolveMode::Minimum;
         RHI::LoadOp depth_load_op = RHI::LoadOp::Clear;
         RHI::StoreOp depth_store_op = RHI::StoreOp::Store;
         RHI::LoadOp stencil_load_op = RHI::LoadOp::DontCare;

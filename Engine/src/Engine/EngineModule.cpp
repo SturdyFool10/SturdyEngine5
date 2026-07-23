@@ -35,6 +35,10 @@ namespace SFT::Engine {
 
     [[nodiscard]] const WindowState &Engine::window_state() const noexcept { return window_state_; }
 
+    [[nodiscard]] UiContext &Engine::ui_context() noexcept { return ui_context_; }
+
+    [[nodiscard]] const UiPointerState &Engine::ui_pointer_state() const noexcept { return ui_pointer_state_; }
+
     [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &Engine::shaders() const noexcept { return shaders_; }
 
 } // namespace SFT::Engine
