@@ -15,7 +15,10 @@
 # STURDY_RUN launches the built target afterwards (single profile, host-native only).
 # STURDY_RENDERDOC launches it through renderdoccmd, ready for an F12/Print Screen capture, and
 # writes timestamped captures beneath <project-root>/captures (single profile, host-native only).
-# STURDY_TARGET defaults to Runtime.
+# STURDY_TARGET defaults to Runtime. Every configure this script runs also forces
+# STURDY_FETCH_SAMPLE_ASSETS=ON, so an editor's "Run"/"Debug" launch profile always gets Runtime's
+# full demo scene (Sponza geometry + sample-texture-backed UI demo) rather than an empty one — see
+# the configure step's own comment below.
 cmake_minimum_required(VERSION 3.28)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SturdyMatrix.cmake")
@@ -84,7 +87,13 @@ foreach(_profile IN LISTS _profiles)
 
     message(STATUS "==> Configuring ${_preset}")
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" --preset "${_preset}"
+        # STURDY_FETCH_SAMPLE_ASSETS=ON unconditionally: every task in .zed/tasks.json (Compile/
+        # Run/Capture, across every profile) funnels through this one configure step, and without
+        # it Runtime's demo scene silently spawns nothing (Renderables: 0, no Sponza geometry, no
+        # sample-texture-backed UI demo tile) — a "full run" from an editor launch profile should
+        # show the real demo, not a degraded one. CI configures presets directly (never through this
+        # script), so it's unaffected and still never fetches the sample-assets repo.
+        COMMAND "${CMAKE_COMMAND}" --preset "${_preset}" -DSTURDY_FETCH_SAMPLE_ASSETS=ON
         WORKING_DIRECTORY "${_root}"
         RESULT_VARIABLE _configure_result
     )

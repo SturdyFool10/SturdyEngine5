@@ -128,6 +128,7 @@ namespace SFT::Core::Vulkan {
         void destroy_surface(rhi::SurfaceHandle handle) noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SwapchainHandle> create_swapchain(const rhi::SwapchainDesc &desc) override;
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
+        [[nodiscard]] rhi::PresentationResolution presentation_resolution(rhi::SwapchainHandle handle) const noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain) override;
         [[nodiscard]] rhi::RhiExpected<bool> present(const rhi::PresentDesc &desc) override;
 
@@ -237,6 +238,10 @@ namespace SFT::Core::Vulkan {
             u32 acquire_cursor = 0;
             u32 current_image = ~0u;
             bool current_suboptimal = false;
+            // Requested-vs-effective presentation state (RHI::PresentationResolution's own doc
+            // comment) — set once at create_swapchain() time, read back via
+            // VulkanRhiDeviceBridge::presentation_resolution() (e.g. the Renderer debug overlay).
+            rhi::PresentationResolution presentation_resolution{};
         };
 
         friend VkAccelerationStructureGeometryKHR to_vk_geometry(

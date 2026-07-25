@@ -16,6 +16,7 @@
 #include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <Async/src/Async.hpp>
 #pragma endregion
 
@@ -317,6 +318,35 @@ namespace SFT::Renderer {
             vector<RHI::BindGroupHandle> upsample_bind_groups;
         };
 
+        // A single, Renderer-owned (not per-FrameInFlight-ring-slot) Hi-Z pyramid — deliberately not
+        // shaped like FrameBloomTargets/FrameDeferredTargets above, which are per-slot: this needs to
+        // hold *last completed frame's* data specifically (a real "history buffer", one frame stale),
+        // not whichever ring slot happens to be reused this frame (which could be N frames stale with
+        // N desired_frames_in_flight). Rebuilt every frame (Renderer::record_hiz_build,
+        // RendererHiZ.cpp) from that frame's own just-finished resolved depth, for the *next* frame's
+        // Renderer::record_instance_cull occlusion test to read — see gpu_instance_cull.slang's
+        // occlusion test and this frame's "gpu instance cull" pass ordering (RendererLifecycle.cpp)
+        // for why it can't be same-frame data.
+        struct HiZPyramidTargets {
+            // The pyramid texture's OWN mip-0 (base level) extent — half the real resolved depth
+            // extent, not equal to it, since the reduction shader halves its source even for mip 0
+            // (see Renderer::ensure_hiz_pyramid's doc comment, RendererHiZ.cpp). This is what
+            // gpu_instance_cull.slang's `hiZExtent` push constant carries and indexes texels with.
+            Core::Extent2D extent{};
+            u32 mip_levels = 0;
+            RHI::TextureHandle texture{};
+            // One single-mip view per level (reduceMain's destination attachment for that level, and
+            // — for every level but the last — reduceMain's `source` input for the next level up).
+            vector<RHI::TextureViewHandle> mip_views;
+            // Every level in one view, for gpu_instance_cull.slang's `hiZPyramid.Load(int3(xy, mip))`.
+            RHI::TextureViewHandle full_view{};
+            // False until this frame's build pass has actually run once (freshly created, or just
+            // resized/format-changed) — gates the occlusion test off (frustum-only that frame) rather
+            // than reading stale-content-that-was-never-written. See InstanceCullConstants::
+            // cameraPositionHiZValid.w in gpu_instance_cull.slang.
+            bool has_valid_data = false;
+        };
+
         // The bloom-composite output (see record_bloom_composite) is the same logical resource every
         // frame bloom is active — same extent, same format — so like FrameDeferredTargets/
         // FrameBloomTargets it's a persistent, resize-on-demand allocation rather than a
@@ -489,6 +519,17 @@ namespace SFT::Renderer {
             u32 instance_count = 0;
         };
 
+        // What record_instance_cull needs from last frame's Hi-Z pyramid (HiZPyramidTargets) to run
+        // this frame's occlusion test — a plain data snapshot rather than the guarded struct itself,
+        // so record_instance_cull doesn't need to hold hiz_pyramid_'s lock for the whole dispatch loop.
+        struct HiZCullInput {
+            RHI::TextureViewHandle pyramid_view{};
+            u32 extent_width = 0;
+            u32 extent_height = 0;
+            u32 mip_count = 0;
+            bool valid = false;
+        };
+
         // Lazily-built resources for the GPU-driven instanced-batch cull compute pass (Shaders/
         // gpu_instance_cull.slang) and the instanced vertex stage it feeds (Shaders/
         // gbuffer_geometry_instanced.slang) — see instanced_pipeline_for's doc comment for why the
@@ -580,6 +621,24 @@ namespace SFT::Renderer {
             u32 image_binding = 0;
             u32 sampler_binding = 0;
             RHI::Format color_format = RHI::Format::Undefined;
+            bool ready = false;
+        };
+
+        // GPU state for the Hi-Z pyramid's mip-reduction pass (Shaders/hiz_build.slang): one shader
+        // (vertexMain + reduceMain), one bind-group layout (a single Texture2D<float> `source` — no
+        // sampler, reduceMain only ever does point `.Load`s), one pipeline reused for every mip level
+        // and for the first level's real-depth-texture source — see HiZPyramidTargets's doc comment
+        // for why the same reduction logic serves both. Built lazily on first use, same shape as
+        // BloomResources above.
+        struct HiZBuildResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle reduce_module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::RenderPipelineHandle pipeline{};
+            u32 source_binding = 0;
+            RHI::Format color_format = RHI::Format::R32Float;
             bool ready = false;
         };
 
@@ -854,16 +913,44 @@ namespace SFT::Renderer {
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
             RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
 
-        // Records one compute dispatch per batch (frustum cull + compaction) into `pass`, writing
-        // into `resources`' indirect-command/compacted-index buffers — see
+        // Records one compute dispatch per batch (frustum + Hi-Z occlusion cull, plus compaction)
+        // into `pass`, writing into `resources`' indirect-command/compacted-index buffers — see
         // Shaders/gpu_instance_cull.slang's header comment for the buffer protocol. Caller must
         // insert a compute-write -> indirect-draw-read barrier (RenderGraph's compute-pass builder
         // only tracks texture hazards) before any of `record_instanced_batches`'s draws run.
+        // `camera_world_position` and `hiz` feed the occlusion test — see HiZCullInput's own doc
+        // comment; `hiz.valid == false` (first frame / just resized) skips it, frustum-only that
+        // frame, same as before this test existed.
         [[nodiscard]] Core::RendererResult record_instance_cull(RHI::ComputePassEncoder &pass,
                                                                 span<const InstancedBatch> batches,
                                                                 const glm::mat4 &view_projection,
+                                                                const glm::vec3 &camera_world_position,
+                                                                const HiZCullInput &hiz,
                                                                 SceneFrameGpuResources &resources,
                                                                 vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        // ── Hi-Z (hierarchical depth) occlusion culling (RendererHiZ.cpp) ──
+        // Lazily compiles/builds the shared mip-reduction pipeline (Shaders/hiz_build.slang) used by
+        // every level of every frame's pyramid.
+        [[nodiscard]] Core::RendererResult ensure_hiz_build_resources();
+        void destroy_hiz_build_resources() noexcept;
+        void destroy_hiz_pyramid(HiZPyramidTargets &pyramid) noexcept;
+        // (Re)allocates `pyramid` (destroying and recreating on resize/format change, which also
+        // resets `has_valid_data`) so its base level is half of `depth_extent` (the same resolved,
+        // single-sample depth extent record_hiz_build's next call will reduce into it — see
+        // HiZPyramidTargets::extent's own doc comment for why half, not equal) with a full mip chain
+        // down to 1x1.
+        [[nodiscard]] Core::RendererResult ensure_hiz_pyramid(HiZPyramidTargets &pyramid, Core::Extent2D depth_extent);
+        // Records `pyramid.mip_levels` fullscreen reduceMain draws into the render graph: level 0
+        // reduces `depth_view` (the real resolved depth texture, `depth_extent`-sized) into pyramid
+        // mip 0; level K>0 reduces pyramid mip K-1 into mip K. Called once per frame, right after the
+        // "deferred gbuffer geometry" pass (once depth is final) — see RendererLifecycle.cpp's call
+        // site for why there and not earlier. Sets `pyramid.has_valid_data = true` once recorded, for
+        // *next* frame's record_instance_cull to consume.
+        [[nodiscard]] Core::RendererResult record_hiz_build(RenderGraph &graph, RenderGraphTextureHandle depth_texture,
+                                                             RHI::TextureViewHandle depth_view, Core::Extent2D depth_extent,
+                                                             RenderGraphTextureHandle pyramid_texture, HiZPyramidTargets &pyramid,
+                                                             vector<RHI::BindGroupHandle> &transient_bind_groups);
 
         // Records one draw_indexed_indirect per batch into `pass`, consuming the buffers
         // record_instance_cull wrote (after the caller's barrier). Every batch shares the material
@@ -1122,6 +1209,9 @@ namespace SFT::Renderer {
         // instanced_pipeline_for()'s per-template cache, same rationale/shape as
         // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
         Async::Mutex<std::unordered_map<u64, InstancedTemplateResources>> instanced_pipeline_variants_;
+        Async::Mutex<HiZBuildResources> hiz_build_;
+        // Not per-FrameInFlight-ring-slot — see HiZPyramidTargets's own doc comment for why.
+        Async::Mutex<HiZPyramidTargets> hiz_pyramid_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

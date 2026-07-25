@@ -12,6 +12,8 @@
 #include <mutex>
 #include <new>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 #pragma endregion
@@ -209,6 +211,29 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    std::string SDL3Window::clipboard_text() const noexcept {
+        if (!SDL_HasClipboardText()) {
+            return {};
+        }
+        char *text = SDL_GetClipboardText();
+        if (!text) {
+            return {};
+        }
+        std::string result(text);
+        SDL_free(text);
+        return result;
+    }
+
+    expected<void, WindowError> SDL3Window::set_clipboard_text(std::string_view text) noexcept {
+        // SDL_SetClipboardText requires a NUL-terminated C string; `text` (a view) isn't
+        // guaranteed to be one, so it's copied into an owned buffer first.
+        const std::string owned(text);
+        if (!SDL_SetClipboardText(owned.c_str())) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_SetClipboardText failed."));
+        }
+        return {};
+    }
+
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         const lock_guard lock(sdl_window_mutex());
 
@@ -263,6 +288,19 @@ namespace SFT::Platform::Windowing::SDL3 {
                 SDL_DestroyWindow(window);
                 return unexpected(error);
             }
+        }
+
+        // SDL3 does not deliver SDL_EVENT_TEXT_INPUT at all until text input is explicitly started
+        // for the window (mobile OSes use this to gate on-screen keyboard/IME popups) — without
+        // this, WindowTextInputEvent/Engine::TextInputEvent silently never fire, which is exactly
+        // what any text-editing UI (UI::text_input()/text_area()) needs to receive typed
+        // characters. Started unconditionally for the window's whole lifetime rather than only
+        // while some UI text field has focus: this engine has no cross-package channel from "a
+        // UI::TextEditState became focused" back to Platform::Windowing::Window, and every desktop
+        // platform's SDL3 backend treats this as a cheap no-op change of internal state (unlike
+        // mobile, there's no on-screen keyboard for it to summon).
+        if (!SDL_StartTextInput(window)) [[unlikely]] {
+            Foundation::log_error("SDL3 SDL_StartTextInput failed for window '{}': {}", config.title, SDL_GetError());
         }
 
         SDL3Window *raw_wrapper = nullptr;

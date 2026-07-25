@@ -65,6 +65,8 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(window_state_);
         ecs_world_.bind_resource(ui_pointer_state_);
         ecs_world_.bind_resource(ui_context_);
+        ecs_world_.bind_resource(ui_image_cache_);
+        ecs_world_.bind_resource(ui_svg_cache_);
 
         update_schedule_.add_system(
             [](Ecs::WriteResource<PlatformEventInbox> inbox,
@@ -130,7 +132,8 @@ namespace SFT::Engine {
         update_schedule_.add_system(
             [](Ecs::WriteResource<UiPointerState> pointer,
                Ecs::EventReader<MouseMoveEvent> mouse_move,
-               Ecs::EventReader<MouseButtonEvent> mouse_button) noexcept {
+               Ecs::EventReader<MouseButtonEvent> mouse_button,
+               Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
                 for (const MouseMoveEvent &event : mouse_move.read()) {
                     pointer->set_position({event.mouse.x, event.mouse.y});
                 }
@@ -139,6 +142,9 @@ namespace SFT::Engine {
                     if (event.mouse.button == left_mouse_button) {
                         pointer->set_down(event.action == ButtonAction::Pressed);
                     }
+                }
+                for (const MouseWheelEvent &event : mouse_wheel.read()) {
+                    pointer->add_scroll_delta({event.wheel.x, event.wheel.y});
                 }
             });
     }
@@ -249,8 +255,10 @@ namespace SFT::Engine {
                                                   (!static_cast<bool>(new_presentation.hdr_enabled) || !hdr_colorspace_enabled || !hdr_metadata_enabled);
 
         const bool presentation_changed =
-            static_cast<bool>(old_presentation.vsync) != static_cast<bool>(new_presentation.vsync) ||
-            old_presentation.present_mode != new_presentation.present_mode ||
+            old_presentation.vsync != new_presentation.vsync ||
+            old_presentation.variable_refresh != new_presentation.variable_refresh ||
+            old_presentation.latency != new_presentation.latency ||
+            old_presentation.preference != new_presentation.preference ||
             old_presentation.swapchain_image_count != new_presentation.swapchain_image_count ||
             (hdr_changed && !hdr_requires_backend_rebuild);
 

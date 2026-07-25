@@ -196,8 +196,16 @@ namespace SFT::Renderer {
             }
         }
 
+        // One tile has no nested clip regions of its own (it's a single fixed-size render target),
+        // so every glyph gets the same full-tile scissor and paint group (0 — no interleaving
+        // concept here either).
+        const vector<RHI::Rect2D> scissors(
+            instances.size(), RHI::Rect2D{.x = 0, .y = 0, .width = tile_size_, .height = tile_size_});
+        const vector<u32> paint_groups(instances.size(), 0);
         vector<TextDrawBatch> batches;
-        if (auto prepared = pipeline_->prepare(device, *atlas_, instances, slots, tile.text_resources, batches); !prepared) {
+        if (auto prepared = pipeline_->prepare(device, *atlas_, instances, slots, scissors, paint_groups,
+                                               tile.text_resources, batches);
+            !prepared) {
             return unexpected(prepared.error());
         }
 

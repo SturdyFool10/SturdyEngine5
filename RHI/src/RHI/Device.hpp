@@ -270,6 +270,13 @@ namespace SFT::RHI {
         [[nodiscard]] virtual RhiExpected<SwapchainHandle> create_swapchain(const SwapchainDesc &desc) = 0;
         virtual void destroy_swapchain(SwapchainHandle handle) noexcept = 0;
 
+        // Requested-vs-effective presentation state for `handle`, set the last time it was (re)built
+        // by create_swapchain() — see PresentationResolution's own doc comment (Swapchain.hpp) for
+        // why this exists (diagnostics: never let a debug overlay/support report silently repeat the
+        // requested strategy when the surface actually forced a fallback). Returns a default-
+        // constructed PresentationResolution for an unknown/already-destroyed handle.
+        [[nodiscard]] virtual PresentationResolution presentation_resolution(SwapchainHandle handle) const noexcept = 0;
+
         // Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
         // caller to recreate the swapchain.
         [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain) = 0;

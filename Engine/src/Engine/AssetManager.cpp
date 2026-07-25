@@ -725,6 +725,17 @@ namespace SFT::Engine {
         return data->info;
     }
 
+    AssetExpected<SFT::Renderer::TextureHandle> AssetManager::texture_handle(Asset asset) const {
+        std::shared_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(asset);
+        const auto *data = record ? std::get_if<Impl::TextureData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "texture_handle requires a live texture asset."));
+        }
+        return data->texture;
+    }
+
     AssetExpected<SoundAssetInfo> AssetManager::sound_info(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);

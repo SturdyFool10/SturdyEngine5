@@ -58,17 +58,93 @@ namespace SFT::Core {
         string message;
     };
 
+    // Engine-facing presentation intent — what an app/settings menu actually expresses, kept
+    // entirely free of Vulkan present-mode enums (see RHI::PresentStrategy/RHI::PresentMode,
+    // RHI/Swapchain.hpp) so gameplay code and ordinary player settings never have to know what a
+    // "Fifo" or "Mailbox" even is. resolve_present_strategy() below is the one place these four
+    // fields get interpreted together into the backend-agnostic RHI::PresentStrategy the RHI layer
+    // actually resolves against real surface support.
+    enum class VSyncMode : u8 {
+        Off,      // Uncapped framerate, lowest latency; tearing is acceptable.
+        On,       // Never tear; synchronize to the display refresh.
+        Adaptive, // Tear-free while frames arrive on time; tear rather than stall an extra refresh
+                  // interval when a frame is late (the classic driver "Adaptive Sync" toggle).
+                  // Distinct from VariableRefreshMode below — see its own doc comment.
+    };
+
+    enum class VariableRefreshMode : u8 {
+        Disabled,
+        // Use VRR when the display stack is capable, without the app doing anything special beyond
+        // requesting it — a VRR-capable display/compositor engages it on its own; if it doesn't
+        // engage at all, presentation still behaves like ordinary synchronized Fifo (see
+        // RHI::PresentStrategy::VariableRefresh's own doc comment: VRR is a display/compositor
+        // pacing behavior, not a distinct Vulkan present mode).
+        Automatic,
+        // Same as Automatic today — no separate Vulkan-level lever exists to prefer VRR more
+        // aggressively. Kept as its own value so a future platform-specific VRR hint (display mode
+        // selection, refresh-range negotiation) has somewhere to plug in without another public API
+        // change.
+        Preferred,
+    };
+
+    enum class LatencyMode : u8 {
+        Normal,
+        Low,
+        Ultra,
+    };
+
+    enum class PresentationPreference : u8 {
+        Automatic,
+        LowestLatency,
+        Smoothest,
+        PowerEfficient,
+    };
+
     struct PresentationSettings {
-        // True prefers non-tearing presentation. Mailbox is the default because it keeps vsync while
-        // dropping stale frames, which gives smoother resize/latency than strict FIFO when supported.
-        b8 vsync = true;
-        RHI::PresentMode present_mode = RHI::PresentMode::Mailbox;
+        VSyncMode vsync = VSyncMode::On;
+        // Defaults to Disabled, not Automatic: resolve_present_strategy() below gives variable
+        // refresh priority over vsync/latency/preference entirely (it's a different axis), so
+        // defaulting this to anything other than Disabled would silently ignore whatever the app
+        // set vsync/latency to. An app opts into VRR-priority behavior explicitly.
+        VariableRefreshMode variable_refresh = VariableRefreshMode::Disabled;
+        LatencyMode latency = LatencyMode::Normal;
+        PresentationPreference preference = PresentationPreference::Automatic;
         // Requests an HDR-capable presentation path. Backends should rebuild the swapchain/device as needed
         // and report Unsupported only when the OS/display/API genuinely cannot expose HDR.
         b8 hdr_enabled = false;
         // 0 = renderer/backend chooses. Non-zero is clamped by the backend/surface capabilities.
         u32 swapchain_image_count = 0;
     };
+
+    // Turns an app's presentation intent into the backend-agnostic RHI::PresentStrategy the RHI
+    // layer resolves against real surface support (RHI::choose_present_mode(), RHI/Swapchain.hpp).
+    // Variable refresh takes priority over vsync/latency/preference entirely — it's a different
+    // axis (display pacing, not present-mode choice), so a VRR request short-circuits the rest.
+    [[nodiscard]] inline RHI::PresentStrategy resolve_present_strategy(const PresentationSettings &settings) noexcept {
+        if (settings.variable_refresh != VariableRefreshMode::Disabled) {
+            return RHI::PresentStrategy::VariableRefresh;
+        }
+        switch (settings.vsync) {
+            case VSyncMode::Off:
+                return RHI::PresentStrategy::Unsynchronized;
+            case VSyncMode::Adaptive:
+                return RHI::PresentStrategy::AdaptiveTearing;
+            case VSyncMode::On: {
+                // RHI::PresentStrategy::TearFreeLatestReady (the present-timing-refined variant of
+                // this same low-latency intent) isn't reachable from here yet: it needs real
+                // presentation-timing support (RHI::Feature::PresentTiming/PresentId/PresentWait
+                // are named capabilities but nothing queries/enables them anywhere yet) to be worth
+                // distinguishing from TearFreeLatest — until then TearFreeLatest's own preference
+                // list already tries FifoLatestReady before Mailbox (RHI/Swapchain.hpp), so the
+                // "is latest-ready actually supported" question is still answered, just without the
+                // extra timing refinement.
+                const bool wants_low_latency = settings.latency != LatencyMode::Normal ||
+                    settings.preference == PresentationPreference::LowestLatency;
+                return wants_low_latency ? RHI::PresentStrategy::TearFreeLatest : RHI::PresentStrategy::TearFreeOrdered;
+            }
+        }
+        return RHI::PresentStrategy::TearFreeOrdered;
+    }
 
     // The engine asks for what it wants; the backend grants what it can and reports truth via
     // RendererCapabilities and RHI's FeatureNegotiationReport. Requesting raytracing does not

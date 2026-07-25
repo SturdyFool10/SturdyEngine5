@@ -220,11 +220,14 @@ namespace SFT::UI {
     Core::RendererResult UiQuadPipeline::prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                  span<const RHI::TextureViewHandle> instance_texture_views,
                                                  span<const RHI::Rect2D> instance_scissors,
+                                                 span<const u32> instance_paint_groups,
                                                  UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches) {
         out_batches.clear();
-        if (instances.size() != instance_texture_views.size() || instances.size() != instance_scissors.size()) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "UiQuadPipeline::prepare: instance/texture-view/scissor counts must match.");
+        if (instances.size() != instance_texture_views.size() || instances.size() != instance_scissors.size() ||
+            instances.size() != instance_paint_groups.size()) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "UiQuadPipeline::prepare: instance/texture-view/scissor/paint-group counts must match.");
         }
         if (instances.empty()) {
             return {};
@@ -234,7 +237,8 @@ namespace SFT::UI {
         while (i < instances.size()) {
             usize j = i + 1;
             while (j < instances.size() && instance_texture_views[j] == instance_texture_views[i] &&
-                   same_rect(instance_scissors[j], instance_scissors[i])) {
+                   same_rect(instance_scissors[j], instance_scissors[i]) &&
+                   instance_paint_groups[j] == instance_paint_groups[i]) {
                 ++j;
             }
             out_batches.push_back(UiQuadDrawBatch{
@@ -242,6 +246,7 @@ namespace SFT::UI {
                 .scissor = instance_scissors[i],
                 .first_instance = static_cast<u32>(i),
                 .instance_count = static_cast<u32>(j - i),
+                .paint_group = instance_paint_groups[i],
             });
             i = j;
         }

@@ -246,9 +246,14 @@ namespace SFT::Renderer {
                 }
             }
         }
+        const RHI::Rect2D full_target_scissor{
+            .x = 0, .y = 0, .width = static_cast<u32>(viewport_size_px.x), .height = static_cast<u32>(viewport_size_px.y)};
+
         if (layout_matches) {
-            return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances,
-                                           cached_layout.slots, frame_resources, out_batches);
+            const vector<RHI::Rect2D> scissors(cached_layout.instances.size(), full_target_scissor);
+            const vector<u32> paint_groups(cached_layout.instances.size(), 0);
+            return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances, cached_layout.slots,
+                                           scissors, paint_groups, frame_resources, out_batches);
         }
 
         const Text::FontStack fonts{
@@ -400,8 +405,10 @@ namespace SFT::Renderer {
         cached_layout.instances = std::move(instances);
         cached_layout.valid = true;
 
-        return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances,
-                                       cached_layout.slots, frame_resources, out_batches);
+        const vector<RHI::Rect2D> scissors(cached_layout.instances.size(), full_target_scissor);
+        const vector<u32> paint_groups(cached_layout.instances.size(), 0);
+        return guard->pipeline.prepare(*device, guard->atlas, cached_layout.instances, cached_layout.slots, scissors,
+                                       paint_groups, frame_resources, out_batches);
     }
 
     Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,

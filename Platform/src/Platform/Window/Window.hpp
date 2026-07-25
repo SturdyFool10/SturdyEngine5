@@ -10,6 +10,8 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -410,6 +412,17 @@ namespace SFT::Platform::Windowing {
         // window->set_repaint_callback({});   // clear it
         // ```
         virtual void set_repaint_callback(std::function<void()> /*callback*/) noexcept;
+
+        // Reads the OS clipboard's text contents (UTF-8) — empty if the clipboard is empty, holds
+        // non-text data, or the read fails; callers can't distinguish those cases (no backend
+        // exposes clipboard-format queries uniformly). Clipboard state is process-global, not
+        // per-window, same as on every desktop OS — this is still a Window method rather than a
+        // free function so call sites already holding a Window* don't need a second global handle,
+        // matching every other capability query here.
+        [[nodiscard]] virtual std::string clipboard_text() const noexcept = 0;
+
+        // Writes `text` (UTF-8) to the OS clipboard, replacing its current contents.
+        virtual expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept = 0;
 
       private:
         WindowId id_;

@@ -1102,4 +1102,17 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    std::string GLFWWindow::clipboard_text() const noexcept {
+        const char *text = glfwGetClipboardString(window_);
+        return text ? std::string(text) : std::string();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_clipboard_text(std::string_view text) noexcept {
+        // glfwSetClipboardString requires a NUL-terminated C string; `text` (a view) isn't
+        // guaranteed to be one, so it's copied into an owned buffer first.
+        const std::string owned(text);
+        glfwSetClipboardString(window_, owned.c_str());
+        return {};
+    }
+
 } // namespace SFT::Platform::Windowing::GLFW

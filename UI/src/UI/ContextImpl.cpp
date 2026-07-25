@@ -21,8 +21,17 @@ namespace SFT::UI {
 
     namespace {
 
+        // Clay never interprets Clay_Color's numeric values itself (see Style.hpp's own doc comment
+        // on UI::Color) — it just carries them opaquely through render commands — so this packs
+        // Foundation::Color::Srgb's [0,1] channels straight in, with no *255 round-trip. The matching
+        // unpack (clay_color_to_linear() below) is where the real conversion work happens.
         [[nodiscard]] Clay_Color to_clay_color(const Color &color) noexcept {
-            return Clay_Color{.r = color.r, .g = color.g, .b = color.b, .a = color.a};
+            return Clay_Color{
+                .r = static_cast<f32>(color.r),
+                .g = static_cast<f32>(color.g),
+                .b = static_cast<f32>(color.b),
+                .a = static_cast<f32>(color.a),
+            };
         }
 
         [[nodiscard]] Clay_CornerRadius to_clay_corner_radius(const CornerRadius &radius) noexcept {
@@ -89,7 +98,30 @@ namespace SFT::UI {
             };
         }
 
-        [[nodiscard]] Clay_ElementDeclaration to_clay_declaration(const ElementDecl &decl, void *user_data) noexcept {
+        [[nodiscard]] Clay_FloatingAttachPointType to_clay_attach_point(FloatingAttachPoint point) noexcept {
+            switch (point) {
+                case FloatingAttachPoint::LeftTop: return CLAY_ATTACH_POINT_LEFT_TOP;
+                case FloatingAttachPoint::LeftCenter: return CLAY_ATTACH_POINT_LEFT_CENTER;
+                case FloatingAttachPoint::LeftBottom: return CLAY_ATTACH_POINT_LEFT_BOTTOM;
+                case FloatingAttachPoint::CenterTop: return CLAY_ATTACH_POINT_CENTER_TOP;
+                case FloatingAttachPoint::CenterCenter: return CLAY_ATTACH_POINT_CENTER_CENTER;
+                case FloatingAttachPoint::CenterBottom: return CLAY_ATTACH_POINT_CENTER_BOTTOM;
+                case FloatingAttachPoint::RightTop: return CLAY_ATTACH_POINT_RIGHT_TOP;
+                case FloatingAttachPoint::RightCenter: return CLAY_ATTACH_POINT_RIGHT_CENTER;
+                case FloatingAttachPoint::RightBottom: return CLAY_ATTACH_POINT_RIGHT_BOTTOM;
+            }
+            return CLAY_ATTACH_POINT_LEFT_TOP;
+        }
+
+        // `z` is this element's *effective* depth (ElementDecl::z resolved against Context::
+        // z_stack_ — see element()'s own doc comment) — packed directly into the pointer bits of
+        // Clay_ElementDeclaration::userData (round-trips exactly, i32 always fits in intptr_t/
+        // void* on every platform this engine targets) rather than through a heap-allocated
+        // pointer, since it's the one piece of Context-owned per-element data every element needs
+        // (unlike ImageRef*/CustomShaderRef*, which already have their own dedicated
+        // Clay_ImageElementConfig::imageData/Clay_CustomElementConfig::customData slots and never
+        // touch userData at all — see image()/svg()/custom_element()'s own comments).
+        [[nodiscard]] Clay_ElementDeclaration to_clay_declaration(const ElementDecl &decl, i32 z) noexcept {
             Clay_ElementDeclaration result{};
             result.layout.sizing = Clay_Sizing{
                 .width = to_clay_sizing_axis(decl.sizing.width),
@@ -111,15 +143,54 @@ namespace SFT::UI {
             result.clip = Clay_ClipElementConfig{
                 .horizontal = decl.clip.horizontal,
                 .vertical = decl.clip.vertical,
-                .childOffset = Clay_Vector2{.x = decl.clip.child_offset.x, .y = decl.clip.child_offset.y},
+                // Left zeroed here; Context::element() overwrites this with Clay_GetScrollOffset()
+                // for any element with clip enabled, once it's open (see element()'s own comment).
             };
             if (decl.id.size() != 0) {
                 const string_view id_view = decl.id.cpp_string_view();
                 result.id = Clay_GetElementId(
                     Clay_String{.isStaticallyAllocated = false, .length = static_cast<i32>(id_view.size()), .chars = id_view.data()});
             }
-            result.userData = user_data;
+            if (decl.floating.attach_to != FloatingAttachTo::None) {
+                Clay_FloatingAttachToElement attach_to = CLAY_ATTACH_TO_NONE;
+                u32 parent_id = 0;
+                switch (decl.floating.attach_to) {
+                    case FloatingAttachTo::None: break;
+                    case FloatingAttachTo::Parent: attach_to = CLAY_ATTACH_TO_PARENT; break;
+                    case FloatingAttachTo::Root: attach_to = CLAY_ATTACH_TO_ROOT; break;
+                    case FloatingAttachTo::ElementWithId: {
+                        attach_to = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
+                        const string_view parent_id_view = decl.floating.parent_id.cpp_string_view();
+                        parent_id = Clay_GetElementId(Clay_String{.isStaticallyAllocated = false,
+                                                                  .length = static_cast<i32>(parent_id_view.size()),
+                                                                  .chars = parent_id_view.data()})
+                                       .id;
+                        break;
+                    }
+                }
+                result.floating = Clay_FloatingElementConfig{
+                    .offset = Clay_Vector2{.x = decl.floating.offset.x, .y = decl.floating.offset.y},
+                    .expand = Clay_Dimensions{},
+                    .parentId = parent_id,
+                    .zIndex = decl.floating.z_index,
+                    .attachPoints = Clay_FloatingAttachPoints{
+                        .element = to_clay_attach_point(decl.floating.element_attach_point),
+                        .parent = to_clay_attach_point(decl.floating.parent_attach_point),
+                    },
+                    .pointerCaptureMode = decl.floating.capture_pointer ? CLAY_POINTER_CAPTURE_MODE_CAPTURE
+                                                                        : CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
+                    .attachTo = attach_to,
+                    .clipTo = CLAY_CLIP_TO_NONE,
+                };
+            }
+            result.userData = reinterpret_cast<void *>(static_cast<intptr_t>(z));
             return result;
+        }
+
+        // Unpacks what to_clay_declaration()/text()'s Clay_TextElementConfig::userData packed —
+        // the inverse of the reinterpret_cast<void*> above.
+        [[nodiscard]] i32 unpack_z(void *user_data) noexcept {
+            return static_cast<i32>(reinterpret_cast<intptr_t>(user_data));
         }
 
         [[nodiscard]] Clay_TextElementConfigWrapMode to_clay_wrap_mode(TextWrapMode mode) noexcept {
@@ -140,9 +211,9 @@ namespace SFT::UI {
             return CLAY_TEXT_ALIGN_LEFT;
         }
 
-        [[nodiscard]] Clay_TextElementConfig to_clay_text_config(const TextStyle &style) noexcept {
+        [[nodiscard]] Clay_TextElementConfig to_clay_text_config(const TextStyle &style, i32 z) noexcept {
             return Clay_TextElementConfig{
-                .userData = nullptr,
+                .userData = reinterpret_cast<void *>(static_cast<intptr_t>(z)),
                 .textColor = to_clay_color(style.color),
                 .fontId = style.font_id,
                 .fontSize = style.font_size,
@@ -160,15 +231,20 @@ namespace SFT::UI {
 
     } // namespace
 
-    ElementScope::ElementScope(ElementScope &&other) noexcept : context_(std::exchange(other.context_, nullptr)) {}
+    ElementScope::ElementScope(ElementScope &&other) noexcept
+        : context_(std::exchange(other.context_, nullptr)), z_stack_(std::exchange(other.z_stack_, nullptr)) {}
 
     ElementScope &ElementScope::operator=(ElementScope &&other) noexcept {
         if (this != &other) {
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
                 Clay__CloseElement();
+                if (z_stack_ != nullptr && z_stack_->size() > 1) {
+                    z_stack_->pop_back();
+                }
             }
             context_ = std::exchange(other.context_, nullptr);
+            z_stack_ = std::exchange(other.z_stack_, nullptr);
         }
         return *this;
     }
@@ -177,6 +253,9 @@ namespace SFT::UI {
         if (context_ != nullptr) {
             Clay_SetCurrentContext(context_);
             Clay__CloseElement();
+            if (z_stack_ != nullptr && z_stack_->size() > 1) {
+                z_stack_->pop_back();
+            }
         }
     }
 
@@ -186,9 +265,11 @@ namespace SFT::UI {
           text_bridge_(std::move(other.text_bridge_)),
           text_storage_(std::move(other.text_storage_)),
           image_storage_(std::move(other.image_storage_)),
+          custom_storage_(std::move(other.custom_storage_)),
           outline_cache_(std::move(other.outline_cache_)),
           pointer_down_(other.pointer_down_),
-          pointer_pressed_this_frame_(other.pointer_pressed_this_frame_) {
+          pointer_pressed_this_frame_(other.pointer_pressed_this_frame_),
+          z_stack_(std::move(other.z_stack_)) {
         // Clay_Initialize() stamped `&other.text_bridge_` into its measure-text userData; that
         // address is now stale (text_bridge_ just moved to a new home), so re-install it.
         if (context_ != nullptr) {
@@ -205,9 +286,11 @@ namespace SFT::UI {
             text_bridge_ = std::move(other.text_bridge_);
             text_storage_ = std::move(other.text_storage_);
             image_storage_ = std::move(other.image_storage_);
+            custom_storage_ = std::move(other.custom_storage_);
             outline_cache_ = std::move(other.outline_cache_);
             pointer_down_ = other.pointer_down_;
             pointer_pressed_this_frame_ = other.pointer_pressed_this_frame_;
+            z_stack_ = std::move(other.z_stack_);
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
                 Clay_SetMeasureTextFunction(&TextBridge::measure_callback, &text_bridge_);
@@ -250,11 +333,17 @@ namespace SFT::UI {
         text_bridge_.register_font(font_id, font, emoji_fallback);
     }
 
-    void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer) {
+    void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer, f32 delta_seconds) {
         set_current();
         text_bridge_.begin_frame();
         text_storage_.clear();
         image_storage_.clear();
+        custom_storage_.clear();
+        // Every element()/custom_element() ElementScope pops what it pushed, so this is already
+        // back to {0} by the end of a well-formed frame — reset explicitly anyway so a leaked scope
+        // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
+        // a later frame permanently stuck at some stale nonzero z.
+        z_stack_.assign(1, 0);
         Clay_SetLayoutDimensions(Clay_Dimensions{.width = viewport_size.x, .height = viewport_size.y});
         // Must run before Clay_BeginLayout(): it hit-tests against last frame's still-committed
         // layout tree, which is exactly what makes hovered(id)/clicked(id) answerable before this
@@ -262,14 +351,32 @@ namespace SFT::UI {
         pointer_pressed_this_frame_ = pointer.down && !pointer_down_;
         pointer_down_ = pointer.down;
         Clay_SetPointerState(Clay_Vector2{.x = pointer.position.x, .y = pointer.position.y}, pointer.down);
+        // Also needs last frame's committed scroll-container list (same reason it runs before
+        // Clay_BeginLayout()); updates whichever container the pointer above is currently over, read
+        // back by element() below via Clay_GetScrollOffse4t().
+        Clay_UpdateScrollContainers(true, Clay_Vector2{.x = pointer.scroll_delta.x, .y = pointer.scroll_delta.y},
+                                    delta_seconds);
         Clay_BeginLayout();
     }
 
     ElementScope Context::element(const ElementDecl &decl) {
         set_current();
+        // 0 means "inherit" (see ElementDecl::z's own doc comment, Style.hpp) — every element
+        // pushes its own *effective* z so text()/image()/svg()/nested element() calls made while
+        // this one is open (i.e. before its ElementScope is destroyed) inherit it in turn.
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        z_stack_.push_back(effective_z);
         Clay__OpenElement();
-        Clay__ConfigureOpenElement(to_clay_declaration(decl, nullptr));
-        return ElementScope{context_};
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        if (decl.clip.horizontal || decl.clip.vertical) {
+            // Clay__OpenElement() above already pushed this element, which is what
+            // Clay_GetScrollOffset() keys off of (it reads whatever's currently open) — mirrors how
+            // Clay's own examples wire wheel-driven scrolling (`.childOffset = Clay_GetScrollOffset()`
+            // inside the CLAY() declaration macro).
+            declaration.clip.childOffset = Clay_GetScrollOffset();
+        }
+        Clay__ConfigureOpenElement(declaration);
+        return ElementScope{context_, &z_stack_};
     }
 
     void Context::text(const ustr &content, const TextStyle &style) {
@@ -286,7 +393,9 @@ namespace SFT::UI {
         // whatever CLAY_TEXT_CONFIG()/Clay__StoreTextElementConfig() already copied into Clay's own
         // arena-backed textElementConfigs array (see clay.h). A stack-local config here would leave
         // that pointer dangling by the time Clay_EndLayout() reads it back for render commands.
-        Clay_TextElementConfig *config = Clay__StoreTextElementConfig(to_clay_text_config(style));
+        // Text has no z of its own (TextStyle carries none) — it always inherits whichever element
+        // currently encloses it.
+        Clay_TextElementConfig *config = Clay__StoreTextElementConfig(to_clay_text_config(style, z_stack_.back()));
         Clay__OpenTextElement(clay_string, config);
     }
 
@@ -294,11 +403,30 @@ namespace SFT::UI {
         set_current();
         image_storage_.push_back(ImageRef{.texture = texture});
         ImageRef *stored = &image_storage_.back();
-        Clay_ElementDeclaration declaration = to_clay_declaration(decl, stored);
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
         declaration.image = Clay_ImageElementConfig{.imageData = stored};
         Clay__OpenElement();
         Clay__ConfigureOpenElement(declaration);
         Clay__CloseElement();
+    }
+
+    void Context::svg(const ElementDecl &decl, Renderer::TextureHandle texture) { image(decl, texture); }
+
+    ElementScope Context::custom_element(const ElementDecl &decl, const CustomShaderRef &shader) {
+        set_current();
+        custom_storage_.push_back(shader);
+        CustomShaderRef *stored = &custom_storage_.back();
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        z_stack_.push_back(effective_z);
+        Clay__OpenElement();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        if (decl.clip.horizontal || decl.clip.vertical) {
+            declaration.clip.childOffset = Clay_GetScrollOffset();
+        }
+        declaration.custom = Clay_CustomElementConfig{.customData = stored};
+        Clay__ConfigureOpenElement(declaration);
+        return ElementScope{context_, &z_stack_};
     }
 
     bool Context::hovered(const UString &id) const noexcept {
@@ -316,10 +444,83 @@ namespace SFT::UI {
 
     bool Context::pointer_down(const UString &id) const noexcept { return pointer_down_ && hovered(id); }
 
+    bool Context::pointer_over_any() const noexcept {
+        if (context_ == nullptr) {
+            return false;
+        }
+        set_current();
+        return Clay_GetPointerOverIds().length > 0;
+    }
+
+    bool Context::clicked_outside(const UString &id) const noexcept {
+        return pointer_pressed_this_frame_ && !hovered(id);
+    }
+
+    namespace {
+        [[nodiscard]] Clay_ElementId to_clay_element_id(const UString &id) noexcept {
+            const string_view id_view = id.cpp_string_view();
+            return Clay_GetElementId(
+                Clay_String{.isStaticallyAllocated = false, .length = static_cast<i32>(id_view.size()), .chars = id_view.data()});
+        }
+    } // namespace
+
+    bool Context::scroll_into_view(const UString &container_id, const UString &target_id) noexcept {
+        if (context_ == nullptr || container_id.size() == 0 || target_id.size() == 0) {
+            return false;
+        }
+        set_current();
+
+        const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(to_clay_element_id(container_id));
+        if (!scroll.found || scroll.scrollPosition == nullptr) {
+            return false;
+        }
+        const Clay_ElementData container = Clay_GetElementData(to_clay_element_id(container_id));
+        const Clay_ElementData target = Clay_GetElementData(to_clay_element_id(target_id));
+        if (!container.found || !target.found) {
+            return false;
+        }
+
+        // Clamps `*axis` so the container's own scroll range (never positive, never further back
+        // than its content overhangs the container) is respected regardless of how far this nudge
+        // pushed it — mirrors Clay__UpdateScrollContainers' own clamping (clay.h), which a manual
+        // scrollPosition write like this one bypasses otherwise.
+        const auto nudge_axis = [](f32 &position, f32 target_min, f32 target_max, f32 container_min,
+                                    f32 container_max, f32 content_size, f32 container_size) noexcept {
+            if (target_min < container_min) {
+                position += container_min - target_min;
+            } else if (target_max > container_max) {
+                position -= target_max - container_max;
+            }
+            const f32 min_position = std::min(0.0f, container_size - content_size);
+            position = std::clamp(position, min_position, 0.0f);
+        };
+
+        if (scroll.config.horizontal) {
+            nudge_axis(scroll.scrollPosition->x, target.boundingBox.x, target.boundingBox.x + target.boundingBox.width,
+                      container.boundingBox.x, container.boundingBox.x + container.boundingBox.width,
+                      scroll.contentDimensions.width, scroll.scrollContainerDimensions.width);
+        }
+        if (scroll.config.vertical) {
+            nudge_axis(scroll.scrollPosition->y, target.boundingBox.y, target.boundingBox.y + target.boundingBox.height,
+                      container.boundingBox.y, container.boundingBox.y + container.boundingBox.height,
+                      scroll.contentDimensions.height, scroll.scrollContainerDimensions.height);
+        }
+        return true;
+    }
+
     namespace {
 
-        [[nodiscard]] glm::vec4 clay_color_to_unit(Clay_Color color) noexcept {
-            return glm::vec4{color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f};
+        // Every color reaching the GPU (quad fill/border, glyph fill) goes through here — converts
+        // the [0,1] sRGB channels to_clay_color() packed (see its own doc comment) to linear, since
+        // the swapchain target is an *Srgb format that re-encodes on write; feeding it already-sRGB
+        // numbers directly (the previous naive /255-only unpack this replaced) double-applies the
+        // gamma curve, which is why UI colors used to render visibly washed out relative to their
+        // authored values.
+        [[nodiscard]] glm::vec4 clay_color_to_linear(Clay_Color color) noexcept {
+            const Foundation::Color::Linear linear =
+                Foundation::Color::Srgb{color.r, color.g, color.b, color.a}.to_linear();
+            return glm::vec4{static_cast<f32>(linear.r), static_cast<f32>(linear.g), static_cast<f32>(linear.b),
+                             static_cast<f32>(linear.a)};
         }
 
         [[nodiscard]] RHI::Rect2D intersect_rect(const RHI::Rect2D &parent, const Clay_BoundingBox &box) noexcept {
@@ -337,8 +538,10 @@ namespace SFT::UI {
         // Builds GlyphPlacements for one shaped text run at `origin` (the Clay TEXT command's
         // bounding-box top-left) — the same pen-advance loop Renderer/RendererTextOverlay.cpp uses,
         // adapted to read from a UI::CachedShape instead of its own line cache.
-        void append_glyph_placements(vector<Renderer::GlyphPlacement> &out, const CachedShape &shape, u16 font_size,
-                                     glm::vec4 color, glm::vec2 origin, unordered_map<u64, Text::GlyphOutline> &outline_cache) {
+        void append_glyph_placements(vector<Renderer::GlyphPlacement> &out, vector<RHI::Rect2D> &out_scissors,
+                                     vector<PaintKey> &out_paint, const RHI::Rect2D &scissor, const PaintKey &paint,
+                                     const CachedShape &shape, u16 font_size, glm::vec4 color, glm::vec2 origin,
+                                     unordered_map<u64, Text::GlyphOutline> &outline_cache) {
             if (shape.fonts == nullptr || shape.fonts->primary == nullptr) {
                 return;
             }
@@ -379,6 +582,8 @@ namespace SFT::UI {
                         .outline = outline,
                         .font = glyph.is_color ? shape.fonts->emoji : shape.fonts->primary,
                     });
+                    out_scissors.push_back(scissor);
+                    out_paint.push_back(paint);
 
                     cursor.x += glyph.x_advance * run_scale;
                     cursor.y -= glyph.y_advance * run_scale;
@@ -401,6 +606,12 @@ namespace SFT::UI {
         for (i32 i = 0; i < commands.length; ++i) {
             const Clay_RenderCommand &command = *Clay_RenderCommandArray_Get(&commands, i);
             const RHI::Rect2D active_scissor = scissor_stack.back();
+            // `i` is this command's position in Clay's own render-command stream, which already
+            // interleaves an element's background, its children (text included), and its border in
+            // that exact order (see Style.hpp's PaintKey doc comment) — using it directly as the
+            // paint-order tiebreak is what keeps that natural ordering intact once UiRenderer
+            // re-sorts everything by z.
+            const PaintKey paint{unpack_z(command.userData), static_cast<u32>(i)};
             switch (command.commandType) {
                 case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
                     const Clay_RectangleRenderData &data = command.renderData.rectangle;
@@ -410,13 +621,14 @@ namespace SFT::UI {
                             .size = {command.boundingBox.width, command.boundingBox.height},
                             .corner_radius = {data.cornerRadius.topLeft, data.cornerRadius.topRight,
                                             data.cornerRadius.bottomLeft, data.cornerRadius.bottomRight},
-                            .fill_color = clay_color_to_unit(data.backgroundColor),
+                            .fill_color = clay_color_to_linear(data.backgroundColor),
                             .uv_min = {0.0f, 0.0f},
                             .uv_max = {1.0f, 1.0f},
                             .kind = static_cast<f32>(UiQuadKind::Rect),
                         },
                         .image_ref = nullptr,
                         .scissor = active_scissor,
+                        .paint = paint,
                     });
                     break;
                 }
@@ -431,31 +643,34 @@ namespace SFT::UI {
                             .border_width = {static_cast<f32>(data.width.left), static_cast<f32>(data.width.right),
                                             static_cast<f32>(data.width.top), static_cast<f32>(data.width.bottom)},
                             .fill_color = {0.0f, 0.0f, 0.0f, 0.0f},
-                            .border_color = clay_color_to_unit(data.color),
+                            .border_color = clay_color_to_linear(data.color),
                             .uv_min = {0.0f, 0.0f},
                             .uv_max = {1.0f, 1.0f},
                             .kind = static_cast<f32>(UiQuadKind::Rect),
                         },
                         .image_ref = nullptr,
                         .scissor = active_scissor,
+                        .paint = paint,
                     });
                     break;
                 }
                 case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
                     const Clay_ImageRenderData &data = command.renderData.image;
+                    const auto *image_ref = static_cast<const ImageRef *>(data.imageData);
                     snapshot.quads_.push_back(QuadDraw{
                         .instance = UiQuadInstance{
                             .position = {command.boundingBox.x, command.boundingBox.y},
                             .size = {command.boundingBox.width, command.boundingBox.height},
                             .corner_radius = {data.cornerRadius.topLeft, data.cornerRadius.topRight,
                                             data.cornerRadius.bottomLeft, data.cornerRadius.bottomRight},
-                            .fill_color = clay_color_to_unit(data.backgroundColor),
+                            .fill_color = clay_color_to_linear(data.backgroundColor),
                             .uv_min = {0.0f, 0.0f},
                             .uv_max = {1.0f, 1.0f},
                             .kind = static_cast<f32>(UiQuadKind::Image),
                         },
-                        .image_ref = static_cast<const ImageRef *>(data.imageData),
+                        .image_ref = image_ref,
                         .scissor = active_scissor,
+                        .paint = paint,
                     });
                     break;
                 }
@@ -466,7 +681,9 @@ namespace SFT::UI {
                                  .line_height = data.lineHeight},
                         string_view{data.stringContents.chars, static_cast<usize>(data.stringContents.length)});
                     if (shape != nullptr) {
-                        append_glyph_placements(snapshot.glyphs_, *shape, data.fontSize, clay_color_to_unit(data.textColor),
+                        append_glyph_placements(snapshot.glyphs_, snapshot.glyph_scissors_, snapshot.glyph_paint_,
+                                               active_scissor, paint, *shape, data.fontSize,
+                                               clay_color_to_linear(data.textColor),
                                                glm::vec2{command.boundingBox.x, command.boundingBox.y}, outline_cache_);
                     }
                     break;
@@ -481,17 +698,29 @@ namespace SFT::UI {
                     }
                     break;
                 }
-                case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
+                case CLAY_RENDER_COMMAND_TYPE_CUSTOM: {
+                    const Clay_CustomRenderData &data = command.renderData.custom;
+                    if (data.customData != nullptr) {
+                        snapshot.custom_draws_.push_back(CustomDraw{
+                            .position = {command.boundingBox.x, command.boundingBox.y},
+                            .size = {command.boundingBox.width, command.boundingBox.height},
+                            .shader = static_cast<const CustomShaderRef *>(data.customData),
+                            .scissor = active_scissor,
+                            .paint = paint,
+                        });
+                    }
+                    break;
+                }
                 case CLAY_RENDER_COMMAND_TYPE_NONE:
                 default:
-                    // Phase 3 (plans/clay-ui-renderer.md): shader-driven custom elements. Not wired
-                    // up yet — skipped rather than drawn incorrectly.
                     break;
             }
         }
 
         snapshot.image_storage_ = std::move(image_storage_);
         image_storage_.clear();
+        snapshot.custom_storage_ = std::move(custom_storage_);
+        custom_storage_.clear();
         text_storage_.clear();
         return snapshot;
     }
@@ -502,6 +731,7 @@ namespace SFT::UI {
         arena_memory_.shrink_to_fit();
         text_storage_.clear();
         image_storage_.clear();
+        custom_storage_.clear();
         outline_cache_.clear();
     }
 

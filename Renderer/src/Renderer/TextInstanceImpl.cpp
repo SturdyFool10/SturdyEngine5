@@ -60,6 +60,10 @@ namespace SFT::Renderer {
             return sets.size();
         }
 
+        [[nodiscard]] bool same_rect(const RHI::Rect2D &lhs, const RHI::Rect2D &rhs) noexcept {
+            return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
+        }
+
         [[nodiscard]] bool same_glyph_instance(const GlyphInstance &lhs, const GlyphInstance &rhs) noexcept {
             return lhs.position.x == rhs.position.x && lhs.position.y == rhs.position.y &&
                    lhs.size.x == rhs.size.x && lhs.size.y == rhs.size.y &&
@@ -250,29 +254,37 @@ namespace SFT::Renderer {
 
     Core::RendererResult TextPipeline::prepare(RHI::RhiDevice &device, const TextAtlas &atlas,
                                                span<const GlyphInstance> instances, span<const GlyphSlot> slots,
+                                               span<const RHI::Rect2D> instance_scissors,
+                                               span<const u32> instance_paint_groups,
                                                TextFrameResources &resources, vector<TextDrawBatch> &out_batches) {
         out_batches.clear();
-        if (instances.size() != slots.size()) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "TextPipeline::prepare: instance and slot counts must match.");
+        if (instances.size() != slots.size() || instances.size() != instance_scissors.size() ||
+            instances.size() != instance_paint_groups.size()) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "TextPipeline::prepare: instance, slot, scissor, and paint-group counts must match.");
         }
         if (instances.empty()) {
             return {};
         }
 
-        // Only adjacent glyphs sharing an atlas tile are batched. Sorting transparent glyphs by
-        // tile would change painter order when quads overlap, so correctness takes precedence over
-        // merging non-contiguous batches.
+        // Only adjacent glyphs sharing an atlas tile, scissor rect, and paint group are batched.
+        // Sorting transparent glyphs by tile would change painter order when quads overlap, so
+        // correctness takes precedence over merging non-contiguous batches.
         usize i = 0;
         while (i < slots.size()) {
             usize j = i + 1;
             while (j < slots.size() && slots[j].format == slots[i].format &&
-                   slots[j].tile_index == slots[i].tile_index) {
+                   slots[j].tile_index == slots[i].tile_index &&
+                   same_rect(instance_scissors[j], instance_scissors[i]) &&
+                   instance_paint_groups[j] == instance_paint_groups[i]) {
                 ++j;
             }
             out_batches.push_back(TextDrawBatch{
                 .format = slots[i].format,
                 .tile_index = slots[i].tile_index,
+                .scissor = instance_scissors[i],
+                .paint_group = instance_paint_groups[i],
                 .first_instance = static_cast<u32>(i),
                 .instance_count = static_cast<u32>(j - i),
             });
@@ -407,6 +419,7 @@ namespace SFT::Renderer {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "Text draw batch has no prepared instance buffer.");
             }
+            pass.set_scissor(batch.scissor);
             for (const TextDrawBatch::BoundGroup &group : batch.bind_groups) {
                 if (!group.handle) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,

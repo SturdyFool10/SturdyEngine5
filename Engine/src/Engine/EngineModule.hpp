@@ -116,9 +116,25 @@ namespace SFT::Engine {
         // ECS-visible UI resources (Ecs::WriteResource<UiContext>/Ecs::ReadResource<UiPointerState>)
         // — see EcsUi.hpp. ui_pointer_state() is kept current automatically (a built-in system
         // registered in Engine's own constructor); ui_context() is a bare Context/UiRenderer pair
-        // any system can build a tree against or query hovered()/clicked() on.
+        // any system can build a tree against or query hovered()/clicked() on. The non-const
+        // ui_pointer_state() overload exists for UiContext::begin_layout() callers (see its own
+        // doc comment) — it needs to write back the consumed flag and drain the scroll accumulator.
         [[nodiscard]] UiContext &ui_context() noexcept;
+        [[nodiscard]] UiPointerState &ui_pointer_state() noexcept;
         [[nodiscard]] const UiPointerState &ui_pointer_state() const noexcept;
+        // Path->TextureHandle cache backing a UI::Context::image() call built from a file path — see
+        // UiImageCache's own doc comment for why this exists (avoids re-decoding on every frame).
+        [[nodiscard]] UiImageCache &ui_image_cache() noexcept;
+        // Path->rasterized-RGBA8-texture cache backing a UI::Context::svg() call — see UiSvgCache's
+        // own doc comment.
+        [[nodiscard]] UiSvgCache &ui_svg_cache() noexcept;
+
+        // The window passed to initialize() — nullptr before that call. Exposed mainly for
+        // Platform::Windowing::Window::clipboard_text()/set_clipboard_text() (clipboard is
+        // process-global, not per-window, so any window works; the primary one is simplest to
+        // reach), which text-editing UI widgets need and nothing else in Engine's own public
+        // surface currently reaches.
+        [[nodiscard]] Platform::Windowing::Window *primary_window() noexcept;
 
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
@@ -157,6 +173,8 @@ namespace SFT::Engine {
         WindowState window_state_{};
         UiPointerState ui_pointer_state_{};
         UiContext ui_context_{};
+        UiImageCache ui_image_cache_{};
+        UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};

@@ -37,7 +37,12 @@ namespace SFT::Engine {
 
     [[nodiscard]] UiContext &Engine::ui_context() noexcept { return ui_context_; }
 
+    [[nodiscard]] UiPointerState &Engine::ui_pointer_state() noexcept { return ui_pointer_state_; }
     [[nodiscard]] const UiPointerState &Engine::ui_pointer_state() const noexcept { return ui_pointer_state_; }
+    [[nodiscard]] UiImageCache &Engine::ui_image_cache() noexcept { return ui_image_cache_; }
+    [[nodiscard]] UiSvgCache &Engine::ui_svg_cache() noexcept { return ui_svg_cache_; }
+
+    [[nodiscard]] Platform::Windowing::Window *Engine::primary_window() noexcept { return primary_window_; }
 
     [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &Engine::shaders() const noexcept { return shaders_; }
 

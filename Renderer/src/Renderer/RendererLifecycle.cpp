@@ -773,11 +773,11 @@ namespace SFT::Renderer {
             .height = extent.height,
             .format = static_cast<bool>(record.presentation.hdr_enabled) ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb,
             .color_space = static_cast<bool>(record.presentation.hdr_enabled) ? RHI::ColorSpace::Hdr10St2084 : RHI::ColorSpace::SrgbNonlinear,
-            .present_mode = record.presentation.vsync
-                                ? (record.presentation.present_mode == RHI::PresentMode::Immediate
-                                       ? RHI::PresentMode::Mailbox
-                                       : record.presentation.present_mode)
-                                : RHI::PresentMode::Immediate,
+            // Core::resolve_present_strategy() is the one place vsync/variable_refresh/latency/
+            // preference get interpreted together (Core/Renderer.hpp) — the backend then resolves
+            // that strategy against this surface's real supported present modes
+            // (RHI::choose_present_mode(), RHI/Swapchain.hpp), never a raw requested PresentMode.
+            .present_strategy = Core::resolve_present_strategy(record.presentation),
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::TransferDst,
             .composite_alpha = RHI::CompositeAlphaMode::Auto,
             .clipped = true,
@@ -1078,6 +1078,29 @@ namespace SFT::Renderer {
             !deferred_targets.has_value()) {
             return deferred_targets;
         }
+        // Snapshotted here, before ensure_hiz_pyramid can touch has_valid_data (on first build /
+        // resize) and well before this frame's own "hiz build mip" passes overwrite the pyramid's
+        // contents later on — so this is genuinely *last* completed frame's finished pyramid, for the
+        // "gpu instance cull" pass below (which runs before this frame's own depth exists at all —
+        // see its own comment) to occlusion-test against. See HiZPyramidTargets's doc comment.
+        HiZCullInput hiz_cull_input{};
+        if (Core::RendererResult hiz_build_ready = ensure_hiz_build_resources(); !hiz_build_ready.has_value()) {
+            return hiz_build_ready;
+        }
+        {
+            auto pyramid_guard = hiz_pyramid_.lock();
+            if (Core::RendererResult pyramid_ready = ensure_hiz_pyramid(*pyramid_guard, render_extent);
+                !pyramid_ready.has_value()) {
+                return pyramid_ready;
+            }
+            hiz_cull_input = HiZCullInput{
+                .pyramid_view = pyramid_guard->full_view,
+                .extent_width = pyramid_guard->extent.width,
+                .extent_height = pyramid_guard->extent.height,
+                .mip_count = pyramid_guard->mip_levels,
+                .valid = pyramid_guard->has_valid_data,
+            };
+        }
         PreparedShadowFrame shadow_frame{};
         if (submission.render_graph.render_scene) {
             const u32 requested_shadow_atlas = submission.render_graph.shadows
@@ -1174,6 +1197,16 @@ namespace SFT::Renderer {
                 std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
                 std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
                 std::format("Frame: {}", frame.frame_index),
+                [&] {
+                    // The *actual* present mode the surface ended up with, not just what was
+                    // requested — see RHI::PresentationResolution's own doc comment for why this
+                    // must never silently claim the requested strategy took effect when the surface
+                    // forced a fallback (e.g. Mailbox requested under "VSync On" but the surface
+                    // only supports Fifo, common on native Wayland).
+                    const RHI::PresentationResolution presentation = device->presentation_resolution(record.rhi_swapchain);
+                    return std::format("Present: {}{}", RHI::present_mode_name(presentation.effective_mode),
+                                       presentation.degraded ? " (degraded)" : "");
+                }(),
             };
             // GPU pass timing breakdown — one frame stale (this frame's own timestamps aren't
             // available until its fence signals; see gpu_pass_timings_ms's own comment above), same
@@ -1321,6 +1354,38 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::DepthStencilAttachmentWrite,
             .label = "deferred depth",
         });
+        RHI::TextureHandle hiz_pyramid_gpu_texture{};
+        RHI::TextureViewHandle hiz_pyramid_full_view{};
+        Core::Extent2D hiz_pyramid_extent{};
+        u32 hiz_pyramid_mip_levels = 0;
+        {
+            auto pyramid_guard = hiz_pyramid_.lock();
+            hiz_pyramid_gpu_texture = pyramid_guard->texture;
+            hiz_pyramid_full_view = pyramid_guard->full_view;
+            hiz_pyramid_extent = pyramid_guard->extent;
+            hiz_pyramid_mip_levels = pyramid_guard->mip_levels;
+        }
+        // hiz_cull_input.valid (captured earlier, before this frame's own "hiz build" passes below
+        // run) is exactly "was this texture left ShaderReadOnly by last frame's build pass" —
+        // ShaderReadOnly preserves contents across the transition this import performs; Undefined is
+        // a discard, correct for a texture that has never been written (first frame / just resized —
+        // see ensure_hiz_pyramid). Left ShaderReadOnly at frame exit (not whatever the build passes'
+        // own last write would otherwise leave it) so *next* frame's "gpu instance cull" pass can
+        // read it without an extra transition of its own.
+        const RenderGraphTextureHandle hiz_pyramid_texture = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = hiz_pyramid_gpu_texture,
+            .default_view = hiz_pyramid_full_view,
+            .format = RHI::Format::R32Float,
+            .extent = RHI::Extent3D{.width = hiz_pyramid_extent.width, .height = hiz_pyramid_extent.height, .depth_or_layers = 1},
+            .mip_levels = hiz_pyramid_mip_levels,
+            .initial_layout = hiz_cull_input.valid ? RHI::TextureLayout::ShaderReadOnly : RHI::TextureLayout::Undefined,
+            .initial_stage = hiz_cull_input.valid ? RHI::PipelineStage::ComputeShader : RHI::PipelineStage::None,
+            .initial_access = hiz_cull_input.valid ? RHI::AccessFlags::ShaderRead : RHI::AccessFlags::None,
+            .final_layout = RHI::TextureLayout::ShaderReadOnly,
+            .final_stage = RHI::PipelineStage::ComputeShader,
+            .final_access = RHI::AccessFlags::ShaderRead,
+            .label = "hi-z pyramid",
+        });
         RenderGraphTextureHandle raster_albedo = gbuffer_albedo;
         RenderGraphTextureHandle raster_normal = gbuffer_normal;
         RenderGraphTextureHandle raster_material = gbuffer_material;
@@ -1390,12 +1455,13 @@ namespace SFT::Renderer {
 
         if (!instanced_batches.empty()) {
             graph.add_compute_pass("gpu instance cull")
-                .set_execute([this, &submission, &instanced_batches, &instance_cull_resources](
+                .add_sampled_texture(hiz_pyramid_texture)
+                .set_execute([this, &submission, &instanced_batches, &instance_cull_resources, &hiz_cull_input](
                                  RenderGraphComputeContext &context) -> Core::RendererResult {
                     RHI::ComputePassEncoder &pass = context.compute_pass();
                     if (Core::RendererResult culled = record_instance_cull(
-                            pass, instanced_batches, submission.view_projection, instance_cull_resources,
-                            submission.transient_bind_groups);
+                            pass, instanced_batches, submission.view_projection, submission.camera.world_position,
+                            hiz_cull_input, instance_cull_resources, submission.transient_bind_groups);
                         !culled.has_value()) {
                         return culled;
                     }
@@ -1572,6 +1638,20 @@ namespace SFT::Renderer {
                     }
                     return {};
                 });
+
+            // Builds *this* frame's Hi-Z pyramid from the depth the passes above just finished
+            // writing, for *next* frame's "gpu instance cull" pass to occlusion-test against — see
+            // HiZPyramidTargets's and record_hiz_build's own doc comments for why it can't be this
+            // same frame's cull pass instead.
+            {
+                auto pyramid_guard = hiz_pyramid_.lock();
+                if (Core::RendererResult hiz_built = record_hiz_build(
+                        graph, depth_texture, slot.deferred_targets.depth_view, render_extent,
+                        hiz_pyramid_texture, *pyramid_guard, submission.transient_bind_groups);
+                    !hiz_built.has_value()) {
+                    return hiz_built;
+                }
+            }
         }
 
         if (submission.render_graph.render_scene) {

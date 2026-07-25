@@ -81,6 +81,9 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         void set_repaint_callback(std::function<void()> callback) noexcept override;
 
+        [[nodiscard]] std::string clipboard_text() const noexcept override;
+        expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
+
       private:
         friend class ::SFT::Platform::Windowing::Window;
 

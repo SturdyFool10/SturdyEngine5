@@ -119,6 +119,32 @@ float4 fullscreenTrianglePosition(float2 uv) {
 }
 
 // -------------------------------------------------------------------------------------------------
+// Pixel-space UI quad helpers
+// -------------------------------------------------------------------------------------------------
+
+// The unit-quad corner (0..1 in both axes) for vertex `vertexId % 6` of a two-triangle quad — shared
+// by every Sturdy.UI pipeline that vertex-pulls a quad per instance/draw (Shaders/ui_quad.slang, and
+// any Sturdy.UI::Context::custom_element() shader — see UI/src/UI/CustomElement.hpp).
+float2 uiQuadCorner(uint vertexId) {
+    static const float2 corners[6] = {
+        float2(0.0, 0.0), float2(1.0, 0.0), float2(0.0, 1.0),
+        float2(1.0, 0.0), float2(1.0, 1.0), float2(0.0, 1.0),
+    };
+    return corners[vertexId % 6];
+}
+
+// Pixel space (top-left origin, Y down — Clay's own convention) -> clip space, for a quad at
+// `pixelPos` sized `pixelSize` within a `viewportSize`-sized target. Same direct (unflipped) mapping
+// Shaders/ui_quad.slang's own vertexMain uses. A custom UI element shader
+// (UI::Context::custom_element()) calls this from its own vertexMain, given the UiElementConstants
+// prefix every such shader's push-constant struct is required to start with.
+float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, float2 viewportSize) {
+    float2 localPixelPos = uiQuadCorner(vertexId) * pixelSize;
+    float2 ndc = ((pixelPos + localPixelPos) * safeRcp(viewportSize)) * 2.0 - 1.0;
+    return float4(ndc, 0.0, 1.0);
+}
+
+// -------------------------------------------------------------------------------------------------
 // Color and tonemapping
 // -------------------------------------------------------------------------------------------------
 

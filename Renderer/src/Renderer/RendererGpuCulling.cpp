@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #pragma endregion
 
@@ -394,7 +396,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::record_instance_cull(RHI::ComputePassEncoder &pass, span<const InstancedBatch> batches,
-                                                         const glm::mat4 &view_projection, SceneFrameGpuResources &resources,
+                                                         const glm::mat4 &view_projection, const glm::vec3 &camera_world_position,
+                                                         const HiZCullInput &hiz, SceneFrameGpuResources &resources,
                                                          vector<RHI::BindGroupHandle> &transient_bind_groups) {
         if (batches.empty()) {
             return {};
@@ -406,12 +409,16 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return unexpected(instance_cull_error("Cannot record instance culling without an RHI device."));
         }
+        if (!hiz.pyramid_view) {
+            return unexpected(instance_cull_error("Cannot record instance culling without a Hi-Z pyramid view."));
+        }
 
         auto guard = instance_cull_.lock();
-        const array<RHI::BindGroupEntry, 3> entries{
+        const array<RHI::BindGroupEntry, 4> entries{
             RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer},
             RHI::BindGroupEntry{.binding = 1, .buffer = resources.compacted_indices_buffer},
             RHI::BindGroupEntry{.binding = 2, .buffer = resources.indirect_commands_buffer},
+            RHI::BindGroupEntry{.binding = 3, .texture_view = hiz.pyramid_view},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = guard->cull_bind_group_layout,
@@ -438,19 +445,27 @@ namespace SFT::Renderer {
             struct InstanceCullConstants {
                 glm::mat4 view_projection;
                 glm::vec4 bounds_center_radius;
+                // xyz = camera world position, w = 1.0/0.0 — mirrors Shaders/gpu_instance_cull.slang's
+                // InstanceCullConstants::cameraPositionHiZValid exactly (field-for-field, same order).
+                glm::vec4 camera_position_hiz_valid;
                 u32 first_object_index;
                 u32 instance_count;
                 u32 indirect_command_byte_offset;
                 u32 compacted_indices_first_slot;
+                glm::uvec2 hiz_extent;
+                u32 hiz_mip_count;
             };
             const usize batch_index = static_cast<usize>(&batch - batches.data());
             const InstanceCullConstants constants{
                 .view_projection = view_projection,
                 .bounds_center_radius = glm::vec4{mesh_resource->bounds_center, mesh_resource->bounds_radius},
+                .camera_position_hiz_valid = glm::vec4{camera_world_position, hiz.valid ? 1.0f : 0.0f},
                 .first_object_index = batch.first_object_index,
                 .instance_count = batch.instance_count,
                 .indirect_command_byte_offset = static_cast<u32>(batch_index * sizeof(GpuDrawIndexedIndirectCommand)),
                 .compacted_indices_first_slot = static_cast<u32>(compacted_byte_offset / sizeof(u32)),
+                .hiz_extent = glm::uvec2{hiz.extent_width, hiz.extent_height},
+                .hiz_mip_count = hiz.mip_count,
             };
             pass.set_push_constants(RHI::ShaderStage::Compute, 0,
                                     std::as_bytes(span<const InstanceCullConstants>{&constants, 1}));

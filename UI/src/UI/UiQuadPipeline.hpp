@@ -29,6 +29,12 @@ namespace SFT::UI {
         RHI::BufferHandle instance_buffer{};
         u32 first_instance = 0;
         u32 instance_count = 0;
+        // Which UiRenderer-level paint-order group (see PaintKey, Style.hpp) this batch's instances
+        // belong to — every instance in a batch shares one group by construction (it's part of the
+        // merge key, see prepare()'s own doc comment), so UiRenderer::draw() can interleave this
+        // batch with Renderer::TextDrawBatch/CustomDraw batches from *other* groups in the right
+        // relative order without needing to inspect individual instances.
+        u32 paint_group = 0;
         struct BoundGroup {
             u32 set = 0;
             RHI::BindGroupHandle handle{};
@@ -68,12 +74,19 @@ namespace SFT::UI {
         // Renderer's shared default-white-texture view (Renderer::ensure_default_white_texture())
         // for plain rects/borders, so the shader always samples a texture rather than branching on
         // "is this a rect or an image", which is what keeps rects and images on one shader/pipeline.
-        // `instance_scissors[i]` is the active clip rect UiInstances[i] was declared under. Forms
-        // consecutive same-(texture, scissor) batches without reordering painter order, mirroring
-        // Renderer::TextPipeline::prepare()'s (format, tile) batching.
+        // `instance_scissors[i]` is the active clip rect UiInstances[i] was declared under.
+        // `instance_paint_groups[i]` is UiRenderer's own paint-order group id for instance i (see
+        // UiQuadDrawBatch::paint_group's own doc comment) — required to match too, alongside
+        // texture and scissor, before two instances merge into one batch: without it, two same-
+        // texture/scissor quads that UiRenderer separated in the global paint order (because a
+        // different-kind draw item — text, typically — belongs *between* them) would wrongly merge
+        // back into one contiguous draw call, silently undoing that ordering. Forms consecutive
+        // same-(texture, scissor, paint_group) batches without reordering painter order, mirroring
+        // Renderer::TextPipeline::prepare()'s (format, tile, paint_group) batching.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                     span<const RHI::TextureViewHandle> instance_texture_views,
                                                     span<const RHI::Rect2D> instance_scissors,
+                                                    span<const u32> instance_paint_groups,
                                                     UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches);
 
         // Sets each batch's scissor rect before drawing it — a caller does not need to (and should

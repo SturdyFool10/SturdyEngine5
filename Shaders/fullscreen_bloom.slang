@@ -1,7 +1,8 @@
-// Bandwidth-optimized mip-pyramid bloom inspired by Call of Duty: Advanced Warfare.
-// One high-quality 13-tap prefilter extracts stable highlights at half resolution. Lower levels use
-// four hardware-bilinear taps, and reconstruction uses four half-texel bilinear taps equivalent to
-// the original 3x3 tent weights. Intermediates are rendered to packed RG11B10Float.
+// Full-quality mip-pyramid bloom inspired by Call of Duty: Advanced Warfare. Every pyramid level
+// (prefilter and each subsequent downsample) uses the same 13-tap filter, so the chain stays stable
+// and flicker/firefly-resistant all the way down; the mip chain itself is what keeps this cheap since
+// each level operates on a texture half the size of the last. Reconstruction uses four half-texel
+// bilinear taps equivalent to the original 3x3 tent weights. Intermediates are packed RG11B10Float.
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -40,39 +41,42 @@ float3 softThreshold(float3 color) {
     return color * (max(brightness - bloom.threshold, soft) / max(brightness, 1.0e-5));
 }
 
-[shader("fragment")]
-float4 prefilterMain(VertexOutput input) : SV_Target {
-    float3 a = sampleSource(input.uv, float2(-2.0, -2.0));
-    float3 b = sampleSource(input.uv, float2( 0.0, -2.0));
-    float3 c = sampleSource(input.uv, float2( 2.0, -2.0));
-    float3 d = sampleSource(input.uv, float2(-2.0,  0.0));
-    float3 e = sampleSource(input.uv, float2( 0.0,  0.0));
-    float3 f = sampleSource(input.uv, float2( 2.0,  0.0));
-    float3 g = sampleSource(input.uv, float2(-2.0,  2.0));
-    float3 h = sampleSource(input.uv, float2( 0.0,  2.0));
-    float3 i = sampleSource(input.uv, float2( 2.0,  2.0));
-    float3 j = sampleSource(input.uv, float2(-1.0, -1.0));
-    float3 k = sampleSource(input.uv, float2( 1.0, -1.0));
-    float3 l = sampleSource(input.uv, float2(-1.0,  1.0));
-    float3 m = sampleSource(input.uv, float2( 1.0,  1.0));
+// CoD:AW's 13-tap downsample kernel: four overlapping 2x2 quads (weight 1/32 per sample) plus an
+// inner 2x2 quad (weight 1/8 per sample), each averaged with hardware bilinear filtering.
+float3 sample13Tap(float2 uv) {
+    float3 a = sampleSource(uv, float2(-2.0, -2.0));
+    float3 b = sampleSource(uv, float2( 0.0, -2.0));
+    float3 c = sampleSource(uv, float2( 2.0, -2.0));
+    float3 d = sampleSource(uv, float2(-2.0,  0.0));
+    float3 e = sampleSource(uv, float2( 0.0,  0.0));
+    float3 f = sampleSource(uv, float2( 2.0,  0.0));
+    float3 g = sampleSource(uv, float2(-2.0,  2.0));
+    float3 h = sampleSource(uv, float2( 0.0,  2.0));
+    float3 i = sampleSource(uv, float2( 2.0,  2.0));
+    float3 j = sampleSource(uv, float2(-1.0, -1.0));
+    float3 k = sampleSource(uv, float2( 1.0, -1.0));
+    float3 l = sampleSource(uv, float2(-1.0,  1.0));
+    float3 m = sampleSource(uv, float2( 1.0,  1.0));
 
     float3 color = (j + k + l + m) * 0.125;
     color += (a + b + d + e) * 0.03125;
     color += (b + c + e + f) * 0.03125;
     color += (d + e + g + h) * 0.03125;
     color += (e + f + h + i) * 0.03125;
-    return float4(softThreshold(max(color, 0.0)), 1.0);
+    return max(color, 0.0);
+}
+
+[shader("fragment")]
+float4 prefilterMain(VertexOutput input) : SV_Target {
+    return float4(softThreshold(sample13Tap(input.uv)), 1.0);
 }
 
 [shader("fragment")]
 float4 downsampleMain(VertexOutput input) : SV_Target {
-    // Four bilinear taps cover a stable 4x4 source footprint. Lower pyramid levels are already
-    // band-limited by the prefilter, so repeating the 13-tap kernel only burns bandwidth.
-    float3 color = sampleSource(input.uv, float2(-1.0, -1.0));
-    color += sampleSource(input.uv, float2( 1.0, -1.0));
-    color += sampleSource(input.uv, float2(-1.0,  1.0));
-    color += sampleSource(input.uv, float2( 1.0,  1.0));
-    return float4(color * 0.25, 1.0);
+    // Full 13-tap kernel repeated at every pyramid level, not just the prefilter, for maximum
+    // quality: it stays firefly/flicker-resistant all the way down the chain. The mip chain (each
+    // level is half the resolution of the last) is what keeps this affordable despite the extra taps.
+    return float4(sample13Tap(input.uv), 1.0);
 }
 
 [shader("fragment")]

@@ -88,6 +88,9 @@ namespace SFT::Platform::Windowing::GLFW {
         [[nodiscard]] expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept override;
 
+        [[nodiscard]] std::string clipboard_text() const noexcept override;
+        expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
+
       private:
         friend class ::SFT::Platform::Windowing::Window;
         friend void glfw_close_callback(GLFWwindow *window);

@@ -218,6 +218,14 @@ namespace SFT::Renderer {
         destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
         destroy_custom_post_process_resources();
+
+        // Not per-window-surface/per-FrameInFlight-slot like the targets destroyed above — see
+        // HiZPyramidTargets's own doc comment for why it's a single Renderer-owned resource instead.
+        {
+            auto pyramid_guard = hiz_pyramid_.lock();
+            destroy_hiz_pyramid(*pyramid_guard);
+        }
+        destroy_hiz_build_resources();
     }
 
     Core::RendererResult Renderer::grow_geometry_arena(GeometryArena &arena, u64 required_bytes, const char *label) {

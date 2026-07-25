@@ -4,7 +4,6 @@ sturdy_add_package(Runtime
     PUBLIC_DEPS
         Sturdy::Foundation
         Sturdy::EngineComponents
-        Sturdy::UI
 
     DEBUG_PUBLIC_DEPS
 )

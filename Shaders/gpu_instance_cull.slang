@@ -38,6 +38,11 @@ struct InstanceCullConstants {
     // bounds_radius's doc comment (Resources.hpp). Same value for every instance in this batch;
     // only the per-instance model matrix (below) differs.
     float4 boundsCenterRadius;
+    // xyz = camera world-space position (for the occlusion test's "nearest point of the sphere"
+    // computation below); w = 1.0 if hiZPyramid holds a previous frame's built pyramid, 0.0 on the
+    // first frame / right after a resize, when occlusion culling is skipped entirely — see
+    // Renderer::ensure_hiz_pyramid's doc comment (RendererHiZ.cpp).
+    float4 cameraPositionHiZValid;
     uint firstObjectIndex;
     uint instanceCount;
     // Byte offset of this batch's DrawIndexedIndirectCommand within the shared indirect buffer,
@@ -46,6 +51,8 @@ struct InstanceCullConstants {
     // than one small buffer per batch.
     uint indirectCommandByteOffset;
     uint compactedIndicesFirstSlot;
+    uint2 hiZExtent;
+    uint hiZMipCount;
 };
 
 [[push_constant]] ConstantBuffer<InstanceCullConstants> cull;
@@ -53,6 +60,11 @@ struct InstanceCullConstants {
 StructuredBuffer<SceneObjectGpuData> sceneObjects;
 RWStructuredBuffer<uint> compactedIndices;
 RWByteAddressBuffer indirectCommands;
+// Built by Shaders/hiz_build.slang from *last* frame's finished depth (this frame's depth doesn't
+// exist yet at the point this compute pass runs — see Renderer::record_instance_cull's doc
+// comment) — a max-reduced mip pyramid over device depth (near = 0 / far = 1, Less compare), so a
+// texel's stored value is the farthest already-covered depth anywhere under that texel's footprint.
+Texture2D<float> hiZPyramid;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -74,6 +86,43 @@ void cullMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
 
     if (!frustumIntersectsSphere(cull.viewProjection, worldCenter, worldRadius)) {
         return;
+    }
+
+    if (cull.cameraPositionHiZValid.w > 0.5) {
+        float3 towardCamera = cull.cameraPositionHiZValid.xyz - worldCenter;
+        float distanceToCamera = length(towardCamera);
+        float3 viewDir = distanceToCamera > 0.0001 ? (towardCamera / distanceToCamera) : float3(0.0, 0.0, 1.0);
+        // Nearest point of the sphere toward the camera — its device depth is the value the Hi-Z
+        // texel must be at least as far (numerically greater, this depth convention) as, or the
+        // whole sphere is guaranteed hidden behind whatever was rasterized there last frame.
+        float3 nearestPoint = worldCenter + viewDir * min(worldRadius, distanceToCamera);
+        float4 nearestClip = mul(float4(nearestPoint, 1.0), cull.viewProjection);
+        float4 centerClip = mul(float4(worldCenter, 1.0), cull.viewProjection);
+        if (nearestClip.w > 0.0001 && centerClip.w > 0.0001) {
+            // A perpendicular-offset point's clip-space distance from the center gives the sphere's
+            // screen-space footprint without needing the projection matrix's internals (works for
+            // any projection, not just a standard symmetric perspective one).
+            float3 upAxis = abs(viewDir.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+            float3 rightAxis = normalize(cross(viewDir, upAxis));
+            float4 edgeClip = mul(float4(worldCenter + rightAxis * worldRadius, 1.0), cull.viewProjection);
+
+            float nearestDeviceDepth = nearestClip.z / nearestClip.w;
+            float2 centerNdc = centerClip.xy / centerClip.w;
+            float radiusNdc = length(edgeClip.xy / max(edgeClip.w, 0.0001) - centerNdc);
+
+            float2 footprintTexels = radiusNdc * float2(cull.hiZExtent);
+            float footprintTexelsMax = max(footprintTexels.x, footprintTexels.y) * 2.0;
+            uint mip = uint(clamp(ceil(log2(max(footprintTexelsMax, 1.0))), 0.0, float(cull.hiZMipCount - 1)));
+            uint2 mipExtent = max(cull.hiZExtent >> mip, uint2(1, 1));
+
+            float2 uv = clamp(centerNdc * 0.5 + 0.5, float2(0.0, 0.0), float2(0.9999, 0.9999));
+            int2 texel = int2(uv * float2(mipExtent));
+            float farthestOccluderDepth = hiZPyramid.Load(int3(texel, int(mip)));
+
+            if (nearestDeviceDepth > farthestOccluderDepth) {
+                return;
+            }
+        }
     }
 
     // Field offset 4 = DrawIndexedIndirectCommand::instanceCount (indexCount is field 0, 4 bytes).

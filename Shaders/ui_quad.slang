@@ -23,7 +23,7 @@ struct UiQuadInstance {
     float4 borderColor;
     float2 uvMin;
     float2 uvMax;
-    float kind; // 0 = rect (solid and/or bordered), 1 = image
+    float kind; // 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced — see UiQuad.hpp)
     float _pad0;
     float _pad1;
     float _pad2;
@@ -54,15 +54,10 @@ struct VertexOutput {
     float kind : TEXCOORD5;
 };
 
-static const float2 kQuadCorners[6] = {
-    float2(0.0, 0.0), float2(1.0, 0.0), float2(0.0, 1.0),
-    float2(1.0, 0.0), float2(1.0, 1.0), float2(0.0, 1.0),
-};
-
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID) {
     UiQuadInstance inst = instances[viewConstants.instanceIndexBase + instanceId];
-    float2 corner = kQuadCorners[vertexId % 6];
+    float2 corner = uiQuadCorner(vertexId);
     float2 localPixelPos = corner * inst.size;
     float2 pixelPos = inst.position + localPixelPos;
     // Pixel space -> clip space: same direct (unflipped) mapping as text_sdf.slang / the
@@ -104,6 +99,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     float4 color = input.fillColor;
     if (input.kind > 0.5) {
+        // Image (UI::Context::image(), also every UI::Context::svg()-drawn icon — an SVG-sourced
+        // texture is rasterized to plain RGBA8 ahead of time by Engine::UiSvgCache, so it's
+        // indistinguishable from any other image by the time it reaches this shader).
         float4 sampled = quadTexture.Sample(quadSampler, input.uv);
         // Clay_ImageRenderData's default tint is (0,0,0,0), meaning "untinted" (see its own doc
         // comment) — only multiply-tint when the caller actually set a tint color.

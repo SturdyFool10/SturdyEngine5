@@ -137,7 +137,13 @@ namespace SFT::Core::Vulkan {
         (void)init;
 
         // Query which features the physical device actually supports.
-        VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, .pNext = nullptr};
+        // VK_KHR_present_mode_fifo_latest_ready has no accompanying queue/backend integration work
+        // beyond this — it's a pure presentation capability, so it's queried/enabled unconditionally
+        // here rather than needing its own opt-in path (see RHI::Feature::PresentModeFifoLatestReady's
+        // own doc comment, and the "Optional Core: enabled when present" handling below).
+        VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR, .pNext = nullptr};
+        VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, .pNext = &supportedPresentModeFifoLatestReadyFeatures};
         VkPhysicalDeviceVulkan14Features supportedFeatures14{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = &supportedMeshFeatures};
         VkPhysicalDeviceVulkan13Features supportedFeatures13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &supportedFeatures14};
         VkPhysicalDeviceVulkan12Features supportedFeatures12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &supportedFeatures13};
@@ -186,6 +192,10 @@ namespace SFT::Core::Vulkan {
         }
         if (this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
             supported_rhi_features.set(RHI::Feature::RayQuery);
+        }
+        if (this->physicalDevice.supports_extension(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME) &&
+            supportedPresentModeFifoLatestReadyFeatures.presentModeFifoLatestReady) {
+            supported_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
         }
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         const auto probed_dedicated_compute_family = find_dedicated_queue_family(
@@ -257,6 +267,10 @@ namespace SFT::Core::Vulkan {
         if (supports_video_encode_queue) {
             optional_rhi_features.set(RHI::Feature::VideoEncodeQueue);
         }
+        // Optional Core: enabled whenever the device reports it, never gated behind an app request
+        // — a lower-latency Fifo variant with no tradeoff for an app to weigh, unlike raytracing/
+        // async-compute/etc. above (all real capacity/power tradeoffs the app opts into deliberately).
+        optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
 
         feature_report_ = RHI::negotiate_features(supported_rhi_features, required_rhi_features, optional_rhi_features);
         if (!feature_report_.required_satisfied()) {
@@ -278,15 +292,28 @@ namespace SFT::Core::Vulkan {
 
         const bool enable_mesh_shader = enabled_rhi_features.has(RHI::Feature::MeshShader);
         const bool enable_task_shader = enabled_rhi_features.has(RHI::Feature::TaskShader);
+        const bool enable_present_mode_fifo_latest_ready = enabled_rhi_features.has(RHI::Feature::PresentModeFifoLatestReady);
 
         // Build the enable chain — only request what we verified above.
+        VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoLatestReadyFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
+            .pNext = nullptr,
+            .presentModeFifoLatestReady = enable_present_mode_fifo_latest_ready ? VK_TRUE : VK_FALSE,
+        };
         VkPhysicalDeviceMeshShaderFeaturesEXT meshFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-            .pNext = nullptr,
+            .pNext = enable_present_mode_fifo_latest_ready ? &presentModeFifoLatestReadyFeatures : nullptr,
             .taskShader = enable_task_shader ? VK_TRUE : VK_FALSE,
             .meshShader = enable_mesh_shader ? VK_TRUE : VK_FALSE,
         };
-        VkPhysicalDeviceVulkan14Features features14{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = enable_mesh_shader ? &meshFeatures : nullptr};
+        // meshFeatures must stay chained here whenever *either* it or the struct behind it
+        // (presentModeFifoLatestReadyFeatures) is needed — dropping it based on enable_mesh_shader
+        // alone would silently disconnect presentModeFifoLatestReadyFeatures from the enable chain
+        // too whenever mesh shading itself is off.
+        VkPhysicalDeviceVulkan14Features features14{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+            .pNext = (enable_mesh_shader || enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
+        };
         VkPhysicalDeviceVulkan13Features features13{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
             .pNext = &features14,
@@ -349,6 +376,9 @@ namespace SFT::Core::Vulkan {
         };
         if (enable_mesh_shader) {
             extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+        }
+        if (enable_present_mode_fifo_latest_ready) {
+            extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
         }
         if (video_decode_family.has_value() || video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME);

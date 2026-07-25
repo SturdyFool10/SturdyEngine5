@@ -123,8 +123,17 @@ namespace SFT::Renderer {
             }
         }
 
+        // A render target has no nested clip regions of its own (see this class's own doc comment
+        // — always one fixed target), so every glyph gets the same full-target scissor and paint
+        // group (0 — no interleaving concept here either).
+        const vector<RHI::Rect2D> scissors(
+            instances.size(),
+            RHI::Rect2D{.x = 0, .y = 0, .width = config_.width, .height = config_.height});
+        const vector<u32> paint_groups(instances.size(), 0);
         vector<TextDrawBatch> batches;
-        if (auto prepared = pipeline.prepare(device, atlas, instances, slots, text_resources_, batches); !prepared) {
+        if (auto prepared =
+                pipeline.prepare(device, atlas, instances, slots, scissors, paint_groups, text_resources_, batches);
+            !prepared) {
             return unexpected(prepared.error());
         }
 

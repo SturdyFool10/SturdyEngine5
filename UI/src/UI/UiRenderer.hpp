@@ -14,6 +14,7 @@
 #include <Renderer/TextInstance.hpp>
 
 #include "Context.hpp"
+#include "UiCustomElementPipeline.hpp"
 #include "UiQuadPipeline.hpp"
 
 using std::vector;
@@ -34,14 +35,18 @@ namespace SFT::UI {
     // different thread than the one that built the snapshot (e.g. Engine's dedicated render
     // thread) — see Renderer::UiOverlayHooks for the seam this is meant to plug into.
     //
-    // Quads (rects/borders/images) are batched by (texture, active clip rect) and drawn first;
-    // text is drawn last, over everything, and does not yet respect nested clip regions (see the
-    // note on draw() below) — a deliberate, documented Phase 1 scope cut; see
-    // plans/clay-ui-renderer.md's Phase 2. UiRenderer's own per-frame GPU resources
+    // Quads (rects/borders/images), text, and custom-shader draws are interleaved into one global
+    // paint order (see PaintKey, Style.hpp) rather than three fixed phases: prepare() sorts every
+    // draw item from the snapshot by (z, paint_index), regroups consecutive same-kind runs into
+    // batches (still respecting texture/atlas-tile/scissor batching within a run — see
+    // UiQuadPipeline::prepare()/Renderer::TextPipeline::prepare()'s own doc comments for the extra
+    // paint_group key this drives), and draw() then walks that merged order, switching pipelines
+    // between groups so an element's background/text/border, and different elements at different
+    // z, all composite correctly relative to each other. UiRenderer's own per-frame GPU resources
     // (TextFrameResources/UiQuadFrameResources) are also single-buffered, not N-buffered per
     // frame-in-flight — safe for a snapshot whose *content* doesn't change frame to frame (the
     // write is skipped once uploaded once) but not yet safe for animated/dynamic UI content; see
-    // the same Phase 2 note.
+    // plans/clay-ui-renderer.md's Phase 2 note.
     class UiRenderer {
       public:
         UiRenderer() noexcept = default;
@@ -57,8 +62,9 @@ namespace SFT::UI {
                                                     vector<RHI::BufferHandle> &out_transient_buffers,
                                                     Renderer::TextAtlasRetiredResources &out_retired_atlas_resources);
 
-        // Issues the batches prepare() built. Sets its own scissor per quad batch; the caller should
-        // not rely on scissor state surviving this call.
+        // Issues the batches prepare() built, interleaved by paint order (see class doc comment).
+        // Each pipeline sets its own scissor per batch; the caller should not rely on scissor (or
+        // bound-pipeline) state surviving this call.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size);
 
         void destroy(RHI::RhiDevice &device) noexcept;
@@ -67,12 +73,24 @@ namespace SFT::UI {
         Renderer::TextAtlas text_atlas_;
         Renderer::TextPipeline text_pipeline_;
         UiQuadPipeline quad_pipeline_;
+        UiCustomElementPipeline custom_element_pipeline_;
         Renderer::TextFrameResources text_frame_resources_;
         UiQuadFrameResources quad_frame_resources_;
 
         vector<Renderer::TextDrawBatch> text_batches_;
         vector<UiQuadDrawBatch> quad_batches_;
-        RHI::Rect2D full_viewport_scissor_{};
+        // Reordered by prepare() into the same global paint order as quad_batches_/text_batches_
+        // (see PaintKey, Style.hpp) — custom_group_ids_[i] is custom_draws_[i]'s paint-order group,
+        // parallel to it (a separate array rather than a field on CustomDraw itself since
+        // CustomDraw::paint already carries the *source* PaintKey; the group id is a UiRenderer-
+        // internal renumbering of it, only meaningful alongside quad_batches_/text_batches_'s own
+        // paint_group). draw() walks all three in lockstep by ascending group id — see its own doc
+        // comment.
+        vector<CustomDraw> custom_draws_;
+        vector<u32> custom_group_ids_;
+        // Stashed from create() — UiCustomElementPipeline's shader cache is keyed by color_format,
+        // and needs it again at both prepare() and draw() time, neither of which otherwise takes it.
+        RHI::Format color_format_{};
         // Lazily created on first prepare() that has a texture_resolver — see prepare()'s doc
         // comment for why this isn't Renderer::ensure_default_white_texture().
         Renderer::TextureHandle white_texture_{};

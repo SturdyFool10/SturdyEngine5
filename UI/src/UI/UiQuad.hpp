@@ -12,18 +12,23 @@ namespace SFT::UI {
     enum class UiQuadKind : u32 { Rect = 0, Image = 1 };
 
     // GPU-visible per-instance data for the UI quad pipeline (Shaders/ui_quad.slang) — one instance
-    // draws one rectangle/border/image render command from Clay's output. `kind` distinguishes only
-    // solid-vs-textured (Rect covers plain rects AND bordered rects: `border_width` of all zero is
+    // draws one rectangle/border/image render command from Clay's output. `kind` distinguishes
+    // solid vs textured (Rect covers plain rects AND bordered rects: `border_width` of all zero is
     // simply "no border to draw", so a run of mixed bordered/unbordered rects still batches as one
-    // draw call — see UiRenderer.cpp).
+    // draw call — see UiRenderer.cpp). An SVG-sourced icon (UI::Context::svg(), UI/src/UI/Svg/) is
+    // just a rasterized RGBA8 texture uploaded like any other image (Engine::UiSvgCache), so it
+    // draws through this same Image kind — batched by (texture, active clip rect), same as any
+    // other image (the "optimizations to keep things performant even with large UI trees" a custom-
+    // shaded element — UI::Context::custom_element() — can't offer, since that path is deliberately
+    // one draw call per instance; see UiCustomElementPipeline.hpp's own doc comment).
     //
     // Field order is deliberate, not cosmetic: it must byte-match Shaders/ui_quad.slang's
     // UiQuadInstance exactly under Slang/std430 StructuredBuffer rules (vec2 aligned to 8, vec4
     // aligned to 16, whole struct padded to a multiple of its largest member's alignment) — same
     // discipline as Renderer::GlyphInstance (Renderer/TextInstance.hpp). Two vec2 pairs (16 bytes),
-    // then four vec4s (64 bytes, each already 16-aligned), then `kind` plus three padding floats to
-    // round the struct back up to a 16-byte multiple, lay out identically under C++'s natural
-    // alignment and std430 with zero gaps.
+    // then four vec4s (64 bytes, each already 16-aligned), then `kind` plus three trailing padding
+    // floats to round the struct back up to a 16-byte multiple, lay out identically under C++'s
+    // natural alignment and std430 with zero gaps.
     struct UiQuadInstance {
         glm::vec2 position{0.0f}; // top-left, pixel space
         glm::vec2 size{0.0f};

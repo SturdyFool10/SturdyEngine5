@@ -14,5 +14,10 @@ sturdy_add_package(UI
         Sturdy::Renderer
         Sturdy::clay
 
+    PRIVATE_DEPS
+        # SVG parsing/rasterization (UI/src/UI/Svg/SvgIcon.hpp) — an implementation detail behind
+        # the plain RasterizedSvg struct, so lunasvg's own types never leak into UI's public headers.
+        Sturdy::LunaSvg
+
     DEBUG_PUBLIC_DEPS
 )

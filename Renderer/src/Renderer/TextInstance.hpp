@@ -160,6 +160,15 @@ namespace SFT::Renderer {
     struct TextDrawBatch {
         Text::RasterFormat format = Text::RasterFormat::SDF;
         u32 tile_index = 0;
+        // The scissor rect every instance in this batch was placed under — see TextPipeline::
+        // prepare()'s own doc comment for the (format, tile, scissor, paint_group) batching key
+        // this drives.
+        RHI::Rect2D scissor{};
+        // Which caller-defined paint-order group this batch's instances belong to — 0 for every
+        // caller that has no such concept (the debug text overlay, offscreen TextRenderTarget/
+        // TextCanvas — see prepare()'s own doc comment), UiRenderer's actual interleaving key
+        // otherwise (mirrors UiQuadDrawBatch::paint_group exactly).
+        u32 paint_group = 0;
         // Owned by the caller's independently fenced resource slot. It remains allocated across
         // frames and grows only when this slot's instance capacity is exceeded.
         RHI::BufferHandle instance_buffer{};
@@ -196,25 +205,37 @@ namespace SFT::Renderer {
     void destroy_text_frame_resources(RHI::RhiDevice &device, TextFrameResources &resources) noexcept;
 
     // The instanced glyph-quad GPU pipeline: one render pipeline (Shaders/text_sdf.slang, alpha
-    // blended, no depth test) driving vertex-pulled instanced draws, one per (format, atlas tile)
-    // batch — so a whole run of text costs one draw call per atlas tile it touches, almost always
-    // one, once the adaptively sized atlas image for that format has reached steady state (see
-    // Renderer/TextAtlas.cpp).
+    // blended, no depth test) driving vertex-pulled instanced draws, one per (format, atlas tile,
+    // scissor, paint_group) batch — so a whole run of unclipped same-format text still costs one
+    // draw call per atlas tile it touches, almost always one, once the adaptively sized atlas image
+    // for that format has reached steady state (see Renderer/TextAtlas.cpp); nested clip regions
+    // and paint-order group boundaries each add their own batch boundary, mirroring
+    // UiQuadPipeline's identical (texture, scissor, paint_group) batching.
     class TextPipeline {
       public:
         TextPipeline() noexcept = default;
 
         [[nodiscard]] static Core::RendererExpected<TextPipeline> create(RHI::RhiDevice &device, RHI::Format color_format);
 
-        // Forms consecutive (format, tile) batches without reordering painter order. `resources`
-        // belongs to a fence-retired frame slot (or a synchronous offscreen owner), so its buffer
-        // and bind groups can be updated/reused without racing another in-flight frame.
+        // Forms consecutive (format, tile, scissor, paint_group) batches without reordering painter
+        // order — `instance_scissors[i]` is the clip rect `instances[i]` was placed under (a caller
+        // with no nested clipping just repeats one full-target rect for every instance).
+        // `instance_paint_groups[i]` is the caller's paint-order group id for instance i — required
+        // to match too, alongside format/tile/scissor, before two instances merge into one batch
+        // (a caller with no such concept, e.g. the debug text overlay, just repeats 0 for every
+        // instance, same as passing no extra key at all). `resources` belongs to a fence-retired
+        // frame slot (or a synchronous offscreen owner), so its buffer and bind groups can be
+        // updated/reused without racing another in-flight frame.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, const TextAtlas &atlas,
                                                    span<const GlyphInstance> instances, span<const GlyphSlot> slots,
+                                                   span<const RHI::Rect2D> instance_scissors,
+                                                   span<const u32> instance_paint_groups,
                                                    TextFrameResources &resources, vector<TextDrawBatch> &out_batches);
 
-        // Issues one instanced draw per batch against `pass`, binding the persistent groups prepared
-        // above. `viewport_size` is the render target's pixel dimensions.
+        // Issues one instanced draw per batch against `pass`, setting each batch's own scissor
+        // first — a caller does not need to (and should not) call pass.set_scissor() itself around
+        // draw(), mirroring UiQuadPipeline::draw()'s identical contract. `viewport_size` is the
+        // render target's pixel dimensions.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass,
                                                 span<const TextDrawBatch> batches, glm::vec2 viewport_size);
 

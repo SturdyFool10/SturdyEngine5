@@ -48,6 +48,13 @@ set(STURDY_CLAY_TAG "v0.14" CACHE STRING "Clay git tag to fetch.")
 # supplies glyph outlines directly (see Text/Outline.cppm), so msdfgen only ever consumes shapes
 # built from those, never loads a font itself.
 set(STURDY_MSDFGEN_TAG "v1.13" CACHE STRING "msdfgen git tag to fetch.")
+# lunasvg (github.com/sammycage/lunasvg, MIT) — full SVG 1.1/SVG-Tiny-1.2 parser+rasterizer
+# (gradients, clip-path, mask, pattern, <use>/<defs>/<symbol>, CSS <style> blocks; only animation/
+# filters/scripts are unsupported), replacing this engine's own hand-rolled single-tint SVG reader
+# so UI icon content isn't limited to what that reader could parse. Depends on its own rasterizer,
+# plutovg (also MIT) — bundled as plain source under lunasvg's own repo (plutovg/), not a git
+# submodule, so no extra GIT_SUBMODULES handling is needed to pull it in.
+set(STURDY_LUNASVG_TAG "v3.5.0" CACHE STRING "lunasvg git tag to fetch.")
 # stb (github.com/nothings/stb) ships no releases/tags — pinning a known-good commit is the
 # standard way to consume it. Only stb_image.h is used (decoding the PNG blobs HarfBuzz's
 # hb-ot-color API returns for bitmap-format color emoji glyphs — CBDT/sbix).
@@ -178,6 +185,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_box3d()
         sturdy_fetch_clay()
         sturdy_fetch_msdfgen()
+        sturdy_fetch_lunasvg()
         sturdy_fetch_stb_image()
         sturdy_fetch_cgltf()
 
@@ -207,6 +215,7 @@ function(sturdy_configure_dependencies)
         find_package(box3d CONFIG REQUIRED)
         sturdy_find_clay()
         find_package(msdfgen CONFIG REQUIRED)
+        find_package(lunasvg CONFIG REQUIRED)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
 
@@ -999,6 +1008,33 @@ function(sturdy_fetch_msdfgen)
     sturdy_register_license(msdfgen "${msdfgen_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_lunasvg)
+    set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    # Icon-focused SVG content essentially never uses <text>, and system font enumeration
+    # (fontconfig on Linux, DirectWrite on Windows, CoreText on macOS) is a disproportionately
+    # heavy, platform-specific dependency footprint to pull in just for that rare case — <text>/
+    # <tspan> elements render without glyphs as a result, an accepted tradeoff.
+    set(LUNASVG_DISABLE_LOAD_SYSTEM_FONTS ON CACHE BOOL "" FORCE)
+    # Use the plutovg source bundled in lunasvg's own repo (default already OFF, set explicitly for
+    # clarity) rather than requiring a separately-installed system plutovg.
+    set(USE_SYSTEM_PLUTOVG OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(lunasvg
+        GIT_REPOSITORY https://github.com/sammycage/lunasvg.git
+        GIT_TAG ${STURDY_LUNASVG_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(lunasvg)
+    sturdy_mark_dependency_targets_exclude_from_all(lunasvg::lunasvg lunasvg plutovg::plutovg plutovg)
+    sturdy_register_license(lunasvg "${lunasvg_SOURCE_DIR}")
+    # plutovg is a genuinely separate upstream project (own LICENSE), just bundled as plain source
+    # inside lunasvg's repo rather than fetched independently — register its license too rather
+    # than let it ride silently under lunasvg's own attribution.
+    if(EXISTS "${lunasvg_SOURCE_DIR}/plutovg")
+        sturdy_register_license(plutovg "${lunasvg_SOURCE_DIR}/plutovg")
+    endif()
+endfunction()
+
 function(sturdy_fetch_stb_image)
     # stb_image.h is a single header with no CMakeLists.txt of its own — wire up the include
     # directory by hand, same shape as sturdy_fetch_clay().
@@ -1163,6 +1199,11 @@ function(sturdy_normalize_dependency_targets)
         msdfgen-core
         msdfgen::msdfgen
         msdfgen
+    )
+
+    sturdy_alias_existing_target(Sturdy::LunaSvg
+        lunasvg::lunasvg
+        lunasvg
     )
 
     sturdy_alias_existing_target(Sturdy::StbImage

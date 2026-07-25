@@ -2,14 +2,21 @@
 
 #include <Foundation/src/Foundation.hpp>
 
+#include "AssetManager.hpp"
+
+#include <Core/Core.hpp>
 #include <Ecs/src/Resource.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/Renderer.hpp>
 #include <UI/UI.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 // Engine-level ECS integration for Sturdy.UI: UI itself stays Ecs-agnostic (see UI.hpp's own doc
 // comment), so this is the seam that lets an ECS app build UI trees through ordinary systems
@@ -27,10 +34,28 @@ namespace SFT::Engine {
       public:
         void set_position(glm::vec2 position) noexcept { state_.position = position; }
         void set_down(bool down) noexcept { state_.down = down; }
+        // MouseWheelEvent is a delta, not a position, so this accumulates (multiple wheel events can
+        // land in one frame) rather than overwriting — cleared by UiContext::begin_layout() below
+        // once it's been folded into Clay's scroll tracking, the same one-shot lifetime as an
+        // ordinary Events<T> read.
+        void add_scroll_delta(glm::vec2 delta) noexcept { state_.scroll_delta += delta; }
+        void clear_scroll_delta() noexcept { state_.scroll_delta = glm::vec2{0.0f}; }
         [[nodiscard]] const UI::PointerState &state() const noexcept { return state_; }
+
+        // Whether this frame's pointer position landed on any UI element, per
+        // UI::Context::pointer_over_any() — set by UiContext::begin_layout() below once the UI tree
+        // that owns this pointer has actually hit-tested it. Gameplay systems (fly-camera look,
+        // click-to-interact, etc.) should check this before consuming raw mouse input, the same
+        // input-precedence contract plans/clay-ui-renderer.md flags as previously missing. One-frame
+        // stale like hovered()/clicked() themselves: it reflects whichever begin_layout() call ran
+        // last, which for a typical app runs once per frame after gameplay input systems already
+        // consumed this frame's raw events — see that ordering's own note in EngineImpl.cpp.
+        void set_consumed(bool consumed) noexcept { consumed_ = consumed; }
+        [[nodiscard]] bool consumed() const noexcept { return consumed_; }
 
       private:
         UI::PointerState state_{};
+        bool consumed_ = false;
     };
 
     // Owns one UI::Context + UI::UiRenderer pair as an ordinary World resource
@@ -73,6 +98,19 @@ namespace SFT::Engine {
         [[nodiscard]] bool ready() const noexcept { return renderer_.has_value(); }
         [[nodiscard]] UI::Context &context() noexcept { return context_; }
 
+        // Thin wrapper over UI::Context::begin_layout() that also keeps `pointer_state`'s consumed
+        // flag and scroll accumulator in sync — folding both into this one call (rather than leaving
+        // callers to remember them, the way the raw two-arg Context::begin_layout() would) is what
+        // makes the input-precedence contract structural instead of convention-based: any system that
+        // builds a UI frame through here automatically updates what gameplay input-precedence checks
+        // read. Callers should prefer this over calling context().begin_layout() directly whenever
+        // `pointer_state` came from Engine's own UiPointerState resource.
+        void begin_layout(glm::vec2 viewport_size, UiPointerState &pointer_state, f32 delta_seconds) {
+            context_.begin_layout(viewport_size, pointer_state.state(), delta_seconds);
+            pointer_state.set_consumed(context_.pointer_over_any());
+            pointer_state.clear_scroll_delta();
+        }
+
         // Packages an already-finished FrameSnapshot (UI::Context::finish_frame()'s result) into
         // the RenderGraph's UiOverlayHooks seam (Renderer::Scene.hpp) — the exact prepare()/draw()
         // glue every consumer of this UI package would otherwise write by hand. `snapshot` is
@@ -112,7 +150,106 @@ namespace SFT::Engine {
         bool create_attempted_ = false;
     };
 
+    // UI-facing image cache: UI::Context::image() (UI/) needs a raw Renderer::TextureHandle,
+    // resolved fresh every frame an app declares an image element — since Sturdy.UI is immediate-
+    // mode and rebuilds its whole tree every frame, calling AssetManager::load_texture() directly
+    // from a UI-building system would decode and re-upload the same file from disk on every single
+    // frame. This cache makes a repeat resolve() call for the same (path, color_space) an O(1)
+    // lookup instead of a decode — the concrete "large UI tree" cost this exists to avoid.
+    //
+    // Synchronous: a large image's first resolve() call still blocks the calling frame on disk I/O +
+    // decode. An async/streamed path (matching plans/texture-streaming research's direction) isn't
+    // built here since no concrete need for it has come up yet.
+    class UiImageCache {
+      public:
+        [[nodiscard]] AssetExpected<Renderer::TextureHandle> resolve(
+            AssetManager &assets, const std::filesystem::path &path,
+            TextureColorSpace color_space = TextureColorSpace::Srgb) {
+            const std::string key = path.string() + (color_space == TextureColorSpace::Linear ? "|L" : "|S");
+            if (auto cached = by_key_.find(key); cached != by_key_.end()) {
+                return cached->second.handle;
+            }
+            auto asset = assets.load_texture(path, color_space);
+            if (!asset) {
+                return std::unexpected(asset.error());
+            }
+            auto handle = assets.texture_handle(*asset);
+            if (!handle) {
+                return std::unexpected(handle.error());
+            }
+            by_key_.emplace(key, Entry{.asset = *asset, .handle = *handle});
+            return *handle;
+        }
+
+        // Drops every cached entry without unloading the underlying AssetManager assets — callers
+        // that also own the AssetManager decide asset lifetime themselves; this only forgets the
+        // path->handle mapping (e.g. useful for a hot-reload/asset-changed-on-disk workflow).
+        void clear() noexcept { by_key_.clear(); }
+
+      private:
+        struct Entry {
+            Asset asset{};
+            Renderer::TextureHandle handle{};
+        };
+        std::unordered_map<std::string, Entry> by_key_;
+    };
+
+    // UI-facing SVG icon cache: loads+rasterizes a source file once per distinct (path, target_px)
+    // tuple (UI::Svg::rasterize_svg_file() — a thin wrapper over the vendored lunasvg library, see
+    // its own doc comment for why this package no longer hand-rolls SVG parsing) and uploads the
+    // result once — repeat resolve() calls are an O(1) lookup, the same "immediate-mode UI rebuilds
+    // its tree every frame" reasoning UiImageCache documents. Deliberately shaped identically to
+    // UiImageCache::resolve() (AssetManager-backed, same AssetExpected<TextureHandle> return) now
+    // that a rasterized SVG is just another RGBA8 bitmap asset, not a special SDF case.
+    class UiSvgCache {
+      public:
+        [[nodiscard]] AssetExpected<Renderer::TextureHandle> resolve(
+            AssetManager &assets, const std::filesystem::path &path, f32 target_px) {
+            const std::string key = path.string() + "|" + std::to_string(target_px);
+            if (auto cached = by_key_.find(key); cached != by_key_.end()) {
+                return cached->second;
+            }
+
+            std::optional<UI::Svg::RasterizedSvg> rasterized = UI::Svg::rasterize_svg_file(path, target_px);
+            if (!rasterized) {
+                return std::unexpected(AssetError{
+                    .code = AssetErrorCode::DecodeFailure,
+                    .message = UString{"Failed to load/rasterize SVG."_ustr},
+                    .source = path,
+                });
+            }
+
+            auto asset = assets.create_texture(TextureAssetDesc{
+                .width = rasterized->width,
+                .height = rasterized->height,
+                // SVG fill/stop-color values are sRGB-encoded, same as a PNG icon asset — matches
+                // UiImageCache::resolve()'s own default color space.
+                .color_space = TextureColorSpace::Srgb,
+                .rgba8 = std::move(rasterized->rgba),
+                .label = UString{"ui svg icon"_ustr},
+            });
+            if (!asset) {
+                return std::unexpected(asset.error());
+            }
+            auto handle = assets.texture_handle(*asset);
+            if (!handle) {
+                return std::unexpected(handle.error());
+            }
+            by_key_.emplace(key, *handle);
+            return *handle;
+        }
+
+        // Drops every cached path->handle entry — same non-destructive contract as
+        // UiImageCache::clear() (the underlying AssetManager asset isn't unloaded here).
+        void clear() noexcept { by_key_.clear(); }
+
+      private:
+        std::unordered_map<std::string, Renderer::TextureHandle> by_key_;
+    };
+
 } // namespace SFT::Engine
 
 SFT_ECS_RESOURCE(SFT::Engine::UiPointerState, "sturdy.engine.ui_pointer_state");
 SFT_ECS_RESOURCE(SFT::Engine::UiContext, "sturdy.engine.ui_context");
+SFT_ECS_RESOURCE(SFT::Engine::UiImageCache, "sturdy.engine.ui_image_cache");
+SFT_ECS_RESOURCE(SFT::Engine::UiSvgCache, "sturdy.engine.ui_svg_cache");

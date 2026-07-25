@@ -61,6 +61,7 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 #include <RHI/RHI.hpp>
 
+using std::optional;
 using std::span;
 using std::string;
 using std::vector;
@@ -77,35 +78,69 @@ namespace SFT::Core::Vulkan {
                 case rhi::PresentMode::FifoRelaxed: return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
                 case rhi::PresentMode::Mailbox: return VK_PRESENT_MODE_MAILBOX_KHR;
                 case rhi::PresentMode::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+                // The canonical enumerant is the _KHR one (VK_KHR_present_mode_fifo_latest_ready);
+                // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT is defined as a plain alias of it in
+                // vulkan_core.h, not a distinct value.
+                case rhi::PresentMode::FifoLatestReady: return VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
             }
             return VK_PRESENT_MODE_FIFO_KHR;
         }
 
-        [[nodiscard]] VkPresentModeKHR choose_present_mode(span<const VkPresentModeKHR> modes,
-                                                           rhi::PresentMode requested) noexcept {
-            const auto supported = [modes](VkPresentModeKHR mode) noexcept {
-                return std::ranges::contains(modes, mode);
-            };
-
-            const VkPresentModeKHR preferred = present_mode_to_vk(requested);
-            if (supported(preferred)) {
-                return preferred;
+        [[nodiscard]] constexpr std::optional<rhi::PresentMode> vk_present_mode_to_rhi(VkPresentModeKHR mode) noexcept {
+            switch (mode) {
+                case VK_PRESENT_MODE_FIFO_KHR: return rhi::PresentMode::Fifo;
+                case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return rhi::PresentMode::FifoRelaxed;
+                case VK_PRESENT_MODE_MAILBOX_KHR: return rhi::PresentMode::Mailbox;
+                case VK_PRESENT_MODE_IMMEDIATE_KHR: return rhi::PresentMode::Immediate;
+                case VK_PRESENT_MODE_FIFO_LATEST_READY_KHR: return rhi::PresentMode::FifoLatestReady;
+                default: return std::nullopt; // an exotic mode outside RHI::PresentMode's set — not a candidate.
             }
+        }
 
-            switch (requested) {
-                case rhi::PresentMode::Immediate:
-                    if (supported(VK_PRESENT_MODE_FIFO_RELAXED_KHR)) return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-                    if (supported(VK_PRESENT_MODE_MAILBOX_KHR)) return VK_PRESENT_MODE_MAILBOX_KHR;
-                    break;
-                case rhi::PresentMode::Mailbox:
-                    if (supported(VK_PRESENT_MODE_FIFO_RELAXED_KHR)) return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-                    break;
-                case rhi::PresentMode::FifoRelaxed:
-                case rhi::PresentMode::Fifo:
-                    break;
+        // Translates the surface's real, freshly-queried present-mode list into RHI candidates —
+        // never assume a mode is available because it was available on another GPU/window/monitor/
+        // OS/surface. `fifo_latest_ready_enabled` gates FifoLatestReady specifically: the surface
+        // query can legitimately report VK_PRESENT_MODE_FIFO_LATEST_READY_KHR as a raw WSI
+        // capability even when the *device* hasn't enabled VK_KHR_present_mode_fifo_latest_ready /
+        // its presentModeFifoLatestReady feature bit — passing it to vkCreateSwapchainKHR without
+        // that feature enabled is invalid per spec, so it's excluded from the candidate list here
+        // rather than only caught at swapchain-creation time.
+        [[nodiscard]] vector<rhi::PresentMode> supported_rhi_present_modes(span<const VkPresentModeKHR> vk_modes,
+                                                                           bool fifo_latest_ready_enabled) {
+            vector<rhi::PresentMode> supported;
+            supported.reserve(vk_modes.size());
+            for (VkPresentModeKHR vk_mode : vk_modes) {
+                if (const optional<rhi::PresentMode> mode = vk_present_mode_to_rhi(vk_mode)) {
+                    if (*mode == rhi::PresentMode::FifoLatestReady && !fifo_latest_ready_enabled) {
+                        continue;
+                    }
+                    supported.push_back(*mode);
+                }
             }
+            return supported;
+        }
 
-            return VK_PRESENT_MODE_FIFO_KHR;
+        // Resolves `strategy` against the surface's real supported modes, logging the outcome —
+        // info when the strategy's own ideal mode was available, warning when the surface forced a
+        // degraded fallback (see RHI::PresentationResolution's own doc comment for what "degraded"
+        // means). Never silently claims the requested strategy took effect when it didn't.
+        [[nodiscard]] rhi::PresentationResolution resolve_present_mode(span<const VkPresentModeKHR> vk_modes,
+                                                                       rhi::PresentStrategy strategy,
+                                                                       bool fifo_latest_ready_enabled) {
+            const vector<rhi::PresentMode> supported = supported_rhi_present_modes(vk_modes, fifo_latest_ready_enabled);
+            const rhi::PresentMode ideal = rhi::present_mode_preference(strategy)[0];
+            const rhi::PresentMode effective =
+                rhi::choose_present_mode(span<const rhi::PresentMode>{supported.data(), supported.size()}, strategy);
+            const bool degraded = effective != ideal;
+            if (degraded) {
+                Foundation::log_warn(
+                    "Presentation strategy {} wanted {} but the surface doesn't support it; using {} instead.",
+                    rhi::present_strategy_name(strategy), rhi::present_mode_name(ideal), rhi::present_mode_name(effective));
+            } else {
+                Foundation::log_info("Presentation strategy {} resolved to {}.", rhi::present_strategy_name(strategy),
+                                     rhi::present_mode_name(effective));
+            }
+            return rhi::PresentationResolution{.strategy = strategy, .effective_mode = effective, .degraded = degraded};
         }
 
         [[nodiscard]] VkColorSpaceKHR color_space_to_vk(rhi::ColorSpace color_space) noexcept {
@@ -365,7 +400,11 @@ namespace SFT::Core::Vulkan {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         }
 
-        const VkSwapchainCreateInfoKHR info{
+        const bool fifo_latest_ready_enabled = enabled_features_.has(rhi::Feature::PresentModeFifoLatestReady);
+        rhi::PresentationResolution resolution =
+            resolve_present_mode(*modes, desc.present_strategy, fifo_latest_ready_enabled);
+
+        VkSwapchainCreateInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = surface->surface,
             .minImageCount = choose_image_count(*caps, desc.image_count),
@@ -377,12 +416,28 @@ namespace SFT::Core::Vulkan {
             .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .preTransform = caps->currentTransform,
             .compositeAlpha = choose_composite_alpha(caps->supportedCompositeAlpha, desc.composite_alpha),
-            .presentMode = choose_present_mode(*modes, desc.present_mode),
+            .presentMode = present_mode_to_vk(resolution.effective_mode),
             .clipped = desc.clipped ? VK_TRUE : VK_FALSE,
             .oldSwapchain = old_record != nullptr ? old_record->swapchain.vk_handle() : VK_NULL_HANDLE,
         };
 
         auto swapchain = VulkanSwapchain::create(logical_device_->vk_handle(), info);
+        if (!swapchain && resolution.effective_mode != rhi::PresentMode::Fifo) {
+            // Even a mode reported as supported by the query above can fail at creation time if the
+            // surface/platform state changed in between (window moved to another monitor, display
+            // mode changed, compositor state changed, ...) — retry once with the one present mode
+            // every conformant Vulkan implementation is guaranteed to accept, rather than failing
+            // the whole swapchain (re)build outright.
+            Foundation::log_warn(
+                "Swapchain creation with present mode {} failed; retrying with the guaranteed-available Fifo.",
+                rhi::present_mode_name(resolution.effective_mode));
+            info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+            swapchain = VulkanSwapchain::create(logical_device_->vk_handle(), info);
+            if (swapchain) {
+                resolution.effective_mode = rhi::PresentMode::Fifo;
+                resolution.degraded = true;
+            }
+        }
         if (!swapchain) {
             return rhi_error_from_graphics(swapchain.error());
         }
@@ -407,6 +462,10 @@ namespace SFT::Core::Vulkan {
         SwapchainRecord record{};
         record.swapchain = std::move(*swapchain);
         record.surface = desc.surface;
+        // Requested-vs-effective state for diagnostics (see PresentationResolution's own doc
+        // comment) — reflects whatever mode the swapchain actually ended up with, including the
+        // Fifo-retry-on-creation-failure path above.
+        record.presentation_resolution = resolution;
         record.textures.reserve(record.swapchain.image_count());
         record.views.reserve(record.swapchain.image_count());
         record.image_available_semaphores.reserve(record.swapchain.image_count());
@@ -471,6 +530,11 @@ namespace SFT::Core::Vulkan {
             }
         }
         swapchains_.erase(handle);
+    }
+
+    rhi::PresentationResolution VulkanRhiDeviceBridge::presentation_resolution(rhi::SwapchainHandle handle) const noexcept {
+        const SwapchainRecord *record = swapchains_.find(handle);
+        return record != nullptr ? record->presentation_resolution : rhi::PresentationResolution{};
     }
 
     rhi::RhiExpected<rhi::SurfaceTexture> VulkanRhiDeviceBridge::acquire_next_texture(rhi::SwapchainHandle handle) {

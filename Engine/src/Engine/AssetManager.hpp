@@ -2,6 +2,7 @@
 
 #include "Asset.hpp"
 
+#include <Renderer/Handles.hpp>
 #include <Renderer/Mesh.hpp>
 
 #include <cstddef>
@@ -149,6 +150,13 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<AssetInfo> info(Asset asset) const;
         [[nodiscard]] AssetExpected<ModelAssetInfo> model_info(Asset asset) const;
         [[nodiscard]] AssetExpected<TextureAssetInfo> texture_info(Asset asset) const;
+
+        // The raw RHI-facing handle behind a live texture asset — for a consumer that hands textures
+        // to a lower-level API expecting a Renderer::TextureHandle directly (e.g.
+        // UI::Context::image(), which stays Engine/AssetManager-agnostic by design; see
+        // Engine::UiImageCache). Every other AssetManager consumer goes through Asset instead, so
+        // reach for this only when the callee genuinely can't take an Asset.
+        [[nodiscard]] AssetExpected<SFT::Renderer::TextureHandle> texture_handle(Asset asset) const;
         [[nodiscard]] AssetExpected<SoundAssetInfo> sound_info(Asset asset) const;
 
         // File and decoded-sound storage is shared so returned data remains alive across later manager
