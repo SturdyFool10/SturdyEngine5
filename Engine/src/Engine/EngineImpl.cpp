@@ -260,6 +260,7 @@ namespace SFT::Engine {
             old_presentation.latency != new_presentation.latency ||
             old_presentation.preference != new_presentation.preference ||
             old_presentation.swapchain_image_count != new_presentation.swapchain_image_count ||
+            static_cast<bool>(old_presentation.allow_present_from_compute) != static_cast<bool>(new_presentation.allow_present_from_compute) ||
             (hdr_changed && !hdr_requires_backend_rebuild);
 
         const bool backend_features_changed =

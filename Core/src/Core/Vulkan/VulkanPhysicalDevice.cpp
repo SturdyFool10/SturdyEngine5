@@ -127,6 +127,12 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
             return presentQueueFamIdx;
         }
 
+[[nodiscard]] bool VulkanPhysicalDevice::queue_family_supports_present(u32 family_index, VkSurfaceKHR surface) const noexcept {
+            VkBool32 supported = VK_FALSE;
+            return vkGetPhysicalDeviceSurfaceSupportKHR(device_, family_index, surface, &supported) == VK_SUCCESS &&
+                   supported == VK_TRUE;
+        }
+
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_compute_queue_family() noexcept {
             if (!computeQueueFamIdx.has_value())
                 computeQueueFamIdx = find_queue_family_with(VK_QUEUE_COMPUTE_BIT);

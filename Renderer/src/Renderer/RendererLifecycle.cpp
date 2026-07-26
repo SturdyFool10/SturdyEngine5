@@ -360,6 +360,12 @@ namespace SFT::Renderer {
                 }
                 return a.mesh.value < b.mesh.value;
             });
+            // Stamped after sorting (this draw's *final* position for the frame) so it matches
+            // prepare_scene_gpu_data's object_buffer packing order exactly — see object_index's own
+            // doc comment (RendererModule.hpp).
+            for (usize i = 0; i < submission.draws.size(); ++i) {
+                submission.draws[i].object_index = static_cast<u32>(i);
+            }
         }
 
         Core::RendererResult result = render_frame_rhi(*record, frame, submission);
@@ -457,7 +463,9 @@ namespace SFT::Renderer {
                                                       bool shadow_map,
                                                       f32 shadow_depth_bias,
                                                       f32 shadow_slope_bias,
-                                                      RHI::SampleCount samples) {
+                                                      RHI::SampleCount samples,
+                                                      bool with_object_history,
+                                                      RHI::BindGroupHandle object_history_group) {
         MeshResource *mesh_resource = mesh(item.mesh);
         if (mesh_resource == nullptr || !mesh_resource->gpu_resident || !vertex_arena_.buffer) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -475,11 +483,14 @@ namespace SFT::Renderer {
                                                 "Render item material references an unknown material template.");
         }
 
+        const bool use_object_history = with_object_history && !depth_only;
         auto pipeline = depth_only
                             ? depth_only_pipeline_for(*material_template_resource, depth_format, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, samples)
-                            : material_pipeline_for(*material_template_resource, color_formats, depth_format,
-                                                    standard_depth_test, samples);
+                            : (use_object_history
+                                   ? history_pipeline_for(*material_template_resource, color_formats, depth_format, samples)
+                                   : material_pipeline_for(*material_template_resource, color_formats, depth_format,
+                                                           standard_depth_test, samples));
         if (!pipeline) {
             return unexpected(pipeline.error());
         }
@@ -491,12 +502,25 @@ namespace SFT::Renderer {
             binding_state.pipeline = *pipeline;
         }
 
-        const SceneDrawConstants draw_constants{
-            .view_projection = view_projection,
-            .model = item.world_transform,
-        };
-        pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
-                                std::as_bytes(span<const SceneDrawConstants>{&draw_constants, 1}));
+        if (use_object_history) {
+            // Set 1 for every with-object-history draw regardless of material — bind once per
+            // pass/bundle (RenderItemBindingState::bound_object_history_group), same elision pattern
+            // as arena_bound below.
+            if (!(binding_state.bound_object_history_group == object_history_group)) {
+                pass.set_bind_group(1, object_history_group);
+                binding_state.bound_object_history_group = object_history_group;
+            }
+            const ObjectHistoryDrawConstants draw_constants{.object_index = item.object_index};
+            pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
+                                    std::as_bytes(span<const ObjectHistoryDrawConstants>{&draw_constants, 1}));
+        } else {
+            const SceneDrawConstants draw_constants{
+                .view_projection = view_projection,
+                .model = item.world_transform,
+            };
+            pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
+                                    std::as_bytes(span<const SceneDrawConstants>{&draw_constants, 1}));
+        }
 
         const u32 frame_slot = material_resource->frames.empty()
                                     ? 0u
@@ -562,7 +586,9 @@ namespace SFT::Renderer {
                                                                bool shadow_map,
                                                                f32 shadow_depth_bias,
                                                                f32 shadow_slope_bias,
-                                                               RHI::SampleCount samples) {
+                                                               RHI::SampleCount samples,
+                                                               bool with_object_history,
+                                                               RHI::BindGroupHandle object_history_group) {
         vector<const RenderItem *> visible;
         visible.reserve(items.size());
         for (const RenderItem &item : items) {
@@ -582,7 +608,7 @@ namespace SFT::Renderer {
                 if (Core::RendererResult recorded = record_render_item(
                         pass, *item, color_formats, depth_format, frame_index, view_projection,
                         depth_only, binding_state, standard_depth_test, shadow_map,
-                        shadow_depth_bias, shadow_slope_bias, samples);
+                        shadow_depth_bias, shadow_slope_bias, samples, with_object_history, object_history_group);
                     !recorded.has_value()) {
                     return recorded;
                 }
@@ -644,7 +670,8 @@ namespace SFT::Renderer {
             tasks.push_back(Async::Scheduler::spawn([this, &visible, &results, chunk, begin, end, device, bundle_desc,
                                                       color_formats, depth_format, frame_index, view_projection,
                                                       depth_only, standard_depth_test, shadow_map,
-                                                      shadow_depth_bias, shadow_slope_bias, samples]() {
+                                                      shadow_depth_bias, shadow_slope_bias, samples,
+                                                      with_object_history, object_history_group]() {
                 auto encoder = device->create_render_bundle_encoder(bundle_desc);
                 if (!encoder) {
                     results[chunk].status = unexpected(graphics_error_from_rhi(encoder.error(), "create render bundle encoder"));
@@ -655,7 +682,7 @@ namespace SFT::Renderer {
                     if (Core::RendererResult recorded = record_render_item(
                             **encoder, *visible[i], color_formats, depth_format, frame_index, view_projection,
                             depth_only, binding_state, standard_depth_test, shadow_map,
-                            shadow_depth_bias, shadow_slope_bias, samples);
+                            shadow_depth_bias, shadow_slope_bias, samples, with_object_history, object_history_group);
                         !recorded.has_value()) {
                         results[chunk].status = recorded;
                         return;
@@ -785,6 +812,7 @@ namespace SFT::Renderer {
                                ? record.presentation.swapchain_image_count
                                : record.desired_frames_in_flight + 1,
             .old_swapchain = old_swapchain,
+            .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
             .label = "renderer swapchain",
         };
         auto swapchain = device->create_swapchain(swapchain_desc);
@@ -1037,6 +1065,17 @@ namespace SFT::Renderer {
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
         const u32 scene_frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
         SceneFrameGpuResources &instance_cull_resources = scene_frame_resources_[frame.frame_index % scene_frame_count];
+        // One bind group for every with-object-history draw this frame (RenderItem::object_index
+        // indexes the same object_buffer/view_buffer prepare_scene_gpu_data already populated above,
+        // for both instanced and non-instanced draws) — built once here rather than per-draw.
+        RHI::BindGroupHandle object_history_group{};
+        if (submission.render_graph.render_scene && !submission.draws.empty()) {
+            auto history_group = ensure_object_history_bind_group(instance_cull_resources, submission.transient_bind_groups);
+            if (!history_group) {
+                return unexpected(history_group.error());
+            }
+            object_history_group = *history_group;
+        }
         if (!instanced_batches.empty()) {
             ScopedRendererStageTimer timer{"prepare instance cull GPU data", &current_frame_cpu_stage_timings_ms};
             if (Core::RendererResult prepared = prepare_instance_cull_gpu_data(instanced_batches, instance_cull_resources);
@@ -1330,6 +1369,26 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer material",
         });
+        const RenderGraphTextureHandle gbuffer_emissive = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.gbuffer_emissive,
+            .default_view = slot.deferred_targets.gbuffer_emissive_view,
+            .format = submission.deferred_formats.emissive,
+            .extent = frame_extent,
+            .initial_layout = RHI::TextureLayout::Undefined,
+            .initial_stage = RHI::PipelineStage::None,
+            .initial_access = RHI::AccessFlags::None,
+            .label = "deferred gbuffer emissive",
+        });
+        const RenderGraphTextureHandle gbuffer_motion = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = slot.deferred_targets.motion,
+            .default_view = slot.deferred_targets.motion_view,
+            .format = submission.deferred_formats.motion,
+            .extent = frame_extent,
+            .initial_layout = RHI::TextureLayout::Undefined,
+            .initial_stage = RHI::PipelineStage::None,
+            .initial_access = RHI::AccessFlags::None,
+            .label = "deferred gbuffer motion",
+        });
         // HDR scene-color target consumed by gizmos and post-processing.
         const RenderGraphTextureHandle scene_color = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.scene_color,
@@ -1389,6 +1448,8 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle raster_albedo = gbuffer_albedo;
         RenderGraphTextureHandle raster_normal = gbuffer_normal;
         RenderGraphTextureHandle raster_material = gbuffer_material;
+        RenderGraphTextureHandle raster_emissive = gbuffer_emissive;
+        RenderGraphTextureHandle raster_motion = gbuffer_motion;
         RenderGraphTextureHandle raster_depth = depth_texture;
         const bool multisampled = framebuffer_samples != RHI::SampleCount::X1;
         if (multisampled) {
@@ -1418,6 +1479,24 @@ namespace SFT::Renderer {
                 .samples = framebuffer_samples,
                 .initial_layout = RHI::TextureLayout::Undefined,
                 .label = "multisampled deferred gbuffer material",
+            });
+            raster_emissive = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.deferred_targets.msaa_gbuffer_emissive,
+                .default_view = slot.deferred_targets.msaa_gbuffer_emissive_view,
+                .format = submission.deferred_formats.emissive,
+                .extent = frame_extent,
+                .samples = framebuffer_samples,
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .label = "multisampled deferred gbuffer emissive",
+            });
+            raster_motion = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.deferred_targets.msaa_gbuffer_motion,
+                .default_view = slot.deferred_targets.msaa_gbuffer_motion_view,
+                .format = submission.deferred_formats.motion,
+                .extent = frame_extent,
+                .samples = framebuffer_samples,
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .label = "multisampled deferred gbuffer motion",
             });
             raster_depth = graph.import_texture(RenderGraphImportedTextureDesc{
                 .texture = slot.deferred_targets.msaa_depth,
@@ -1593,6 +1672,20 @@ namespace SFT::Renderer {
                     .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
                 })
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = raster_emissive,
+                    .resolve_texture = multisampled ? gbuffer_emissive : RenderGraphTextureHandle{},
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
+                })
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = raster_motion,
+                    .resolve_texture = multisampled ? gbuffer_motion : RenderGraphTextureHandle{},
+                    .load_op = RHI::LoadOp::Clear,
+                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
+                })
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = raster_depth,
                     .resolve_texture = multisampled ? depth_texture : RenderGraphTextureHandle{},
@@ -1604,7 +1697,7 @@ namespace SFT::Renderer {
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
                 .set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
-                             &instance_cull_resources, framebuffer_samples](RenderGraphContext &context) -> Core::RendererResult {
+                             &instance_cull_resources, framebuffer_samples, object_history_group](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
@@ -1613,25 +1706,28 @@ namespace SFT::Renderer {
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                    const array<RHI::Format, 3> gbuffer_formats{
+                    const array<RHI::Format, 5> gbuffer_formats{
                         submission.deferred_formats.albedo,
                         submission.deferred_formats.normal,
                         submission.deferred_formats.material,
+                        submission.deferred_formats.emissive,
+                        submission.deferred_formats.motion,
                     };
                     const span<const RHI::Format> gbuffer_formats_span{gbuffer_formats.data(), gbuffer_formats.size()};
                     if (Core::RendererResult recorded = record_render_items_culled(
                             pass, gbuffer_draws, camera_frustum, gbuffer_formats_span, submission.deferred_formats.depth,
                             frame.frame_index, submission.view_projection, /*depth_only=*/false,
                             /*standard_depth_test=*/false, "deferred gbuffer geometry",
-                            /*shadow_map=*/false, 0.0f, 0.0f, framebuffer_samples);
+                            /*shadow_map=*/false, 0.0f, 0.0f, framebuffer_samples,
+                            /*with_object_history=*/true, object_history_group);
                         !recorded.has_value()) {
                         return recorded;
                     }
                     if (!instanced_batches.empty()) {
                         if (Core::RendererResult recorded_instanced = record_instanced_batches(
                                 pass, instanced_batches, gbuffer_formats_span, submission.deferred_formats.depth,
-                                frame.frame_index, submission.view_projection, instance_cull_resources,
-                                submission.transient_bind_groups, framebuffer_samples);
+                                frame.frame_index, submission.view_projection, submission.camera.previous_view_projection,
+                                instance_cull_resources, submission.transient_bind_groups, framebuffer_samples);
                             !recorded_instanced.has_value()) {
                             return recorded_instanced;
                         }
@@ -1664,6 +1760,7 @@ namespace SFT::Renderer {
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_albedo});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_normal});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_emissive});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture});
             if (shadow_frame.atlas_used) {
                 lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
@@ -1671,7 +1768,7 @@ namespace SFT::Renderer {
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
-                              gbuffer_material, depth_texture, shadow_atlas, &shadow_frame](
+                              gbuffer_material, gbuffer_emissive, depth_texture, shadow_atlas, &shadow_frame](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -1690,6 +1787,7 @@ namespace SFT::Renderer {
                         context.texture(gbuffer_albedo).default_view,
                         context.texture(gbuffer_normal).default_view,
                         context.texture(gbuffer_material).default_view,
+                        context.texture(gbuffer_emissive).default_view,
                         context.texture(depth_texture).default_view,
                         atlas_view,
                         slot.shadow_targets.lighting_buffer,
@@ -2049,16 +2147,25 @@ namespace SFT::Renderer {
                 return timing_target;
             }
         }
+        vector<RHI::CommandBufferHandle> frame_command_buffers;
         {
             ScopedRendererStageTimer timer{"execute render graph", &current_frame_cpu_stage_timings_ms};
             // CPU per-pass timing rides the same debug_overlay gate as GPU per-pass timing
             // (gpu_timing_enabled) even though it needs no query set of its own — keeps the two
             // breakdowns' pass lists in lockstep and avoids per-frame vector churn when the overlay
             // (the only current consumer) is off.
+            //
+            // execute_parallel (not execute()) — takes ownership of `encoder` (already carrying the
+            // text-overlay/UI prep work recorded into it above), finishes it as the first command
+            // buffer, then records the graph's own passes into their own encoder(s), one per pass for
+            // any level with more than one independent pass (Stage 4 of the render-parallelization
+            // roadmap — see RenderGraph::execute_parallel's own doc comment). `frame_command_buffers`
+            // ends up with every resulting handle in submission order.
             Core::RendererResult graph_result = gpu_timing_enabled
-                ? graph.execute(*device, **encoder, slot.gpu_timing.query_set, &slot.gpu_timing.pending,
-                                &slot.cpu_timing.pass_timings)
-                : graph.execute(*device, **encoder);
+                ? graph.execute_parallel(*device, std::move(*encoder), RHI::QueueLane{}, frame_command_buffers,
+                                         slot.gpu_timing.query_set, &slot.gpu_timing.pending,
+                                         &slot.cpu_timing.pass_timings)
+                : graph.execute_parallel(*device, std::move(*encoder), RHI::QueueLane{}, frame_command_buffers);
             if (!graph_result.has_value()) {
                 return graph_result;
             }
@@ -2068,16 +2175,9 @@ namespace SFT::Renderer {
             }
         }
 
-        auto command_buffer = (*encoder)->finish();
-        if (!command_buffer) {
-            graph.destroy_transient_resources(*device);
-            return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish RHI command encoder"));
-        }
-
-        const array command_buffers{*command_buffer};
         const array presented_textures{texture};
         RHI::SubmitDesc submit_desc{
-            .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
+            .command_buffers = span<const RHI::CommandBufferHandle>{frame_command_buffers.data(), frame_command_buffers.size()},
             .waits = {},
             .signals = {},
             .presented_textures = span<const RHI::SurfaceTexture>{presented_textures.data(), presented_textures.size()},
@@ -2089,7 +2189,9 @@ namespace SFT::Renderer {
             ScopedRendererStageTimer timer{"submit RHI frame", &current_frame_cpu_stage_timings_ms};
             if (auto submitted = device->submit(submit_desc); !submitted) {
                 graph.destroy_transient_resources(*device);
-                device->destroy_command_buffer(*command_buffer);
+                for (RHI::CommandBufferHandle command_buffer : frame_command_buffers) {
+                    device->destroy_command_buffer(command_buffer);
+                }
                 return unexpected(graphics_error_from_rhi(submitted.error(), "submit RHI frame"));
             }
         }
@@ -2097,7 +2199,7 @@ namespace SFT::Renderer {
         // The frame is now in flight. Hand its GPU resources to the ring slot for fence-gated cleanup —
         // deliberately NO wait here (the whole point of the async model). They are reclaimed the next time
         // this slot comes round, after its fence has signaled.
-        slot.command_buffer = *command_buffer;
+        slot.command_buffers = std::move(frame_command_buffers);
         slot.transient_textures = std::move(submission.retired_text_atlas_resources.textures);
         slot.transient_texture_views = std::move(submission.retired_text_atlas_resources.texture_views);
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
@@ -2158,7 +2260,9 @@ namespace SFT::Renderer {
             slot.deferred_targets.formats.albedo == formats.albedo &&
             slot.deferred_targets.formats.normal == formats.normal &&
             slot.deferred_targets.formats.material == formats.material &&
+            slot.deferred_targets.formats.emissive == formats.emissive &&
             slot.deferred_targets.formats.scene_color == formats.scene_color &&
+            slot.deferred_targets.formats.motion == formats.motion &&
             slot.deferred_targets.formats.depth == formats.depth &&
             slot.deferred_targets.samples == samples;
         if (matches) {
@@ -2213,8 +2317,20 @@ namespace SFT::Renderer {
             device->destroy_texture(albedo->first);
             return unexpected(material.error());
         }
+        auto emissive = create_target(formats.emissive, color_usage, "persistent deferred gbuffer emissive");
+        if (!emissive) {
+            device->destroy_texture_view(material->second);
+            device->destroy_texture(material->first);
+            device->destroy_texture_view(normal->second);
+            device->destroy_texture(normal->first);
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(emissive.error());
+        }
         auto scene_color = create_target(formats.scene_color, color_usage, "persistent scene color");
         if (!scene_color) {
+            device->destroy_texture_view(emissive->second);
+            device->destroy_texture(emissive->first);
             device->destroy_texture_view(material->second);
             device->destroy_texture(material->first);
             device->destroy_texture_view(normal->second);
@@ -2223,12 +2339,30 @@ namespace SFT::Renderer {
             device->destroy_texture(albedo->first);
             return unexpected(scene_color.error());
         }
+        auto motion = create_target(formats.motion, color_usage, "persistent deferred motion");
+        if (!motion) {
+            device->destroy_texture_view(scene_color->second);
+            device->destroy_texture(scene_color->first);
+            device->destroy_texture_view(emissive->second);
+            device->destroy_texture(emissive->first);
+            device->destroy_texture_view(material->second);
+            device->destroy_texture(material->first);
+            device->destroy_texture_view(normal->second);
+            device->destroy_texture(normal->first);
+            device->destroy_texture_view(albedo->second);
+            device->destroy_texture(albedo->first);
+            return unexpected(motion.error());
+        }
         auto depth = create_target(formats.depth,
                                    RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
                                    "persistent deferred depth");
         if (!depth) {
+            device->destroy_texture_view(motion->second);
+            device->destroy_texture(motion->first);
             device->destroy_texture_view(scene_color->second);
             device->destroy_texture(scene_color->first);
+            device->destroy_texture_view(emissive->second);
+            device->destroy_texture(emissive->first);
             device->destroy_texture_view(material->second);
             device->destroy_texture(material->first);
             device->destroy_texture_view(normal->second);
@@ -2248,6 +2382,10 @@ namespace SFT::Renderer {
             .gbuffer_normal_view = normal->second,
             .gbuffer_material = material->first,
             .gbuffer_material_view = material->second,
+            .gbuffer_emissive = emissive->first,
+            .gbuffer_emissive_view = emissive->second,
+            .motion = motion->first,
+            .motion_view = motion->second,
             .scene_color = scene_color->first,
             .scene_color_view = scene_color->second,
             .depth = depth->first,
@@ -2283,6 +2421,16 @@ namespace SFT::Renderer {
                     slot.deferred_targets.msaa_gbuffer_material_view);
                 !result.has_value()) return result;
             if (Core::RendererResult result = make_msaa(
+                    formats.emissive, msaa_color_usage, "multisampled deferred gbuffer emissive",
+                    slot.deferred_targets.msaa_gbuffer_emissive,
+                    slot.deferred_targets.msaa_gbuffer_emissive_view);
+                !result.has_value()) return result;
+            if (Core::RendererResult result = make_msaa(
+                    formats.motion, msaa_color_usage, "multisampled deferred gbuffer motion",
+                    slot.deferred_targets.msaa_gbuffer_motion,
+                    slot.deferred_targets.msaa_gbuffer_motion_view);
+                !result.has_value()) return result;
+            if (Core::RendererResult result = make_msaa(
                     formats.depth, RHI::TextureUsage::DepthStencilAttachment,
                     "multisampled deferred depth",
                     slot.deferred_targets.msaa_depth,
@@ -2306,7 +2454,9 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.gbuffer_albedo, slot.deferred_targets.gbuffer_albedo_view);
             destroy_target(slot.deferred_targets.gbuffer_normal, slot.deferred_targets.gbuffer_normal_view);
             destroy_target(slot.deferred_targets.gbuffer_material, slot.deferred_targets.gbuffer_material_view);
+            destroy_target(slot.deferred_targets.gbuffer_emissive, slot.deferred_targets.gbuffer_emissive_view);
             destroy_target(slot.deferred_targets.scene_color, slot.deferred_targets.scene_color_view);
+            destroy_target(slot.deferred_targets.motion, slot.deferred_targets.motion_view);
             destroy_target(slot.deferred_targets.depth, slot.deferred_targets.depth_view);
             destroy_target(slot.deferred_targets.msaa_gbuffer_albedo,
                            slot.deferred_targets.msaa_gbuffer_albedo_view);
@@ -2314,6 +2464,10 @@ namespace SFT::Renderer {
                            slot.deferred_targets.msaa_gbuffer_normal_view);
             destroy_target(slot.deferred_targets.msaa_gbuffer_material,
                            slot.deferred_targets.msaa_gbuffer_material_view);
+            destroy_target(slot.deferred_targets.msaa_gbuffer_emissive,
+                           slot.deferred_targets.msaa_gbuffer_emissive_view);
+            destroy_target(slot.deferred_targets.msaa_gbuffer_motion,
+                           slot.deferred_targets.msaa_gbuffer_motion_view);
             destroy_target(slot.deferred_targets.msaa_depth, slot.deferred_targets.msaa_depth_view);
         }
         slot.deferred_targets = {};
@@ -2582,8 +2736,10 @@ namespace SFT::Renderer {
                     }
                 }
             }
-            if (slot.command_buffer) {
-                device->destroy_command_buffer(slot.command_buffer);
+            for (RHI::CommandBufferHandle command_buffer : slot.command_buffers) {
+                if (command_buffer) {
+                    device->destroy_command_buffer(command_buffer);
+                }
             }
         }
         slot.transient_bind_groups.clear();
@@ -2595,7 +2751,7 @@ namespace SFT::Renderer {
             slot.retired_presentation_textures.clear();
             slot.retired_swapchains.clear();
         }
-        slot.command_buffer = {};
+        slot.command_buffers.clear();
     }
 
     void Renderer::drain_frames_in_flight(WindowSurfaceRecord &record) noexcept {

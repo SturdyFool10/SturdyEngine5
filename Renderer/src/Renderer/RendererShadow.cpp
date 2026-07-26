@@ -776,6 +776,7 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle albedo_view,
         RHI::TextureViewHandle normal_view,
         RHI::TextureViewHandle material_view,
+        RHI::TextureViewHandle emissive_view,
         RHI::TextureViewHandle depth_view,
         RHI::TextureViewHandle shadow_atlas_view,
         RHI::BufferHandle lighting_buffer,
@@ -786,7 +787,7 @@ namespace SFT::Renderer {
             return unexpected(pipeline.error());
         }
         RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr || !albedo_view || !normal_view || !material_view || !depth_view ||
+        if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
             !shadow_atlas_view || !lighting_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
@@ -813,6 +814,8 @@ namespace SFT::Renderer {
                 entry.texture_view = normal_view;
             } else if (resource.name == "gbufferMaterial") {
                 entry.texture_view = material_view;
+            } else if (resource.name == "gbufferEmissive") {
+                entry.texture_view = emissive_view;
             } else if (resource.name == "gbufferDepth") {
                 entry.texture_view = depth_view;
             } else if (resource.name == "shadowAtlas") {

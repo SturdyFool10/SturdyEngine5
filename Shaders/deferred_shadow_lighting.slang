@@ -79,6 +79,7 @@ ConstantBuffer<ShadowLightingGpuData> lightingData;
 Texture2D<float4> gbufferAlbedo;
 Texture2D<float2> gbufferNormal;
 Texture2D<float4> gbufferMaterial;
+Texture2D<float4> gbufferEmissive;
 Texture2D<float> gbufferDepth;
 Texture2D<float> shadowAtlas;
 SamplerState gbufferSampler;
@@ -548,5 +549,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
 
     hdr *= lightingData.ambientRadianceExposure.w;
+    // Emissive is unlit self-illumination (glTF semantics) — added after exposure, not scaled by
+    // it, so an emissive surface (screen, lava, neon) reads the same brightness regardless of the
+    // ambient exposure the rest of the scene is dialed to, and bypasses BRDF/shadow/AO entirely.
+    float3 emissive = gbufferEmissive.SampleLevel(gbufferSampler, input.uv, 0.0).rgb;
+    hdr += emissive;
     return float4(max(hdr, 0.0), albedoSample.a);
 }

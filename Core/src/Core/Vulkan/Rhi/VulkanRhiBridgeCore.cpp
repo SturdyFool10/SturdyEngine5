@@ -20,14 +20,12 @@
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Vulkan/VulkanAllocator.hpp>
 #include <Core/Vulkan/VulkanBackend.hpp>
-#include <Core/Vulkan/VulkanCommandPool.hpp>
 #include <Core/Vulkan/VulkanDevice.hpp>
 #include <Core/Vulkan/Rhi/VulkanNativeAccessExtension.hpp>
 #include <Core/Vulkan/VulkanPhysicalDevice.hpp>
 #include <Core/Vulkan/VulkanQueue.hpp>
 #include <Core/Vulkan/Rhi/VulkanRhiBridge.hpp>
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
-#include <Core/Vulkan/VulkanSync.hpp>
 #include <RHI/RHI.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -215,17 +213,8 @@ namespace SFT::Core::Vulkan {
             });
         }
 
-        // Best-effort: backs write_buffer()'s staged upload path for DeviceLocal buffers (see
-        // VulkanRhiBridgeBuffers.cpp). If either fails to create, upload_via_staging() reports
-        // OperationFailed at the point of use rather than here — every other bridge capability is
-        // independent of this pool/fence.
-        if (auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), graphics_queue_->family_index());
-            pool.has_value()) {
-            upload_.lock()->command_pool = std::move(*pool);
-        }
-        if (auto fence = VulkanFence::create(logical_device_->vk_handle()); fence.has_value()) {
-            upload_.lock()->fence = std::move(*fence);
-        }
+        // write_buffer()'s staged upload path for DeviceLocal buffers (VulkanRhiBridgeBuffers.cpp)
+        // checks pool/fence pairs out of upload_pool_ lazily, on first use — nothing to pre-create here.
     }
 
     rhi::BackendType VulkanRhiDeviceBridge::backend_type() const noexcept { return rhi::BackendType::Vulkan; }

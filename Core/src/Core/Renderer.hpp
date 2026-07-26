@@ -114,6 +114,14 @@ namespace SFT::Core {
         b8 hdr_enabled = false;
         // 0 = renderer/backend chooses. Non-zero is clamped by the backend/surface capabilities.
         u32 swapchain_image_count = 0;
+        // Opt-out, not opt-in: when the device has a compute queue whose family also supports
+        // presenting on the surface (checked fresh per swapchain, never assumed), the backend uses it
+        // for vkQueuePresentKHR instead of the graphics queue — frees the graphics queue from present's
+        // per-frame driver overhead. On hardware/drivers where the compute queue's family doesn't
+        // report present support (essentially all of them today — present support is conventionally
+        // tied to the graphics/universal family), this has no effect and presentation stays on the
+        // graphics queue exactly as before. Set false to force the graphics queue regardless.
+        b8 allow_present_from_compute = true;
     };
 
     // Turns an app's presentation intent into the backend-agnostic RHI::PresentStrategy the RHI

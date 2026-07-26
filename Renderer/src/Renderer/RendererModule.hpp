@@ -217,6 +217,13 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle gbuffer_normal_view{};
             RHI::TextureHandle gbuffer_material{};
             RHI::TextureViewHandle gbuffer_material_view{};
+            RHI::TextureHandle gbuffer_emissive{};
+            RHI::TextureViewHandle gbuffer_emissive_view{};
+            // Screen-space motion vector — written by the deferred gbuffer geometry pass's
+            // fragmentMain (see DeferredTargetFormats::motion's doc comment), same as the other
+            // gbuffer_* targets above.
+            RHI::TextureHandle motion{};
+            RHI::TextureViewHandle motion_view{};
             RHI::TextureHandle scene_color{};
             RHI::TextureViewHandle scene_color_view{};
             RHI::TextureHandle depth{};
@@ -227,6 +234,10 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle msaa_gbuffer_normal_view{};
             RHI::TextureHandle msaa_gbuffer_material{};
             RHI::TextureViewHandle msaa_gbuffer_material_view{};
+            RHI::TextureHandle msaa_gbuffer_emissive{};
+            RHI::TextureViewHandle msaa_gbuffer_emissive_view{};
+            RHI::TextureHandle msaa_gbuffer_motion{};
+            RHI::TextureViewHandle msaa_gbuffer_motion_view{};
             RHI::TextureHandle msaa_depth{};
             RHI::TextureViewHandle msaa_depth_view{};
         };
@@ -392,7 +403,10 @@ namespace SFT::Renderer {
 
         struct FrameInFlight {
             RHI::FenceHandle fence{};
-            RHI::CommandBufferHandle command_buffer{};
+            // One entry per command buffer execute_parallel() finished this frame (the primary encoder
+            // plus one per render-graph pass level, or a single entry when the graph was small enough
+            // to stay on execute_parallel's serial fallback) — see render_frame_rhi.
+            vector<RHI::CommandBufferHandle> command_buffers;
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
             vector<RHI::BindGroupHandle> transient_bind_groups;
@@ -442,6 +456,13 @@ namespace SFT::Renderer {
             glm::mat4 world_transform{1.0f};
             u64 stable_id = 0;
             u32 sort_key = 0;
+            // This draw's position in FrameSubmission::draws at the moment render_frame_dispatch
+            // stamps it (right after the (material, mesh) sort, before any pass-specific
+            // filtering/copying) — matches SceneObjectGpuData's index in prepare_scene_gpu_data's
+            // object_buffer 1:1, regardless of which filtered view of submission.draws (gbuffer_draws,
+            // an instanced batch's range, ...) this RenderItem is later read through. Only meaningful
+            // for draws recorded with record_render_item's with_object_history=true.
+            u32 object_index = 0;
         };
 
         // Tracks what record_render_item last bound within one render pass so a run of draws sharing
@@ -457,6 +478,10 @@ namespace SFT::Renderer {
             // index_arena_), so the buffer binding itself only needs to happen once per pass, not
             // per-mesh — this just tracks whether that first bind has happened yet.
             bool arena_bound = false;
+            // Set 1 for with_object_history draws (Shaders/gbuffer_geometry_history.slang's
+            // sceneObjects/sceneView) — the same bind group for every draw in a pass/bundle
+            // regardless of material, so this only needs to be bound once, exactly like arena_bound.
+            RHI::BindGroupHandle bound_object_history_group{};
         };
 
         // Fully call-local replacement for what used to be six Renderer-wide "current frame" member
@@ -563,6 +588,36 @@ namespace SFT::Renderer {
         struct InstancedTemplateResources {
             RHI::PipelineLayoutHandle pipeline_layout{};
             vector<InstancedPipelineVariant> pipeline_variants;
+        };
+
+        // Per-object motion vectors for the *non*-instanced per-item draw path (RendererObjectHistory.cpp).
+        // Mirrors InstanceCullResources' shape minus the compute-cull half: a separately-compiled vertex
+        // stage (Shaders/gbuffer_geometry_history.slang's vertexMainWithHistory) that reads model/
+        // previous_model from the same SceneObjectGpuData/SceneViewGpuData buffers prepare_scene_gpu_data
+        // already fills for the instanced path, indexed by a tiny per-draw push constant instead of the
+        // ordinary SceneDrawConstants{view_projection, model} push constant (128 bytes, Vulkan's
+        // guaranteed push-constant minimum — no room for a previous_model mat4 too). Compiled as its own
+        // module so its extra sceneObjects/sceneView bind group never touches the z-prepass/shadow/gizmo
+        // pipelines, which keep using the ordinary vertexMain + SceneDrawConstants unchanged.
+        struct ObjectHistoryResources {
+            Core::Slang::Shader vertex_shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            bool ready = false;
+        };
+
+        // One material template's with-object-history pipeline, keyed by (color formats, depth format,
+        // samples) like InstancedPipelineVariant. `pipeline_layout` combines the template's own reflected
+        // set 0 (reused as-is) with ObjectHistoryResources::bind_group_layout at set 1.
+        struct ObjectHistoryPipelineVariant {
+            vector<RHI::Format> color_formats;
+            RHI::Format depth_format = RHI::Format::Undefined;
+            RHI::SampleCount samples = RHI::SampleCount::X1;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+        struct ObjectHistoryTemplateResources {
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            vector<ObjectHistoryPipelineVariant> pipeline_variants;
         };
 
         struct TonemapResources {
@@ -862,7 +917,9 @@ namespace SFT::Renderer {
                                                                bool shadow_map = false,
                                                                f32 shadow_depth_bias = 0.0f,
                                                                f32 shadow_slope_bias = 0.0f,
-                                                               RHI::SampleCount samples = RHI::SampleCount::X1);
+                                                               RHI::SampleCount samples = RHI::SampleCount::X1,
+                                                               bool with_object_history = false,
+                                                               RHI::BindGroupHandle object_history_group = {});
 
         // Frustum-culls `items` against `frustum` (render_item_visible), then records survivors
         // into `pass`. Below kParallelRecordThreshold survivors, or with no worker threads
@@ -892,7 +949,9 @@ namespace SFT::Renderer {
                                                                        bool shadow_map = false,
                                                                        f32 shadow_depth_bias = 0.0f,
                                                                        f32 shadow_slope_bias = 0.0f,
-                                                                       RHI::SampleCount samples = RHI::SampleCount::X1);
+                                                                       RHI::SampleCount samples = RHI::SampleCount::X1,
+                                                                       bool with_object_history = false,
+                                                                       RHI::BindGroupHandle object_history_group = {});
 
         // ── GPU-driven instanced batch draws (RendererGpuCulling.cpp) ──
         // Scans `sorted_draws` (already sorted by (material, mesh) — see render_frame_dispatch) for
@@ -912,6 +971,18 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> instanced_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
             RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
+
+        // ── Per-object motion vectors for non-instanced draws (RendererObjectHistory.cpp) ──
+        [[nodiscard]] Core::RendererResult ensure_object_history_resources();
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> history_pipeline_for(
+            MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
+            RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
+        // One bind group (set 1: sceneObjects StructuredBuffer + sceneView ConstantBuffer) built once
+        // per frame from `resources`' already-populated view_buffer/object_buffer (prepare_scene_gpu_data
+        // fills both every frame regardless of whether any draw uses object history) and pushed onto
+        // `transient_bind_groups` for frame-lifetime cleanup — see FrameSubmission::transient_bind_groups.
+        [[nodiscard]] Core::RendererExpected<RHI::BindGroupHandle> ensure_object_history_bind_group(
+            SceneFrameGpuResources &resources, vector<RHI::BindGroupHandle> &transient_bind_groups);
 
         // Records one compute dispatch per batch (frustum + Hi-Z occlusion cull, plus compaction)
         // into `pass`, writing into `resources`' indirect-command/compacted-index buffers — see
@@ -964,6 +1035,7 @@ namespace SFT::Renderer {
                                                                     RHI::Format depth_format,
                                                                     u64 frame_index,
                                                                     const glm::mat4 &view_projection,
+                                                                    const glm::mat4 &previous_view_projection,
                                                                     SceneFrameGpuResources &resources,
                                                                     vector<RHI::BindGroupHandle> &transient_bind_groups,
                                                                     RHI::SampleCount samples = RHI::SampleCount::X1);
@@ -1025,6 +1097,7 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle albedo_view,
             RHI::TextureViewHandle normal_view,
             RHI::TextureViewHandle material_view,
+            RHI::TextureViewHandle emissive_view,
             RHI::TextureViewHandle depth_view,
             RHI::TextureViewHandle shadow_atlas_view,
             RHI::BufferHandle lighting_buffer,
@@ -1209,6 +1282,17 @@ namespace SFT::Renderer {
         // instanced_pipeline_for()'s per-template cache, same rationale/shape as
         // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
         Async::Mutex<std::unordered_map<u64, InstancedTemplateResources>> instanced_pipeline_variants_;
+        Async::Mutex<ObjectHistoryResources> object_history_;
+        // history_pipeline_for()'s per-template cache, same rationale/shape as
+        // instanced_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
+        Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
+        // CPU-side history for real per-object motion vectors (SceneObjectGpuData::previous_model) —
+        // keyed by RenderItem::stable_id, a persistent per-object identity (for real ECS content,
+        // `(entity.generation << 32) | entity.index` — see EcsRendering.cpp), not object_index (which
+        // is only this frame's packing position). prepare_scene_gpu_data reads this map (safe to read
+        // concurrently from its async-chunked packing path — no concurrent writer during that window)
+        // then overwrites it serially with this frame's transforms once packing joins.
+        std::unordered_map<u64, glm::mat4> previous_world_transforms_;
         Async::Mutex<HiZBuildResources> hiz_build_;
         // Not per-FrameInFlight-ring-slot — see HiZPyramidTargets's own doc comment for why.
         Async::Mutex<HiZPyramidTargets> hiz_pyramid_;

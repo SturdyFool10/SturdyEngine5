@@ -42,7 +42,14 @@ namespace SFT::Renderer {
         if (!resources.view_buffer) {
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = sizeof(SceneViewGpuData),
-                .usage = RHI::BufferUsage::Uniform,
+                // Storage (not just Uniform): Shaders/gbuffer_geometry_history.slang binds this as a
+                // StructuredBuffer, not a ConstantBuffer<T> — Slang's explicit [[vk::binding(N, 1)]]
+                // annotation only reliably respects the requested *set* for StructuredBuffer-kind
+                // resources, not ConstantBuffer<T> (observed: the set argument was silently ignored
+                // for a ConstantBuffer<T>, while a StructuredBuffer<T> honored it correctly — see that
+                // file's own comment). No other consumer binds view_buffer as a real uniform buffer
+                // today, so widening its usage costs nothing.
+                .usage = RHI::BufferUsage::Uniform | RHI::BufferUsage::Storage,
                 .memory = RHI::MemoryLocation::HostUpload,
                 .label = "renderer scene view buffer",
             });
@@ -75,6 +82,7 @@ namespace SFT::Renderer {
             .view = submission.camera.view,
             .projection = submission.camera.projection,
             .view_projection = submission.view_projection,
+            .previous_view_projection = submission.camera.previous_view_projection,
             .camera_world_position_near = glm::vec4{submission.camera.world_position, submission.camera.near_plane},
             .ambient_radiance_exposure = glm::vec4{submission.lighting.ambient_radiance, submission.lighting.exposure},
             .far_fov_object_count_time = glm::vec4{submission.camera.far_plane,
@@ -105,12 +113,15 @@ namespace SFT::Renderer {
                 if (begin >= end) {
                     continue;
                 }
-                tasks.push_back(Async::Scheduler::spawn([&submission, &objects, begin, end]() {
+                tasks.push_back(Async::Scheduler::spawn([this, &submission, &objects, begin, end]() {
                     for (usize i = begin; i < end; ++i) {
                         const RenderItem &item = submission.draws[i];
+                        const auto history = previous_world_transforms_.find(item.stable_id);
                         objects[i] = SceneObjectGpuData{
                             .model = item.world_transform,
-                            .previous_model = item.world_transform,
+                            .previous_model = history != previous_world_transforms_.end()
+                                                  ? history->second
+                                                  : item.world_transform,
                             .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
                                                                    static_cast<f32>(item.sort_key),
                                                                    1.0f,
@@ -125,15 +136,25 @@ namespace SFT::Renderer {
         } else {
             for (usize i = 0; i < submission.draws.size(); ++i) {
                 const RenderItem &item = submission.draws[i];
+                const auto history = previous_world_transforms_.find(item.stable_id);
                 objects[i] = SceneObjectGpuData{
                     .model = item.world_transform,
-                    .previous_model = item.world_transform,
+                    .previous_model = history != previous_world_transforms_.end() ? history->second
+                                                                                   : item.world_transform,
                     .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
                                                            static_cast<f32>(item.sort_key),
                                                            1.0f,
                                                            0.0f},
                 };
             }
+        }
+        // Overwrite serially, only after every concurrent reader above has joined (the async path's
+        // task.wait() loop) — never mutated during the concurrent-read window itself. Becomes *next*
+        // frame's history; stable_id (a persistent per-object identity — see its own doc comment on
+        // previous_world_transforms_) is the key, not object_index (only this frame's packing
+        // position), so an object's history survives being sorted to a different slot.
+        for (const RenderItem &item : submission.draws) {
+            previous_world_transforms_[item.stable_id] = item.world_transform;
         }
         if (auto written = device->write_buffer(resources.object_buffer, 0,
                                                 std::as_bytes(span<const SceneObjectGpuData>{objects.data(), objects.size()})); !written) {

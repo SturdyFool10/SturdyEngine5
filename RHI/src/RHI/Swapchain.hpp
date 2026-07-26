@@ -164,6 +164,12 @@ namespace SFT::RHI {
         PresentStrategy strategy = PresentStrategy::TearFreeOrdered;
         PresentMode effective_mode = PresentMode::Fifo;
         bool degraded = false;
+        // Whether this swapchain's vkQueuePresentKHR actually goes out on the compute queue rather
+        // than the graphics queue — set once at swapchain-creation time from SwapchainDesc's own
+        // allow_present_from_compute intent resolved against real per-family surface support (see
+        // that field's doc comment). False whenever the request was denied, disabled, or the device
+        // has no compute queue at all — presentation stays on the graphics queue in every such case.
+        bool present_queue_is_compute = false;
     };
 
     enum class CompositeAlphaMode : u32 {
@@ -202,6 +208,12 @@ namespace SFT::RHI {
         // APIs such as Vulkan's oldSwapchain/DXGI resize path to reuse presentation resources. The old
         // handle remains caller-owned: destroy it after this creation succeeds; keep it on failure.
         SwapchainHandle old_swapchain{};
+        // Engine intent for presenting from the compute queue instead of graphics when the device/
+        // surface actually support it — see Core::PresentationSettings::allow_present_from_compute
+        // (Core/Renderer.hpp), the layer that resolves into this field, for the full contract. The
+        // backend resolves this against real per-family surface support at creation time, the same
+        // "never assume, always ask the surface" discipline present_strategy above already follows.
+        bool allow_present_from_compute = true;
         const char *label = nullptr;
     };
 

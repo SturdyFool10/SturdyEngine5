@@ -109,13 +109,51 @@ namespace SFT::Core::Vulkan {
         }
     }
 
+    VulkanRhiDeviceBridge::UploadResources VulkanRhiDeviceBridge::acquire_upload_resources() {
+        {
+            auto pool = upload_pool_.lock();
+            if (!pool->empty()) {
+                UploadResources resources = std::move(pool->back());
+                pool->pop_back();
+                return resources;
+            }
+        }
+        UploadResources resources{};
+        if (auto pool_created = VulkanCommandPool::create(logical_device_->vk_handle(), graphics_queue_->family_index());
+            pool_created.has_value()) {
+            resources.command_pool = std::move(*pool_created);
+        }
+        if (auto fence = VulkanFence::create(logical_device_->vk_handle()); fence.has_value()) {
+            resources.fence = std::move(*fence);
+        }
+        return resources;
+    }
+
+    void VulkanRhiDeviceBridge::release_upload_resources(UploadResources resources) noexcept {
+        if (!resources.command_pool.is_valid() || !resources.fence.is_valid()) {
+            return;
+        }
+        upload_pool_.lock()->push_back(std::move(resources));
+    }
+
     rhi::RhiResult VulkanRhiDeviceBridge::upload_via_staging(VulkanBuffer &destination, u64 offset, span<const std::byte> data) {
-        auto upload = upload_.lock();
-        if (allocator_ == nullptr || logical_device_ == nullptr || graphics_queue_ == nullptr ||
-            !upload->command_pool.is_valid() || !upload->fence.is_valid()) {
+        if (allocator_ == nullptr || logical_device_ == nullptr || graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run upload_via_staging: device resources are not ready.");
         }
+
+        UploadResources upload = acquire_upload_resources();
+        if (!upload.command_pool.is_valid() || !upload.fence.is_valid()) {
+            return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                  "upload_via_staging: failed to create a staging command pool/fence.");
+        }
+        // Returns `upload` to upload_pool_ on every exit path below (success or error) so a failed
+        // upload never leaks a live command pool/fence out of the free-list.
+        struct ReleaseGuard {
+            VulkanRhiDeviceBridge &bridge;
+            UploadResources &resources;
+            ~ReleaseGuard() { bridge.release_upload_resources(std::move(resources)); }
+        } release_guard{*this, upload};
 
         const VkBufferCreateInfo staging_info{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -135,7 +173,7 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(uploaded.error());
         }
 
-        auto command_buffer = VulkanCommandBuffer::allocate(logical_device_->vk_handle(), upload->command_pool.vk_handle());
+        auto command_buffer = VulkanCommandBuffer::allocate(logical_device_->vk_handle(), upload.command_pool.vk_handle());
         if (!command_buffer) {
             return rhi_error_from_graphics(command_buffer.error());
         }
@@ -147,18 +185,18 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(ended.error());
         }
 
-        if (auto reset = upload->fence.reset(); !reset) {
+        if (auto reset = upload.fence.reset(); !reset) {
             return rhi_error_from_graphics(reset.error());
         }
-        if (auto submitted = graphics_queue_->submit(command_buffer->submit_info(), {}, {}, upload->fence.vk_handle());
+        if (auto submitted = graphics_queue_->submit(command_buffer->submit_info(), {}, {}, upload.fence.vk_handle());
             !submitted) {
             return rhi_error_from_graphics(submitted.error());
         }
-        if (auto waited = upload->fence.wait(); !waited) {
+        if (auto waited = upload.fence.wait(); !waited) {
             return rhi_error_from_graphics(waited.error());
         }
 
-        if (auto pool_reset = upload->command_pool.reset(); !pool_reset) {
+        if (auto pool_reset = upload.command_pool.reset(); !pool_reset) {
             return rhi_error_from_graphics(pool_reset.error());
         }
         return {};

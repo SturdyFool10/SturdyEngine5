@@ -116,6 +116,13 @@ namespace SFT::Core::Vulkan {
         // Returns the index of a queue family that can present to the given surface.
         [[nodiscard]] optional<u32> find_present_queue_family(VkSurfaceKHR surface) noexcept;
 
+        // Direct per-family presentation-support query (vkGetPhysicalDeviceSurfaceSupportKHR), not
+        // cached like findGraphicsQueue/find_present_queue_family above since it's parameterized by an
+        // arbitrary family index rather than "the" graphics/present family — used to check whether a
+        // *specific already-chosen* family (e.g. the dedicated compute family) happens to also support
+        // presenting on a surface, for RHI::SwapchainDesc::allow_present_from_compute.
+        [[nodiscard]] bool queue_family_supports_present(u32 family_index, VkSurfaceKHR surface) const noexcept;
+
         [[nodiscard]] optional<u32> find_compute_queue_family() noexcept;
 
         [[nodiscard]] optional<u32> find_transfer_queue_family() noexcept;

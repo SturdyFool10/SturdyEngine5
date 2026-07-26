@@ -205,8 +205,9 @@ namespace SFT::Core::Vulkan {
             rhi::QueueLane queue{};
         };
 
-        // Backs upload_via_staging()'s reused one-shot command pool/fence pair — bundled so a single
-        // Async::Mutex guards both together instead of a bare std::mutex alongside two loose members.
+        // One one-shot command pool/fence pair backing a single upload_via_staging() call — bundled so
+        // a single Async::Mutex-guarded free-list (upload_pool_ below) can check entries in/out as a
+        // unit instead of a bare std::mutex alongside two loose members.
         struct UploadResources {
             VulkanCommandPool command_pool;
             VulkanFence fence;
@@ -242,6 +243,10 @@ namespace SFT::Core::Vulkan {
             // comment) — set once at create_swapchain() time, read back via
             // VulkanRhiDeviceBridge::presentation_resolution() (e.g. the Renderer debug overlay).
             rhi::PresentationResolution presentation_resolution{};
+            // Mirrors presentation_resolution.present_queue_is_compute — kept as its own bool (not just
+            // re-read from presentation_resolution) so present() can check it without reasoning about
+            // the rest of that struct; set once at create_swapchain() time alongside it.
+            bool present_via_compute = false;
         };
 
         friend VkAccelerationStructureGeometryKHR to_vk_geometry(
@@ -270,6 +275,18 @@ namespace SFT::Core::Vulkan {
         // only transfer path until real command recording lands (Phase 3) — write_buffer's documented
         // behavior for a DeviceLocal destination requires exactly this, so it can't wait for that phase.
         [[nodiscard]] rhi::RhiResult upload_via_staging(VulkanBuffer &destination, u64 offset, span<const std::byte> data);
+
+        // Checks one UploadResources entry out of upload_pool_ (reusing a returned one if the free-list
+        // is non-empty, else creating a fresh pool/fence pair) so concurrent upload_via_staging() calls
+        // each get their own command pool/fence instead of serializing on one shared pair. A pool/fence
+        // creation failure is returned as an invalid (default-constructed-looking) entry — the caller
+        // checks validity and reports OperationFailed rather than this function itself failing, matching
+        // upload_via_staging's existing best-effort-resource-creation contract.
+        [[nodiscard]] UploadResources acquire_upload_resources();
+        // Returns `resources` to upload_pool_ for reuse by a later call. A broken entry (pool/fence
+        // creation failed in acquire_upload_resources) is dropped instead of recycled — pushing an
+        // invalid entry back would just hand the same failure to the next caller.
+        void release_upload_resources(UploadResources resources) noexcept;
 
         VulkanBackend *backend_ = nullptr;
         VkInstance instance_ = VK_NULL_HANDLE;
@@ -322,7 +339,13 @@ namespace SFT::Core::Vulkan {
         VulkanRhiResourcePool<rhi::SurfaceHandle, SurfaceRecord> surfaces_;
         VulkanRhiResourcePool<rhi::SwapchainHandle, SwapchainRecord> swapchains_;
 
-        Async::Mutex<UploadResources> upload_;
+        // Free-list of reusable upload command pool/fence pairs, guarded only across the brief
+        // pop_back()/push_back() checkout — the actual record/submit/wait/reset work in
+        // upload_via_staging() runs on a caller's own checked-out entry, outside this lock, so
+        // concurrent uploads on different entries genuinely overlap instead of fully serializing.
+        // Grows lazily to whatever the real peak concurrent-upload count turns out to be, then stays
+        // that size (entries are always returned, never destroyed, once created).
+        Async::Mutex<vector<UploadResources>> upload_pool_;
 
         // Appended after the original bridge state to avoid shifting resource-pool offsets across module
         // implementation units while the project is still using fragile C++23 module/BMI generation.

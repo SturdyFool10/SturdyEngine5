@@ -453,6 +453,7 @@ namespace SFT::Engine {
             .near_plane = near_clip_,
             .far_plane = far_clip_,
             .vertical_fov_radians = vertical_fov_radians_,
+            .previous_view_projection = previous_view_projection_matrix(),
         };
     }
 

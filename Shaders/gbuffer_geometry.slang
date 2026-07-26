@@ -7,16 +7,22 @@
 //               dielectric F0 (see sturdy_common's dielectricF0FromIor; this unifies the
 //               metallic-roughness and KHR_materials_specular-style specular workflows onto one
 //               material input instead of two — plans/pbr-material-system.md)
+//   SV_Target3: HDR emissive color (RGBA16F — glTF's emissive_factor/emissive_texture, scaled by
+//               KHR_materials_emissive_strength; unlit, added downstream in the lighting pass
+//               after the BRDF/shadow/AO terms, not before)
+//   SV_Target4: screen-space motion vector (RG16F), from currentClip/previousClip below — real
+//               per-object motion for draws recorded with Renderer::history_pipeline_for
+//               (Shaders/gbuffer_geometry_history.slang's vertexMainWithHistory), camera-motion-only
+//               (currentClip == previousClip's object term, i.e. previousModel treated as model) for
+//               plain vertexMain draws — see vertexMain's own comment.
 //
 // Material parameter/texture-slot names deliberately match glTF's pbrMetallicRoughness
 // convention (plans/material-system.md's "Default PBR template") so a glTF-imported material
 // maps onto this template's reflected UBO/texture slots field-for-field.
 //
-// occlusion_texture/emissive are not exposed here yet: emissive has nowhere to go until the
-// G-buffer gains its own target (today's 3 targets — albedo/normal/material — have no spare
-// channel wide enough for an HDR RGB emissive value), and no occlusion texture has shown up in
-// real content routed through this template yet — see plans/pbr-material-system.md's Phase 2 for
-// the G-buffer-expansion follow-up work.
+// occlusion_texture packs into the existing material-channel AO slot (no new target needed);
+// emissive needed its own target (an HDR RGB value has nowhere to hide in the 8-bit
+// albedo/material channels) — see plans/pbr-material-system.md's Phase 2.
 //
 // normal_texture IS exposed: GeometryVertex now carries a per-vertex tangent (xyz direction, w
 // bitangent-handedness sign — glTF's own TANGENT accessor convention), so a real tangent-space
@@ -39,12 +45,22 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
     float4 color : COLOR0;
     float4 worldTangent : TANGENT;
+    // Undivided clip-space position this frame / last frame, for fragmentMain's motion-vector
+    // output below — kept undivided (not NDC) since perspective division must happen per-fragment
+    // after interpolation, not per-vertex. vertexMain (paired with plain SceneDrawConstants, no
+    // per-object history available) sets both to the same value: zero motion, camera movement only.
+    // vertexMainWithHistory (Shaders/gbuffer_geometry_history.slang, paired with this same
+    // fragmentMain) computes a real previousClip from SceneObjectGpuData::previous_model.
+    float4 currentClip : TEXCOORD1;
+    float4 previousClip : TEXCOORD2;
 };
 
 struct GBufferOutput {
     float4 albedo : SV_Target0;
     float2 normal : SV_Target1;
     float4 material : SV_Target2;
+    float4 emissive : SV_Target3;
+    float2 motion : SV_Target4;
 };
 
 struct SceneDrawConstants {
@@ -78,6 +94,13 @@ float ior;
 // pass — plans/pbr-material-system.md's transmission/glass phase notes the same gap) and is treated
 // as opaque rather than faked via cutout.
 float alpha_cutoff;
+// glTF occlusion_texture's strength scale (glTF spec default 1.0; irrelevant when no occlusion
+// texture is bound, since sampling the default white texture already yields no darkening).
+float occlusion_strength;
+// glTF emissive_factor (w unused — see GltfImport.cpp's PendingMaterial for why this is a vec4
+// rather than vec3) and KHR_materials_emissive_strength's multiplier (spec default 1.0).
+float4 emissive_factor;
+float emissive_strength;
 
 // Combined texture+sampler resources (Slang's Sampler2D, not a split Texture2D+SamplerState pair):
 // Renderer::prepare_material_frame (RendererMaterial.cpp) binds a texture slot's *own* sampler
@@ -92,6 +115,13 @@ Sampler2D metallic_roughness_texture;
 // without one bind a flat (0.5, 0.5, 1.0) placeholder (GltfImport.cpp), which unpacks to
 // tangent-space (0, 0, 1) — a no-op perturbation, so this sampling is safe unconditionally.
 Sampler2D normal_texture;
+// Packed occlusion data (conventionally the R channel — see GltfImport.cpp's ORM-sharing comment).
+// Materials with no occlusion texture bind the renderer's default white texture (no darkening).
+Sampler2D occlusion_texture;
+// Emissive is display color like base_color_texture (sRGB-decoded on import), not packed data.
+// Materials with no emissive texture bind the default white texture, which is harmless since
+// emissive_factor defaults to (0,0,0,0) — white * black factor is still black.
+Sampler2D emissive_texture;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -105,6 +135,10 @@ VertexOutput vertexMain(VertexInput input) {
     // under the same uniform-scale assumption, and tangents specifically transform correctly with
     // the plain model matrix even under non-uniform scale (unlike normals).
     output.worldTangent = float4(normalize(mul(input.tangent.xyz, (float3x3)scene_draw.model)), input.tangent.w);
+    // No per-object history available on this push-constant-only path — report zero self-motion
+    // (camera-movement-only, same as this pipeline's ordinary use before object history existed).
+    output.currentClip = output.position;
+    output.previousClip = output.position;
     return output;
 }
 
@@ -132,12 +166,18 @@ GBufferOutput fragmentMain(VertexOutput input) {
     float4 metallicRoughnessSample = metallic_roughness_texture.Sample(input.uv);
     float perceptualRoughness = saturate(roughness_factor * metallicRoughnessSample.g);
     float metallic = saturate(metallic_factor * metallicRoughnessSample.b);
-    // No occlusion_texture yet (see file header): occlusion is constant 1.0 (no darkening) until
-    // Phase 2 wires a real one in.
-    float ambientOcclusion = 1.0;
+    float ambientOcclusion = saturate(1.0 + occlusion_strength * (occlusion_texture.Sample(input.uv).r - 1.0));
     float dielectricF0Scalar = dielectricF0FromIor(ior) * saturate(specular_factor);
 
     output.material = float4(perceptualRoughness, metallic, ambientOcclusion, dielectricF0Scalar);
+    output.emissive = float4(emissive_texture.Sample(input.uv).rgb * emissive_factor.rgb * emissive_strength, 1.0);
+
+    // NDC-space delta (halved for UV-space) — perspective divide happens here, per-fragment, after
+    // interpolation of the undivided clip positions (dividing per-vertex then interpolating would be
+    // wrong: NDC doesn't interpolate linearly in screen space the way clip-space does).
+    float2 currentNdc = input.currentClip.xy * safeRcp(input.currentClip.w);
+    float2 previousNdc = input.previousClip.xy * safeRcp(input.previousClip.w);
+    output.motion = (currentNdc - previousNdc) * 0.5;
     return output;
 }
 

@@ -224,6 +224,15 @@ namespace SFT::Engine {
             // material's real alphaCutoff; BLEND is treated as opaque — see gbuffer_geometry.slang's
             // alpha_cutoff comment for why true blending isn't supported by this deferred pass yet.
             f32 alpha_cutoff = 0.0f;
+            // glTF defaults: no baked occlusion (strength irrelevant with no texture bound) and no
+            // emissive contribution at all. emissive_factor is a vec4 (w unused) rather than vec3
+            // because AssetManager::set_model_vec4 is the only vector setter available and requires
+            // an exact 16-byte match against the reflected shader parameter — same reason
+            // base_color_factor is a vec4 in glTF itself.
+            f32 occlusion_strength = 1.0f;
+            glm::vec4 emissive_factor{0.0f, 0.0f, 0.0f, 0.0f};
+            // KHR_materials_emissive_strength default when the extension is absent.
+            f32 emissive_strength = 1.0f;
         };
 
     } // namespace
@@ -548,6 +557,52 @@ namespace SFT::Engine {
                     if (material->alpha_mode == cgltf_alpha_mode_mask) {
                         material_values.alpha_cutoff = material->alpha_cutoff;
                     }
+
+                    material_values.emissive_factor = glm::vec4{
+                        material->emissive_factor[0],
+                        material->emissive_factor[1],
+                        material->emissive_factor[2],
+                        0.0f,
+                    };
+                    if (material->has_emissive_strength) {
+                        material_values.emissive_strength = material->emissive_strength.emissive_strength;
+                    }
+
+                    if (const cgltf_texture *texture = material->occlusion_texture.texture;
+                        texture != nullptr && texture->image != nullptr) {
+                        material_values.occlusion_strength = material->occlusion_texture.scale;
+                        const auto image_index = static_cast<usize>(texture->image - data.images);
+                        // Occlusion is packed data (conventionally the R channel, often shared with the
+                        // metallic-roughness texture in the "ORM" convention), not display color.
+                        AssetExpected<Asset> occlusion_texture = load_image(
+                            assets, *texture->image, image_index, TextureColorSpace::Linear, base_dir,
+                            image_cache);
+                        if (!occlusion_texture) {
+                            primitive_failed = true;
+                            primitive_error = occlusion_texture.error();
+                            break;
+                        }
+                        primitive_desc.textures.push_back(ModelTextureBinding{
+                            .slot = UString{"occlusion_texture"_ustr},
+                            .texture = *occlusion_texture,
+                        });
+                    }
+
+                    if (const cgltf_texture *texture = material->emissive_texture.texture;
+                        texture != nullptr && texture->image != nullptr) {
+                        const auto image_index = static_cast<usize>(texture->image - data.images);
+                        AssetExpected<Asset> emissive_texture = load_image(
+                            assets, *texture->image, image_index, TextureColorSpace::Srgb, base_dir, image_cache);
+                        if (!emissive_texture) {
+                            primitive_failed = true;
+                            primitive_error = emissive_texture.error();
+                            break;
+                        }
+                        primitive_desc.textures.push_back(ModelTextureBinding{
+                            .slot = UString{"emissive_texture"_ustr},
+                            .texture = *emissive_texture,
+                        });
+                    }
                 }
 
                 // Bound unconditionally (even with no material at all, i.e. glTF's default material)
@@ -615,6 +670,17 @@ namespace SFT::Engine {
                 }
                 if (set) {
                     set = assets.set_model_float(*model, primitive_index, "alpha_cutoff", values.alpha_cutoff);
+                }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "occlusion_strength",
+                                                 values.occlusion_strength);
+                }
+                if (set) {
+                    set = assets.set_model_vec4(*model, primitive_index, "emissive_factor", values.emissive_factor);
+                }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "emissive_strength",
+                                                 values.emissive_strength);
                 }
                 if (!set) {
                     (void)assets.unload(*model);

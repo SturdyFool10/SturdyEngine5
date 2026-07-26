@@ -41,6 +41,7 @@
 #undef Window
 #endif
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -404,6 +405,40 @@ namespace SFT::Core::Vulkan {
         rhi::PresentationResolution resolution =
             resolve_present_mode(*modes, desc.present_strategy, fifo_latest_ready_enabled);
 
+        // Present-from-compute: only relevant when the device actually has a compute queue and its
+        // family differs from graphics' (VulkanBackendDevice.cpp's dedicated-compute-family search
+        // explicitly excludes the graphics bit, so whenever a compute queue exists its family is
+        // *always* different from graphics' — a same-family compute queue would need none of this,
+        // since presenting from a different VkQueue in the same family needs no ownership transfer).
+        // desc.allow_present_from_compute is the engine's request (Core::PresentationSettings,
+        // opt-out by default); queue_family_supports_present() is the one place that request gets
+        // checked against real per-surface support, same "never assume" discipline
+        // resolve_present_mode() above already follows for present modes.
+        bool present_via_compute = false;
+        if (desc.allow_present_from_compute && compute_queue_ != nullptr &&
+            compute_queue_->family_index() != graphics_queue_->family_index()) {
+            present_via_compute = physical_device_->queue_family_supports_present(compute_queue_->family_index(), surface->surface);
+            if (present_via_compute) {
+                Foundation::log_info(
+                    "Swapchain will present from the compute queue (family={}) instead of graphics (family={}).",
+                    compute_queue_->family_index(), graphics_queue_->family_index());
+            }
+        }
+        resolution.present_queue_is_compute = present_via_compute;
+
+        // Presenting from a different queue *family* than the one that rendered into the image is a
+        // real queue-family-ownership concern for an EXCLUSIVE-sharing-mode swapchain image (the
+        // default below) — CONCURRENT sharing across exactly the two families that ever touch this
+        // image sidesteps needing an explicit ownership-transfer barrier pair every frame, at the
+        // (here negligible — only two queue families, one swapchain image at a time) usual CONCURRENT
+        // bandwidth cost. The second family index is never read unless present_via_compute is true
+        // (which already implies compute_queue_ != nullptr), so the graphics-family fallback here
+        // avoids dereferencing a possibly-null compute_queue_ rather than expressing anything real.
+        const std::array<u32, 2> concurrent_queue_families{
+            graphics_queue_->family_index(),
+            compute_queue_ != nullptr ? compute_queue_->family_index() : graphics_queue_->family_index(),
+        };
+
         VkSwapchainCreateInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = surface->surface,
@@ -413,7 +448,9 @@ namespace SFT::Core::Vulkan {
             .imageExtent = extent,
             .imageArrayLayers = 1,
             .imageUsage = usage,
-            .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .imageSharingMode = present_via_compute ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = present_via_compute ? static_cast<u32>(concurrent_queue_families.size()) : 0,
+            .pQueueFamilyIndices = present_via_compute ? concurrent_queue_families.data() : nullptr,
             .preTransform = caps->currentTransform,
             .compositeAlpha = choose_composite_alpha(caps->supportedCompositeAlpha, desc.composite_alpha),
             .presentMode = present_mode_to_vk(resolution.effective_mode),
@@ -466,6 +503,7 @@ namespace SFT::Core::Vulkan {
         // comment) — reflects whatever mode the swapchain actually ended up with, including the
         // Fifo-retry-on-creation-failure path above.
         record.presentation_resolution = resolution;
+        record.present_via_compute = present_via_compute;
         record.textures.reserve(record.swapchain.image_count());
         record.views.reserve(record.swapchain.image_count());
         record.image_available_semaphores.reserve(record.swapchain.image_count());
@@ -611,7 +649,11 @@ namespace SFT::Core::Vulkan {
             .pSwapchains = &swapchain,
             .pImageIndices = &image_index,
         };
-        auto result = graphics_queue_->present(info);
+        // record->present_via_compute was decided once at create_swapchain() time against this exact
+        // swapchain's surface (RHI::PresentationResolution::present_queue_is_compute's own doc
+        // comment) — compute_queue_ is guaranteed non-null whenever it's true.
+        VulkanQueue &present_queue = (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *graphics_queue_;
+        auto result = present_queue.present(info);
         if (!result) {
             return rhi_error_from_graphics(result.error());
         }

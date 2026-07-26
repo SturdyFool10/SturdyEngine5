@@ -34,6 +34,12 @@ namespace SFT::Renderer {
         f32 near_plane = 0.01f;
         f32 far_plane = 1000.0f;
         f32 vertical_fov_radians = 1.0471975512f; // 60 degrees; informational until projection helpers land.
+        // Last frame's view*projection (Engine::Camera::previous_view_projection_matrix(), which
+        // already falls back to *this* frame's own view_projection on the first frame / after a
+        // history reset) — feeds SceneViewGpuData so the G-buffer geometry pass can compute
+        // camera-only motion (an object that hasn't moved still needs a nonzero motion vector if
+        // the camera did).
+        glm::mat4 previous_view_projection{1.0f};
     };
 
     // Per-object render submission in world space. This is intentionally resource-handle based: scene/ECS
@@ -215,7 +221,12 @@ namespace SFT::Renderer {
         // bandwidth versus a raw xyz-in-RGBA16F encode for the same per-channel precision.
         RHI::Format normal = RHI::Format::RG16Float;
         RHI::Format material = RHI::Format::RGBA8Unorm;
+        // HDR: glTF emissive can exceed 1.0 and needs to survive into the bloom threshold pass.
+        RHI::Format emissive = RHI::Format::RGBA16Float;
         RHI::Format scene_color = RHI::Format::RGBA16Float;
+        // Screen-space motion vector, written by the deferred shadow lighting pass (not the G-buffer
+        // geometry pass — it needs the same world-position reconstruction that pass already does).
+        RHI::Format motion = RHI::Format::RG16Float;
         RHI::Format depth = RHI::Format::D32Float;
     };
 
@@ -251,6 +262,14 @@ namespace SFT::Renderer {
         glm::mat4 model{1.0f};
     };
 
+    // Per-draw push constant for the with-object-history vertex stage
+    // (Shaders/gbuffer_geometry_history.slang) — model/view_projection/previous_model/
+    // previous_view_projection all come from the SceneObjectGpuData/SceneViewGpuData buffers instead,
+    // indexed by this draw's position in FrameSubmission::draws (RenderItem::object_index).
+    struct ObjectHistoryDrawConstants {
+        u32 object_index = 0;
+    };
+
     // GPU-facing per-view payload for scene rendering. This becomes the stable set-0 view buffer used
     // by geometry and post-processing passes; fields are vec4/mat4 aligned so the same
     // layout maps cleanly to GLSL/HLSL/Slang constant-buffer rules.
@@ -258,6 +277,10 @@ namespace SFT::Renderer {
         glm::mat4 view{1.0f};
         glm::mat4 projection{1.0f};
         glm::mat4 view_projection{1.0f};
+        // Last frame's view*projection (CameraView::previous_view_projection) — lets a per-object
+        // history-aware vertex shader (Shaders/gbuffer_geometry_history.slang) reproject a previous
+        // clip position without a separate uniform buffer.
+        glm::mat4 previous_view_projection{1.0f};
         glm::vec4 camera_world_position_near{0.0f, 0.0f, 0.0f, 0.01f};
         glm::vec4 ambient_radiance_exposure{0.02f, 0.02f, 0.02f, 1.0f};
         glm::vec4 far_fov_object_count_time{1000.0f, 1.0471975512f, 0.0f, 0.0f};

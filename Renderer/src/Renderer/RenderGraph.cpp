@@ -409,65 +409,22 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 out_cpu_pass_timings->reserve(execution_order.size());
             }
 
-            u32 next_query_index = 0;
-            for (const OrderedPass &ordered : execution_order) {
-                Core::RendererResult result = {};
-                const u32 begin_query_index = next_query_index;
-                if (timing_enabled) {
-                    encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, next_query_index++);
-                }
-                const CpuClock::time_point cpu_begin = cpu_timing_enabled ? CpuClock::now() : CpuClock::time_point{};
-                string_view label;
-                switch (ordered.kind) {
-                    case PassKind::Render: {
-                        RenderGraphRenderPassBuilder &pass = render_passes_[ordered.index];
-                        label = pass.label_;
-                        result = with_debug_group(encoder, pass.label_, [&]() {
-                            return execute_render_pass(encoder, pass);
-                        });
-                        break;
-                    }
-                    case PassKind::Blit: {
-                        const RenderGraphBlitDesc &pass = blit_passes_[ordered.index];
-                        label = pass.label ? pass.label : "render graph blit";
-                        result = with_debug_group(encoder, pass.label ? pass.label : "render graph blit", [&]() {
-                            return execute_blit_pass(encoder, pass);
-                        });
-                        break;
-                    }
-                    case PassKind::Compute: {
-                        RenderGraphComputePassBuilder &pass = compute_passes_[ordered.index];
-                        label = pass.label_;
-                        result = with_debug_group(encoder, pass.label_, [&]() {
-                            return execute_compute_pass(encoder, pass);
-                        });
-                        break;
-                    }
-                    case PassKind::Copy: {
-                        const RenderGraphCopyDesc &pass = copy_passes_[ordered.index];
-                        label = pass.label ? pass.label : "render graph copy";
-                        result = with_debug_group(encoder, pass.label ? pass.label : "render graph copy", [&]() {
-                            return execute_copy_pass(encoder, pass);
-                        });
-                        break;
-                    }
-                }
+            for (usize i = 0; i < execution_order.size(); ++i) {
+                GpuPassTiming gpu_timing{};
+                CpuPassTiming cpu_timing{};
+                Core::RendererResult result =
+                    execute_one_pass(encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set,
+                                     timing_enabled, cpu_timing_enabled, timing_enabled ? &gpu_timing : nullptr,
+                                     cpu_timing_enabled ? &cpu_timing : nullptr);
                 if (!result.has_value()) {
                     destroy_transient_resources(device);
                     return result;
                 }
                 if (cpu_timing_enabled) {
-                    const f64 ms = std::chrono::duration<f64, std::milli>(CpuClock::now() - cpu_begin).count();
-                    out_cpu_pass_timings->push_back(CpuPassTiming{.label = string{label}, .duration_ms = ms});
+                    out_cpu_pass_timings->push_back(std::move(cpu_timing));
                 }
                 if (timing_enabled) {
-                    const u32 end_query_index = next_query_index++;
-                    encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, end_query_index);
-                    out_pass_timings->push_back(GpuPassTiming{
-                        .label = string{label},
-                        .begin_query_index = begin_query_index,
-                        .end_query_index = end_query_index,
-                    });
+                    out_pass_timings->push_back(std::move(gpu_timing));
                 }
             }
 
@@ -476,6 +433,321 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 destroy_transient_resources(device);
             }
             return final_transitions;
+        }
+
+[[nodiscard]] Core::RendererResult RenderGraph::execute_one_pass(RHI::CommandEncoder &encoder, const OrderedPass &ordered,
+                                                                   u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
+                                                                   bool timing_enabled, bool cpu_timing_enabled,
+                                                                   GpuPassTiming *out_gpu_timing, CpuPassTiming *out_cpu_timing) {
+            if (timing_enabled) {
+                encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, begin_query_index);
+            }
+            const CpuClock::time_point cpu_begin = cpu_timing_enabled ? CpuClock::now() : CpuClock::time_point{};
+            Core::RendererResult result = {};
+            string_view label;
+            switch (ordered.kind) {
+                case PassKind::Render: {
+                    RenderGraphRenderPassBuilder &pass = render_passes_[ordered.index];
+                    label = pass.label_;
+                    result = with_debug_group(encoder, pass.label_, [&]() {
+                        return execute_render_pass(encoder, pass);
+                    });
+                    break;
+                }
+                case PassKind::Blit: {
+                    const RenderGraphBlitDesc &pass = blit_passes_[ordered.index];
+                    label = pass.label ? pass.label : "render graph blit";
+                    result = with_debug_group(encoder, label, [&]() {
+                        return execute_blit_pass(encoder, pass);
+                    });
+                    break;
+                }
+                case PassKind::Compute: {
+                    RenderGraphComputePassBuilder &pass = compute_passes_[ordered.index];
+                    label = pass.label_;
+                    result = with_debug_group(encoder, pass.label_, [&]() {
+                        return execute_compute_pass(encoder, pass);
+                    });
+                    break;
+                }
+                case PassKind::Copy: {
+                    const RenderGraphCopyDesc &pass = copy_passes_[ordered.index];
+                    label = pass.label ? pass.label : "render graph copy";
+                    result = with_debug_group(encoder, label, [&]() {
+                        return execute_copy_pass(encoder, pass);
+                    });
+                    break;
+                }
+            }
+            if (!result.has_value()) {
+                return result;
+            }
+            if (out_cpu_timing != nullptr) {
+                const f64 ms = std::chrono::duration<f64, std::milli>(CpuClock::now() - cpu_begin).count();
+                *out_cpu_timing = CpuPassTiming{.label = string{label}, .duration_ms = ms};
+            }
+            if (timing_enabled) {
+                const u32 end_query_index = begin_query_index + 1;
+                encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, end_query_index);
+                if (out_gpu_timing != nullptr) {
+                    *out_gpu_timing = GpuPassTiming{
+                        .label = string{label},
+                        .begin_query_index = begin_query_index,
+                        .end_query_index = end_query_index,
+                    };
+                }
+            }
+            return {};
+        }
+
+[[nodiscard]] vector<u32> RenderGraph::compute_execution_levels(const vector<OrderedPass> &execution_order) const {
+            const usize count = execution_order.size();
+            vector<PassUsage> usage(count);
+            for (usize i = 0; i < count; ++i) {
+                usage[i] = usage_of_ordered(execution_order[i]);
+            }
+
+            // Unlike compile()'s depends_on edges (RAW + WAW only — sufficient for a correct
+            // topological order), level assignment also treats a *shared read* as ordering-relevant:
+            // transition_texture() (called at the top of every execute_*_pass) decides whether a
+            // texture needs a layout transition by checking its current tracked state, and the pass
+            // that actually needs to transition it isn't knowable ahead of time from usage alone — it's
+            // whichever pass's transition_texture call happens to run first. If two passes sharing a
+            // texture access landed in the same level (recorded into separate command buffers,
+            // concurrently), the one that "wins" the race and performs the real transition could end
+            // up in a command buffer ordered *after* the one that already assumed the transition had
+            // happened — a real validation failure (VUID-vkCmdDraw-None-09600), caught by running this
+            // once. So: any two passes that touch the same texture at all, read or write, must land in
+            // different levels — tracked by *physical* slot (physical_slot_for), not logical
+            // RenderGraphTextureHandle, so two aliased transient textures (sharing one physical slot
+            // and therefore one TextureState) are treated as the same resource for this purpose too.
+            // Requires physical slots to already be assigned — execute_parallel always calls
+            // create_transient_resources() before this.
+            vector<i64> last_touch_pos(physical_slots_.size(), -1);
+            vector<u32> level(count, 0);
+            for (usize i = 0; i < count; ++i) {
+                u32 pass_level = 0;
+                for (const vector<RenderGraphTextureHandle> *handles : {&usage[i].reads, &usage[i].writes}) {
+                    for (RenderGraphTextureHandle handle : *handles) {
+                        const TextureRecord *record = texture_record(handle);
+                        if (record == nullptr || record->physical_slot >= last_touch_pos.size()) {
+                            continue;
+                        }
+                        const i64 toucher = last_touch_pos[record->physical_slot];
+                        if (toucher >= 0) {
+                            pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
+                        }
+                    }
+                }
+                level[i] = pass_level;
+                for (const vector<RenderGraphTextureHandle> *handles : {&usage[i].reads, &usage[i].writes}) {
+                    for (RenderGraphTextureHandle handle : *handles) {
+                        const TextureRecord *record = texture_record(handle);
+                        if (record != nullptr && record->physical_slot < last_touch_pos.size()) {
+                            last_touch_pos[record->physical_slot] = static_cast<i64>(i);
+                        }
+                    }
+                }
+            }
+            return level;
+        }
+
+[[nodiscard]] Core::RendererResult RenderGraph::execute_parallel(RHI::RhiDevice &device,
+                                                                   std::unique_ptr<RHI::CommandEncoder> primary_encoder,
+                                                                   RHI::QueueLane queue,
+                                                                   vector<RHI::CommandBufferHandle> &out_command_buffers,
+                                                                   RHI::QuerySetHandle timestamp_query_set,
+                                                                   vector<GpuPassTiming> *out_pass_timings,
+                                                                   vector<CpuPassTiming> *out_cpu_pass_timings) {
+            // Destroys whatever command buffers this call already finished/appended before returning
+            // `result` — every error path below routes through this instead of a bare `return`, so a
+            // mid-sequence failure (e.g. a later level's encoder creation fails after an earlier level
+            // already finished and pushed its own) never orphans a live command buffer in the RHI's
+            // pool.
+            auto fail = [&](Core::RendererResult result) {
+                for (RHI::CommandBufferHandle handle : out_command_buffers) {
+                    device.destroy_command_buffer(handle);
+                }
+                out_command_buffers.clear();
+                destroy_transient_resources(device);
+                return result;
+            };
+
+            CompileResult compiled = compile();
+            if (!compiled.has_value()) {
+                return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                         compiled.error().message));
+            }
+            const vector<OrderedPass> &execution_order = compiled->order;
+            if (Core::RendererResult created = create_transient_resources(device, execution_order); !created.has_value()) {
+                return fail(created);
+            }
+
+            const bool timing_enabled = static_cast<bool>(timestamp_query_set) && out_pass_timings != nullptr;
+            const bool cpu_timing_enabled = out_cpu_pass_timings != nullptr;
+            if (timing_enabled) {
+                out_pass_timings->assign(execution_order.size(), GpuPassTiming{});
+            }
+            if (cpu_timing_enabled) {
+                out_cpu_pass_timings->assign(execution_order.size(), CpuPassTiming{});
+            }
+
+            // primary_encoder may already carry caller-recorded work (text-overlay/UI prep) that a
+            // render-graph pass below can depend on — it must be the first finished command buffer in
+            // submission order regardless of which path (serial/parallel) runs next. The timing-reset
+            // call is folded into it too when timing is enabled, for the same "must precede every
+            // per-pass timestamp write" reason execute()'s single-encoder version resets before its
+            // own loop.
+            if (timing_enabled) {
+                primary_encoder->reset_query_set(timestamp_query_set, 0, static_cast<u32>(execution_order.size() * 2));
+            }
+
+            // Below this many passes, or with no worker pool to spread them across, level-parallel
+            // recording's per-pass encoder/pool overhead isn't worth it (same "not worth it below N"
+            // reasoning as record_render_items_culled's kParallelRecordThreshold) — record every pass
+            // into primary_encoder itself, exactly like execute() does with its caller-provided encoder.
+            if (execution_order.size() < 2 || Async::Scheduler::worker_count() <= 1) {
+                for (usize i = 0; i < execution_order.size(); ++i) {
+                    Core::RendererResult result = execute_one_pass(
+                        *primary_encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                        cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                        cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                    if (!result.has_value()) {
+                        return fail(result);
+                    }
+                }
+                Core::RendererResult final_transitions = transition_to_final_states(*primary_encoder);
+                if (!final_transitions.has_value()) {
+                    return fail(final_transitions);
+                }
+                auto finished = primary_encoder->finish();
+                if (!finished) {
+                    return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                             "execute_parallel: failed to finish command encoder."));
+                }
+                out_command_buffers.push_back(*finished);
+                return {};
+            }
+
+            {
+                auto finished_primary = primary_encoder->finish();
+                if (!finished_primary) {
+                    return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                             "execute_parallel: failed to finish the primary command encoder."));
+                }
+                out_command_buffers.push_back(*finished_primary);
+            }
+
+            const vector<u32> levels = compute_execution_levels(execution_order);
+            u32 max_level = 0;
+            for (u32 l : levels) {
+                max_level = std::max(max_level, l);
+            }
+            vector<vector<usize>> positions_by_level(static_cast<usize>(max_level) + 1);
+            for (usize i = 0; i < execution_order.size(); ++i) {
+                positions_by_level[levels[i]].push_back(i);
+            }
+
+            for (const vector<usize> &positions : positions_by_level) {
+                if (positions.empty()) {
+                    continue;
+                }
+                if (positions.size() == 1) {
+                    const usize i = positions.front();
+                    auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass"});
+                    if (!encoder) {
+                        return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                 "execute_parallel: failed to create command encoder."));
+                    }
+                    Core::RendererResult result = execute_one_pass(
+                        **encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                        cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                        cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                    if (!result.has_value()) {
+                        return fail(result);
+                    }
+                    auto finished = (*encoder)->finish();
+                    if (!finished) {
+                        return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                 "execute_parallel: failed to finish command encoder."));
+                    }
+                    out_command_buffers.push_back(*finished);
+                    continue;
+                }
+
+                struct LevelPassResult {
+                    Core::RendererResult status{};
+                    RHI::CommandBufferHandle command_buffer{};
+                };
+                vector<LevelPassResult> results(positions.size());
+                vector<Async::TaskHandle<void>> tasks;
+                tasks.reserve(positions.size());
+                for (usize slot = 0; slot < positions.size(); ++slot) {
+                    const usize i = positions[slot];
+                    tasks.push_back(Async::Scheduler::spawn([this, &device, &execution_order, &results, slot, i, queue,
+                                                              timestamp_query_set, timing_enabled, cpu_timing_enabled,
+                                                              out_pass_timings, out_cpu_pass_timings]() {
+                        auto encoder =
+                            device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
+                        if (!encoder) {
+                            results[slot].status = Core::graphics_backend_error(
+                                Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to create command encoder.");
+                            return;
+                        }
+                        Core::RendererResult result = execute_one_pass(
+                            **encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                            cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                            cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                        if (!result.has_value()) {
+                            results[slot].status = result;
+                            return;
+                        }
+                        auto finished = (*encoder)->finish();
+                        if (!finished) {
+                            results[slot].status = Core::graphics_backend_error(
+                                Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");
+                            return;
+                        }
+                        results[slot].command_buffer = *finished;
+                    }));
+                }
+                for (const Async::TaskHandle<void> &task : tasks) {
+                    task.wait();
+                }
+
+                Core::RendererResult first_error{};
+                bool has_error = false;
+                for (LevelPassResult &result : results) {
+                    if (!result.status.has_value()) {
+                        if (!has_error) {
+                            first_error = result.status;
+                            has_error = true;
+                        }
+                        continue;
+                    }
+                    out_command_buffers.push_back(result.command_buffer);
+                }
+                if (has_error) {
+                    return fail(first_error);
+                }
+            }
+
+            auto epilogue = device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph final transitions"});
+            if (!epilogue) {
+                return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                         "execute_parallel: failed to create the final-transitions command encoder."));
+            }
+            Core::RendererResult final_transitions = transition_to_final_states(**epilogue);
+            if (!final_transitions.has_value()) {
+                return fail(final_transitions);
+            }
+            auto finished_epilogue = (*epilogue)->finish();
+            if (!finished_epilogue) {
+                return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                         "execute_parallel: failed to finish the final-transitions command encoder."));
+            }
+            out_command_buffers.push_back(*finished_epilogue);
+            return {};
         }
 
 void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
@@ -559,6 +831,10 @@ void RenderGraph::reset() noexcept {
                                                               RHI::PipelineStage next_stage,
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources) {
+            // See transition_lock_'s own doc comment (RenderGraph.hpp) for why this needs to be under
+            // a lock at all: execute_parallel() can enter this function concurrently from two passes
+            // in the same level that both read the same upstream texture.
+            auto transition_guard = transition_lock_.lock();
             PhysicalSlot *slot = physical_slot_for(handle);
             const TextureRecord *record = texture_record(handle);
             if (slot == nullptr || record == nullptr || !slot->texture || slot->mip_states.empty()) {

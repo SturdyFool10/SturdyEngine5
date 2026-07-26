@@ -46,15 +46,17 @@ namespace SFT::Core::Vulkan {
         return RHI::RenderThreadingCapabilities{
             .backend_allows_dedicated_render_thread = true,
             // Vulkan supports multithreaded command recording when each recording thread owns its command
-            // pool/command buffers and externally-synchronized objects are not concurrently touched. Keep
-            // this false until the RHI bridge has explicit per-thread command pools and resource-destruction
-            // ownership; CPU scene prep can still use Async workers today.
-            .backend_allows_parallel_command_recording = false,
+            // pool/command buffers and externally-synchronized objects are not concurrently touched. True
+            // since create_command_encoder() already mints an independent VulkanCommandPool per call and
+            // every RHI resource pool is Async::Mutex-guarded — RenderGraph::execute_parallel() (Stage 4 of
+            // the render-parallelization roadmap) relies on exactly this to record independent render-graph
+            // passes concurrently, one command buffer per pass, joined before a single submit().
+            .backend_allows_parallel_command_recording = true,
             .platform_allows_threads = RHI::compile_time_rhi_multithreading_allowed,
             .requires_graphics_calls_on_owner_thread = true,
             .recommended_mode = RHI::choose_render_threading_mode(RHI::RenderThreadingCapabilities{
                 .backend_allows_dedicated_render_thread = true,
-                .backend_allows_parallel_command_recording = false,
+                .backend_allows_parallel_command_recording = true,
                 .platform_allows_threads = RHI::compile_time_rhi_multithreading_allowed,
                 .requires_graphics_calls_on_owner_thread = true,
             }),

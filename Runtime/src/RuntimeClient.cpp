@@ -434,7 +434,7 @@ namespace SFT::Runtime {
         }
         camera_.set_viewport_size(frame.framebuffer_width, frame.framebuffer_height);
 
-        return Engine::RenderFrameParameters{
+        Engine::RenderFrameParameters parameters{
             .camera = camera_,
             .lighting = Engine::SceneLighting{
                 .ambient_radiance = {0.035f, 0.04f, 0.055f},
@@ -444,6 +444,10 @@ namespace SFT::Runtime {
             .custom_post_processes = std::move(custom_post_processes),
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
+        // Snapshot this frame's view_projection as *next* frame's "previous" now that camera_ has
+        // been copied into parameters above — see Camera::commit_frame()'s doc comment.
+        camera_.commit_frame();
+        return parameters;
     }
 
     void RuntimeClient::on_shutdown(Engine::Engine & /*engine*/) noexcept {}

@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <expected>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include <vector>
 #pragma endregion
 
+#include <Async/src/Async.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
@@ -336,6 +338,28 @@ namespace SFT::Renderer {
                                                     vector<GpuPassTiming> *out_pass_timings = nullptr,
                                                     vector<CpuPassTiming> *out_cpu_pass_timings = nullptr);
 
+        // Parallel-recording counterpart to execute(). `primary_encoder` is a caller-created encoder
+        // that may already have work recorded into it (e.g. text-overlay/UI prep that a render-graph
+        // pass later reads) — this function takes ownership, finishes it as the first command buffer,
+        // then records every render-graph pass into its own fresh encoder — one per pass for a level
+        // with more than one mutually-independent pass (recorded concurrently via
+        // Async::Scheduler::spawn), a single encoder otherwise — appending every resulting handle to
+        // `out_command_buffers` in submission order (level by level, original declaration order within
+        // a level, primary_encoder always first). The caller passes the resulting span straight into
+        // RHI::SubmitDesc::command_buffers instead of calling finish() itself. `queue` picks which
+        // queue lane every newly created encoder targets (RHI::QueueLane{} — Graphics, lane 0 —
+        // matches what execute()'s caller-provided encoder is created with today). Every other
+        // parameter matches execute() exactly, including GPU/CPU per-pass timing semantics. On failure,
+        // every command buffer already appended to `out_command_buffers` is destroyed before returning
+        // (nothing orphaned in the RHI's command-buffer pool) and the vector is left empty.
+        [[nodiscard]] Core::RendererResult execute_parallel(RHI::RhiDevice &device,
+                                                             std::unique_ptr<RHI::CommandEncoder> primary_encoder,
+                                                             RHI::QueueLane queue,
+                                                             vector<RHI::CommandBufferHandle> &out_command_buffers,
+                                                             RHI::QuerySetHandle timestamp_query_set = {},
+                                                             vector<GpuPassTiming> *out_pass_timings = nullptr,
+                                                             vector<CpuPassTiming> *out_cpu_pass_timings = nullptr);
+
         void destroy_transient_resources(RHI::RhiDevice &device) noexcept;
 
         // Hands the created transient textures/views to the caller (appending to its vectors) and clears
@@ -358,6 +382,20 @@ namespace SFT::Renderer {
             i32 last_use = -1;
         };
         [[nodiscard]] vector<TextureLifetime> compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const;
+
+        // Level of each pass in `execution_order` (same length, same indexing — mirrors
+        // compute_transient_lifetimes' parallel-array style). Level N+1 passes depend, directly or
+        // transitively, on at least one level-N pass touching the same (physical-slot-aliased-aware)
+        // texture. Two passes never share a level if they touch the same texture at all — including a
+        // shared *read*, e.g. two passes both sampling one upstream texture — since transition_texture
+        // decides on the fly which pass actually needs to emit a layout-transition barrier, and that
+        // decision isn't safe to race across command buffers whose relative submission order isn't
+        // known until after they're all recorded (see compute_execution_levels' own .cpp comment for
+        // the exact hazard this closes). Recording each level's passes into separate command buffers
+        // therefore needs no barrier between them, and finishing/submitting levels in order preserves
+        // whatever ordering the barriers within them depend on. Pure-CPU, same testability contract as
+        // compile()/compute_transient_lifetimes() above.
+        [[nodiscard]] vector<u32> compute_execution_levels(const vector<OrderedPass> &execution_order) const;
 
       private:
         // The actual GPU-visible backing for one or more virtual transient textures. Two virtual
@@ -411,6 +449,16 @@ namespace SFT::Renderer {
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources = {});
 
+        // Shared per-pass dispatch body for both execute() and execute_parallel(): writes the begin
+        // timestamp (if enabled), dispatches to the right execute_*_pass by PassKind, writes the end
+        // timestamp, and fills `out_gpu_timing`/`out_cpu_timing` when non-null. `begin_query_index` is
+        // precomputed by the caller (2 * the pass's position in execution_order) rather than a shared
+        // running counter, so it stays correct when passes execute out of order across threads.
+        [[nodiscard]] Core::RendererResult execute_one_pass(RHI::CommandEncoder &encoder, const OrderedPass &ordered,
+                                                             u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
+                                                             bool timing_enabled, bool cpu_timing_enabled,
+                                                             GpuPassTiming *out_gpu_timing, CpuPassTiming *out_cpu_timing);
+
         [[nodiscard]] Core::RendererResult execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass);
 
@@ -461,6 +509,14 @@ namespace SFT::Renderer {
 
         vector<TextureRecord> textures_;
         vector<PhysicalSlot> physical_slots_;
+        // Guards transition_texture()'s read-decide-barrier-update of a PhysicalSlot's mip_states.
+        // Only matters under execute_parallel(): two passes in the same level can legitimately both
+        // read the same upstream texture (compute_execution_levels only separates passes by *write*
+        // dependencies), so transition_texture can be entered concurrently from different worker
+        // threads for the same slot. execute()'s sequential path and every other RenderGraph method
+        // only ever run on one thread already, so this lock is uncontended overhead there — cheap
+        // enough not to bother branching it out.
+        Async::Mutex<u8> transition_lock_{};
         vector<OrderedPass> ordered_passes_;
         vector<RenderGraphRenderPassBuilder> render_passes_;
         vector<RenderGraphBlitDesc> blit_passes_;

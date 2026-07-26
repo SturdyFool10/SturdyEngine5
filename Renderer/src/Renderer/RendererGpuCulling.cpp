@@ -2,6 +2,7 @@
 
 #pragma region Imports
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <span>
 #include <unordered_map>
@@ -16,6 +17,7 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+using std::array;
 using std::span;
 using std::unexpected;
 using std::vector;
@@ -481,6 +483,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_instanced_batches(RHI::RenderPassEncoder &pass, span<const InstancedBatch> batches,
                                                              span<const RHI::Format> color_formats, RHI::Format depth_format,
                                                              u64 frame_index, const glm::mat4 &view_projection,
+                                                             const glm::mat4 &previous_view_projection,
                                                              SceneFrameGpuResources &resources,
                                                              vector<RHI::BindGroupHandle> &transient_bind_groups,
                                                              RHI::SampleCount samples) {
@@ -554,8 +557,8 @@ namespace SFT::Renderer {
             const u32 dynamic_offset = static_cast<u32>(compacted_byte_offset);
             pass.set_bind_group(1, *instance_bind_group, span<const u32>{&dynamic_offset, 1});
 
-            const glm::mat4 constants = view_projection;
-            pass.set_push_constants(RHI::ShaderStage::Vertex, 0, std::as_bytes(span<const glm::mat4>{&constants, 1}));
+            const array<glm::mat4, 2> constants{view_projection, previous_view_projection};
+            pass.set_push_constants(RHI::ShaderStage::Vertex, 0, std::as_bytes(span<const glm::mat4>{constants.data(), constants.size()}));
 
             pass.draw_indexed_indirect(resources.indirect_commands_buffer, i * sizeof(GpuDrawIndexedIndirectCommand));
 
