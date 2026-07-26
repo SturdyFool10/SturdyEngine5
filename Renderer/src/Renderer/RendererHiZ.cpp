@@ -304,7 +304,12 @@ namespace SFT::Renderer {
                         .label = "hiz build bind group",
                     });
                     if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create hiz build bind group"));
-                    transient_bind_groups.push_back(*bind_group);
+                    // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this
+                    // callback can run concurrently with another pass's push_back into the same shared
+                    // vector (this is in fact exactly what was happening: Hi-Z build has no dependency
+                    // on shadow lighting/bloom's inputs, so RenderGraph::execute_parallel legitimately
+                    // schedules them into the same level).
+                    { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});

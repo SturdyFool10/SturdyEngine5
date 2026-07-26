@@ -184,7 +184,9 @@ namespace SFT::Renderer {
             .label = "custom post-process bind group",
         });
         if (!group) return unexpected(graphics_error_from_rhi(group.error(), "create custom post-process bind group"));
-        transient_bind_groups.push_back(*group);
+        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
+        // run concurrently with another pass's push_back into the same shared vector.
+        { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*group); }
 
         pass.set_pipeline(resource->pipeline);
         pass.set_bind_group(resource->set, *group);

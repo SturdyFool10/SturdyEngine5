@@ -1956,7 +1956,13 @@ namespace SFT::Renderer {
                             if (!dynamic_bind_group.has_value()) {
                                 return unexpected(dynamic_bind_group.error());
                             }
-                            submission.transient_bind_groups.push_back(*dynamic_bind_group);
+                            // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp)
+                            // — this callback can run concurrently with another pass's push_back into
+                            // the same shared vector.
+                            {
+                                auto tbg_guard = transient_bind_groups_lock_.lock();
+                                submission.transient_bind_groups.push_back(*dynamic_bind_group);
+                            }
                             bind_group = *dynamic_bind_group;
                         }
                         return record_bloom_downsample(pass, source_view,

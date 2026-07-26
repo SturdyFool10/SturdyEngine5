@@ -678,31 +678,49 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 struct LevelPassResult {
                     Core::RendererResult status{};
                     RHI::CommandBufferHandle command_buffer{};
+                    std::unique_ptr<RHI::CommandEncoder> encoder;
                 };
                 vector<LevelPassResult> results(positions.size());
+                // Pool/buffer *creation* happens here, serially, on the calling thread — not inside
+                // the spawned tasks below. Measured on this codebase's dev hardware (RADV/RX 9070):
+                // calling vkCreateCommandPool/vkAllocateCommandBuffers concurrently from multiple
+                // worker threads reliably corrupts the heap after a few frames, even though each
+                // thread creates its own independent pool and per spec that shouldn't require any
+                // external synchronization on the shared VkDevice — reproduced both with validation
+                // layers on (corruption inside the validation layer's own tracking allocator) and in
+                // a release build with no layers at all (corruption inside RADV's internal allocator,
+                // surfacing later as a crash in an unrelated vkFree call). Only object *creation* is
+                // implicated — recording (draws/dispatches/barriers) into an already-allocated,
+                // already-owned-by-one-thread encoder is exactly the pattern the pre-existing render-
+                // bundle parallel-recording path already proves safe, so only that part stays
+                // parallel below.
+                for (usize slot = 0; slot < positions.size(); ++slot) {
+                    auto encoder =
+                        device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
+                    if (!encoder) {
+                        return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                 "execute_parallel: failed to create command encoder."));
+                    }
+                    results[slot].encoder = std::move(*encoder);
+                }
+
                 vector<Async::TaskHandle<void>> tasks;
                 tasks.reserve(positions.size());
                 for (usize slot = 0; slot < positions.size(); ++slot) {
                     const usize i = positions[slot];
-                    tasks.push_back(Async::Scheduler::spawn([this, &device, &execution_order, &results, slot, i, queue,
+                    tasks.push_back(Async::Scheduler::spawn([this, &execution_order, &results, slot, i,
                                                               timestamp_query_set, timing_enabled, cpu_timing_enabled,
                                                               out_pass_timings, out_cpu_pass_timings]() {
-                        auto encoder =
-                            device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
-                        if (!encoder) {
-                            results[slot].status = Core::graphics_backend_error(
-                                Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to create command encoder.");
-                            return;
-                        }
+                        RHI::CommandEncoder &encoder = *results[slot].encoder;
                         Core::RendererResult result = execute_one_pass(
-                            **encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                            encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
                             cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
                             cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
                         if (!result.has_value()) {
                             results[slot].status = result;
                             return;
                         }
-                        auto finished = (*encoder)->finish();
+                        auto finished = encoder.finish();
                         if (!finished) {
                             results[slot].status = Core::graphics_backend_error(
                                 Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");

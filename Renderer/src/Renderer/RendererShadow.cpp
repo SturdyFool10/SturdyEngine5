@@ -841,7 +841,9 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create deferred shadow lighting bind group"));
         }
-        transient_bind_groups.push_back(*bind_group);
+        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
+        // run concurrently with another pass's push_back into the same shared vector.
+        { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(set, *bind_group);
         pass.draw(RHI::DrawArgs{.vertex_count = 3});

@@ -1286,6 +1286,37 @@ namespace SFT::Renderer {
         // history_pipeline_for()'s per-template cache, same rationale/shape as
         // instanced_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
         Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
+        // Guards prepare_material_frame()'s whole check-then-rebuild body (RendererMaterial.cpp),
+        // same "hold the lock for the whole function" discipline as material_pipeline_variants_ above,
+        // just without a cache map to key it by — MaterialInstanceFrame's dirty flags/bind_groups
+        // vector live inline on the (caller-owned) MaterialInstanceResource, not in a Renderer-owned
+        // cache, so there's nothing here to store except the lock itself. Real bug this fixes: unlike
+        // material_pipeline_for(), prepare_material_frame() had no lock at all until this was added —
+        // fine for the pre-existing render-bundle parallel-recording path (RendererLifecycle.cpp
+        // explicitly pre-warms every distinct material single-threaded before going parallel, so its
+        // workers only ever see frame.bind_groups_dirty already false), but RenderGraph::execute_parallel
+        // (Stage 4 of the render-parallelization roadmap) can run two entirely different passes
+        // concurrently with no such pre-warm — if they share a material neither has touched yet this
+        // frame, both could race into the same MaterialInstanceFrame's dirty-rebuild block at once
+        // (concurrent bind_groups.clear()/push_back, concurrent double destroy_bind_group on the same
+        // handles) — real heap corruption, reproduced and root-caused this session (see memory
+        // project_render_threading for the crash signatures this explains).
+        Async::Mutex<u8> material_frame_prepare_lock_;
+        // Guards every push_back into a frame's shared `transient_bind_groups` vector (owned by the
+        // caller — FrameSubmission/render_frame_rhi's local, threaded by reference through
+        // record_hiz_build/record_shadow_lighting/record_instanced_batches/bloom/tonemap/custom-post-
+        // process/object-history and a couple of inline call sites in RendererLifecycle.cpp). Real bug
+        // this fixes, found and root-caused this session (see memory project_render_threading): under
+        // RenderGraph::execute_parallel (Stage 4), two of those pass-recording callbacks can now
+        // legitimately run on different worker threads at once (e.g. Hi-Z pyramid building has no
+        // dependency on deferred shadow lighting's inputs, so they land in the same execution level)
+        // — every one of them was calling plain vector::push_back on the *same* vector with zero
+        // synchronization, a textbook concurrent-push_back data race and the actual cause of the
+        // intermittent heap corruption (varying crash signature: glibc malloc, a validation-layer
+        // internal allocator, RADV's own allocator, even a VMA assert during unrelated teardown —
+        // classic "corruption surfaces wherever the next heap operation happens to look") that
+        // survived even after fixing the also-real-but-insufficient prepare_material_frame race.
+        Async::Mutex<u8> transient_bind_groups_lock_;
         // CPU-side history for real per-object motion vectors (SceneObjectGpuData::previous_model) —
         // keyed by RenderItem::stable_id, a persistent per-object identity (for real ECS content,
         // `(entity.generation << 32) | entity.index` — see EcsRendering.cpp), not object_index (which

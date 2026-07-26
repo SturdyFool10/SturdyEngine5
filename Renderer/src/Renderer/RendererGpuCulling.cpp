@@ -432,7 +432,9 @@ namespace SFT::Renderer {
         }
         // Transient: destroyed by the caller's frame-in-flight retirement path, like every other
         // per-frame transient bind group — see FrameSubmission::transient_bind_groups's doc comment.
-        transient_bind_groups.push_back(*bind_group);
+        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
+        // run concurrently with another pass's push_back into the same shared vector.
+        { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(guard->cull_pipeline);
         pass.set_bind_group(0, *bind_group);
@@ -512,7 +514,9 @@ namespace SFT::Renderer {
         if (!instance_bind_group) {
             return unexpected(graphics_error_from_rhi(instance_bind_group.error(), "create instance data bind group"));
         }
-        transient_bind_groups.push_back(*instance_bind_group);
+        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
+        // run concurrently with another pass's push_back into the same shared vector.
+        { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*instance_bind_group); }
 
         pass.set_vertex_buffer(0, vertex_arena_.buffer);
         if (index_arena_.buffer) {

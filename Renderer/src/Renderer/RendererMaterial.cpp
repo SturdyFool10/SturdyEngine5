@@ -750,6 +750,12 @@ namespace SFT::Renderer {
         if (frame_slot >= instance.frames.size()) {
             return unexpected(material_error("Material frame slot out of range."));
         }
+        // See material_frame_prepare_lock_'s own doc comment (RendererModule.hpp) — held for the whole
+        // check-then-rebuild body below, same discipline material_pipeline_for() already uses for its
+        // own lazy cache, so two passes recorded concurrently (RenderGraph::execute_parallel) that
+        // share a material neither has touched yet this frame can't race into the same
+        // MaterialInstanceFrame's dirty-rebuild block at once.
+        auto material_frame_guard = material_frame_prepare_lock_.lock();
         MaterialInstanceFrame &frame = instance.frames[frame_slot];
 
         // Re-upload this slot's UBO if the CPU value block changed since it was last written.

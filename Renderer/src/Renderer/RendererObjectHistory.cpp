@@ -233,7 +233,11 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create object history bind group"));
         }
-        transient_bind_groups.push_back(*bind_group);
+        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp). This particular
+        // caller (render_frame_rhi) only ever calls this once, before the render graph is built, so
+        // it isn't currently reachable concurrently — locked anyway so that invariant isn't silently
+        // required of every future caller.
+        { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         return *bind_group;
     }
 
