@@ -448,6 +448,16 @@ namespace SFT::Renderer {
             // and therefore its own frame-in-flight lifetime, so this can never be a Renderer-wide
             // member if two windows are to render concurrently without racing on each other's fences.
             vector<FrameInFlight> frames_in_flight;
+            // Reused frame-to-frame instead of a fresh stack-local RenderGraph per render_frame_rhi()
+            // call — declaring passes, textures, and every pass's std::function closure was being
+            // heap-allocated fresh and freed at the end of every single frame. render_frame_rhi() calls
+            // graph.reset() at the top of each frame's declare phase instead; reset() clears every
+            // container without releasing its capacity, so steady-state per-frame allocation for the
+            // graph's own bookkeeping drops to near zero after the first few frames. One per window for
+            // the same reason frames_in_flight is per-window, not Renderer-wide: only one frame is ever
+            // being declared for a given window at a time (render_frame_rhi is synchronous per call), so
+            // there's no cross-window or cross-frame contention to worry about.
+            RenderGraph graph;
         };
 
         struct RenderItem {

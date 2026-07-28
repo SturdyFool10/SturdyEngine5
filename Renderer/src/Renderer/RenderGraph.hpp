@@ -273,6 +273,10 @@ namespace SFT::Renderer {
         // changing compile()'s signature.
         struct CompiledPlan {
             vector<OrderedPass> order;
+            // Same length/indexing as `order` — computed alongside it, reusing the same per-pass
+            // PassUsage compile() already built rather than a second usage_of_ordered() walk (see
+            // compute_execution_levels()'s own doc comment for what this array means).
+            vector<u32> levels;
         };
 
         using CompileResult = std::expected<CompiledPlan, RenderGraphCompileError>;
@@ -395,6 +399,12 @@ namespace SFT::Renderer {
         // therefore needs no barrier between them, and finishing/submitting levels in order preserves
         // whatever ordering the barriers within them depend on. Pure-CPU, same testability contract as
         // compile()/compute_transient_lifetimes() above.
+        //
+        // This standalone entry point exists for testability (callable without re-running compile());
+        // compile() itself computes the same thing internally (CompiledPlan::levels) by reusing the
+        // PassUsage it already built for dependency analysis, via the shared compute_levels_from_usage()
+        // helper below, rather than calling this and re-deriving usage a second time — execute_parallel()
+        // reads compiled->levels directly instead of calling this function.
         [[nodiscard]] vector<u32> compute_execution_levels(const vector<OrderedPass> &execution_order) const;
 
       private:
@@ -507,16 +517,23 @@ namespace SFT::Renderer {
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphCopyDesc &pass);
         [[nodiscard]] PassUsage usage_of_ordered(const OrderedPass &ordered) const;
 
+        // Shared core of compute_execution_levels()/compile()'s internal level computation — see
+        // compute_execution_levels()'s own doc comment for the algorithm. Takes already-built usage
+        // (one entry per position in whatever pass sequence is being leveled) so the two callers can
+        // supply it however is cheapest for them: compute_execution_levels() builds it fresh via
+        // usage_of_ordered(), compile() moves its own already-computed PassUsage array into place.
+        [[nodiscard]] vector<u32> compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const;
+
         vector<TextureRecord> textures_;
         vector<PhysicalSlot> physical_slots_;
-        // Guards transition_texture()'s read-decide-barrier-update of a PhysicalSlot's mip_states.
-        // Only matters under execute_parallel(): two passes in the same level can legitimately both
-        // read the same upstream texture (compute_execution_levels only separates passes by *write*
-        // dependencies), so transition_texture can be entered concurrently from different worker
-        // threads for the same slot. execute()'s sequential path and every other RenderGraph method
-        // only ever run on one thread already, so this lock is uncontended overhead there — cheap
-        // enough not to bother branching it out.
-        Async::Mutex<u8> transition_lock_{};
+        // transition_texture()'s read-decide-barrier-update of a PhysicalSlot's mip_states needs no
+        // lock: compute_execution_levels() guarantees any two passes sharing a level never touch the
+        // same physical slot at all — read or write, an earlier version of this comment only accounted
+        // for writes, which was the actual bug that motivated adding (and, once the level algorithm
+        // was fixed to cover reads too, later removing) a transition_lock_ here. Also makes RenderGraph
+        // movable again, needed for it to live as a WindowSurfaceRecord member (reused frame-to-frame
+        // instead of a fresh stack-local — see that field's own doc comment) rather than a std::mutex-
+        // like type that would delete WindowSurfaceRecord's move constructor.
         vector<OrderedPass> ordered_passes_;
         vector<RenderGraphRenderPassBuilder> render_passes_;
         vector<RenderGraphBlitDesc> blit_passes_;

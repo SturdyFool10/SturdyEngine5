@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
-#include <set>
+#include <functional>
 #include <utility>
 
 namespace SFT::Renderer {
@@ -347,24 +347,41 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 }
             }
 
-            std::set<u32> ready;
+            // Binary min-heap over a plain vector instead of std::set<u32>: same "always schedule the
+            // smallest ready original index next" semantics (push_heap/pop_heap with std::greater keep
+            // the smallest element at front), but one contiguous buffer instead of a per-element
+            // red-black-tree node allocation — cheaper and far more cache-friendly at the pass counts
+            // a real frame graph has (tens, not thousands).
+            vector<u32> ready;
+            const auto push_ready = [&ready](u32 index) {
+                ready.push_back(index);
+                std::push_heap(ready.begin(), ready.end(), std::greater<>());
+            };
             for (usize i = 0; i < pass_count; ++i) {
                 if (live[i] && in_degree[i] == 0) {
-                    ready.insert(static_cast<u32>(i));
+                    push_ready(static_cast<u32>(i));
                 }
             }
 
             vector<bool> scheduled(pass_count, false);
             vector<OrderedPass> order;
+            // Parallel to `order` — the pre-cull index into ordered_passes_/usage[] each scheduled pass
+            // came from, so the level computation below can reuse the PassUsage already built above
+            // instead of a second usage_of_ordered() walk (see compute_levels_from_usage's doc comment
+            // for the algorithm itself).
+            vector<u32> order_original_index;
             order.reserve(pass_count);
+            order_original_index.reserve(pass_count);
             while (!ready.empty()) {
-                const u32 i = *ready.begin();
-                ready.erase(ready.begin());
+                std::pop_heap(ready.begin(), ready.end(), std::greater<>());
+                const u32 i = ready.back();
+                ready.pop_back();
                 scheduled[i] = true;
                 order.push_back(ordered_passes_[i]);
+                order_original_index.push_back(i);
                 for (u32 dependent : dependents[i]) {
                     if (--in_degree[dependent] == 0) {
-                        ready.insert(dependent);
+                        push_ready(dependent);
                     }
                 }
             }
@@ -374,9 +391,16 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             for (usize i = 0; i < pass_count; ++i) {
                 if (live[i] && !scheduled[i]) {
                     order.push_back(ordered_passes_[i]);
+                    order_original_index.push_back(static_cast<u32>(i));
                 }
             }
-            return CompiledPlan{.order = std::move(order)};
+
+            vector<PassUsage> usage_by_order_position(order.size());
+            for (usize i = 0; i < order.size(); ++i) {
+                usage_by_order_position[i] = std::move(usage[order_original_index[i]]);
+            }
+            vector<u32> levels = compute_levels_from_usage(usage_by_order_position);
+            return CompiledPlan{.order = std::move(order), .levels = std::move(levels)};
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
@@ -501,33 +525,35 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
         }
 
 [[nodiscard]] vector<u32> RenderGraph::compute_execution_levels(const vector<OrderedPass> &execution_order) const {
-            const usize count = execution_order.size();
-            vector<PassUsage> usage(count);
-            for (usize i = 0; i < count; ++i) {
+            vector<PassUsage> usage(execution_order.size());
+            for (usize i = 0; i < execution_order.size(); ++i) {
                 usage[i] = usage_of_ordered(execution_order[i]);
             }
+            return compute_levels_from_usage(usage);
+        }
 
-            // Unlike compile()'s depends_on edges (RAW + WAW only — sufficient for a correct
-            // topological order), level assignment also treats a *shared read* as ordering-relevant:
-            // transition_texture() (called at the top of every execute_*_pass) decides whether a
-            // texture needs a layout transition by checking its current tracked state, and the pass
-            // that actually needs to transition it isn't knowable ahead of time from usage alone — it's
-            // whichever pass's transition_texture call happens to run first. If two passes sharing a
-            // texture access landed in the same level (recorded into separate command buffers,
-            // concurrently), the one that "wins" the race and performs the real transition could end
-            // up in a command buffer ordered *after* the one that already assumed the transition had
-            // happened — a real validation failure (VUID-vkCmdDraw-None-09600), caught by running this
-            // once. So: any two passes that touch the same texture at all, read or write, must land in
-            // different levels — tracked by *physical* slot (physical_slot_for), not logical
-            // RenderGraphTextureHandle, so two aliased transient textures (sharing one physical slot
-            // and therefore one TextureState) are treated as the same resource for this purpose too.
-            // Requires physical slots to already be assigned — execute_parallel always calls
-            // create_transient_resources() before this.
+// Unlike compile()'s depends_on edges (RAW + WAW only — sufficient for a correct topological order),
+// level assignment also treats a *shared read* as ordering-relevant: transition_texture() (called at
+// the top of every execute_*_pass) decides whether a texture needs a layout transition by checking its
+// current tracked state, and the pass that actually needs to transition it isn't knowable ahead of time
+// from usage alone — it's whichever pass's transition_texture call happens to run first. If two passes
+// sharing a texture access landed in the same level (recorded into separate command buffers,
+// concurrently), the one that "wins" the race and performs the real transition could end up in a
+// command buffer ordered *after* the one that already assumed the transition had happened — a real
+// validation failure (VUID-vkCmdDraw-None-09600), caught by running this once. So: any two passes that
+// touch the same texture at all, read or write, must land in different levels — tracked by *physical*
+// slot (physical_slot_for), not logical RenderGraphTextureHandle, so two aliased transient textures
+// (sharing one physical slot and therefore one TextureState) are treated as the same resource for this
+// purpose too. Requires physical slots to already be assigned — both callers (compile(), via
+// execute_parallel(), and compute_execution_levels() directly) only ever run this after
+// create_transient_resources().
+[[nodiscard]] vector<u32> RenderGraph::compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const {
+            const usize count = usage_by_position.size();
             vector<i64> last_touch_pos(physical_slots_.size(), -1);
             vector<u32> level(count, 0);
             for (usize i = 0; i < count; ++i) {
                 u32 pass_level = 0;
-                for (const vector<RenderGraphTextureHandle> *handles : {&usage[i].reads, &usage[i].writes}) {
+                for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
                     for (RenderGraphTextureHandle handle : *handles) {
                         const TextureRecord *record = texture_record(handle);
                         if (record == nullptr || record->physical_slot >= last_touch_pos.size()) {
@@ -540,7 +566,7 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                     }
                 }
                 level[i] = pass_level;
-                for (const vector<RenderGraphTextureHandle> *handles : {&usage[i].reads, &usage[i].writes}) {
+                for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
                     for (RenderGraphTextureHandle handle : *handles) {
                         const TextureRecord *record = texture_record(handle);
                         if (record != nullptr && record->physical_slot < last_touch_pos.size()) {
@@ -638,7 +664,9 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 out_command_buffers.push_back(*finished_primary);
             }
 
-            const vector<u32> levels = compute_execution_levels(execution_order);
+            // Computed once, inside compile() above, by reusing the PassUsage compile() already built
+            // for dependency analysis — not recomputed here (see CompiledPlan::levels' own doc comment).
+            const vector<u32> &levels = compiled->levels;
             u32 max_level = 0;
             for (u32 l : levels) {
                 max_level = std::max(max_level, l);
@@ -849,10 +877,9 @@ void RenderGraph::reset() noexcept {
                                                               RHI::PipelineStage next_stage,
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources) {
-            // See transition_lock_'s own doc comment (RenderGraph.hpp) for why this needs to be under
-            // a lock at all: execute_parallel() can enter this function concurrently from two passes
-            // in the same level that both read the same upstream texture.
-            auto transition_guard = transition_lock_.lock();
+            // No lock needed here — see physical_slots_'s own doc comment (RenderGraph.hpp) for why
+            // two passes running concurrently under execute_parallel() can never reach this function
+            // for the same physical slot at the same time.
             PhysicalSlot *slot = physical_slot_for(handle);
             const TextureRecord *record = texture_record(handle);
             if (slot == nullptr || record == nullptr || !slot->texture || slot->mip_states.empty()) {

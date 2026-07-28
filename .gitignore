@@ -86,3 +86,10 @@ out/
 *.dmp
 *.core
 core.*
+
+# Profiling output (perf/flamegraph) — local investigation artifacts, not shipped/shared state.
+/profiles/
+perf.data
+perf.data.old
+*.folded
+flamegraph*.svg

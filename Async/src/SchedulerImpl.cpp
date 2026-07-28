@@ -112,6 +112,23 @@ namespace SFT::Async {
         }
 
         [[nodiscard]] bool execute_one_task(Pool &p, u32 index) noexcept {
+            // Cheap lock-free bail-out before try_take_task's mutex-guarded scan (own deque, the
+            // injector, then every other worker's deque — up to worker_count separate mutex
+            // lock/unlocks). queued_count is incremented in enqueue() *before* the task is actually
+            // pushed (see that function's own comment), so it can only ever over-report ("count says
+            // work might be there, but the push hasn't landed yet" — the caller just loops and tries
+            // again) — it can never under-report, so this can never cause a real task to be missed.
+            // Without this gate, an idle worker's spin phase (up to idle_spin_iterations per backoff
+            // cycle) pays a full multi-mutex scan on *every single iteration* even when nothing is
+            // queued anywhere — with N workers mostly idle (real parallel render-graph work is brief
+            // and bursty, not enough to keep every worker busy), that is N threads hammering each
+            // other's queue mutexes nonstop. Measured via flamegraph: pthread_mutex_lock/unlock plus
+            // this function together accounted for the large majority of steady-state CPU samples in
+            // an otherwise near-idle frame before this fix.
+            if (p.queued_count.load(std::memory_order_acquire) == 0) {
+                return false;
+            }
+
             unique_ptr<Detail::TaskBase> task = try_take_task(p, index);
             if (!task) {
                 return false;

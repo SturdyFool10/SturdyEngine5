@@ -1312,7 +1312,14 @@ namespace SFT::Renderer {
             }
         }
 
-        RenderGraph graph;
+        // Reused across frames (record.graph, a WindowSurfaceRecord member) rather than a fresh
+        // stack-local object — see that field's own doc comment (RendererModule.hpp) for why: this
+        // avoids re-allocating every pass's label string/attachment vectors/std::function closure from
+        // scratch every single frame. reset() clears every container's contents without releasing its
+        // capacity, so steady-state allocation for the graph's own bookkeeping drops close to zero
+        // after the first few frames.
+        RenderGraph &graph = record.graph;
+        graph.reset();
         // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
         // (every add_render_pass/add_compute_pass/set_execute call, down to just before "execute
         // render graph" starts), which is too much code to wrap in one extra brace level without
