@@ -722,6 +722,22 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(shadow_sampler.error(), "create shadow atlas sampler"));
         }
         guard->shadow_sampler = *shadow_sampler;
+        const RHI::SamplerDesc atmosphere_sampler_desc{
+            .min_filter = RHI::Filter::Linear,
+            .mag_filter = RHI::Filter::Linear,
+            .mipmap_mode = RHI::MipmapMode::Nearest,
+            .address_u = RHI::AddressMode::ClampToEdge,
+            .address_v = RHI::AddressMode::ClampToEdge,
+            .address_w = RHI::AddressMode::ClampToEdge,
+            .max_lod = 0.0f,
+            .label = "atmosphere lut linear sampler",
+        };
+        auto atmosphere_sampler = device->create_sampler(atmosphere_sampler_desc);
+        if (!atmosphere_sampler) {
+            destroy_shadow_lighting_resources_locked(*guard);
+            return unexpected(graphics_error_from_rhi(atmosphere_sampler.error(), "create atmosphere lut sampler"));
+        }
+        guard->atmosphere_sampler = *atmosphere_sampler;
         guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
@@ -781,6 +797,10 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle depth_view,
         RHI::TextureViewHandle shadow_atlas_view,
         RHI::BufferHandle lighting_buffer,
+        RHI::TextureViewHandle transmittance_lut_view,
+        RHI::TextureViewHandle multi_scattering_lut_view,
+        RHI::TextureViewHandle sky_view_lut_view,
+        RHI::BufferHandle atmosphere_buffer,
         RHI::Format color_format,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
         auto pipeline = shadow_lighting_pipeline_for(color_format);
@@ -789,7 +809,8 @@ namespace SFT::Renderer {
         }
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
-            !shadow_atlas_view || !lighting_buffer) {
+            !shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
+            !sky_view_lut_view || !atmosphere_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
 
@@ -809,6 +830,9 @@ namespace SFT::Renderer {
             if (resource.name == "lightingData") {
                 entry.buffer = lighting_buffer;
                 entry.size = sizeof(ShadowLightingGpuData);
+            } else if (resource.name == "atmosphereData") {
+                entry.buffer = atmosphere_buffer;
+                entry.size = sizeof(AtmosphereGpuData);
             } else if (resource.name == "gbufferAlbedo") {
                 entry.texture_view = albedo_view;
             } else if (resource.name == "gbufferNormal") {
@@ -821,10 +845,18 @@ namespace SFT::Renderer {
                 entry.texture_view = depth_view;
             } else if (resource.name == "shadowAtlas") {
                 entry.texture_view = shadow_atlas_view;
+            } else if (resource.name == "transmittanceLut") {
+                entry.texture_view = transmittance_lut_view;
+            } else if (resource.name == "multiScatteringLut") {
+                entry.texture_view = multi_scattering_lut_view;
+            } else if (resource.name == "skyViewLut") {
+                entry.texture_view = sky_view_lut_view;
             } else if (resource.name == "gbufferSampler") {
                 entry.sampler = guard->gbuffer_sampler;
             } else if (resource.name == "shadowSampler") {
                 entry.sampler = guard->shadow_sampler;
+            } else if (resource.name == "atmosphereSampler") {
+                entry.sampler = guard->atmosphere_sampler;
             } else {
                 return unexpected(shadow_error("Shadow lighting reflection contains an unknown resource: " + resource.name));
             }
@@ -871,6 +903,8 @@ namespace SFT::Renderer {
             device->destroy_sampler(resources.shadow_sampler);
         if (resources.gbuffer_sampler)
             device->destroy_sampler(resources.gbuffer_sampler);
+        if (resources.atmosphere_sampler)
+            device->destroy_sampler(resources.atmosphere_sampler);
         if (resources.pipeline_layout)
             device->destroy_pipeline_layout(resources.pipeline_layout);
         for (RHI::BindGroupLayoutHandle layout : resources.bind_group_layouts) {

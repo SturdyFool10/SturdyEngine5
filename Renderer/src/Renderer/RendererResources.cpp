@@ -229,6 +229,7 @@ namespace SFT::Renderer {
                     destroy_frame_bloom_targets(slot);
                     destroy_frame_composite_target(slot);
                     destroy_frame_shadow_targets(slot);
+                    destroy_frame_atmosphere_targets(slot);
                     destroy_frame_deferred_targets(slot);
                     if (slot.fence) {
                         device->destroy_fence(slot.fence);
@@ -244,6 +245,7 @@ namespace SFT::Renderer {
         destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
         destroy_custom_post_process_resources();
+        destroy_atmosphere_lut_resources();
 
         // Not per-window-surface/per-FrameInFlight-slot like the targets destroyed above — see
         // HiZPyramidTargets's own doc comment for why it's a single Renderer-owned resource instead.

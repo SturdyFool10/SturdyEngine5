@@ -127,7 +127,6 @@ namespace SFT::Engine {
         Camera camera{};
         SceneLighting lighting{};
         RenderGraph render_graph{};
-        std::vector<SFT::Renderer::CustomPostProcessEffect> custom_post_processes;
         // Optional final-pass overlay hook (Renderer::UiOverlayHooks) — the seam Sturdy.UI's
         // UiRenderer plugs into. Empty (skipped) unless a consumer sets it; see Scene.hpp's own
         // doc comment for the two-phase prepare()/draw() contract.
@@ -145,8 +144,7 @@ namespace SFT::Engine {
         SFT::Renderer::DeferredTargetFormats deferred_formats{};
         std::shared_ptr<const RenderFrameRequests::RenderableList> renderables;
         std::shared_ptr<const RenderFrameRequests::RenderableList> gizmo_renderables;
-        RenderGraphDescription render_graph{};
-        std::vector<SFT::Renderer::CustomPostProcessEffect> custom_post_processes;
+        RenderGraph render_graph{};
         SFT::Renderer::UiOverlayHooks ui_overlay;
         u32 visibility_mask = ~0u;
         UString debug_label;

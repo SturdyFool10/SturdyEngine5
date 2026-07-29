@@ -17,6 +17,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #include <Async/src/Async.hpp>
 #pragma endregion
 
@@ -31,6 +32,7 @@
 #include "ReflectionBinding.hpp"
 #include "Resources.hpp"
 #include "RenderGraph.hpp"
+#include "RenderGraphModule.hpp"
 #include "TileGrid.hpp"
 #include "TextAtlas.hpp"
 #include "TextInstance.hpp"
@@ -318,6 +320,32 @@ namespace SFT::Renderer {
             RHI::BufferHandle lighting_buffer{};
         };
 
+        // GPU constant-buffer mirror of Shaders/sturdy_atmosphere.slang's AtmosphereGpuData —
+        // field-for-field identical, pinned by static_assert in RendererAtmosphere.cpp (same
+        // convention ShadowLightingGpuData already follows). Packed into vec4s (never a bare vec3)
+        // so this struct's layout matches the Slang side byte-for-byte with no implicit padding.
+        struct alignas(16) AtmosphereGpuData {
+            glm::vec4 rayleigh_scattering_exp_scale{};
+            glm::vec4 mie_scattering_exp_scale{};
+            glm::vec4 mie_extinction_phase_g{};
+            glm::vec4 ozone_absorption_center_altitude{};
+            glm::vec4 ozone_width_planet_atmosphere_radius{};
+            glm::vec4 ground_albedo{};
+            glm::vec4 planet_center_world{};
+            glm::vec4 camera_position_planet_space{};
+            glm::vec4 sun_direction_angular_radius{};
+            glm::vec4 sun_illuminance{};
+        };
+
+        // Per-FrameInFlight-slot GPU state for the atmosphere constant buffer — deliberately just a
+        // buffer, unlike FrameShadowTargets: the transmittance/multi-scattering/sky-view LUT textures
+        // themselves are ordinary graph.create_texture() transients (baked and consumed entirely
+        // within one frame, see Renderer::record_atmosphere_lut_bakes), not persistent per-slot
+        // resources, since they have no history/cross-frame dependency to preserve.
+        struct FrameAtmosphereTargets {
+            RHI::BufferHandle constants_buffer{};
+        };
+
         struct FrameBloomTargets {
             Core::Extent2D source_extent{};
             u32 requested_levels = 0;
@@ -428,6 +456,7 @@ namespace SFT::Renderer {
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
             FrameDeferredTargets deferred_targets{};
             FrameShadowTargets shadow_targets{};
+            FrameAtmosphereTargets atmosphere_targets{};
             FrameBloomTargets bloom_targets{};
             FrameCompositeTarget composite_target{};
             FrameGpuTimingTarget gpu_timing{};
@@ -454,15 +483,15 @@ namespace SFT::Renderer {
             // member if two windows are to render concurrently without racing on each other's fences.
             vector<FrameInFlight> frames_in_flight;
             // Reused frame-to-frame instead of a fresh stack-local RenderGraph per render_frame_rhi()
-            // call — declaring passes, textures, and every pass's std::function closure was being
-            // heap-allocated fresh and freed at the end of every single frame. render_frame_rhi() calls
-            // graph.reset() at the top of each frame's declare phase instead; reset() clears every
-            // container without releasing its capacity, so steady-state per-frame allocation for the
-            // graph's own bookkeeping drops to near zero after the first few frames. One per window for
+            // call. reset() retains the outer pass/resource container capacities; pass-builder-local
+            // labels, attachment vectors, and callbacks are still reconstructed. One per window for
             // the same reason frames_in_flight is per-window, not Renderer-wide: only one frame is ever
             // being declared for a given window at a time (render_frame_rhi is synchronous per call), so
             // there's no cross-window or cross-frame contention to worry about.
             RenderGraph graph;
+            // Semantic resources published and consumed by reusable graph modules. Retained with the
+            // graph so reset() preserves capacity and steady-state frame lowering does not allocate.
+            RenderGraphBlackboard graph_resources;
         };
 
         struct RenderItem {
@@ -703,6 +732,10 @@ namespace SFT::Renderer {
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::SamplerHandle gbuffer_sampler{};
             RHI::SamplerHandle shadow_sampler{};
+            // Shared linear/clamp-to-edge sampler for the atmosphere LUTs (transmittance/multi-
+            // scattering/sky-view) this pass now also samples — created alongside gbuffer_sampler/
+            // shadow_sampler in ensure_shadow_lighting_resources.
+            RHI::SamplerHandle atmosphere_sampler{};
             vector<ShadowLightingPipelineVariant> pipeline_variants;
             bool ready = false;
         };
@@ -747,6 +780,29 @@ namespace SFT::Renderer {
             RHI::RenderPipelineHandle pipeline{};
             u32 source_binding = 0;
             RHI::Format color_format = RHI::Format::R32Float;
+            bool ready = false;
+        };
+
+        // One compiled compute pipeline for one of the three atmosphere LUT bake shaders
+        // (Shaders/sky_transmittance_lut.slang / sky_multi_scattering_lut.slang / sky_view_lut.slang)
+        // — same shape as Renderer::ensure_instance_cull_resources' single-shader build, repeated
+        // three times by AtmosphereLutResources below.
+        struct AtmosphereLutBakePipeline {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::ComputePipelineHandle pipeline{};
+        };
+
+        // Built lazily on first use, same ready-flag idiom as HiZBuildResources/ShadowLightingResources
+        // above. The three LUTs are rebaked every frame (see record_atmosphere_lut_bakes) rather than
+        // cached, so this only ever holds pipelines/layouts, never the LUT textures themselves.
+        struct AtmosphereLutResources {
+            AtmosphereLutBakePipeline transmittance;
+            AtmosphereLutBakePipeline multi_scattering;
+            AtmosphereLutBakePipeline sky_view;
+            RHI::SamplerHandle lut_sampler{};
             bool ready = false;
         };
 
@@ -890,6 +946,24 @@ namespace SFT::Renderer {
         void destroy_frame_deferred_targets(FrameInFlight &slot) noexcept;
         [[nodiscard]] Core::RendererResult ensure_frame_shadow_targets(FrameInFlight &slot, u32 atlas_size);
         void destroy_frame_shadow_targets(FrameInFlight &slot) noexcept;
+
+        // ── Atmosphere / sky (Shaders/sturdy_atmosphere.slang + sky_*_lut.slang) ──
+        [[nodiscard]] Core::RendererResult ensure_frame_atmosphere_targets(FrameInFlight &slot);
+        void destroy_frame_atmosphere_targets(FrameInFlight &slot) noexcept;
+        // Fills AtmosphereGpuData (hardcoded Earth-default physics constants for now — see
+        // RendererAtmosphere.cpp's own doc comment; user-facing settings are a follow-up) and
+        // uploads it into `constants_buffer`.
+        [[nodiscard]] Core::RendererResult prepare_atmosphere_frame(const FrameSubmission &submission,
+                                                                    RHI::BufferHandle constants_buffer);
+        [[nodiscard]] Core::RendererResult ensure_atmosphere_lut_resources();
+        // Declares the three LUT-bake compute passes into `graph` and returns their transient texture
+        // handles. Rebaked every frame — see AtmosphereLutResources' own doc comment for why nothing
+        // here is cached across frames the way HiZ/bloom resources are.
+        [[nodiscard]] Core::RendererResult record_atmosphere_lut_bakes(
+            RenderGraph &graph, RHI::BufferHandle atmosphere_buffer,
+            RenderGraphTextureHandle &out_transmittance_lut, RenderGraphTextureHandle &out_multi_scattering_lut,
+            RenderGraphTextureHandle &out_sky_view_lut, vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_atmosphere_lut_resources() noexcept;
         [[nodiscard]] Core::RendererResult prepare_shadow_frame(const FrameSubmission &submission,
                                                                  FrameShadowTargets &targets,
                                                                  PreparedShadowFrame &prepared,
@@ -1083,9 +1157,9 @@ namespace SFT::Renderer {
 
         // Records one compute dispatch per batch (frustum + Hi-Z occlusion cull, plus compaction)
         // into `pass`, writing into `resources`' indirect-command/compacted-index buffers — see
-        // Shaders/gpu_instance_cull.slang's header comment for the buffer protocol. Caller must
-        // insert a compute-write -> indirect-draw-read barrier (RenderGraph's compute-pass builder
-        // only tracks texture hazards) before any of `record_instanced_batches`'s draws run.
+        // Shaders/gpu_instance_cull.slang's header comment for the buffer protocol. The declaring
+        // render-graph compute and G-buffer passes publish their buffer writes/reads, so graph-managed
+        // dependencies and barriers order these writes before record_instanced_batches consumes them.
         // `camera_world_position` and `hiz` feed the occlusion test — see HiZCullInput's own doc
         // comment; `hiz.valid == false` (first frame / just resized) skips it, frustum-only that
         // frame, same as before this test existed.
@@ -1198,10 +1272,38 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle depth_view,
             RHI::TextureViewHandle shadow_atlas_view,
             RHI::BufferHandle lighting_buffer,
+            RHI::TextureViewHandle transmittance_lut_view,
+            RHI::TextureViewHandle multi_scattering_lut_view,
+            RHI::TextureViewHandle sky_view_lut_view,
+            RHI::BufferHandle atmosphere_buffer,
             RHI::Format color_format,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_shadow_lighting_resources() noexcept;
         void destroy_shadow_lighting_resources_locked(ShadowLightingResources &resources) noexcept;
+
+        // ── Fullscreen render-graph modules ──
+        // These helpers lower reusable semantic modules into the RHI-aware graph. They consume and
+        // publish typed resources through RenderGraphBlackboard rather than threading lifecycle-local
+        // source variables through the entire frame declaration function.
+        [[nodiscard]] Core::RendererResult build_deferred_msaa_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            RHI::SampleCount samples);
+        [[nodiscard]] Core::RendererResult build_custom_post_process_modules(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            PostProcessStage stage);
+        [[nodiscard]] Core::RendererResult build_bloom_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            FrameInFlight &frame_slot,
+            bool enabled,
+            RHI::Format bloom_format);
+        [[nodiscard]] Core::RendererResult build_tonemap_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            RHI::Format presentation_format,
+            bool hdr_output);
 
         // ── Fullscreen post-processes ──
         // NVIDIA SRAA: reconstructs 1x deferred shading from multisampled depth visibility before
@@ -1450,6 +1552,7 @@ namespace SFT::Renderer {
         Async::Mutex<HiZBuildResources> hiz_build_;
         // Not per-FrameInFlight-ring-slot — see HiZPyramidTargets's own doc comment for why.
         Async::Mutex<HiZPyramidTargets> hiz_pyramid_;
+        Async::Mutex<AtmosphereLutResources> atmosphere_lut_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

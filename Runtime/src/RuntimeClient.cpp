@@ -1,10 +1,8 @@
 #include <Runtime/src/RuntimeClient.hpp>
 
 #include <algorithm>
-#include <cstddef>
 #include <filesystem>
 #include <optional>
-#include <span>
 #include <vector>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
@@ -74,14 +72,9 @@ namespace SFT::Runtime {
     UString RuntimeClient::primary_window_title(
         Engine::Engine &engine,
         const Engine::ApplicationFrameStats &stats) {
-        f32 threshold = render_graph_.bloom().threshold;
-        bool threshold_view = false;
-        if (auto state = engine.ecs_world().get_component<BloomTuningState>(bloom_controls_entity_)) {
-            threshold = state->threshold;
-            threshold_view = state->threshold_view;
-        }
-        return UString{
-            "SturdyEngine 5"};
+        (void)engine;
+        (void)stats;
+        return UString{"SturdyEngine 5"};
     }
 
 
@@ -389,21 +382,32 @@ namespace SFT::Runtime {
         }
         render_graph_.bloom().enabled = !threshold_view;
 
-        std::vector<RendererApi::CustomPostProcessEffect> custom_post_processes;
+        Engine::RenderGraph frame_graph = render_graph_;
         if (threshold_view) {
-            const ThresholdConstants constants{
-                .threshold = render_graph_.bloom().threshold,
-                .soft_knee = render_graph_.bloom().soft_knee,
-            };
-            const std::span<const std::byte> bytes = std::as_bytes(std::span{&constants, 1});
-            RendererApi::CustomPostProcessEffect effect{
+            // Compose an alternate graph from the same reusable built-in modules. Runtime supplies
+            // only semantic module data; Engine/Renderer still own resources and command recording.
+            frame_graph = Engine::RenderGraph::empty(render_graph_.description());
+            Engine::RenderGraphTextureHandle color =
+                frame_graph.compose(Engine::RenderModules::DeferredScene{});
+            color = frame_graph.compose(Engine::RenderModules::AntiAliasing{.input = color});
+
+            Engine::FullscreenEffectDescription effect{
                 .shader_path = "Shaders/runtime_bloom_threshold.slang",
                 .module_name = "runtime_bloom_threshold",
                 .fragment_entry_point = "fragmentMain",
                 .label = UString{"Runtime bloom threshold view"_ustr},
             };
-            effect.push_constants.assign(bytes.begin(), bytes.end());
-            custom_post_processes.push_back(std::move(effect));
+            effect.set_push_constants(ThresholdConstants{
+                .threshold = render_graph_.bloom().threshold,
+                .soft_knee = render_graph_.bloom().soft_knee,
+            });
+            color = frame_graph.compose(Engine::RenderModules::FullscreenEffect{
+                .input = color,
+                .effect = std::move(effect),
+            });
+            color = frame_graph.compose(Engine::RenderModules::ToneMapping{.input = color});
+            color = frame_graph.compose(Engine::RenderModules::DebugOverlay{.input = color});
+            (void)frame_graph.compose(Engine::RenderModules::Present{.input = color});
         }
         if (auto fly = engine.ecs_world().get_component<FlyCameraState>(camera_control_entity_)) {
             constexpr f32 move_speed_meters_per_second = 4.0f;
@@ -440,8 +444,7 @@ namespace SFT::Runtime {
                 .ambient_radiance = {0.035f, 0.04f, 0.055f},
                 .exposure = 1.0f,
             },
-            .render_graph = render_graph_,
-            .custom_post_processes = std::move(custom_post_processes),
+            .render_graph = std::move(frame_graph),
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
         // Snapshot this frame's view_projection as *next* frame's "previous" now that camera_ has

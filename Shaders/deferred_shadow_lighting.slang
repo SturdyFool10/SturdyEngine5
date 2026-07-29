@@ -6,6 +6,11 @@
 // cost is deterministic and the shader remains portable across Vulkan/D3D12/Metal-class hardware.
 
 import sturdy_common;
+import sturdy_atmosphere;
+
+// Must match sky_view_lut.slang's LUT_SIZE exactly — same mirrored-constant convention as the limits
+// below (no shared header between C++/multiple shaders to source a single definition from).
+static const uint2 SFT_SKY_VIEW_LUT_SIZE = uint2(192, 108);
 
 static const uint SFT_MAX_SPOT_LIGHTS = 8;
 static const uint SFT_MAX_POINT_LIGHTS = 8;
@@ -76,14 +81,19 @@ struct ShadowLightingGpuData {
 };
 
 ConstantBuffer<ShadowLightingGpuData> lightingData;
+ConstantBuffer<AtmosphereGpuData> atmosphereData;
 Texture2D<float4> gbufferAlbedo;
 Texture2D<float2> gbufferNormal;
 Texture2D<float4> gbufferMaterial;
 Texture2D<float4> gbufferEmissive;
 Texture2D<float> gbufferDepth;
 Texture2D<float> shadowAtlas;
+Texture2D<float4> transmittanceLut;
+Texture2D<float4> multiScatteringLut;
+Texture2D<float4> skyViewLut;
 SamplerState gbufferSampler;
 SamplerState shadowSampler;
+SamplerState atmosphereSampler;
 
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
@@ -354,6 +364,15 @@ float3 reconstructViewPosition(float2 uv, float depth) {
     return mul(float4(world, 1.0), lightingData.view).xyz;
 }
 
+// World-space view ray direction for a background pixel (nothing in the gbuffer to derive it from —
+// unproject the far clip plane instead and point away from the camera through it).
+float3 reconstructWorldRayDirection(float2 uv) {
+    float4 clip = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    float4 worldH = mul(clip, lightingData.inverseViewProjection);
+    float3 worldFar = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
+    return safeNormalizeOr(worldFar - lightingData.cameraPositionNear.xyz, float3(0.0, 1.0, 0.0));
+}
+
 // Jimenez et al. GTAO horizon integration. This is deliberately spatial-only: the per-pixel
 // rotation is a stable interleaved pattern and enough horizon samples are taken that no temporal
 // history is needed. Distance attenuation and a minimum separation reject depth discontinuities
@@ -476,8 +495,24 @@ float3 gtaoMultiBounce(float visibility, float3 albedo) {
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float depth = gbufferDepth.SampleLevel(gbufferSampler, input.uv, 0.0);
+    AtmosphereParams atmosphere = unpackAtmosphereParams(atmosphereData);
+    float3 planetOrigin = atmosphereData.cameraPositionPlanetSpace.xyz;
+    float3 sunDirToward = safeNormalizeOr(atmosphereData.sunDirectionAngularRadius.xyz, float3(0.0, 1.0, 0.0));
+    float atmosphereViewHeight = max(length(planetOrigin), atmosphere.planetRadiusMeters + 1.0);
+
     if (depth >= 0.999999) {
-        return lightingData.backgroundColor;
+        float3 rayDir = reconstructWorldRayDirection(input.uv);
+        float tGroundUnused;
+        bool rayIntersectsGround = distanceToGround(atmosphere, planetOrigin, rayDir, tGroundUnused);
+        float2 skyUv = skyViewLutUv(atmosphere, rayDir, float3(0.0, 1.0, 0.0), sunDirToward,
+                                    atmosphereViewHeight, rayIntersectsGround, SFT_SKY_VIEW_LUT_SIZE);
+        float3 sky = skyViewLut.SampleLevel(atmosphereSampler, skyUv, 0.0).rgb;
+        float3 upVector = planetOrigin * safeRcp(atmosphereViewHeight);
+        float3 transmittanceToSpace = sampleTransmittanceLut(transmittanceLut, atmosphereSampler, atmosphere,
+                                                              atmosphereViewHeight, dot(upVector, rayDir));
+        sky += sunDiskLuminance(rayDir, sunDirToward, atmosphereData.sunDirectionAngularRadius.w,
+                                atmosphereData.sunIlluminance.rgb, transmittanceToSpace);
+        return float4(sky, 1.0);
     }
 
     float4 clip = float4(input.uv * 2.0 - 1.0, depth, 1.0);
@@ -554,5 +589,22 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // ambient exposure the rest of the scene is dialed to, and bypasses BRDF/shadow/AO entirely.
     float3 emissive = gbufferEmissive.SampleLevel(gbufferSampler, input.uv, 0.0).rgb;
     hdr += emissive;
+
+    // Aerial perspective: blend the lit result with in-scattered atmosphere light between the camera
+    // and this surface, using the exact same integrator the sky-view LUT was baked with (just a much
+    // shorter raymarch, since scene geometry is close relative to the atmosphere's scale height).
+    float3 toPixel = worldPosition - lightingData.cameraPositionNear.xyz;
+    float pixelDistance = length(toPixel);
+    float3 aerialDir = pixelDistance > SFT_EPSILON ? toPixel / pixelDistance : float3(0.0, 0.0, 1.0);
+    // includeGroundBounce=false: this ray already hit real, fully-lit scene geometry at
+    // pixelDistance — the mathematical "ground" plane sits at very nearly the same height as a real
+    // floor/table for any downward-looking ray, so leaving it enabled here double-added a flat grey
+    // ground-albedo term on top of already-lit surfaces almost everywhere (visible as a fog/haze).
+    ScatteringResult aerial = integrateScatteredLuminance(
+        atmosphere, planetOrigin, aerialDir, sunDirToward, atmosphereData.sunIlluminance.rgb,
+        pixelDistance, 8u, transmittanceLut, atmosphereSampler, multiScatteringLut, atmosphereSampler,
+        /*useMultiScattering*/ true, /*includeGroundBounce*/ false);
+    hdr = hdr * aerial.transmittance + aerial.luminance;
+
     return float4(max(hdr, 0.0), albedoSample.a);
 }

@@ -9,7 +9,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 #pragma endregion
 
@@ -31,6 +30,40 @@ namespace SFT::Renderer {
         u32 index = ~0u;
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return index != ~0u; }
         [[nodiscard]] friend constexpr bool operator==(RenderGraphTextureHandle, RenderGraphTextureHandle) noexcept = default;
+    };
+
+    struct RenderGraphBufferHandle {
+        u32 index = ~0u;
+        [[nodiscard]] constexpr explicit operator bool() const noexcept { return index != ~0u; }
+        [[nodiscard]] friend constexpr bool operator==(RenderGraphBufferHandle, RenderGraphBufferHandle) noexcept = default;
+    };
+
+    struct RenderGraphImportedBufferDesc {
+        RHI::BufferHandle buffer{};
+        u64 size = 0;
+        RHI::PipelineStage initial_stage = RHI::PipelineStage::None;
+        RHI::AccessFlags initial_access = RHI::AccessFlags::None;
+        RHI::PipelineStage final_stage = RHI::PipelineStage::None;
+        RHI::AccessFlags final_access = RHI::AccessFlags::None;
+        const char *label = nullptr;
+    };
+
+    struct RenderGraphBufferAccessDesc {
+        RenderGraphBufferHandle buffer{};
+        RHI::PipelineStage stages = RHI::PipelineStage::None;
+        RHI::AccessFlags access = RHI::AccessFlags::None;
+        // Range participates in validation and future interval-aware scheduling. Synchronization is
+        // currently conservatively emitted for the whole imported buffer because state is whole-buffer.
+        u64 offset = 0;
+        u64 size = 0; // 0 => all bytes from offset to the end; offset must remain in bounds
+        bool read = true;
+        bool write = false;
+    };
+
+    struct RenderGraphBufferAccess {
+        RHI::BufferHandle buffer{};
+        u64 size = 0;
+        [[nodiscard]] constexpr explicit operator bool() const noexcept { return static_cast<bool>(buffer); }
     };
 
     struct RenderGraphTextureDesc {
@@ -136,6 +169,7 @@ namespace SFT::Renderer {
         [[nodiscard]] RHI::CommandEncoder &command_encoder() const noexcept;
         [[nodiscard]] RHI::RenderPassEncoder &render_pass() const noexcept;
         [[nodiscard]] RenderGraphTextureAccess texture(RenderGraphTextureHandle handle) const noexcept;
+        [[nodiscard]] RenderGraphBufferAccess buffer(RenderGraphBufferHandle handle) const noexcept;
 
       private:
         RenderGraph *graph_ = nullptr;
@@ -177,6 +211,7 @@ namespace SFT::Renderer {
         [[nodiscard]] RHI::CommandEncoder &command_encoder() const noexcept;
         [[nodiscard]] RHI::ComputePassEncoder &compute_pass() const noexcept;
         [[nodiscard]] RenderGraphTextureAccess texture(RenderGraphTextureHandle handle) const noexcept;
+        [[nodiscard]] RenderGraphBufferAccess buffer(RenderGraphBufferHandle handle) const noexcept;
 
       private:
         RenderGraph *graph_ = nullptr;
@@ -196,6 +231,12 @@ namespace SFT::Renderer {
         // Storage-image (RHI::TextureLayout::General) read/write/read-write access.
         RenderGraphComputePassBuilder &add_storage_texture(const RenderGraphStorageTextureAccessDesc &access);
 
+        RenderGraphComputePassBuilder &add_buffer(const RenderGraphBufferAccessDesc &access);
+
+        // Keeps this pass live even when none of its declared texture writes contribute to a marked
+        // graph output (for example, a compute pass whose externally visible result is a buffer).
+        RenderGraphComputePassBuilder &set_side_effect(bool side_effect = true) noexcept;
+
         RenderGraphComputePassBuilder &set_execute(RenderGraphComputeExecuteFn execute) noexcept;
 
       private:
@@ -204,6 +245,8 @@ namespace SFT::Renderer {
         string label_;
         vector<RenderGraphTextureHandle> sampled_texture_reads_;
         vector<RenderGraphStorageTextureAccessDesc> storage_textures_;
+        vector<RenderGraphBufferAccessDesc> buffers_;
+        bool side_effect_ = false;
         RenderGraphComputeExecuteFn execute_;
     };
 
@@ -216,6 +259,8 @@ namespace SFT::Renderer {
         RenderGraphRenderPassBuilder &set_depth_stencil_attachment(const RenderGraphDepthStencilAttachmentDesc &attachment);
 
         RenderGraphRenderPassBuilder &add_sampled_texture(const RenderGraphSampledTextureReadDesc &read);
+
+        RenderGraphRenderPassBuilder &add_buffer(const RenderGraphBufferAccessDesc &access);
 
         RenderGraphRenderPassBuilder &set_render_area(const RHI::Rect2D &render_area) noexcept;
 
@@ -233,6 +278,9 @@ namespace SFT::Renderer {
         // inline-recording pass.
         RenderGraphRenderPassBuilder &set_allow_bundles(bool allow_bundles) noexcept;
 
+        // Keeps this pass live even when its attachments do not contribute to a marked graph output.
+        RenderGraphRenderPassBuilder &set_side_effect(bool side_effect = true) noexcept;
+
         RenderGraphRenderPassBuilder &set_execute(RenderGraphExecuteFn execute) noexcept;
 
       private:
@@ -243,9 +291,11 @@ namespace SFT::Renderer {
         RenderGraphDepthStencilAttachmentDesc depth_stencil_attachment_{};
         bool has_depth_stencil_attachment_ = false;
         vector<RenderGraphSampledTextureReadDesc> sampled_texture_reads_;
+        vector<RenderGraphBufferAccessDesc> buffers_;
         RHI::Rect2D render_area_{};
         u32 view_mask_ = 0;
         bool allow_bundles_ = false;
+        bool side_effect_ = false;
         RenderGraphExecuteFn execute_;
     };
 
@@ -256,6 +306,8 @@ namespace SFT::Renderer {
     // always valid to read since something outside the graph already gave them real content).
     enum class RenderGraphCompileErrorCode : u8 {
         UnknownTextureHandle,
+        UnknownBufferHandle,
+        InvalidBufferAccess,
         MissingProducer,
     };
 
@@ -286,9 +338,9 @@ namespace SFT::Renderer {
         // changing compile()'s signature.
         struct CompiledPlan {
             vector<OrderedPass> order;
-            // Same length/indexing as `order` — computed alongside it, reusing the same per-pass
-            // PassUsage compile() already built rather than a second usage_of_ordered() walk (see
-            // compute_execution_levels()'s own doc comment for what this array means).
+            // Same length/indexing as `order` — compile() computes logical-resource levels for CPU-only
+            // inspection. execute_parallel() recomputes them after transient alias allocation so passes
+            // touching different logical textures backed by one physical image are serialized too.
             vector<u32> levels;
         };
 
@@ -318,6 +370,8 @@ namespace SFT::Renderer {
 
         [[nodiscard]] RenderGraphTextureHandle import_texture(const RenderGraphImportedTextureDesc &desc);
 
+        [[nodiscard]] RenderGraphBufferHandle import_buffer(const RenderGraphImportedBufferDesc &desc);
+
         [[nodiscard]] RenderGraphTextureHandle create_texture(const RenderGraphTextureDesc &desc);
 
         [[nodiscard]] RenderGraphRenderPassBuilder &add_render_pass(string_view label);
@@ -328,11 +382,17 @@ namespace SFT::Renderer {
 
         void add_copy_pass(const RenderGraphCopyDesc &desc);
 
+        // Marks a texture as externally observable after graph execution. Liveness starts from passes
+        // writing these resources (plus explicit side-effect passes); importing a texture alone does not
+        // make every write to it live, so unused history/cached-target branches can be culled correctly.
+        void mark_output(RenderGraphTextureHandle texture);
+
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
+        [[nodiscard]] RenderGraphBufferAccess buffer_access(RenderGraphBufferHandle handle) const noexcept;
 
         // Pure-CPU compile step: derives a dependency-ordered, dead-pass-culled CompiledPlan from every
-        // pass/texture declared so far, or a structured RenderGraphCompileError if the graph itself is
-        // malformed (an unknown texture handle, or a transient texture read with no earlier producer).
+        // pass/resource declared so far, or a structured RenderGraphCompileError if the graph itself is
+        // malformed (unknown handles, invalid buffer ranges, or a transient read with no producer).
         // Needs no RHI device and performs no GPU work — safe to call from CPU-only tests/tooling, and
         // execute() below is just this plus resource allocation, barrier recording, and pass dispatch.
         [[nodiscard]] CompileResult compile() const;
@@ -403,8 +463,8 @@ namespace SFT::Renderer {
         // Level of each pass in `execution_order` (same length, same indexing — mirrors
         // compute_transient_lifetimes' parallel-array style). Level N+1 passes depend, directly or
         // transitively, on at least one level-N pass touching the same (physical-slot-aliased-aware)
-        // texture. Two passes never share a level if they touch the same texture at all — including a
-        // shared *read*, e.g. two passes both sampling one upstream texture — since transition_texture
+        // resource. Two passes never share a level if they touch the same texture or imported buffer at
+        // all — including a shared read — since transition_texture/transition_buffer
         // decides on the fly which pass actually needs to emit a layout-transition barrier, and that
         // decision isn't safe to race across command buffers whose relative submission order isn't
         // known until after they're all recorded (see compute_execution_levels' own .cpp comment for
@@ -413,11 +473,10 @@ namespace SFT::Renderer {
         // whatever ordering the barriers within them depend on. Pure-CPU, same testability contract as
         // compile()/compute_transient_lifetimes() above.
         //
-        // This standalone entry point exists for testability (callable without re-running compile());
-        // compile() itself computes the same thing internally (CompiledPlan::levels) by reusing the
-        // PassUsage it already built for dependency analysis, via the shared compute_levels_from_usage()
-        // helper below, rather than calling this and re-deriving usage a second time — execute_parallel()
-        // reads compiled->levels directly instead of calling this function.
+        // This standalone entry point exists for testability (callable without re-running compile()).
+        // compile() computes logical-resource levels internally by reusing the PassUsage it already built.
+        // execute_parallel() calls this entry point again after create_transient_resources() so physical-
+        // slot alias conflicts, which do not exist during the CPU-only compile step, are included.
         [[nodiscard]] vector<u32> compute_execution_levels(const vector<OrderedPass> &execution_order) const;
 
       private:
@@ -438,6 +497,15 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle default_view{};
             vector<TextureState> mip_states;
             bool owns_resource = false;
+        };
+
+        // Imported buffers currently carry one conservative state for the whole allocation. Passes may
+        // declare ranges, but barriers remain whole-buffer until interval state tracking is added.
+        struct BufferRecord {
+            RenderGraphImportedBufferDesc imported{};
+            RHI::PipelineStage stage = RHI::PipelineStage::None;
+            RHI::AccessFlags access = RHI::AccessFlags::None;
+            string label;
         };
 
         struct TextureRecord {
@@ -464,6 +532,12 @@ namespace SFT::Renderer {
         [[nodiscard]] PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) noexcept;
 
         [[nodiscard]] const PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) const noexcept;
+
+        [[nodiscard]] BufferRecord *buffer_record(RenderGraphBufferHandle handle) noexcept;
+        [[nodiscard]] const BufferRecord *buffer_record(RenderGraphBufferHandle handle) const noexcept;
+
+        [[nodiscard]] Core::RendererResult transition_buffer(RHI::CommandEncoder &encoder,
+                                                             const RenderGraphBufferAccessDesc &access);
 
         [[nodiscard]] Core::RendererResult transition_texture(RHI::CommandEncoder &encoder,
                                                               RenderGraphTextureHandle handle,
@@ -513,8 +587,8 @@ namespace SFT::Renderer {
 
         [[nodiscard]] Core::RendererResult transition_to_final_states(RHI::CommandEncoder &encoder);
 
-        // What one pass reads from and writes to, in RenderGraphTextureHandle terms — the input to
-        // compile()'s dependency analysis. `always_live` covers a pass with no
+        // What one pass reads from and writes to, separated into texture and buffer handles — the input
+        // to compile()'s dependency analysis. `always_live` covers a pass with no
         // declared attachments at all (doesn't happen from any call site today, but nothing stops
         // one existing): the graph can't reason about a side effect it never declared, so such a
         // pass is never culled. Member functions (not free functions) purely so they can read
@@ -522,6 +596,8 @@ namespace SFT::Renderer {
         struct PassUsage {
             vector<RenderGraphTextureHandle> writes;
             vector<RenderGraphTextureHandle> reads;
+            vector<RenderGraphBufferHandle> buffer_writes;
+            vector<RenderGraphBufferHandle> buffer_reads;
             bool always_live = false;
         };
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphRenderPassBuilder &pass);
@@ -539,9 +615,10 @@ namespace SFT::Renderer {
 
         vector<TextureRecord> textures_;
         vector<PhysicalSlot> physical_slots_;
+        vector<BufferRecord> buffers_;
         // transition_texture()'s read-decide-barrier-update of a PhysicalSlot's mip_states needs no
         // lock: compute_execution_levels() guarantees any two passes sharing a level never touch the
-        // same physical slot at all — read or write, an earlier version of this comment only accounted
+        // same physical texture slot or imported buffer at all — read or write, an earlier version of this comment only accounted
         // for writes, which was the actual bug that motivated adding (and, once the level algorithm
         // was fixed to cover reads too, later removing) a transition_lock_ here. Also makes RenderGraph
         // movable again, needed for it to live as a WindowSurfaceRecord member (reused frame-to-frame
@@ -552,6 +629,7 @@ namespace SFT::Renderer {
         vector<RenderGraphBlitDesc> blit_passes_;
         vector<RenderGraphComputePassBuilder> compute_passes_;
         vector<RenderGraphCopyDesc> copy_passes_;
+        vector<RenderGraphTextureHandle> outputs_;
     };
 
     

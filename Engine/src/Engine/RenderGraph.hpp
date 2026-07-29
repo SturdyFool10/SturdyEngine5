@@ -10,6 +10,8 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <Engine/RenderGraphModule.hpp>
+
 namespace SFT::Engine {
 
     // High-level, built-in operations rather than GPU pass kinds. Engine consumers choose what the
@@ -216,6 +218,9 @@ namespace SFT::Engine {
         InvalidBloomSettings,
         InvalidToneMappingSettings,
         InvalidFeatureCombination,
+        InvalidPassGraph,
+        InvalidFullscreenEffect,
+        UnsupportedPassOrder,
     };
 
     struct RenderGraphError {
@@ -229,11 +234,17 @@ namespace SFT::Engine {
     // copy it into a frame request, or reconstruct it through an eventual C/FFI description API.
     class RenderGraph {
       public:
-        RenderGraph() noexcept = default;
+        // Default construction preserves the existing behavior: an explicit standard module chain.
+        RenderGraph() noexcept;
         explicit RenderGraph(RenderGraphDescription description) noexcept;
+        RenderGraph(const RenderGraph &other);
+        RenderGraph &operator=(const RenderGraph &other);
+        RenderGraph(RenderGraph &&) noexcept = default;
+        RenderGraph &operator=(RenderGraph &&) noexcept = default;
 
         [[nodiscard]] static RenderGraph standard() noexcept;
         [[nodiscard]] static RenderGraph overlay_only() noexcept;
+        [[nodiscard]] static RenderGraph empty(RenderGraphDescription description = {}) noexcept;
 
         [[nodiscard]] const RenderGraphDescription &description() const noexcept;
         [[nodiscard]] RenderGraphDescription &description() noexcept;
@@ -253,6 +264,32 @@ namespace SFT::Engine {
         [[nodiscard]] const DebugOverlayRenderSettings &debug_overlay() const noexcept;
         [[nodiscard]] DebugOverlayRenderSettings &debug_overlay() noexcept;
         [[nodiscard]] RenderGraphExecutionMode execution_mode() const noexcept;
+
+        [[nodiscard]] const std::vector<RenderGraphTextureDescription> &textures() const noexcept;
+        [[nodiscard]] const std::vector<RenderGraphPassDescription> &passes() const noexcept;
+        [[nodiscard]] RenderGraphTextureHandle presented_texture() const noexcept;
+        [[nodiscard]] bool contains_pass(RenderGraphPassKind kind) const noexcept;
+
+        // Producer ancestry of the texture consumed by Present, in execution order and including the
+        // Present node itself. Branches not contributing to presentation are intentionally omitted so
+        // current Renderer lowering can ignore dead/diagnostic alternatives without linearizing them.
+        [[nodiscard]] std::vector<RenderGraphPassHandle> presentation_path() const;
+        [[nodiscard]] bool presentation_contains_pass(RenderGraphPassKind kind) const;
+
+        // Modules are ordinary CPU objects whose build() method appends declarative resources/passes.
+        // No callback is retained or invoked by render workers; the resulting graph remains plain data.
+        template <typename Module>
+            requires requires(const Module &module, RenderGraph &graph) { module.build(graph); }
+        decltype(auto) compose(const Module &module) {
+            return module.build(*this);
+        }
+
+        // Safe custom-pass primitive for application-defined modules. The description and constants are
+        // copied immediately into graph-owned CPU data; no application callback or RHI object crosses the
+        // Engine/Renderer boundary. The current lowering supports scene-linear HDR fullscreen effects.
+        [[nodiscard]] RenderGraphTextureHandle add_fullscreen_effect(
+            RenderGraphTextureHandle input,
+            const FullscreenEffectDescription &effect);
 
         [[nodiscard]] bool enabled(RenderFeature feature) const noexcept;
         RenderGraph &set_enabled(RenderFeature feature, bool enabled) noexcept;
@@ -304,7 +341,33 @@ namespace SFT::Engine {
         [[nodiscard]] RenderGraph normalized() const noexcept;
 
       private:
+        struct EmptyTag {};
+        RenderGraph(EmptyTag, RenderGraphDescription description) noexcept;
+
+        friend struct RenderModules::DeferredScene;
+        friend struct RenderModules::AntiAliasing;
+        friend struct RenderModules::Bloom;
+        friend struct RenderModules::FullscreenEffect;
+        friend struct RenderModules::ToneMapping;
+        friend struct RenderModules::DebugOverlay;
+        friend struct RenderModules::Present;
+
+        [[nodiscard]] RenderGraphTextureHandle create_texture(RenderGraphTextureDescription description);
+        [[nodiscard]] RenderGraphTextureHandle add_builtin_pass(
+            RenderGraphPassKind kind,
+            RenderGraphTextureHandle input,
+            RenderGraphTextureDescription output,
+            UString label);
+        [[nodiscard]] RenderGraphPassHandle add_present_pass(RenderGraphTextureHandle input);
+        void build_standard_topology();
+        void rebase_handles() noexcept;
+        [[nodiscard]] RenderGraphResult validate_topology() const noexcept;
+
         RenderGraphDescription description_{};
+        u32 generation_ = 0;
+        std::vector<RenderGraphTextureDescription> textures_;
+        std::vector<RenderGraphPassDescription> passes_;
+        RenderGraphTextureHandle presented_texture_{};
     };
 
 } // namespace SFT::Engine

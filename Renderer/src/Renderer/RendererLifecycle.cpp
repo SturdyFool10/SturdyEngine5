@@ -940,6 +940,7 @@ namespace SFT::Renderer {
                 destroy_frame_composite_target(old_slot);
                 destroy_frame_gpu_timing_target(old_slot);
                 destroy_frame_shadow_targets(old_slot);
+                destroy_frame_atmosphere_targets(old_slot);
                 destroy_frame_deferred_targets(old_slot);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
@@ -1223,6 +1224,19 @@ namespace SFT::Renderer {
                 !shadow_prepared.has_value()) {
                 return shadow_prepared;
             }
+            if (Core::RendererResult atmosphere_targets = ensure_frame_atmosphere_targets(slot);
+                !atmosphere_targets.has_value()) {
+                return atmosphere_targets;
+            }
+            if (Core::RendererResult atmosphere_prepared =
+                    prepare_atmosphere_frame(submission, slot.atmosphere_targets.constants_buffer);
+                !atmosphere_prepared.has_value()) {
+                return atmosphere_prepared;
+            }
+            if (Core::RendererResult atmosphere_resources = ensure_atmosphere_lut_resources();
+                !atmosphere_resources.has_value()) {
+                return atmosphere_resources;
+            }
         }
         // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
         // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
@@ -1374,13 +1388,13 @@ namespace SFT::Renderer {
         }
 
         // Reused across frames (record.graph, a WindowSurfaceRecord member) rather than a fresh
-        // stack-local object — see that field's own doc comment (RendererModule.hpp) for why: this
-        // avoids re-allocating every pass's label string/attachment vectors/std::function closure from
-        // scratch every single frame. reset() clears every container's contents without releasing its
-        // capacity, so steady-state allocation for the graph's own bookkeeping drops close to zero
-        // after the first few frames.
+        // stack-local object. reset() retains the graph's outer resource/pass container capacities;
+        // individual pass builders still rebuild their own labels, attachment vectors, and callbacks.
+        // The adjacent semantic blackboard also retains its small entry-vector allocation.
         RenderGraph &graph = record.graph;
         graph.reset();
+        RenderGraphBlackboard &graph_resources = record.graph_resources;
+        graph_resources.reset();
         // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
         // (every add_render_pass/add_compute_pass/set_execute call, down to just before "execute
         // render graph" starts), which is too much code to wrap in one extra brace level without
@@ -1406,6 +1420,7 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::None,
             .label = "swapchain color",
         });
+        graph.mark_output(swapchain_texture);
         const RHI::Extent3D frame_extent{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1};
         const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
@@ -1513,6 +1528,8 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::ShaderRead,
             .label = "hi-z pyramid",
         });
+        // Hi-Z is consumed by the next frame rather than the current presentation chain.
+        graph.mark_output(hiz_pyramid_texture);
         // SRAA keeps only visibility at the requested MSAA rate. Material attributes, motion,
         // lighting, and every post-process remain single-sampled; the multisampled depth is consumed
         // by a depth-guided reconstruction pass after deferred lighting.
@@ -1529,6 +1546,23 @@ namespace SFT::Renderer {
                 .label = "multisampled deferred visibility depth",
             });
         }
+
+        RenderGraphModuleBuildContext module_context{
+            .graph = graph,
+            .resources = graph_resources,
+            .render_extent = render_extent,
+            .presentation_extent = presentation_extent,
+        };
+        graph_resources.publish_texture<RenderGraphSemantics::SceneHdrColor>(scene_color);
+        graph_resources.publish_texture<RenderGraphSemantics::ResolvedSceneDepth>(depth_texture);
+        graph_resources.publish_texture<RenderGraphSemantics::RasterVisibilityDepth>(raster_depth);
+        graph_resources.publish_texture<RenderGraphSemantics::PresentationTarget>(swapchain_texture);
+        if (submission.deferred_formats.emissive == submission.deferred_formats.scene_color) {
+            // Deferred lighting is the last consumer of emissive. SRAA can overwrite the allocation
+            // afterward instead of allocating another full-resolution HDR texture.
+            graph_resources.publish_texture<RenderGraphSemantics::ReusableSceneHdrScratch>(gbuffer_emissive);
+        }
+
         RenderGraphTextureHandle shadow_atlas{};
         if (shadow_frame.atlas_used) {
             shadow_atlas = graph.import_texture(RenderGraphImportedTextureDesc{
@@ -1553,45 +1587,60 @@ namespace SFT::Renderer {
         // need a draw call issued for either pass.
         const Frustum camera_frustum = frustum_from_view_projection(submission.view_projection);
 
+        // Sky/atmosphere LUT bakes have no dependency on culling/gbuffer state (only camera height +
+        // sun angle), so they're declared early and rebaked every frame — see
+        // Renderer::record_atmosphere_lut_bakes' own doc comment for why nothing here is cached.
+        RenderGraphTextureHandle transmittance_lut{};
+        RenderGraphTextureHandle multi_scattering_lut{};
+        RenderGraphTextureHandle sky_view_lut{};
+        if (submission.render_graph.render_scene) {
+            if (Core::RendererResult atmosphere_luts = record_atmosphere_lut_bakes(
+                    graph, slot.atmosphere_targets.constants_buffer, transmittance_lut, multi_scattering_lut,
+                    sky_view_lut, submission.transient_bind_groups);
+                !atmosphere_luts.has_value()) {
+                return atmosphere_luts;
+            }
+        }
+
+        RenderGraphBufferHandle instance_indirect_commands{};
+        RenderGraphBufferHandle compacted_instance_indices{};
         if (!instanced_batches.empty()) {
+            instance_indirect_commands = graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = instance_cull_resources.indirect_commands_buffer,
+                .size = instance_cull_resources.indirect_commands_capacity * sizeof(GpuDrawIndexedIndirectCommand),
+                .initial_stage = RHI::PipelineStage::DrawIndirect,
+                .initial_access = RHI::AccessFlags::IndirectCommandRead,
+                .label = "GPU-culling indirect commands",
+            });
+            compacted_instance_indices = graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = instance_cull_resources.compacted_indices_buffer,
+                .size = instance_cull_resources.compacted_indices_capacity * sizeof(u32),
+                .initial_stage = RHI::PipelineStage::VertexShader,
+                .initial_access = RHI::AccessFlags::ShaderRead,
+                .label = "GPU-culling compacted instance indices",
+            });
             graph.add_compute_pass("gpu instance cull")
                 .add_sampled_texture(hiz_pyramid_texture)
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = instance_indirect_commands,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderWrite,
+                    .read = false,
+                    .write = true,
+                })
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = compacted_instance_indices,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderWrite,
+                    .read = false,
+                    .write = true,
+                })
                 .set_execute([this, &submission, &instanced_batches, &instance_cull_resources, &hiz_cull_input](
                                  RenderGraphComputeContext &context) -> Core::RendererResult {
-                    RHI::ComputePassEncoder &pass = context.compute_pass();
-                    if (Core::RendererResult culled = record_instance_cull(
-                            pass, instanced_batches, submission.view_projection, submission.camera.world_position,
-                            hiz_cull_input, instance_cull_resources, submission.transient_bind_groups);
-                        !culled.has_value()) {
-                        return culled;
-                    }
-                    // Manual barrier: RenderGraphComputePassBuilder only auto-tracks texture hazards
-                    // (add_sampled_texture/add_storage_texture), not buffers — see this pass's
-                    // declaration and record_instanced_batches's doc comment. Safe to record here
-                    // (not "inside an active render pass"): unlike a graphics render pass, this RHI's
-                    // compute-pass encoder is a lightweight logical wrapper, not a real GPU scope
-                    // (VulkanRhiDeviceBridge::begin_compute_pass records nothing at begin/end), so a
-                    // barrier on the underlying command encoder here is ordered correctly.
-                    const array<RHI::BufferBarrier, 2> buffer_barriers{
-                        RHI::BufferBarrier{
-                            .buffer = instance_cull_resources.indirect_commands_buffer,
-                            .src_stage = RHI::PipelineStage::ComputeShader,
-                            .src_access = RHI::AccessFlags::ShaderWrite,
-                            .dst_stage = RHI::PipelineStage::DrawIndirect,
-                            .dst_access = RHI::AccessFlags::IndirectCommandRead,
-                        },
-                        RHI::BufferBarrier{
-                            .buffer = instance_cull_resources.compacted_indices_buffer,
-                            .src_stage = RHI::PipelineStage::ComputeShader,
-                            .src_access = RHI::AccessFlags::ShaderWrite,
-                            .dst_stage = RHI::PipelineStage::VertexShader,
-                            .dst_access = RHI::AccessFlags::ShaderRead,
-                        },
-                    };
-                    context.command_encoder().barrier(span<const RHI::GlobalBarrier>{},
-                                                      span<const RHI::BufferBarrier>{buffer_barriers.data(), buffer_barriers.size()},
-                                                      span<const RHI::TextureBarrier>{});
-                    return {};
+                    return record_instance_cull(
+                        context.compute_pass(), instanced_batches, submission.view_projection,
+                        submission.camera.world_position, hiz_cull_input, instance_cull_resources,
+                        submission.transient_bind_groups);
                 });
         }
 
@@ -1814,8 +1863,8 @@ namespace SFT::Renderer {
             }
             const bool gbuffer_uses_bundles =
                 gbuffer_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
-            graph.add_render_pass("deferred gbuffer geometry")
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
+            RenderGraphRenderPassBuilder &gbuffer_pass = graph.add_render_pass("deferred gbuffer geometry");
+            gbuffer_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = gbuffer_albedo,
                     .load_op = RHI::LoadOp::Clear,
                     .store_op = RHI::StoreOp::Store,
@@ -1855,8 +1904,21 @@ namespace SFT::Renderer {
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-                .set_allow_bundles(gbuffer_uses_bundles)
-                .set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
+                .set_allow_bundles(gbuffer_uses_bundles);
+            if (!instanced_batches.empty()) {
+                gbuffer_pass
+                    .add_buffer(RenderGraphBufferAccessDesc{
+                        .buffer = instance_indirect_commands,
+                        .stages = RHI::PipelineStage::DrawIndirect,
+                        .access = RHI::AccessFlags::IndirectCommandRead,
+                    })
+                    .add_buffer(RenderGraphBufferAccessDesc{
+                        .buffer = compacted_instance_indices,
+                        .stages = RHI::PipelineStage::VertexShader,
+                        .access = RHI::AccessFlags::ShaderRead,
+                    });
+            }
+            gbuffer_pass.set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
                              &instance_cull_resources, multisampled, object_history_group,
                              gbuffer_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
@@ -1927,10 +1989,14 @@ namespace SFT::Renderer {
             if (shadow_frame.atlas_used) {
                 lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
             }
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = transmittance_lut});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = multi_scattering_lut});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = sky_view_lut});
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
-                              gbuffer_material, gbuffer_emissive, depth_texture, shadow_atlas, &shadow_frame](
+                              gbuffer_material, gbuffer_emissive, depth_texture, shadow_atlas, &shadow_frame,
+                              transmittance_lut, multi_scattering_lut, sky_view_lut](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -1953,6 +2019,10 @@ namespace SFT::Renderer {
                         context.texture(depth_texture).default_view,
                         atlas_view,
                         slot.shadow_targets.lighting_buffer,
+                        context.texture(transmittance_lut).default_view,
+                        context.texture(multi_scattering_lut).default_view,
+                        context.texture(sky_view_lut).default_view,
+                        slot.atmosphere_targets.constants_buffer,
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
                 });
@@ -1969,114 +2039,33 @@ namespace SFT::Renderer {
                                              .height = render_extent.height});
         }
 
-        RenderGraphTextureHandle antialiased_scene_color = scene_color;
         if (submission.render_graph.render_scene && multisampled) {
-            // Deferred lighting has consumed the emissive G-buffer by this point. Reuse that allocation
-            // as the SRAA destination whenever its format matches scene color, avoiding another full-size
-            // RGBA16F image per frame slot. Non-default format combinations fall back to a graph target.
-            const bool can_reuse_emissive =
-                submission.deferred_formats.emissive == submission.deferred_formats.scene_color;
-            const RenderGraphTextureHandle reconstruction_target = can_reuse_emissive
-                ? gbuffer_emissive
-                : graph.create_texture(RenderGraphTextureDesc{
-                      .format = submission.deferred_formats.scene_color,
-                      .extent = frame_extent,
-                      .label = "deferred MSAA reconstruction target",
-                  });
-            graph.add_render_pass("deferred MSAA reconstruction")
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = reconstruction_target,
-                    .load_op = RHI::LoadOp::DontCare,
-                    .store_op = RHI::StoreOp::Store,
-                })
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = scene_color})
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture})
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = raster_depth})
-                .set_render_area(RHI::Rect2D{
-                    .x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height,
-                })
-                .set_execute([this, &submission, render_extent, framebuffer_samples,
-                              scene_color, depth_texture, raster_depth](
-                                 RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .width = static_cast<f32>(render_extent.width),
-                        .height = static_cast<f32>(render_extent.height),
-                        .min_depth = 0.0f,
-                        .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{
-                        .x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height,
-                    });
-                    return record_deferred_msaa_reconstruction(
-                        pass,
-                        context.texture(scene_color).default_view,
-                        context.texture(depth_texture).default_view,
-                        context.texture(raster_depth).default_view,
-                        submission.deferred_formats.scene_color,
-                        render_extent,
-                        framebuffer_samples,
-                        submission.camera.near_plane,
-                        submission.camera.far_plane,
-                        submission.transient_bind_groups);
-                });
-            antialiased_scene_color = reconstruction_target;
+            if (Core::RendererResult reconstructed = build_deferred_msaa_module(
+                    module_context, submission, framebuffer_samples);
+                !reconstructed.has_value()) {
+                return reconstructed;
+            }
         }
 
-        // Applies every custom effect whose declared stage matches `stage`, in original declaration
-        // order, chaining source -> new transient target -> ... Reused for both BeforeBloom and
-        // AfterBloomBeforeToneMap so the two stages are identical machinery, just different insertion
-        // points around bloom.
-        const auto apply_custom_post_process_stage = [this, &graph, &submission, render_extent, frame_extent](
-            RenderGraphTextureHandle source, PostProcessStage stage) -> RenderGraphTextureHandle {
-            for (usize effect_index = 0; effect_index < submission.render_graph.custom_post_processes.size(); ++effect_index) {
-                if (submission.render_graph.custom_post_processes[effect_index].stage != stage) {
-                    continue;
-                }
-                const RenderGraphTextureHandle from = source;
-                const RenderGraphTextureHandle to = graph.create_texture(RenderGraphTextureDesc{
-                    .format = submission.deferred_formats.scene_color,
-                    .extent = frame_extent,
-                    .label = "custom HDR post-process target",
-                });
-                graph.add_render_pass("custom HDR post-process")
-                    .add_color_attachment(RenderGraphColorAttachmentDesc{
-                        .texture = to,
-                        .load_op = RHI::LoadOp::DontCare,
-                        .store_op = RHI::StoreOp::Store,
-                    })
-                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = from})
-                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-                    .set_execute([this, &submission, from, effect_index, render_extent](RenderGraphContext &context) -> Core::RendererResult {
-                        RHI::RenderPassEncoder &pass = context.render_pass();
-                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(render_extent.width), .height = static_cast<f32>(render_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
-                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                        return record_custom_post_process(pass, context.texture(from).default_view,
-                                                          submission.deferred_formats.scene_color,
-                                                          submission.render_graph.custom_post_processes[effect_index],
-                                                          submission.transient_bind_groups);
-                    });
-                source = to;
-            }
-            return source;
-        };
-
-        // BeforeBloom effects run first. Light indicators are deliberately composited into the
-        // resulting HDR image immediately afterward, making this exact texture bloom's source
-        // instead of relying on an earlier scene-color write surviving every custom pre-bloom pass.
-        const RenderGraphTextureHandle post_process_source =
-            apply_custom_post_process_stage(antialiased_scene_color, PostProcessStage::BeforeBloom);
+        // Application effects are ordinary reusable modules in the same semantic HDR chain as built-ins.
+        if (Core::RendererResult effects = build_custom_post_process_modules(
+                module_context, submission, PostProcessStage::BeforeBloom);
+            !effects.has_value()) {
+            return effects;
+        }
+        const RenderGraphTextureHandle scene_before_bloom =
+            graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
 
         // Always-on debug markers (e.g. light-position icospheres, Shaders/geometry_color.slang).
-        // This pass is immediately before bloom and writes directly into post_process_source, so
-        // emissive/HDR marker values participate in thresholding and the complete bloom pyramid.
+        // This pass is immediately before bloom and writes into the semantic HDR chain's current
+        // output, so emissive marker values participate in thresholding and the complete bloom pyramid.
         // When scene geometry ran, load its depth so occluded gizmos stay hidden; otherwise clear
         // depth for a defined overlay-only pass.
         if (!submission.gizmo_draws.empty()) {
             const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
             graph.add_render_pass("pre-bloom light indicators")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = post_process_source,
+                    .texture = scene_before_bloom,
                     .load_op = RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
                 })
@@ -2111,157 +2100,17 @@ namespace SFT::Renderer {
                 });
         }
 
-        RenderGraphTextureHandle after_bloom_source = post_process_source;
-        if (bloom_active) {
-            const vector<Core::Extent2D> &bloom_extents = slot.bloom_targets.extents;
-            const Core::Extent2D bloom_base_extent = bloom_extents.front();
-            const RenderGraphTextureHandle bloom_chain = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.bloom_targets.texture,
-                .default_view = slot.bloom_targets.views.front(),
-                .format = bloom_format,
-                .extent = RHI::Extent3D{.width = bloom_base_extent.width, .height = bloom_base_extent.height, .depth_or_layers = 1},
-                .mip_levels = static_cast<u32>(bloom_extents.size()),
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .initial_stage = RHI::PipelineStage::None,
-                .initial_access = RHI::AccessFlags::None,
-                .label = "persistent bloom mip chain",
-            });
-
-            for (usize level = 0; level < bloom_extents.size(); ++level) {
-                const RenderGraphTextureHandle source = level == 0 ? post_process_source : bloom_chain;
-                // Level 0's view/bind group can't be precomputed here like every other level: they're
-                // resolved/created inside the lambda below instead (see its comment).
-                const RHI::TextureViewHandle mip_source_view = level == 0
-                    ? RHI::TextureViewHandle{}
-                    : slot.bloom_targets.views[level - 1];
-                const RHI::TextureSubresourceRange source_subresources = level == 0
-                    ? RHI::TextureSubresourceRange{}
-                    : RHI::TextureSubresourceRange{.base_mip_level = static_cast<u32>(level - 1), .mip_level_count = 1};
-                const RHI::TextureSubresourceRange destination_subresources{
-                    .base_mip_level = static_cast<u32>(level), .mip_level_count = 1,
-                };
-                const Core::Extent2D source_extent = level == 0 ? render_extent : bloom_extents[level - 1];
-                const Core::Extent2D destination_extent = bloom_extents[level];
-                const RHI::BindGroupHandle cached_bind_group = slot.bloom_targets.downsample_bind_groups[level];
-                graph.add_render_pass("bloom downsample")
-                    .add_color_attachment(RenderGraphColorAttachmentDesc{
-                        .texture = bloom_chain,
-                        .view = slot.bloom_targets.views[level],
-                        .subresources = destination_subresources,
-                        .load_op = RHI::LoadOp::DontCare,
-                        .store_op = RHI::StoreOp::Store,
-                    })
-                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                        .texture = source, .subresources = source_subresources,
-                    })
-                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height})
-                    .set_execute([this, &submission, post_process_source, mip_source_view, source_extent, destination_extent, level, cached_bind_group](RenderGraphContext &context) -> Core::RendererResult {
-                        RHI::RenderPassEncoder &pass = context.render_pass();
-                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
-                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height});
-                        RHI::TextureViewHandle source_view = mip_source_view;
-                        RHI::BindGroupHandle bind_group = cached_bind_group;
-                        if (level == 0) {
-                            // post_process_source may be a fresh transient texture every frame (whenever
-                            // there's a BeforeBloom effect), so unlike every other bloom mip its view
-                            // isn't known until the graph resolves it here, and FrameBloomTargets' cached
-                            // persistent bind group (built for the base scene-color view) would be stale.
-                            // Resolve and mint both fresh, retiring the bind group with this frame.
-                            source_view = context.texture(post_process_source).default_view;
-                            auto dynamic_bind_group = create_bloom_source_bind_group(source_view);
-                            if (!dynamic_bind_group.has_value()) {
-                                return unexpected(dynamic_bind_group.error());
-                            }
-                            // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp)
-                            // — this callback can run concurrently with another pass's push_back into
-                            // the same shared vector.
-                            {
-                                auto tbg_guard = transient_bind_groups_lock_.lock();
-                                submission.transient_bind_groups.push_back(*dynamic_bind_group);
-                            }
-                            bind_group = *dynamic_bind_group;
-                        }
-                        return record_bloom_downsample(pass, source_view,
-                            glm::vec2{1.0f / static_cast<f32>(source_extent.width), 1.0f / static_cast<f32>(source_extent.height)},
-                            submission.render_graph, level == 0, bind_group);
-                    });
-            }
-
-            for (usize level = bloom_extents.size(); level-- > 1;) {
-                const RHI::TextureSubresourceRange source_subresources{
-                    .base_mip_level = static_cast<u32>(level), .mip_level_count = 1,
-                };
-                const RHI::TextureSubresourceRange destination_subresources{
-                    .base_mip_level = static_cast<u32>(level - 1), .mip_level_count = 1,
-                };
-                const Core::Extent2D source_extent = bloom_extents[level];
-                const Core::Extent2D destination_extent = bloom_extents[level - 1];
-                const RHI::TextureViewHandle source_view = slot.bloom_targets.views[level];
-                const RHI::BindGroupHandle bind_group = slot.bloom_targets.upsample_bind_groups[level];
-                graph.add_render_pass("bloom upsample")
-                    .add_color_attachment(RenderGraphColorAttachmentDesc{
-                        .texture = bloom_chain,
-                        .view = slot.bloom_targets.views[level - 1],
-                        .subresources = destination_subresources,
-                        .load_op = RHI::LoadOp::Load,
-                        .store_op = RHI::StoreOp::Store,
-                    })
-                    .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                        .texture = bloom_chain, .subresources = source_subresources,
-                    })
-                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height})
-                    .set_execute([this, &submission, source_view, source_extent, destination_extent, bind_group](RenderGraphContext &context) -> Core::RendererResult {
-                        RHI::RenderPassEncoder &pass = context.render_pass();
-                        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
-                        pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height});
-                        return record_bloom_upsample(pass, source_view,
-                            glm::vec2{1.0f / static_cast<f32>(source_extent.width), 1.0f / static_cast<f32>(source_extent.height)},
-                            submission.render_graph, bind_group);
-                    });
-            }
-
-            // Explicit HDR composite: the BeforeBloom result plus resolved bloom mip 0 become one
-            // scene-linear HDR image, so AfterBloomBeforeToneMap effects (and tonemapping) see a single
-            // plain texture and bloom is never sampled a second time later. Imported from the
-            // persistent per-frame-slot allocation ensure_frame_composite_target() above just ensured,
-            // not graph.create_texture()'d, so this doesn't mint a fresh VkImage/VkImageView every
-            // single frame for what is otherwise the exact same resource frame after frame — same
-            // Undefined-initial-layout convention every other persistent frame-slot target here uses
-            // (DontCare/Clear load ops mean nothing ever needs last frame's contents preserved).
-            const RenderGraphTextureHandle composite_destination = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.composite_target.texture,
-                .default_view = slot.composite_target.view,
-                .format = submission.deferred_formats.scene_color,
-                .extent = frame_extent,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .initial_stage = RHI::PipelineStage::None,
-                .initial_access = RHI::AccessFlags::None,
-                .label = "bloom composite target",
-            });
-            const RHI::TextureSubresourceRange bloom_mip0{.base_mip_level = 0, .mip_level_count = 1};
-            graph.add_render_pass("bloom composite")
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = composite_destination,
-                    .load_op = RHI::LoadOp::DontCare,
-                    .store_op = RHI::StoreOp::Store,
-                })
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = post_process_source})
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = bloom_chain, .subresources = bloom_mip0})
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
-                .set_execute([this, &submission, post_process_source, bloom_chain, render_extent](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(render_extent.width), .height = static_cast<f32>(render_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
-                    return record_bloom_composite(pass, context.texture(post_process_source).default_view,
-                                                  context.texture(bloom_chain).default_view,
-                                                  submission.deferred_formats.scene_color,
-                                                  submission.render_graph.bloom_intensity,
-                                                  submission.transient_bind_groups);
-                });
-            after_bloom_source = composite_destination;
+        if (Core::RendererResult bloom = build_bloom_module(
+                module_context, submission, slot, bloom_active, bloom_format);
+            !bloom.has_value()) {
+            return bloom;
         }
 
-        after_bloom_source = apply_custom_post_process_stage(after_bloom_source, PostProcessStage::AfterBloomBeforeToneMap);
+        if (Core::RendererResult effects = build_custom_post_process_modules(
+                module_context, submission, PostProcessStage::AfterBloomBeforeToneMap);
+            !effects.has_value()) {
+            return effects;
+        }
 
         // Tonemap post-process: sample the final scene-linear HDR result (bloom already composited in
         // above, if active) and resolve it to the swapchain. recreate_rhi_swapchain() above already picks
@@ -2271,34 +2120,11 @@ namespace SFT::Renderer {
         // equivalent fixed-function curve for PQ).
         const bool hdr_output = static_cast<bool>(record.presentation.hdr_enabled);
         const RHI::Format swapchain_format = hdr_output ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb;
-        submission.render_graph.tone_mapping_hdr_output = hdr_output;
-        graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap" : "present scene color")
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = swapchain_texture,
-                .load_op = RHI::LoadOp::DontCare,
-                .store_op = RHI::StoreOp::Store,
-            })
-            .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = after_bloom_source,
-                .stages = RHI::PipelineStage::FragmentShader,
-                .access = RHI::AccessFlags::ShaderRead,
-            })
-            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
-            .set_execute([this, &submission, presentation_extent, after_bloom_source, swapchain_format](RenderGraphContext &context) -> Core::RendererResult {
-                RHI::RenderPassEncoder &pass = context.render_pass();
-                pass.set_viewport(RHI::Viewport{
-                    .x = 0.0f,
-                    .y = 0.0f,
-                    .width = static_cast<f32>(presentation_extent.width),
-                    .height = static_cast<f32>(presentation_extent.height),
-                    .min_depth = 0.0f,
-                    .max_depth = 1.0f,
-                });
-                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
-                const RenderGraphTextureAccess source = context.texture(after_bloom_source);
-                return record_tonemap(pass, source.default_view, swapchain_format,
-                                      submission.render_graph, submission.transient_bind_groups);
-            });
+        if (Core::RendererResult tone_mapped = build_tonemap_module(
+                module_context, submission, swapchain_format, hdr_output);
+            !tone_mapped.has_value()) {
+            return tone_mapped;
+        }
 
         if (submission.render_graph.debug_overlay) {
             // Shaping/residency/instance upload happened above; this pass only issues the prepared
@@ -2999,6 +2825,7 @@ namespace SFT::Renderer {
                 destroy_frame_bloom_targets(slot);
                 destroy_frame_composite_target(slot);
                 destroy_frame_shadow_targets(slot);
+                destroy_frame_atmosphere_targets(slot);
                 destroy_frame_gpu_timing_target(slot);
                 destroy_frame_deferred_targets(slot);
                 if (slot.fence) {

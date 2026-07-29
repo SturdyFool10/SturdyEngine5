@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <limits>
+#include <optional>
 #include <utility>
 
 namespace SFT::Renderer {
@@ -33,7 +35,16 @@ namespace SFT::Renderer {
             for (const RenderGraphSampledTextureReadDesc &read : pass.sampled_texture_reads_) {
                 usage.reads.push_back(read.texture);
             }
-            usage.always_live = pass.color_attachments_.empty() && !pass.has_depth_stencil_attachment_;
+            for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                if (access.read) {
+                    usage.buffer_reads.push_back(access.buffer);
+                }
+                if (access.write) {
+                    usage.buffer_writes.push_back(access.buffer);
+                }
+            }
+            usage.always_live = pass.side_effect_ ||
+                                (pass.color_attachments_.empty() && !pass.has_depth_stencil_attachment_);
             return usage;
         }
 
@@ -57,10 +68,18 @@ namespace SFT::Renderer {
                     usage.writes.push_back(access.texture);
                 }
             }
-            // No declared storage write means whatever this pass dispatches has an untracked side
-            // effect (e.g. writing only to a buffer) the graph can't reason about from textures alone
-            // — mirrors RenderGraphRenderPassBuilder's own always_live rule above.
-            usage.always_live = usage.writes.empty();
+            for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                if (access.read) {
+                    usage.buffer_reads.push_back(access.buffer);
+                }
+                if (access.write) {
+                    usage.buffer_writes.push_back(access.buffer);
+                }
+            }
+            // With no declared resource write, conservatively retain the pass because its callback may
+            // perform an untracked side effect.
+            usage.always_live = pass.side_effect_ ||
+                                (usage.writes.empty() && usage.buffer_writes.empty());
             return usage;
         }
 
@@ -99,6 +118,11 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_sampled_texture(
             return *this;
         }
 
+RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
+            buffers_.push_back(access);
+            return *this;
+        }
+
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_render_area(const RHI::Rect2D &render_area) noexcept {
             render_area_ = render_area;
             return *this;
@@ -111,6 +135,11 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_view_mask(u32 vi
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_allow_bundles(bool allow_bundles) noexcept {
             allow_bundles_ = allow_bundles;
+            return *this;
+        }
+
+RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_side_effect(bool side_effect) noexcept {
+            side_effect_ = side_effect;
             return *this;
         }
 
@@ -128,6 +157,16 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_sampled_textur
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_storage_texture(const RenderGraphStorageTextureAccessDesc &access) {
             storage_textures_.push_back(access);
+            return *this;
+        }
+
+RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
+            buffers_.push_back(access);
+            return *this;
+        }
+
+RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_side_effect(bool side_effect) noexcept {
+            side_effect_ = side_effect;
             return *this;
         }
 
@@ -160,6 +199,17 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
+                .label = desc.label ? desc.label : "",
+            });
+            return handle;
+        }
+
+[[nodiscard]] RenderGraphBufferHandle RenderGraph::import_buffer(const RenderGraphImportedBufferDesc &desc) {
+            const RenderGraphBufferHandle handle{static_cast<u32>(buffers_.size())};
+            buffers_.push_back(BufferRecord{
+                .imported = desc,
+                .stage = desc.initial_stage,
+                .access = desc.initial_access,
                 .label = desc.label ? desc.label : "",
             });
             return handle;
@@ -210,6 +260,12 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Copy, .index = index});
         }
 
+void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
+            if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
+                outputs_.push_back(texture);
+            }
+        }
+
 [[nodiscard]] RenderGraphTextureAccess RenderGraph::texture_access(RenderGraphTextureHandle handle) const noexcept {
             const TextureRecord *record = texture_record(handle);
             const PhysicalSlot *slot = physical_slot_for(handle);
@@ -225,13 +281,20 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             };
         }
 
+[[nodiscard]] RenderGraphBufferAccess RenderGraph::buffer_access(RenderGraphBufferHandle handle) const noexcept {
+            const BufferRecord *record = buffer_record(handle);
+            return record != nullptr
+                ? RenderGraphBufferAccess{.buffer = record->imported.buffer, .size = record->imported.size}
+                : RenderGraphBufferAccess{};
+        }
+
 // Derives execution order from resource dependencies and culls dead passes — see the header's doc
 // comment on compile() and the PassUsage helpers above for what's being derived from what.
 // Algorithm, in three passes over the (small, per-frame) `ordered_passes_` list:
 //
-// 0. Validation: every handle any pass declared must resolve to a texture this graph actually
-//    created/imported (UnknownTextureHandle otherwise), and every transient texture a pass reads
-//    must already have an earlier producer — either an earlier pass's write, or this same pass also
+// 0. Validation: every texture/buffer handle and buffer range any pass declared must resolve inside
+//    this graph, and every transient texture a pass reads must already have an earlier producer —
+//    either an earlier pass's write, or this same pass also
 //    writing it (the depth/stencil Load-op case below) — since an imported texture's entry content
 //    is always valid but an uninitialized transient read is a genuine bug in the caller's graph
 //    (MissingProducer). Both stop compilation before any GPU work happens.
@@ -241,12 +304,11 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
 //    the topo-sort below is never free to swap them). Multiple writes to the same texture are
 //    intentional in several existing passes (presentation + overlay, bloom mip updates) and are
 //    never rejected — only an uninitialized *read* is a compile error.
-// 2. Liveness: backward-reachability flood fill starting from every pass that writes an *imported*
-//    texture (the graph's only externally-visible output — nothing outside the graph can observe a
-//    transient one) or that declared no attachments at all (`always_live` — can't reason about an
-//    undeclared side effect, so never culled). A pass reachable from a live pass via `depends_on`
-//    is live too; anything left unmarked is genuinely dead — its output is never read by anything
-//    that itself matters — and gets dropped from the returned order entirely.
+// 2. Liveness: backward-reachability flood fill starting from every pass that writes a texture the
+//    caller explicitly marked as a graph output, or that declared a side effect (`always_live`; passes
+//    with no tracked attachment/storage output retain the conservative side-effect fallback). Importing
+//    a texture is not itself a liveness root: cached/history resources can be imported speculatively and
+//    their unused branches still culled. A pass reachable from a root through `depends_on` is live too.
 // 3. Stable Kahn's-algorithm topological sort restricted to the live set: among all passes whose
 //    dependencies are already scheduled, always schedule the smallest original insertion index
 //    next. Every existing caller in this codebase already calls add_render_pass()/add_blit_pass()
@@ -260,6 +322,15 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             vector<PassUsage> usage(pass_count);
             for (usize i = 0; i < pass_count; ++i) {
                 usage[i] = usage_of_ordered(ordered_passes_[i]);
+            }
+
+            for (RenderGraphTextureHandle output : outputs_) {
+                if (texture_record(output) == nullptr) {
+                    return std::unexpected(RenderGraphCompileError{
+                        .code = RenderGraphCompileErrorCode::UnknownTextureHandle,
+                        .message = "Render graph marks a texture handle this graph never created or imported as output.",
+                    });
+                }
             }
 
             for (usize i = 0; i < pass_count; ++i) {
@@ -279,9 +350,71 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                         });
                     }
                 }
+                for (RenderGraphBufferHandle handle : usage[i].buffer_reads) {
+                    if (buffer_record(handle) == nullptr) {
+                        return std::unexpected(RenderGraphCompileError{
+                            .code = RenderGraphCompileErrorCode::UnknownBufferHandle,
+                            .message = "Render graph pass reads a buffer handle this graph never imported.",
+                        });
+                    }
+                }
+                for (RenderGraphBufferHandle handle : usage[i].buffer_writes) {
+                    if (buffer_record(handle) == nullptr) {
+                        return std::unexpected(RenderGraphCompileError{
+                            .code = RenderGraphCompileErrorCode::UnknownBufferHandle,
+                            .message = "Render graph pass writes a buffer handle this graph never imported.",
+                        });
+                    }
+                }
+            }
+
+            const auto validate_buffer_access = [this](const RenderGraphBufferAccessDesc &access)
+                -> std::optional<RenderGraphCompileError> {
+                const BufferRecord *record = buffer_record(access.buffer);
+                const bool range_valid = record != nullptr && record->imported.size > 0 &&
+                    access.offset < record->imported.size &&
+                    (access.size == 0 || access.size <= record->imported.size - access.offset);
+                constexpr RHI::AccessFlags read_mask =
+                    RHI::AccessFlags::IndirectCommandRead | RHI::AccessFlags::IndexRead |
+                    RHI::AccessFlags::VertexAttributeRead | RHI::AccessFlags::UniformRead |
+                    RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ColorAttachmentRead |
+                    RHI::AccessFlags::DepthStencilAttachmentRead | RHI::AccessFlags::TransferRead |
+                    RHI::AccessFlags::HostRead | RHI::AccessFlags::AccelerationStructureRead |
+                    RHI::AccessFlags::MemoryRead;
+                constexpr RHI::AccessFlags write_mask =
+                    RHI::AccessFlags::ShaderWrite | RHI::AccessFlags::ColorAttachmentWrite |
+                    RHI::AccessFlags::DepthStencilAttachmentWrite | RHI::AccessFlags::TransferWrite |
+                    RHI::AccessFlags::HostWrite | RHI::AccessFlags::AccelerationStructureWrite |
+                    RHI::AccessFlags::MemoryWrite;
+                const bool mask_reads = (access.access & read_mask) != RHI::AccessFlags::None;
+                const bool mask_writes = (access.access & write_mask) != RHI::AccessFlags::None;
+                if ((!access.read && !access.write) || access.stages == RHI::PipelineStage::None ||
+                    access.access == RHI::AccessFlags::None || access.read != mask_reads ||
+                    access.write != mask_writes || !range_valid) {
+                    return RenderGraphCompileError{
+                        .code = RenderGraphCompileErrorCode::InvalidBufferAccess,
+                        .message = "Render graph pass declares an invalid buffer access or range.",
+                    };
+                }
+                return std::nullopt;
+            };
+            for (const RenderGraphRenderPassBuilder &pass : render_passes_) {
+                for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                    if (auto error = validate_buffer_access(access)) {
+                        return std::unexpected(std::move(*error));
+                    }
+                }
+            }
+            for (const RenderGraphComputePassBuilder &pass : compute_passes_) {
+                for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                    if (auto error = validate_buffer_access(access)) {
+                        return std::unexpected(std::move(*error));
+                    }
+                }
             }
 
             vector<i64> last_writer(textures_.size(), -1);
+            vector<i64> last_buffer_writer(buffers_.size(), -1);
             vector<vector<u32>> depends_on(pass_count);
             for (usize i = 0; i < pass_count; ++i) {
                 for (RenderGraphTextureHandle read : usage[i].reads) {
@@ -309,20 +442,29 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                         last_writer[write.index] = static_cast<i64>(i);
                     }
                 }
+                for (RenderGraphBufferHandle read : usage[i].buffer_reads) {
+                    if (read.index < last_buffer_writer.size() && last_buffer_writer[read.index] >= 0) {
+                        depends_on[i].push_back(static_cast<u32>(last_buffer_writer[read.index]));
+                    }
+                }
+                for (RenderGraphBufferHandle write : usage[i].buffer_writes) {
+                    if (write.index < last_buffer_writer.size() && last_buffer_writer[write.index] >= 0 &&
+                        static_cast<usize>(last_buffer_writer[write.index]) != i) {
+                        depends_on[i].push_back(static_cast<u32>(last_buffer_writer[write.index]));
+                    }
+                    if (write.index < last_buffer_writer.size()) {
+                        last_buffer_writer[write.index] = static_cast<i64>(i);
+                    }
+                }
             }
 
             vector<bool> live(pass_count, false);
             vector<u32> pending;
             for (usize i = 0; i < pass_count; ++i) {
-                bool writes_imported = false;
-                for (RenderGraphTextureHandle write : usage[i].writes) {
-                    const TextureRecord *record = texture_record(write);
-                    if (record != nullptr && !record->is_transient) {
-                        writes_imported = true;
-                        break;
-                    }
-                }
-                if ((writes_imported || usage[i].always_live) && !live[i]) {
+                const bool writes_output = std::ranges::any_of(usage[i].writes, [this](RenderGraphTextureHandle write) {
+                    return std::find(outputs_.begin(), outputs_.end(), write) != outputs_.end();
+                });
+                if ((writes_output || usage[i].always_live) && !live[i]) {
                     live[i] = true;
                     pending.push_back(static_cast<u32>(i));
                 }
@@ -549,33 +691,64 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
 // touch the same texture at all, read or write, must land in different levels — tracked by *physical*
 // slot (physical_slot_for), not logical RenderGraphTextureHandle, so two aliased transient textures
 // (sharing one physical slot and therefore one TextureState) are treated as the same resource for this
-// purpose too. Requires physical slots to already be assigned — both callers (compile(), via
-// execute_parallel(), and compute_execution_levels() directly) only ever run this after
-// create_transient_resources().
+// purpose too. Before transient allocation (the CPU-only compile/tooling path), each unassigned
+// transient receives its own logical fallback key; execute_parallel recomputes levels after aliasing so
+// physical-slot conflicts are then included as well.
 [[nodiscard]] vector<u32> RenderGraph::compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const {
             const usize count = usage_by_position.size();
-            vector<i64> last_touch_pos(physical_slots_.size(), -1);
+            const usize logical_key_offset = physical_slots_.size();
+            vector<i64> last_touch_pos(physical_slots_.size() + textures_.size(), -1);
+            vector<i64> last_buffer_touch_pos(buffers_.size(), -1);
+            const auto touch_key = [this, logical_key_offset](RenderGraphTextureHandle handle) -> usize {
+                const TextureRecord *record = texture_record(handle);
+                if (record == nullptr) {
+                    return std::numeric_limits<usize>::max();
+                }
+                if (record->physical_slot < physical_slots_.size()) {
+                    return record->physical_slot;
+                }
+                return logical_key_offset + handle.index;
+            };
             vector<u32> level(count, 0);
             for (usize i = 0; i < count; ++i) {
                 u32 pass_level = 0;
                 for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
                     for (RenderGraphTextureHandle handle : *handles) {
-                        const TextureRecord *record = texture_record(handle);
-                        if (record == nullptr || record->physical_slot >= last_touch_pos.size()) {
+                        const usize key = touch_key(handle);
+                        if (key >= last_touch_pos.size()) {
                             continue;
                         }
-                        const i64 toucher = last_touch_pos[record->physical_slot];
+                        const i64 toucher = last_touch_pos[key];
                         if (toucher >= 0) {
                             pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
+                        }
+                    }
+                }
+                for (const vector<RenderGraphBufferHandle> *handles : {
+                         &usage_by_position[i].buffer_reads, &usage_by_position[i].buffer_writes}) {
+                    for (RenderGraphBufferHandle handle : *handles) {
+                        if (handle.index < last_buffer_touch_pos.size()) {
+                            const i64 toucher = last_buffer_touch_pos[handle.index];
+                            if (toucher >= 0) {
+                                pass_level = std::max(pass_level, level[static_cast<usize>(toucher)] + 1);
+                            }
                         }
                     }
                 }
                 level[i] = pass_level;
                 for (const vector<RenderGraphTextureHandle> *handles : {&usage_by_position[i].reads, &usage_by_position[i].writes}) {
                     for (RenderGraphTextureHandle handle : *handles) {
-                        const TextureRecord *record = texture_record(handle);
-                        if (record != nullptr && record->physical_slot < last_touch_pos.size()) {
-                            last_touch_pos[record->physical_slot] = static_cast<i64>(i);
+                        const usize key = touch_key(handle);
+                        if (key < last_touch_pos.size()) {
+                            last_touch_pos[key] = static_cast<i64>(i);
+                        }
+                    }
+                }
+                for (const vector<RenderGraphBufferHandle> *handles : {
+                         &usage_by_position[i].buffer_reads, &usage_by_position[i].buffer_writes}) {
+                    for (RenderGraphBufferHandle handle : *handles) {
+                        if (handle.index < last_buffer_touch_pos.size()) {
+                            last_buffer_touch_pos[handle.index] = static_cast<i64>(i);
                         }
                     }
                 }
@@ -669,9 +842,10 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
                 out_command_buffers.push_back(*finished_primary);
             }
 
-            // Computed once, inside compile() above, by reusing the PassUsage compile() already built
-            // for dependency analysis — not recomputed here (see CompiledPlan::levels' own doc comment).
-            const vector<u32> &levels = compiled->levels;
+            // compile() can only see distinct logical transient resources. Recompute after physical
+            // allocation/aliasing so otherwise-independent passes sharing one aliased image cannot race
+            // its tracked layout state while recording on different workers.
+            const vector<u32> levels = compute_execution_levels(execution_order);
             u32 max_level = 0;
             for (u32 l : levels) {
                 max_level = std::max(max_level, l);
@@ -842,8 +1016,10 @@ void RenderGraph::reset() noexcept {
             blit_passes_.clear();
             compute_passes_.clear();
             copy_passes_.clear();
+            outputs_.clear();
             textures_.clear();
             physical_slots_.clear();
+            buffers_.clear();
         }
 
 [[nodiscard]] RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) noexcept {
@@ -860,6 +1036,20 @@ void RenderGraph::reset() noexcept {
             return &textures_[handle.index];
         }
 
+[[nodiscard]] RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) noexcept {
+            if (!handle || handle.index >= buffers_.size()) {
+                return nullptr;
+            }
+            return &buffers_[handle.index];
+        }
+
+[[nodiscard]] const RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) const noexcept {
+            if (!handle || handle.index >= buffers_.size()) {
+                return nullptr;
+            }
+            return &buffers_[handle.index];
+        }
+
 [[nodiscard]] RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) noexcept {
             TextureRecord *record = texture_record(handle);
             if (record == nullptr || record->physical_slot >= physical_slots_.size()) {
@@ -874,6 +1064,33 @@ void RenderGraph::reset() noexcept {
                 return nullptr;
             }
             return &physical_slots_[record->physical_slot];
+        }
+
+[[nodiscard]] Core::RendererResult RenderGraph::transition_buffer(
+            RHI::CommandEncoder &encoder, const RenderGraphBufferAccessDesc &access) {
+            BufferRecord *record = buffer_record(access.buffer);
+            if (record == nullptr || !record->imported.buffer) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Render graph pass references an unknown buffer.");
+            }
+            if (record->stage != RHI::PipelineStage::None || record->access != RHI::AccessFlags::None) {
+                const RHI::BufferBarrier barrier{
+                    .buffer = record->imported.buffer,
+                    .src_stage = record->stage,
+                    .src_access = record->access,
+                    .dst_stage = access.stages,
+                    .dst_access = access.access,
+                    // BufferRecord tracks one state for the whole imported allocation. Keep barriers
+                    // whole-buffer as well; declared ranges are dependency/validation metadata until
+                    // interval state tracking is introduced.
+                    .offset = 0,
+                    .size = 0,
+                };
+                encoder.barrier({}, span<const RHI::BufferBarrier>{&barrier, 1}, {});
+            }
+            record->stage = access.stages;
+            record->access = access.access;
+            return {};
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::transition_texture(RHI::CommandEncoder &encoder,
@@ -930,6 +1147,11 @@ void RenderGraph::reset() noexcept {
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass) {
+            for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                if (Core::RendererResult transition = transition_buffer(encoder, access); !transition.has_value()) {
+                    return transition;
+                }
+            }
             for (const RenderGraphSampledTextureReadDesc &read : pass.sampled_texture_reads_) {
                 Core::RendererResult transition = transition_texture(encoder,
                                                                      read.texture,
@@ -1110,6 +1332,11 @@ void RenderGraph::reset() noexcept {
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_compute_pass(RHI::CommandEncoder &encoder,
                                                                  RenderGraphComputePassBuilder &pass) {
+            for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
+                if (Core::RendererResult transition = transition_buffer(encoder, access); !transition.has_value()) {
+                    return transition;
+                }
+            }
             for (RenderGraphTextureHandle read : pass.sampled_texture_reads_) {
                 Core::RendererResult transition = transition_texture(encoder,
                                                                      read,
@@ -1349,6 +1576,25 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::transition_to_final_states(RHI::CommandEncoder &encoder) {
+            for (usize i = 0; i < buffers_.size(); ++i) {
+                BufferRecord &record = buffers_[i];
+                if (record.imported.final_stage == RHI::PipelineStage::None &&
+                    record.imported.final_access == RHI::AccessFlags::None) {
+                    continue;
+                }
+                Core::RendererResult transition = transition_buffer(
+                    encoder,
+                    RenderGraphBufferAccessDesc{
+                        .buffer = RenderGraphBufferHandle{static_cast<u32>(i)},
+                        .stages = record.imported.final_stage,
+                        .access = record.imported.final_access,
+                        .offset = 0,
+                        .size = 0,
+                    });
+                if (!transition.has_value()) {
+                    return transition;
+                }
+            }
             for (usize i = 0; i < textures_.size(); ++i) {
                 TextureRecord &record = textures_[i];
                 if (record.final_layout == RHI::TextureLayout::Undefined) {
@@ -1388,6 +1634,10 @@ RenderGraphTextureAccess RenderGraphContext::texture(RenderGraphTextureHandle ha
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 
+RenderGraphBufferAccess RenderGraphContext::buffer(RenderGraphBufferHandle handle) const noexcept {
+        return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};
+    }
+
 RenderGraphComputeContext::RenderGraphComputeContext(RenderGraph &graph,
                                                   RHI::CommandEncoder &command_encoder,
                                                   RHI::ComputePassEncoder &compute_pass) noexcept
@@ -1403,6 +1653,10 @@ RHI::ComputePassEncoder &RenderGraphComputeContext::compute_pass() const noexcep
 
 RenderGraphTextureAccess RenderGraphComputeContext::texture(RenderGraphTextureHandle handle) const noexcept {
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
+    }
+
+RenderGraphBufferAccess RenderGraphComputeContext::buffer(RenderGraphBufferHandle handle) const noexcept {
+        return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};
     }
 
 } // namespace SFT::Renderer

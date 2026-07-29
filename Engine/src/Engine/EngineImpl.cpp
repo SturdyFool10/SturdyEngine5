@@ -347,11 +347,12 @@ namespace SFT::Engine {
             Foundation::log_error("Invalid high-level render graph: {} Using its normalized safe form.",
                                   graph_validation.error().message);
         }
-        RenderGraphDescription graph = parameters.render_graph.normalized().description();
-        graph.resolution_scale = std::clamp(
-            graph.resolution_scale * parameters.camera.render_scale(), 0.1f, 2.0f);
-        if (!graph.scene.background_color) {
-            graph.scene.background_color = parameters.camera.clear_color();
+        RenderGraph graph = parameters.render_graph.normalized();
+        RenderGraphDescription &graph_settings = graph.description();
+        graph_settings.resolution_scale = std::clamp(
+            graph_settings.resolution_scale * parameters.camera.render_scale(), 0.1f, 2.0f);
+        if (!graph_settings.scene.background_color) {
+            graph_settings.scene.background_color = parameters.camera.clear_color();
         }
 
         return PreparedRenderFrame{
@@ -368,8 +369,7 @@ namespace SFT::Engine {
             .deferred_formats = SFT::Renderer::DeferredTargetFormats{},
             .renderables = render_frame_requests_.finish_frame(),
             .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
-            .render_graph = graph,
-            .custom_post_processes = parameters.custom_post_processes,
+            .render_graph = std::move(graph),
             .ui_overlay = parameters.ui_overlay,
             .visibility_mask = parameters.camera.culling_mask(),
             .debug_label = parameters.debug_label,
@@ -377,6 +377,50 @@ namespace SFT::Engine {
     }
 
     Core::RendererResult Engine::render(const PreparedRenderFrame &frame) {
+        std::optional<RenderGraph> normalized_graph;
+        if (RenderGraphResult validation = frame.render_graph.validate(); !validation) {
+            Foundation::log_error("Prepared frame contains an invalid high-level render graph: {} Using its normalized safe form.",
+                                  validation.error().message);
+            normalized_graph.emplace(frame.render_graph.normalized());
+        }
+        const RenderGraph &executable_graph = normalized_graph ? *normalized_graph : frame.render_graph;
+        const RenderGraphDescription &graph = executable_graph.description();
+        const std::vector<RenderGraphPassHandle> presentation_path = executable_graph.presentation_path();
+        const auto path_contains = [&executable_graph, &presentation_path](RenderGraphPassKind kind) {
+            return std::ranges::any_of(presentation_path, [&executable_graph, kind](RenderGraphPassHandle handle) {
+                return handle.index < executable_graph.passes().size() &&
+                       executable_graph.passes()[handle.index].kind == kind;
+            });
+        };
+        const bool has_scene = path_contains(RenderGraphPassKind::DeferredScene);
+        const bool has_anti_aliasing = path_contains(RenderGraphPassKind::AntiAliasing);
+        const bool has_bloom = path_contains(RenderGraphPassKind::Bloom);
+        const bool has_tone_mapping = path_contains(RenderGraphPassKind::ToneMapping);
+        const bool has_debug_overlay = path_contains(RenderGraphPassKind::DebugOverlay);
+
+        std::vector<RendererApi::CustomPostProcessEffect> custom_effects;
+        bool passed_bloom_module = false;
+        for (RenderGraphPassHandle handle : presentation_path) {
+            const RenderGraphPassDescription &pass = executable_graph.passes()[handle.index];
+            if (pass.kind == RenderGraphPassKind::Bloom) {
+                passed_bloom_module = true;
+                continue;
+            }
+            if (pass.kind != RenderGraphPassKind::FullscreenEffect) {
+                continue;
+            }
+            custom_effects.push_back(RendererApi::CustomPostProcessEffect{
+                .shader_path = pass.fullscreen_effect.shader_path.string(),
+                .module_name = pass.fullscreen_effect.module_name,
+                .fragment_entry_point = pass.fullscreen_effect.fragment_entry_point,
+                .push_constants = pass.fullscreen_effect.push_constants,
+                .label = pass.fullscreen_effect.label,
+                .stage = passed_bloom_module
+                             ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
+                             : RendererApi::PostProcessStage::BeforeBloom,
+            });
+        }
+
         RendererApi::RenderFrameDesc desc{};
         desc.surface = frame.surface;
         desc.frame = frame.frame;
@@ -384,63 +428,65 @@ namespace SFT::Engine {
         desc.view.lighting = frame.lighting;
         desc.view.deferred_formats = frame.deferred_formats;
         desc.view.render_graph = RendererApi::RenderGraphSettings{
-            .render_scene = frame.render_graph.scene.enabled,
-            .shadows = frame.render_graph.shadows.enabled,
-            .ambient_occlusion = frame.render_graph.ambient_occlusion.enabled,
-            .bloom = frame.render_graph.bloom.enabled,
-            .tone_mapping = frame.render_graph.tone_mapping.enabled,
-            .debug_overlay = frame.render_graph.debug_overlay.enabled,
-            .wait_for_completion = frame.render_graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
-            .resolution_scale = frame.render_graph.resolution_scale,
-            .background_color = frame.render_graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
-            .background_intensity = frame.render_graph.scene.background_intensity,
-            .shadow_atlas_size = frame.render_graph.shadows.atlas_size,
-            .shadow_cascade_count = frame.render_graph.shadows.cascade_count,
-            .shadow_max_distance = frame.render_graph.shadows.max_distance,
-            .shadow_cascade_split_lambda = frame.render_graph.shadows.cascade_split_lambda,
-            .shadow_cascade_blend = frame.render_graph.shadows.cascade_blend,
-            .shadow_depth_bias = frame.render_graph.shadows.depth_bias,
-            .shadow_slope_bias = frame.render_graph.shadows.slope_bias,
-            .shadow_normal_bias = frame.render_graph.shadows.normal_bias,
-            .max_shadowed_spot_lights = frame.render_graph.shadows.max_shadowed_spot_lights,
-            .max_shadowed_point_lights = frame.render_graph.shadows.max_shadowed_point_lights,
-            .shadow_contact_hardening = frame.render_graph.shadows.contact_hardening,
-            .gtao_radius = frame.render_graph.ambient_occlusion.radius,
-            .gtao_falloff = frame.render_graph.ambient_occlusion.falloff,
-            .gtao_thickness = frame.render_graph.ambient_occlusion.thickness,
-            .gtao_intensity = frame.render_graph.ambient_occlusion.intensity,
-            .gtao_quality = static_cast<u32>(frame.render_graph.ambient_occlusion.quality),
-            .msaa_samples = frame.render_graph.anti_aliasing.msaa_samples,
-            .post_process_aa = static_cast<u32>(frame.render_graph.anti_aliasing.post_process),
-            .aa_subpixel_quality = frame.render_graph.anti_aliasing.subpixel_quality,
-            .aa_edge_threshold = frame.render_graph.anti_aliasing.edge_threshold,
-            .bloom_threshold = frame.render_graph.bloom.threshold,
-            .bloom_soft_knee = frame.render_graph.bloom.soft_knee,
-            .bloom_intensity = frame.render_graph.bloom.intensity,
-            .bloom_scatter = frame.render_graph.bloom.scatter,
-            .bloom_max_levels = frame.render_graph.bloom.max_levels,
-            .tone_mapping_operator = lower_tone_mapping(frame.render_graph.tone_mapping.operation),
-            .tone_mapping_exposure = frame.render_graph.tone_mapping.exposure,
-            .tone_mapping_white_point = frame.render_graph.tone_mapping.white_point,
-            .tone_mapping_saturation = frame.render_graph.tone_mapping.saturation,
-            .tone_mapping_hdr_paper_white_nits = frame.render_graph.tone_mapping.hdr_paper_white_nits,
-            .tone_mapping_hdr_peak_nits = frame.render_graph.tone_mapping.hdr_peak_nits,
-            .agx_look = lower_agx_look(frame.render_graph.tone_mapping.agx.look),
-            .hermite_toe_strength = frame.render_graph.tone_mapping.hermite_spline.toe_strength,
-            .hermite_toe_length = frame.render_graph.tone_mapping.hermite_spline.toe_length,
-            .hermite_shoulder_strength = frame.render_graph.tone_mapping.hermite_spline.shoulder_strength,
-            .hermite_shoulder_length = frame.render_graph.tone_mapping.hermite_spline.shoulder_length,
-            .hermite_shoulder_angle = frame.render_graph.tone_mapping.hermite_spline.shoulder_angle,
-            .psychov_highlights = frame.render_graph.tone_mapping.psycho_v.highlights,
-            .psychov_shadows = frame.render_graph.tone_mapping.psycho_v.shadows,
-            .psychov_contrast = frame.render_graph.tone_mapping.psycho_v.contrast,
-            .psychov_purity_scale = frame.render_graph.tone_mapping.psycho_v.purity_scale,
-            .psychov_gamut_compression = frame.render_graph.tone_mapping.psycho_v.gamut_compression,
-            .psychov_gamut_compression_use_bt2020 = frame.render_graph.tone_mapping.psycho_v.gamut_compression_use_bt2020,
-            .psychov_compression = frame.render_graph.tone_mapping.psycho_v.compression,
-            .psychov_adapted_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.adapted_gray_bt709,
-            .psychov_background_gray_bt709 = frame.render_graph.tone_mapping.psycho_v.background_gray_bt709,
-            .custom_post_processes = frame.custom_post_processes,
+            .render_scene = has_scene && graph.scene.enabled,
+            .shadows = has_scene && graph.shadows.enabled,
+            .ambient_occlusion = has_scene && graph.ambient_occlusion.enabled,
+            .bloom = has_bloom && graph.bloom.enabled,
+            .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled,
+            .debug_overlay = has_debug_overlay && graph.debug_overlay.enabled,
+            .wait_for_completion = graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
+            .resolution_scale = graph.resolution_scale,
+            .background_color = graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
+            .background_intensity = graph.scene.background_intensity,
+            .shadow_atlas_size = graph.shadows.atlas_size,
+            .shadow_cascade_count = graph.shadows.cascade_count,
+            .shadow_max_distance = graph.shadows.max_distance,
+            .shadow_cascade_split_lambda = graph.shadows.cascade_split_lambda,
+            .shadow_cascade_blend = graph.shadows.cascade_blend,
+            .shadow_depth_bias = graph.shadows.depth_bias,
+            .shadow_slope_bias = graph.shadows.slope_bias,
+            .shadow_normal_bias = graph.shadows.normal_bias,
+            .max_shadowed_spot_lights = graph.shadows.max_shadowed_spot_lights,
+            .max_shadowed_point_lights = graph.shadows.max_shadowed_point_lights,
+            .shadow_contact_hardening = graph.shadows.contact_hardening,
+            .gtao_radius = graph.ambient_occlusion.radius,
+            .gtao_falloff = graph.ambient_occlusion.falloff,
+            .gtao_thickness = graph.ambient_occlusion.thickness,
+            .gtao_intensity = graph.ambient_occlusion.intensity,
+            .gtao_quality = static_cast<u32>(graph.ambient_occlusion.quality),
+            .msaa_samples = has_anti_aliasing ? graph.anti_aliasing.msaa_samples : 1u,
+            .post_process_aa = has_anti_aliasing
+                                   ? static_cast<u32>(graph.anti_aliasing.post_process)
+                                   : static_cast<u32>(PostProcessAntiAliasing::None),
+            .aa_subpixel_quality = graph.anti_aliasing.subpixel_quality,
+            .aa_edge_threshold = graph.anti_aliasing.edge_threshold,
+            .bloom_threshold = graph.bloom.threshold,
+            .bloom_soft_knee = graph.bloom.soft_knee,
+            .bloom_intensity = graph.bloom.intensity,
+            .bloom_scatter = graph.bloom.scatter,
+            .bloom_max_levels = graph.bloom.max_levels,
+            .tone_mapping_operator = lower_tone_mapping(graph.tone_mapping.operation),
+            .tone_mapping_exposure = graph.tone_mapping.exposure,
+            .tone_mapping_white_point = graph.tone_mapping.white_point,
+            .tone_mapping_saturation = graph.tone_mapping.saturation,
+            .tone_mapping_hdr_paper_white_nits = graph.tone_mapping.hdr_paper_white_nits,
+            .tone_mapping_hdr_peak_nits = graph.tone_mapping.hdr_peak_nits,
+            .agx_look = lower_agx_look(graph.tone_mapping.agx.look),
+            .hermite_toe_strength = graph.tone_mapping.hermite_spline.toe_strength,
+            .hermite_toe_length = graph.tone_mapping.hermite_spline.toe_length,
+            .hermite_shoulder_strength = graph.tone_mapping.hermite_spline.shoulder_strength,
+            .hermite_shoulder_length = graph.tone_mapping.hermite_spline.shoulder_length,
+            .hermite_shoulder_angle = graph.tone_mapping.hermite_spline.shoulder_angle,
+            .psychov_highlights = graph.tone_mapping.psycho_v.highlights,
+            .psychov_shadows = graph.tone_mapping.psycho_v.shadows,
+            .psychov_contrast = graph.tone_mapping.psycho_v.contrast,
+            .psychov_purity_scale = graph.tone_mapping.psycho_v.purity_scale,
+            .psychov_gamut_compression = graph.tone_mapping.psycho_v.gamut_compression,
+            .psychov_gamut_compression_use_bt2020 = graph.tone_mapping.psycho_v.gamut_compression_use_bt2020,
+            .psychov_compression = graph.tone_mapping.psycho_v.compression,
+            .psychov_adapted_gray_bt709 = graph.tone_mapping.psycho_v.adapted_gray_bt709,
+            .psychov_background_gray_bt709 = graph.tone_mapping.psycho_v.background_gray_bt709,
+            .custom_post_processes = std::move(custom_effects),
             .ui_overlay = frame.ui_overlay,
         };
         desc.view.visibility_mask = frame.visibility_mask;

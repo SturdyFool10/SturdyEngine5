@@ -79,13 +79,26 @@ float4 downsampleMain(VertexOutput input) : SV_Target {
     return float4(sample13Tap(input.uv), 1.0);
 }
 
+// A theoretically "exact" tent reconstruction samples at exactly +/-0.5 source texels (see the
+// comment below). At the widest, most-upsampled part of a large bloom, that exact filter still
+// lets the coarsest mip's own texel grid show through as visible blocky/octagonal highlights —
+// there simply aren't enough source texels left at that level to hide it. Deliberately widening the
+// tap radius past the exact reconstruction distance (while staying under 1.0 texels, so the four
+// bilinear taps still blend continuously instead of snapping onto neighboring texel centers) blurs
+// every upsample stage slightly more than "correct," which compounds across the whole chain into a
+// noticeably rounder, smoother falloff for wide/bright bloom — trading a small amount of sharpness
+// for eliminating the blockiness.
+static const float BLOOM_UPSAMPLE_FILTER_RADIUS = 0.85;
+
 [shader("fragment")]
 float4 upsampleMain(VertexOutput input) : SV_Target {
-    // Four half-texel bilinear taps produce the same normalized [1 2 1]x[1 2 1] tent footprint as
-    // nine point samples: center=4/16, edges=2/16, corners=1/16.
-    float3 color = sampleSource(input.uv, float2(-0.5, -0.5));
-    color += sampleSource(input.uv, float2( 0.5, -0.5));
-    color += sampleSource(input.uv, float2(-0.5,  0.5));
-    color += sampleSource(input.uv, float2( 0.5,  0.5));
+    // Four bilinear taps at +/-BLOOM_UPSAMPLE_FILTER_RADIUS source texels produce a widened tent
+    // footprint — see BLOOM_UPSAMPLE_FILTER_RADIUS's own comment for why this is wider than the
+    // theoretically exact +/-0.5 (which reproduces the normalized [1 2 1]x[1 2 1] nine-point tent:
+    // center=4/16, edges=2/16, corners=1/16).
+    float3 color = sampleSource(input.uv, float2(-BLOOM_UPSAMPLE_FILTER_RADIUS, -BLOOM_UPSAMPLE_FILTER_RADIUS));
+    color += sampleSource(input.uv, float2( BLOOM_UPSAMPLE_FILTER_RADIUS, -BLOOM_UPSAMPLE_FILTER_RADIUS));
+    color += sampleSource(input.uv, float2(-BLOOM_UPSAMPLE_FILTER_RADIUS,  BLOOM_UPSAMPLE_FILTER_RADIUS));
+    color += sampleSource(input.uv, float2( BLOOM_UPSAMPLE_FILTER_RADIUS,  BLOOM_UPSAMPLE_FILTER_RADIUS));
     return float4(color * (bloom.scatter * 0.25), 1.0);
 }
