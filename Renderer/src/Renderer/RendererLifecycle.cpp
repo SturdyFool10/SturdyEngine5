@@ -1246,7 +1246,10 @@ namespace SFT::Renderer {
             if (Core::RendererResult bloom_ready = ensure_bloom_resources(bloom_format); !bloom_ready.has_value()) {
                 return bloom_ready;
             }
-            if (Core::RendererResult bloom_targets = ensure_frame_bloom_targets(slot, render_extent, submission.render_graph.bloom_max_levels); !bloom_targets.has_value()) {
+            if (Core::RendererResult bloom_targets = ensure_frame_bloom_targets(
+                    slot, render_extent, submission.render_graph.bloom_max_levels,
+                    submission.render_graph.bloom_downsample_ratio);
+                !bloom_targets.has_value()) {
                 return bloom_targets;
             }
             if (Core::RendererResult composite_ready = ensure_bloom_composite_resources(); !composite_ready.has_value()) {
@@ -1259,9 +1262,27 @@ namespace SFT::Renderer {
                 return composite_target;
             }
         }
+        if (Core::RendererResult aa_ready = ensure_post_process_aa_resources(
+                submission.render_graph, submission.deferred_formats.scene_color);
+            !aa_ready.has_value()) {
+            return aa_ready;
+        }
         for (const CustomPostProcessEffect &effect : submission.render_graph.custom_post_processes) {
             if (Core::RendererResult custom_ready = ensure_custom_post_process(effect, submission.deferred_formats.scene_color); !custom_ready.has_value()) {
                 return custom_ready;
+            }
+        }
+        for (const CustomGraphPass &pass : submission.render_graph.custom_graph.passes) {
+            if (pass.kind == CustomGraphPassKind::RasterEffect) {
+                if (Core::RendererResult ready = ensure_custom_post_process(
+                        pass.raster, submission.deferred_formats.scene_color);
+                    !ready.has_value()) {
+                    return ready;
+                }
+            } else if (pass.kind == CustomGraphPassKind::ComputeEffect) {
+                if (Core::RendererResult ready = ensure_custom_compute_effect(pass.compute); !ready.has_value()) {
+                    return ready;
+                }
             }
         }
         if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
@@ -1457,6 +1478,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.gbuffer_emissive_view,
             .format = submission.deferred_formats.emissive,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1478,6 +1501,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.scene_color_view,
             .format = submission.deferred_formats.scene_color,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1553,6 +1578,16 @@ namespace SFT::Renderer {
             .render_extent = render_extent,
             .presentation_extent = presentation_extent,
         };
+        vector<RenderGraphTextureHandle> logical_graph_textures(
+            submission.render_graph.custom_graph.texture_count);
+        const auto map_logical_texture = [&logical_graph_textures](
+                                             LogicalRenderGraphTexture logical,
+                                             RenderGraphTextureHandle concrete) {
+            if (logical && logical.index < logical_graph_textures.size()) {
+                logical_graph_textures[logical.index] = concrete;
+            }
+        };
+        map_logical_texture(submission.render_graph.custom_graph.deferred_scene_output, scene_color);
         graph_resources.publish_texture<RenderGraphSemantics::SceneHdrColor>(scene_color);
         graph_resources.publish_texture<RenderGraphSemantics::ResolvedSceneDepth>(depth_texture);
         graph_resources.publish_texture<RenderGraphSemantics::RasterVisibilityDepth>(raster_depth);
@@ -2047,18 +2082,12 @@ namespace SFT::Renderer {
             }
         }
 
-        // Application effects are ordinary reusable modules in the same semantic HDR chain as built-ins.
-        if (Core::RendererResult effects = build_custom_post_process_modules(
-                module_context, submission, PostProcessStage::BeforeBloom);
-            !effects.has_value()) {
-            return effects;
-        }
         const RenderGraphTextureHandle scene_before_bloom =
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
 
         // Always-on debug markers (e.g. light-position icospheres, Shaders/geometry_color.slang).
-        // This pass is immediately before bloom and writes into the semantic HDR chain's current
-        // output, so emissive marker values participate in thresholding and the complete bloom pyramid.
+        // This pass writes into the semantic HDR chain before spatial AA and custom HDR transforms,
+        // so marker edges are filtered and emissive values participate in the complete bloom pyramid.
         // When scene geometry ran, load its depth so occluded gizmos stay hidden; otherwise clear
         // depth for a defined overlay-only pass.
         if (!submission.gizmo_draws.empty()) {
@@ -2100,14 +2129,33 @@ namespace SFT::Renderer {
                 });
         }
 
+        if (Core::RendererResult anti_aliased = build_post_process_aa_module(module_context, submission);
+            !anti_aliased.has_value()) {
+            return anti_aliased;
+        }
+        map_logical_texture(
+            submission.render_graph.custom_graph.anti_aliasing_output,
+            graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
+
+        // Custom graph branches are lowered after scene-space gizmos and the complete AA module, so the
+        // selected presentation branch and every branch rooted at AA see the same pre-bloom HDR result.
+        if (Core::RendererResult effects = build_custom_graph_stage(
+                module_context, submission, PostProcessStage::BeforeBloom, logical_graph_textures);
+            !effects.has_value()) {
+            return effects;
+        }
+
         if (Core::RendererResult bloom = build_bloom_module(
                 module_context, submission, slot, bloom_active, bloom_format);
             !bloom.has_value()) {
             return bloom;
         }
 
-        if (Core::RendererResult effects = build_custom_post_process_modules(
-                module_context, submission, PostProcessStage::AfterBloomBeforeToneMap);
+        map_logical_texture(
+            submission.render_graph.custom_graph.bloom_output,
+            graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
+        if (Core::RendererResult effects = build_custom_graph_stage(
+                module_context, submission, PostProcessStage::AfterBloomBeforeToneMap, logical_graph_textures);
             !effects.has_value()) {
             return effects;
         }
@@ -2349,7 +2397,9 @@ namespace SFT::Renderer {
             return std::pair<RHI::TextureHandle, RHI::TextureViewHandle>{*texture, *view};
         };
 
-        constexpr RHI::TextureUsage color_usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled;
+        constexpr RHI::TextureUsage color_usage = RHI::TextureUsage::ColorAttachment |
+                                                  RHI::TextureUsage::Sampled |
+                                                  RHI::TextureUsage::TransferSrc;
         auto albedo = create_target(formats.albedo, color_usage, "persistent deferred gbuffer albedo");
         if (!albedo) return unexpected(albedo.error());
         auto normal = create_target(formats.normal, color_usage, "persistent deferred gbuffer normal");
@@ -2483,13 +2533,19 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::ensure_frame_bloom_targets(FrameInFlight &slot,
                                                                Core::Extent2D extent,
-                                                               u32 requested_levels) {
-        requested_levels = std::clamp(requested_levels, 1u, 10u);
+                                                               u32 requested_levels,
+                                                               f32 downsample_ratio) {
+        requested_levels = std::clamp(requested_levels, 1u, 12u);
+        downsample_ratio = std::isfinite(downsample_ratio)
+            ? std::clamp(downsample_ratio, 1.25f, 2.0f)
+            : 1.61803398875f;
         const bool matches = slot.bloom_targets.source_extent.width == extent.width &&
             slot.bloom_targets.source_extent.height == extent.height &&
             slot.bloom_targets.requested_levels == requested_levels &&
-            slot.bloom_targets.scene_source_view == slot.deferred_targets.scene_color_view &&
-            slot.bloom_targets.texture && !slot.bloom_targets.views.empty() &&
+            slot.bloom_targets.downsample_ratio == downsample_ratio &&
+            !slot.bloom_targets.textures.empty() &&
+            slot.bloom_targets.textures.size() == slot.bloom_targets.extents.size() &&
+            slot.bloom_targets.textures.size() == slot.bloom_targets.views.size() &&
             slot.bloom_targets.downsample_bind_groups.size() == slot.bloom_targets.views.size() &&
             slot.bloom_targets.upsample_bind_groups.size() == slot.bloom_targets.views.size();
         if (matches) return {};
@@ -2502,45 +2558,65 @@ namespace SFT::Renderer {
         destroy_frame_bloom_targets(slot);
         slot.bloom_targets.source_extent = extent;
         slot.bloom_targets.requested_levels = requested_levels;
-        slot.bloom_targets.scene_source_view = slot.deferred_targets.scene_color_view;
+        slot.bloom_targets.downsample_ratio = downsample_ratio;
 
-        Core::Extent2D level_extent{
-            .width = std::max(1u, extent.width / 2u),
-            .height = std::max(1u, extent.height / 2u),
-        };
+        // Hardware mips are locked to powers of two. Independent level images let us use the requested
+        // fractional ratio (golden ratio by default), so successive pixel centers do not repeatedly align
+        // on a small rational grid. Keep both axes large enough for the
+        // 3x3 reconstruction tent; tiny render targets still receive one valid first level.
+        constexpr u32 minimum_stable_bloom_axis = 4u;
+        Core::Extent2D source_extent = extent;
         for (u32 level = 0; level < requested_levels; ++level) {
+            const Core::Extent2D level_extent{
+                .width = std::max(1u, static_cast<u32>(
+                    std::floor(static_cast<f64>(source_extent.width) / static_cast<f64>(downsample_ratio)))),
+                .height = std::max(1u, static_cast<u32>(
+                    std::floor(static_cast<f64>(source_extent.height) / static_cast<f64>(downsample_ratio)))),
+            };
+            if (!slot.bloom_targets.extents.empty() &&
+                (level_extent.width < minimum_stable_bloom_axis ||
+                 level_extent.height < minimum_stable_bloom_axis)) {
+                break;
+            }
             slot.bloom_targets.extents.push_back(level_extent);
-            if (level_extent.width == 1u && level_extent.height == 1u) break;
-            level_extent.width = std::max(1u, level_extent.width / 2u);
-            level_extent.height = std::max(1u, level_extent.height / 2u);
+            if (level_extent.width == source_extent.width && level_extent.height == source_extent.height) {
+                break;
+            }
+            source_extent = level_extent;
         }
 
-        const Core::Extent2D base_extent = slot.bloom_targets.extents.front();
-        auto texture = device->create_texture(RHI::TextureDesc{
-            .dimension = RHI::TextureDimension::Dim2D,
-            .format = RHI::Format::RG11B10Float,
-            .extent = RHI::Extent3D{.width = base_extent.width, .height = base_extent.height, .depth_or_layers = 1},
-            .mip_levels = static_cast<u32>(slot.bloom_targets.extents.size()),
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
-            .label = "persistent bloom mip chain",
-        });
-        if (!texture) {
-            destroy_frame_bloom_targets(slot);
-            return unexpected(graphics_error_from_rhi(texture.error(), "create persistent bloom mip chain"));
-        }
-        slot.bloom_targets.texture = *texture;
-        for (u32 level = 0; level < slot.bloom_targets.extents.size(); ++level) {
+        slot.bloom_targets.textures.reserve(slot.bloom_targets.extents.size());
+        slot.bloom_targets.views.reserve(slot.bloom_targets.extents.size());
+        for (const Core::Extent2D level_extent : slot.bloom_targets.extents) {
+            auto texture = device->create_texture(RHI::TextureDesc{
+                .dimension = RHI::TextureDimension::Dim2D,
+                .format = RHI::Format::RG11B10Float,
+                .extent = RHI::Extent3D{
+                    .width = level_extent.width,
+                    .height = level_extent.height,
+                    .depth_or_layers = 1,
+                },
+                .mip_levels = 1,
+                .samples = RHI::SampleCount::X1,
+                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                .label = "persistent fractional bloom level",
+            });
+            if (!texture) {
+                destroy_frame_bloom_targets(slot);
+                return unexpected(graphics_error_from_rhi(texture.error(), "create persistent fractional bloom level"));
+            }
+            slot.bloom_targets.textures.push_back(*texture);
+
             auto view = device->create_texture_view(RHI::TextureViewDesc{
                 .texture = *texture,
                 .view_type = RHI::TextureViewType::View2D,
-                .base_mip_level = level,
+                .base_mip_level = 0,
                 .mip_level_count = 1,
-                .label = "persistent bloom mip view",
+                .label = "persistent fractional bloom level view",
             });
             if (!view) {
                 destroy_frame_bloom_targets(slot);
-                return unexpected(graphics_error_from_rhi(view.error(), "create persistent bloom mip view"));
+                return unexpected(graphics_error_from_rhi(view.error(), "create persistent fractional bloom level view"));
             }
             slot.bloom_targets.views.push_back(*view);
         }
@@ -2565,15 +2641,14 @@ namespace SFT::Renderer {
             return *group;
         };
 
-        slot.bloom_targets.downsample_bind_groups.reserve(slot.bloom_targets.views.size());
+        slot.bloom_targets.downsample_bind_groups.resize(slot.bloom_targets.views.size());
         slot.bloom_targets.upsample_bind_groups.resize(slot.bloom_targets.views.size());
-        for (usize level = 0; level < slot.bloom_targets.views.size(); ++level) {
-            const RHI::TextureViewHandle source_view = level == 0
-                ? slot.deferred_targets.scene_color_view
-                : slot.bloom_targets.views[level - 1];
-            auto group = create_group(source_view);
+        // Level zero samples the semantic scene source, which may be a per-frame custom-graph transient;
+        // its bind group is therefore always minted during recording instead of wasting a stale cached one.
+        for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
+            auto group = create_group(slot.bloom_targets.views[level - 1]);
             if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
-            slot.bloom_targets.downsample_bind_groups.push_back(*group);
+            slot.bloom_targets.downsample_bind_groups[level] = *group;
         }
         for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
             auto group = create_group(slot.bloom_targets.views[level]);
@@ -2594,8 +2669,8 @@ namespace SFT::Renderer {
             for (RHI::TextureViewHandle view : slot.bloom_targets.views) {
                 if (view) device->destroy_texture_view(view);
             }
-            if (slot.bloom_targets.texture) {
-                device->destroy_texture(slot.bloom_targets.texture);
+            for (RHI::TextureHandle texture : slot.bloom_targets.textures) {
+                if (texture) device->destroy_texture(texture);
             }
         }
         slot.bloom_targets = {};
@@ -2624,7 +2699,8 @@ namespace SFT::Renderer {
             .format = format,
             .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
             .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::TransferSrc,
             .label = "persistent bloom composite target",
         });
         if (!texture) {

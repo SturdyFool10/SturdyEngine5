@@ -91,6 +91,8 @@ namespace SFT::Engine {
         AntiAliasing,
         Bloom,
         FullscreenEffect,
+        ComputeEffect,
+        Copy,
         ToneMapping,
         DebugOverlay,
         Present,
@@ -116,12 +118,43 @@ namespace SFT::Engine {
         }
     };
 
+    using RasterEffectDescription = FullscreenEffectDescription;
+
+    // One-input/one-output scene-linear HDR compute contract. The selected entry point must use
+    // [numthreads(8, 8, 1)] and expose only set 0 resources named sourceTexture (Texture2D<float4>),
+    // sourceSampler (SamplerState), and outputTexture (RWTexture2D<float4>). Dispatch rounds up to the
+    // render extent, so application shaders must bounds-check their dispatch-thread coordinates.
+    struct ComputeEffectDescription {
+        std::filesystem::path shader_path;
+        std::string module_name;
+        std::string compute_entry_point = "computeMain";
+        std::vector<std::byte> push_constants;
+        UString label;
+
+        template <typename Constants>
+            requires std::is_trivially_copyable_v<Constants>
+        ComputeEffectDescription &set_push_constants(const Constants &constants) {
+            const std::span<const Constants> values{&constants, 1};
+            const std::span<const std::byte> bytes = std::as_bytes(values);
+            push_constants.assign(bytes.begin(), bytes.end());
+            return *this;
+        }
+    };
+
+    // Exact same-format, same-extent, single-mip GPU texture copy. It performs no filtering, scaling,
+    // format conversion, persistence, or readback.
+    struct CopyDescription {
+        UString label;
+    };
+
     struct RenderGraphPassDescription {
         RenderGraphPassHandle handle{};
         RenderGraphPassKind kind = RenderGraphPassKind::DeferredScene;
         RenderGraphTextureHandle input{};
         RenderGraphTextureHandle output{};
         FullscreenEffectDescription fullscreen_effect{};
+        ComputeEffectDescription compute_effect{};
+        CopyDescription copy{};
         UString label;
     };
 
@@ -144,6 +177,24 @@ namespace SFT::Engine {
         struct FullscreenEffect {
             RenderGraphTextureHandle input{};
             FullscreenEffectDescription effect{};
+            [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
+        };
+
+        struct RasterEffect {
+            RenderGraphTextureHandle input{};
+            RasterEffectDescription effect{};
+            [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
+        };
+
+        struct ComputeEffect {
+            RenderGraphTextureHandle input{};
+            ComputeEffectDescription effect{};
+            [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
+        };
+
+        struct Copy {
+            RenderGraphTextureHandle input{};
+            CopyDescription copy{};
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 

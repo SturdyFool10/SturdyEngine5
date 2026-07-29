@@ -1,6 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <expected>
@@ -23,20 +24,19 @@ using std::vector;
 
 namespace SFT::Renderer {
     namespace {
-        namespace slang = Core::Slang;
-
         struct BloomConstants {
             glm::vec2 source_texel_size{1.0f};
             f32 threshold = 1.0f;
             f32 soft_knee = 0.5f;
-            f32 scatter = 0.7f;
+            glm::vec2 filter_scale{1.0f};
         };
-        static_assert(sizeof(BloomConstants) == 20);
+        static_assert(sizeof(BloomConstants) == 24);
 
         struct BloomCompositeConstants {
             f32 bloom_intensity = 0.0f;
+            u32 threshold_enabled = 0;
         };
-        static_assert(sizeof(BloomCompositeConstants) == 4);
+        static_assert(sizeof(BloomCompositeConstants) == 8);
 
         [[nodiscard]] Core::GraphicsBackendError bloom_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -148,8 +148,19 @@ namespace SFT::Renderer {
             -> Core::RendererExpected<RHI::RenderPipelineHandle> {
             RHI::ColorTargetState target{.format = color_format, .blend_enable = additive, .write_mask = RHI::ColorWriteMask::All};
             if (additive) {
-                target.color = RHI::BlendComponent{.src_factor = RHI::BlendFactor::One, .dst_factor = RHI::BlendFactor::One, .op = RHI::BlendOp::Add};
-                target.alpha = RHI::BlendComponent{.src_factor = RHI::BlendFactor::Zero, .dst_factor = RHI::BlendFactor::One, .op = RHI::BlendOp::Add};
+                // Progressive Jimenez reconstruction is an energy-normalized interpolation between
+                // the filtered coarse level and the existing finer level. The dynamic blend constant
+                // carries scatter: src*scatter + dst*(1-scatter).
+                target.color = RHI::BlendComponent{
+                    .src_factor = RHI::BlendFactor::ConstantColor,
+                    .dst_factor = RHI::BlendFactor::OneMinusConstantColor,
+                    .op = RHI::BlendOp::Add,
+                };
+                target.alpha = RHI::BlendComponent{
+                    .src_factor = RHI::BlendFactor::Zero,
+                    .dst_factor = RHI::BlendFactor::One,
+                    .op = RHI::BlendOp::Add,
+                };
             }
             auto pipeline = device->create_render_pipeline(RHI::RenderPipelineDesc{
                 .layout = guard->pipeline_layout,
@@ -181,7 +192,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_bloom_draw(RHI::RenderPassEncoder &pass,
                                                        RHI::TextureViewHandle source_view, glm::vec2 source_texel_size,
                                                        f32 threshold, f32 soft_knee, f32 scatter,
-                                                       bool prefilter, bool upsample,
+                                                       glm::vec2 filter_scale, bool prefilter, bool upsample,
                                                        RHI::BindGroupHandle bind_group) {
         auto guard = bloom_.lock();
         BloomResources &resources = *guard;
@@ -194,9 +205,14 @@ namespace SFT::Renderer {
             .source_texel_size = source_texel_size,
             .threshold = threshold,
             .soft_knee = soft_knee,
-            .scatter = scatter,
+            .filter_scale = filter_scale,
         };
         pass.set_pipeline(pipeline);
+        if (upsample) {
+            const f32 normalized_scatter = std::clamp(scatter, 0.0f, 1.0f);
+            pass.set_blend_constant(RHI::ClearColor{
+                normalized_scatter, normalized_scatter, normalized_scatter, normalized_scatter});
+        }
         pass.set_bind_group(resources.sampled_set, bind_group);
         pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const BloomConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
@@ -205,10 +221,11 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::record_bloom_downsample(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                             glm::vec2 source_texel_size, const RenderGraphSettings &settings,
-                                                            bool apply_threshold, RHI::BindGroupHandle bind_group) {
+                                                            glm::vec2 filter_scale, bool apply_threshold,
+                                                            RHI::BindGroupHandle bind_group) {
         return record_bloom_draw(pass, source_view, source_texel_size,
                                  settings.bloom_threshold, settings.bloom_soft_knee, settings.bloom_scatter,
-                                 apply_threshold, false, bind_group);
+                                 filter_scale, apply_threshold, false, bind_group);
     }
 
     Core::RendererResult Renderer::record_bloom_upsample(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
@@ -216,7 +233,7 @@ namespace SFT::Renderer {
                                                           RHI::BindGroupHandle bind_group) {
         return record_bloom_draw(pass, source_view, source_texel_size,
                                  settings.bloom_threshold, settings.bloom_soft_knee, settings.bloom_scatter,
-                                 false, true, bind_group);
+                                 glm::vec2{1.0f}, false, true, bind_group);
     }
 
     void Renderer::destroy_bloom_resources() noexcept { auto guard = bloom_.lock(); destroy_bloom_resources_locked(*guard); }
@@ -415,6 +432,7 @@ namespace SFT::Renderer {
                                                            RHI::TextureViewHandle bloom_view,
                                                            RHI::Format color_format,
                                                            f32 bloom_intensity,
+                                                           bool threshold_enabled,
                                                            vector<RHI::BindGroupHandle> &transient_bind_groups) {
         auto pipeline = bloom_composite_pipeline_for(color_format);
         if (!pipeline) return unexpected(pipeline.error());
@@ -441,7 +459,10 @@ namespace SFT::Renderer {
 
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(guard->bind_group_layout_sets.front(), *bind_group);
-        const BloomCompositeConstants constants{.bloom_intensity = bloom_intensity};
+        const BloomCompositeConstants constants{
+            .bloom_intensity = bloom_intensity,
+            .threshold_enabled = threshold_enabled ? 1u : 0u,
+        };
         pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const BloomCompositeConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};

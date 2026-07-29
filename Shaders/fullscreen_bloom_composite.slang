@@ -22,6 +22,7 @@ SamplerState sourceSampler;
 
 struct BloomCompositeConstants {
     float bloomIntensity;
+    uint thresholdEnabled;
 };
 
 [[push_constant]] ConstantBuffer<BloomCompositeConstants> composite;
@@ -30,5 +31,11 @@ struct BloomCompositeConstants {
 float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 scene = max(sceneTexture.Sample(sourceSampler, input.uv).rgb, 0.0);
     float3 bloom = max(bloomTexture.Sample(sourceSampler, input.uv).rgb, 0.0);
-    return float4(scene + bloom * composite.bloomIntensity, 1.0);
+    float intensity = saturate(composite.bloomIntensity);
+    // Thresholded bloom is an artistic emission layer and remains additive. In the Jimenez
+    // no-threshold mode, interpolation conserves a spatially constant HDR image exactly.
+    float3 combined = composite.thresholdEnabled != 0
+        ? scene + bloom * composite.bloomIntensity
+        : lerp(scene, bloom, intensity);
+    return float4(combined, 1.0);
 }

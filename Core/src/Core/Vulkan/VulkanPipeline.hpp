@@ -215,7 +215,12 @@ namespace SFT::Core::Vulkan {
         vector<VkVertexInputAttributeDescription> vertex_attributes_;
         vector<VkPipelineColorBlendAttachmentState> blend_attachments_;
         vector<VkFormat> color_formats_;
-        vector<VkDynamicState> dynamic_states_{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        vector<VkDynamicState> dynamic_states_{
+            VK_DYNAMIC_STATE_VIEWPORT,
+            VK_DYNAMIC_STATE_SCISSOR,
+            VK_DYNAMIC_STATE_BLEND_CONSTANTS,
+            VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+        };
 
         bool mesh_shader_frontend_ = false;
         VkFormat depth_format_ = VK_FORMAT_UNDEFINED;

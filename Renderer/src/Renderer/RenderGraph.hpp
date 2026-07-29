@@ -97,6 +97,9 @@ namespace SFT::Renderer {
         RHI::Extent3D extent{};
         u32 mip_levels = 1;
         RHI::SampleCount samples = RHI::SampleCount::X1;
+        // Capabilities of the externally-created image. Required for validating copy/storage uses;
+        // the graph never mutates the underlying texture's creation flags.
+        RHI::TextureUsage usage = RHI::TextureUsage::None;
 
         // State at graph entry. Swapchain acquisition commonly starts Undefined; persistent resources will
         // usually enter in ShaderReadOnly/ColorAttachment/etc. The graph tracks from here.
@@ -308,6 +311,7 @@ namespace SFT::Renderer {
         UnknownTextureHandle,
         UnknownBufferHandle,
         InvalidBufferAccess,
+        IncompatibleTextureCopy,
         MissingProducer,
     };
 
@@ -382,9 +386,9 @@ namespace SFT::Renderer {
 
         void add_copy_pass(const RenderGraphCopyDesc &desc);
 
-        // Marks a texture as externally observable after graph execution. Liveness starts from passes
-        // writing these resources (plus explicit side-effect passes); importing a texture alone does not
-        // make every write to it live, so unused history/cached-target branches can be culled correctly.
+        // Marks a texture as a liveness root. Passes producing it and their ancestry execute even when
+        // disconnected from presentation; this does not export or preserve a transient after its final
+        // graph use. Importing a texture alone does not keep speculative history/cache writes live.
         void mark_output(RenderGraphTextureHandle texture);
 
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
@@ -519,6 +523,8 @@ namespace SFT::Renderer {
             RHI::Format format = RHI::Format::Undefined;
             RHI::Extent3D extent{};
             u32 mip_levels = 1;
+            RHI::SampleCount samples = RHI::SampleCount::X1;
+            RHI::TextureUsage usage = RHI::TextureUsage::None;
             RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
             RHI::PipelineStage final_stage = RHI::PipelineStage::None;
             RHI::AccessFlags final_access = RHI::AccessFlags::None;

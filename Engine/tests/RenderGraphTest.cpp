@@ -165,6 +165,62 @@ namespace {
         return passed;
     }
 
+    bool explicit_compute_copy_outputs_control_execution() {
+        using namespace SFT::Engine;
+
+        RenderGraph graph = RenderGraph::empty();
+        RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
+        color = graph.compose(RenderModules::AntiAliasing{.input = color});
+        const RenderGraphTextureHandle branch_input = color;
+        const RenderGraphTextureHandle computed = graph.compose(RenderModules::ComputeEffect{
+            .input = branch_input,
+            .effect = ComputeEffectDescription{
+                .shader_path = "Shaders/test_compute_branch.slang",
+                .module_name = "test_compute_branch",
+                .compute_entry_point = "computeMain",
+                .push_constants = {},
+                .label = UString{"test compute branch"_ustr},
+            },
+        });
+        const RenderGraphTextureHandle copied = graph.compose(RenderModules::Copy{
+            .input = computed,
+            .copy = CopyDescription{.label = UString{"test copied branch"_ustr}},
+        });
+        color = graph.compose(RenderModules::Bloom{.input = color});
+        color = graph.compose(RenderModules::ToneMapping{.input = color});
+        color = graph.compose(RenderModules::DebugOverlay{.input = color});
+        (void)graph.compose(RenderModules::Present{.input = color});
+
+        const std::vector<RenderGraphPassHandle> before_mark = graph.execution_passes();
+        bool passed = check(std::ranges::none_of(before_mark, [&graph](RenderGraphPassHandle handle) {
+                                const RenderGraphPassKind kind = graph.passes()[handle.index].kind;
+                                return kind == RenderGraphPassKind::ComputeEffect || kind == RenderGraphPassKind::Copy;
+                            }),
+                            "unmarked compute/copy branch was retained");
+
+        graph.mark_output(copied);
+        const std::vector<RenderGraphPassHandle> after_mark = graph.execution_passes();
+        passed &= check(graph.validate().has_value(), "marked compute/copy branch failed validation");
+        passed &= check(std::ranges::any_of(after_mark, [&graph](RenderGraphPassHandle handle) {
+                            return graph.passes()[handle.index].kind == RenderGraphPassKind::ComputeEffect;
+                        }) &&
+                        std::ranges::any_of(after_mark, [&graph](RenderGraphPassHandle handle) {
+                            return graph.passes()[handle.index].kind == RenderGraphPassKind::Copy;
+                        }),
+                        "explicit output did not retain the complete compute/copy ancestry");
+        passed &= check(graph.textures()[computed.index].format == RenderGraphTextureFormat::Inherit &&
+                        graph.textures()[copied.index].format == RenderGraphTextureFormat::Inherit &&
+                        graph.textures()[computed.index].extent.input == branch_input &&
+                        graph.textures()[copied.index].extent.input == computed,
+                        "compute/copy outputs did not inherit their input format and extent");
+
+        RenderGraph copy = graph;
+        passed &= check(copy.outputs().size() == 1 && copy.outputs().front().index == copied.index &&
+                        copy.outputs().front().generation != copied.generation && copy.validate().has_value(),
+                        "graph copy did not rebase its explicit output handle");
+        return passed;
+    }
+
     bool copied_graphs_rebase_graph_local_handles() {
         using namespace SFT::Engine;
 
@@ -222,6 +278,7 @@ int main() {
     passed &= application_module_can_declare_safe_passes();
     passed &= branches_are_valid_and_presentation_lowering_is_reachable_only();
     passed &= fullscreen_modules_compose_by_dataflow();
+    passed &= explicit_compute_copy_outputs_control_execution();
     passed &= copied_graphs_rebase_graph_local_handles();
     passed &= invalid_graph_normalizes_to_safe_standard();
     return passed ? 0 : 1;

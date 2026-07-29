@@ -21,8 +21,6 @@ using std::vector;
 
 namespace SFT::Renderer {
     namespace {
-        namespace slang = Core::Slang;
-
         [[nodiscard]] Core::GraphicsBackendError custom_effect_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
@@ -37,6 +35,10 @@ namespace SFT::Renderer {
         for (const CustomPostProcessResources &resource : *resources) {
             if (resource.shader_path == effect.shader_path && resource.module_name == effect.module_name &&
                 resource.fragment_entry_point == effect.fragment_entry_point && resource.color_format == color_format) {
+                if (effect.push_constants.size() != resource.push_constant_size) {
+                    return unexpected(custom_effect_error(
+                        "Custom post-process push-constant payload size does not match the shader's reflected range."));
+                }
                 return {};
             }
         }
@@ -91,27 +93,45 @@ namespace SFT::Renderer {
 
         const slang::ShaderReflection &reflection = resource.shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
-        if (generated.size() != 1) {
+        const vector<ReflectedResource> reflected_resources = collect_resource_bindings(reflection);
+        if (generated.size() != 1 || generated.front().set != 0 || generated.front().entries.size() != 2 ||
+            reflected_resources.size() != 2) {
             cleanup();
-            return unexpected(custom_effect_error("Custom post-process shader must expose exactly one texture/sampler bind group."));
+            return unexpected(custom_effect_error(
+                "Custom post-process shader must expose only set 0 with sourceTexture and sourceSampler."));
         }
         const GeneratedBindGroupLayout &layout = generated.front();
-        bool has_image = false;
-        bool has_sampler = false;
         for (const RHI::BindGroupLayoutEntry &entry : layout.entries) {
-            if (entry.type == RHI::BindingType::SampledTexture) {
-                resource.image_binding = entry.binding;
-                has_image = true;
-            } else if (entry.type == RHI::BindingType::Sampler) {
-                resource.sampler_binding = entry.binding;
-                has_sampler = true;
+            if (entry.count != 1) {
+                cleanup();
+                return unexpected(custom_effect_error(
+                    "Custom post-process resources must be singular descriptors, not descriptor arrays."));
             }
         }
-        if (!has_image || !has_sampler || layout.entries.size() != 2) {
-            cleanup();
-            return unexpected(custom_effect_error("Custom post-process shader must expose exactly one sampled texture and one sampler."));
+        bool has_image = false;
+        bool has_sampler = false;
+        for (const ReflectedResource &binding : reflected_resources) {
+            if (binding.set != 0) {
+                cleanup();
+                return unexpected(custom_effect_error("Custom post-process resources must all use descriptor set 0."));
+            }
+            if (binding.name == "sourceTexture" && binding.type == RHI::BindingType::SampledTexture) {
+                resource.image_binding = binding.binding;
+                has_image = true;
+            } else if (binding.name == "sourceSampler" && binding.type == RHI::BindingType::Sampler) {
+                resource.sampler_binding = binding.binding;
+                has_sampler = true;
+            } else {
+                cleanup();
+                return unexpected(custom_effect_error(
+                    "Custom post-process shader resources must be exactly Texture2D sourceTexture and SamplerState sourceSampler."));
+            }
         }
-        resource.set = layout.set;
+        if (!has_image || !has_sampler) {
+            cleanup();
+            return unexpected(custom_effect_error(
+                "Custom post-process shader resources must be exactly Texture2D sourceTexture and SamplerState sourceSampler."));
+        }
         auto bind_layout = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
             .entries = span<const RHI::BindGroupLayoutEntry>{layout.entries.data(), layout.entries.size()},
             .label = "custom post-process bind group layout",
@@ -120,6 +140,17 @@ namespace SFT::Renderer {
         resource.bind_group_layout = *bind_layout;
 
         const vector<RHI::PushConstantRange> push_ranges = generate_push_constant_ranges(reflection, RHI::ShaderStage::Fragment);
+        if (push_ranges.size() > 1 || (!push_ranges.empty() && push_ranges.front().offset != 0)) {
+            cleanup();
+            return unexpected(custom_effect_error(
+                "Custom post-process supports at most one push-constant range beginning at byte zero."));
+        }
+        resource.push_constant_size = push_ranges.empty() ? 0u : push_ranges.front().size;
+        if (effect.push_constants.size() != resource.push_constant_size) {
+            cleanup();
+            return unexpected(custom_effect_error(
+                "Custom post-process push-constant payload size does not match the shader's reflected range."));
+        }
         auto pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
             .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{&resource.bind_group_layout, 1},
             .push_constant_ranges = span<const RHI::PushConstantRange>{push_ranges.data(), push_ranges.size()},
@@ -190,7 +221,7 @@ namespace SFT::Renderer {
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*group); }
 
         pass.set_pipeline(resource->pipeline);
-        pass.set_bind_group(resource->set, *group);
+        pass.set_bind_group(0, *group);
         if (!effect.push_constants.empty()) {
             pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
                                     span<const std::byte>{effect.push_constants.data(), effect.push_constants.size()});

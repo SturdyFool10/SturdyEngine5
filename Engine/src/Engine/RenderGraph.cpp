@@ -40,6 +40,7 @@ namespace SFT::Engine {
           generation_(other.generation_),
           textures_(other.textures_),
           passes_(other.passes_),
+          outputs_(other.outputs_),
           presented_texture_(other.presented_texture_) {
         rebase_handles();
     }
@@ -52,6 +53,7 @@ namespace SFT::Engine {
         generation_ = other.generation_;
         textures_ = other.textures_;
         passes_ = other.passes_;
+        outputs_ = other.outputs_;
         presented_texture_ = other.presented_texture_;
         rebase_handles();
         return *this;
@@ -75,6 +77,11 @@ namespace SFT::Engine {
             }
             if (pass.output) {
                 pass.output.generation = generation_;
+            }
+        }
+        for (RenderGraphTextureHandle &output : outputs_) {
+            if (output) {
+                output.generation = generation_;
             }
         }
         if (presented_texture_) {
@@ -175,6 +182,63 @@ namespace SFT::Engine {
         });
     }
 
+    void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
+        if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
+            outputs_.push_back(texture);
+        }
+    }
+
+    const std::vector<RenderGraphTextureHandle> &RenderGraph::outputs() const noexcept { return outputs_; }
+
+    std::vector<RenderGraphPassHandle> RenderGraph::execution_passes() const {
+        const auto valid_texture = [this](RenderGraphTextureHandle handle) noexcept {
+            return handle && handle.generation == generation_ && handle.index < textures_.size();
+        };
+        std::vector<i32> producer(textures_.size(), -1);
+        usize present_index = passes_.size();
+        for (usize index = 0; index < passes_.size(); ++index) {
+            if (valid_texture(passes_[index].output)) {
+                producer[passes_[index].output.index] = static_cast<i32>(index);
+            }
+            if (passes_[index].kind == RenderGraphPassKind::Present) {
+                present_index = index;
+            }
+        }
+
+        std::vector<bool> live(passes_.size(), false);
+        std::vector<RenderGraphTextureHandle> pending = outputs_;
+        if (valid_texture(presented_texture_)) {
+            pending.push_back(presented_texture_);
+        }
+        while (!pending.empty()) {
+            const RenderGraphTextureHandle texture = pending.back();
+            pending.pop_back();
+            if (!valid_texture(texture) || producer[texture.index] < 0) {
+                continue;
+            }
+            const usize pass_index = static_cast<usize>(producer[texture.index]);
+            if (live[pass_index]) {
+                continue;
+            }
+            live[pass_index] = true;
+            if (passes_[pass_index].input) {
+                pending.push_back(passes_[pass_index].input);
+            }
+        }
+        if (present_index < passes_.size()) {
+            live[present_index] = true;
+        }
+
+        std::vector<RenderGraphPassHandle> result;
+        result.reserve(passes_.size());
+        for (usize index = 0; index < passes_.size(); ++index) {
+            if (live[index]) {
+                result.push_back(passes_[index].handle);
+            }
+        }
+        return result;
+    }
+
     RenderGraphTextureHandle RenderGraph::create_texture(RenderGraphTextureDescription description) {
         const RenderGraphTextureHandle handle{
             .index = static_cast<u32>(textures_.size()),
@@ -223,6 +287,52 @@ namespace SFT::Engine {
             .output = output,
             .fullscreen_effect = effect,
             .label = effect.label,
+        });
+        return output;
+    }
+
+    RenderGraphTextureHandle RenderGraph::add_compute_effect(
+        RenderGraphTextureHandle input,
+        const ComputeEffectDescription &effect) {
+        const RenderGraphTextureHandle output = create_texture(RenderGraphTextureDescription{
+            .format = RenderGraphTextureFormat::Inherit,
+            .extent = RenderGraphExtent::relative_to(input),
+            .label = effect.label,
+        });
+        const RenderGraphPassHandle pass_handle{
+            .index = static_cast<u32>(passes_.size()),
+            .generation = generation_,
+        };
+        passes_.push_back(RenderGraphPassDescription{
+            .handle = pass_handle,
+            .kind = RenderGraphPassKind::ComputeEffect,
+            .input = input,
+            .output = output,
+            .compute_effect = effect,
+            .label = effect.label,
+        });
+        return output;
+    }
+
+    RenderGraphTextureHandle RenderGraph::add_copy(
+        RenderGraphTextureHandle input,
+        const CopyDescription &copy) {
+        const RenderGraphTextureHandle output = create_texture(RenderGraphTextureDescription{
+            .format = RenderGraphTextureFormat::Inherit,
+            .extent = RenderGraphExtent::relative_to(input),
+            .label = copy.label,
+        });
+        const RenderGraphPassHandle pass_handle{
+            .index = static_cast<u32>(passes_.size()),
+            .generation = generation_,
+        };
+        passes_.push_back(RenderGraphPassDescription{
+            .handle = pass_handle,
+            .kind = RenderGraphPassKind::Copy,
+            .input = input,
+            .output = output,
+            .copy = copy,
+            .label = copy.label,
         });
         return output;
     }
@@ -350,6 +460,7 @@ namespace SFT::Engine {
             return handle && handle.generation == generation_ && handle.index < textures_.size();
         };
         std::vector<i32> producer(textures_.size(), -1);
+        std::vector<bool> scene_linear_hdr(textures_.size(), false);
         usize scene_count = 0;
         usize present_count = 0;
         RenderGraphTextureHandle present_input{};
@@ -375,6 +486,7 @@ namespace SFT::Engine {
                     });
                 }
                 producer[pass.output.index] = static_cast<i32>(index);
+                scene_linear_hdr[pass.output.index] = true;
                 continue;
             }
 
@@ -420,7 +532,36 @@ namespace SFT::Engine {
                     .message = UString{"Fullscreen effects require a shader path, module name, and fragment entry point."_ustr},
                 });
             }
+            if (pass.kind == RenderGraphPassKind::ComputeEffect &&
+                (pass.compute_effect.shader_path.empty() || pass.compute_effect.module_name.empty() ||
+                 pass.compute_effect.compute_entry_point.empty())) {
+                return std::unexpected(RenderGraphError{
+                    .code = RenderGraphErrorCode::InvalidComputeEffect,
+                    .message = UString{"Compute effects require a shader path, module name, and compute entry point."_ustr},
+                });
+            }
+            const bool custom_hdr_operation = pass.kind == RenderGraphPassKind::FullscreenEffect ||
+                                              pass.kind == RenderGraphPassKind::ComputeEffect ||
+                                              pass.kind == RenderGraphPassKind::Copy;
+            if (custom_hdr_operation && !scene_linear_hdr[pass.input.index]) {
+                return std::unexpected(RenderGraphError{
+                    .code = RenderGraphErrorCode::UnsupportedPassOrder,
+                    .message = UString{"Custom raster, compute, and copy passes currently require a scene-linear HDR input before tone mapping."_ustr},
+                });
+            }
             producer[pass.output.index] = static_cast<i32>(index);
+            scene_linear_hdr[pass.output.index] = pass.kind != RenderGraphPassKind::ToneMapping &&
+                                                  pass.kind != RenderGraphPassKind::DebugOverlay &&
+                                                  scene_linear_hdr[pass.input.index];
+        }
+
+        for (RenderGraphTextureHandle output : outputs_) {
+            if (!valid_texture(output) || producer[output.index] < 0) {
+                return std::unexpected(RenderGraphError{
+                    .code = RenderGraphErrorCode::InvalidGraphOutput,
+                    .message = UString{"Every explicit graph output must be produced by this graph."_ustr},
+                });
+            }
         }
 
         if (scene_count != 1 || present_count != 1 || !valid_texture(presented_texture_) ||
@@ -431,8 +572,9 @@ namespace SFT::Engine {
             });
         }
 
-        // Renderer lowering currently consumes one presentation ancestry. Validate only that live path's
-        // built-in ordering; unrelated branches remain valid declarative data and are not lowered.
+        // Built-ins currently define one presentation spine. Custom HDR raster/compute/copy nodes may
+        // branch from that spine and become live through mark_output(); other built-in branches are
+        // rejected below until their renderer modules support independently instantiated outputs.
         const std::vector<RenderGraphPassHandle> path = presentation_path();
         if (path.empty()) {
             return std::unexpected(RenderGraphError{
@@ -441,6 +583,31 @@ namespace SFT::Engine {
             });
         }
 
+        std::vector<bool> on_presentation_path(passes_.size(), false);
+        for (RenderGraphPassHandle handle : path) {
+            if (handle.index < on_presentation_path.size()) {
+                on_presentation_path[handle.index] = true;
+            }
+        }
+        for (RenderGraphPassHandle handle : execution_passes()) {
+            if (handle.index >= passes_.size() || on_presentation_path[handle.index]) {
+                continue;
+            }
+            const RenderGraphPassKind kind = passes_[handle.index].kind;
+            const bool supported_branch = kind == RenderGraphPassKind::FullscreenEffect ||
+                                          kind == RenderGraphPassKind::ComputeEffect ||
+                                          kind == RenderGraphPassKind::Copy;
+            if (!supported_branch) {
+                return std::unexpected(RenderGraphError{
+                    .code = RenderGraphErrorCode::UnsupportedPassOrder,
+                    .message = UString{"Explicit non-presentation outputs currently support custom raster, compute, and copy branches only."_ustr},
+                });
+            }
+        }
+
+        const bool path_has_anti_aliasing = std::ranges::any_of(path, [this](RenderGraphPassHandle handle) {
+            return handle.index < passes_.size() && passes_[handle.index].kind == RenderGraphPassKind::AntiAliasing;
+        });
         bool saw_scene = false;
         bool saw_anti_aliasing = false;
         bool saw_bloom = false;
@@ -478,10 +645,18 @@ namespace SFT::Engine {
                     saw_bloom = true;
                     break;
                 case RenderGraphPassKind::FullscreenEffect:
+                case RenderGraphPassKind::ComputeEffect:
+                case RenderGraphPassKind::Copy:
+                    if (path_has_anti_aliasing && !saw_anti_aliasing) {
+                        return std::unexpected(RenderGraphError{
+                            .code = RenderGraphErrorCode::UnsupportedPassOrder,
+                            .message = UString{"Custom HDR passes on the presentation path must run after the anti-aliasing module."_ustr},
+                        });
+                    }
                     if (saw_tone_mapping) {
                         return std::unexpected(RenderGraphError{
                             .code = RenderGraphErrorCode::UnsupportedPassOrder,
-                            .message = UString{"Fullscreen HDR effects must run before tone mapping on the presentation path."_ustr},
+                            .message = UString{"Custom HDR raster, compute, and copy passes must run before tone mapping on the presentation path."_ustr},
                         });
                     }
                     break;
@@ -585,10 +760,11 @@ namespace SFT::Engine {
             !std::isfinite(bloom.soft_knee) || bloom.soft_knee < 0.0f || bloom.soft_knee > 1.0f ||
             !std::isfinite(bloom.intensity) || bloom.intensity < 0.0f ||
             !std::isfinite(bloom.scatter) || bloom.scatter < 0.0f || bloom.scatter > 1.0f ||
-            bloom.max_levels < 1 || bloom.max_levels > 10) {
+            !std::isfinite(bloom.downsample_ratio) || bloom.downsample_ratio < 1.25f ||
+            bloom.downsample_ratio > 2.0f || bloom.max_levels < 1 || bloom.max_levels > 12) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidBloomSettings,
-                .message = UString{"Render graph bloom requires a non-negative threshold/intensity, soft_knee and scatter in [0, 1], and max_levels in [1, 10]."_ustr},
+                .message = UString{"Render graph bloom requires a non-negative threshold/intensity, soft_knee and scatter in [0, 1], downsample_ratio in [1.25, 2], and max_levels in [1, 12]."_ustr},
             });
         }
         const ToneMappingSettings &tone = description_.tone_mapping;
@@ -680,11 +856,14 @@ namespace SFT::Engine {
                                   ? std::clamp(aa.subpixel_quality, 0.0f, 1.0f) : 0.75f;
         aa.edge_threshold = std::isfinite(aa.edge_threshold)
                                 ? std::clamp(aa.edge_threshold, 0.0312f, 0.5f) : 0.125f;
-        desc.bloom.threshold = std::isfinite(desc.bloom.threshold) ? std::max(desc.bloom.threshold, 0.0f) : 1.0f;
+        desc.bloom.threshold = std::isfinite(desc.bloom.threshold) ? std::max(desc.bloom.threshold, 0.0f) : 0.0f;
         desc.bloom.soft_knee = std::isfinite(desc.bloom.soft_knee) ? std::clamp(desc.bloom.soft_knee, 0.0f, 1.0f) : 0.5f;
-        desc.bloom.intensity = std::isfinite(desc.bloom.intensity) ? std::max(desc.bloom.intensity, 0.0f) : 0.08f;
+        desc.bloom.intensity = std::isfinite(desc.bloom.intensity) ? std::max(desc.bloom.intensity, 0.0f) : 0.04f;
         desc.bloom.scatter = std::isfinite(desc.bloom.scatter) ? std::clamp(desc.bloom.scatter, 0.0f, 1.0f) : 0.7f;
-        desc.bloom.max_levels = std::clamp(desc.bloom.max_levels, 1u, 10u);
+        desc.bloom.downsample_ratio = std::isfinite(desc.bloom.downsample_ratio)
+            ? std::clamp(desc.bloom.downsample_ratio, 1.25f, 2.0f)
+            : 1.61803398875f;
+        desc.bloom.max_levels = std::clamp(desc.bloom.max_levels, 1u, 12u);
         desc.tone_mapping.exposure = std::isfinite(desc.tone_mapping.exposure)
                                          ? std::max(desc.tone_mapping.exposure, 0.0f)
                                          : 1.0f;

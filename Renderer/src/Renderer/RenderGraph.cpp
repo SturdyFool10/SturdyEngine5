@@ -17,6 +17,9 @@ namespace SFT::Renderer {
             PassUsage usage;
             for (const RenderGraphColorAttachmentDesc &attachment : pass.color_attachments_) {
                 usage.writes.push_back(attachment.texture);
+                if (attachment.load_op == RHI::LoadOp::Load) {
+                    usage.reads.push_back(attachment.texture);
+                }
                 if (attachment.resolve_texture) {
                     usage.writes.push_back(attachment.resolve_texture);
                 }
@@ -196,6 +199,8 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .format = desc.format,
                 .extent = desc.extent,
                 .mip_levels = std::max(desc.mip_levels, 1u),
+                .samples = desc.samples,
+                .usage = desc.usage,
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
@@ -226,6 +231,8 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .format = desc.format,
                 .extent = desc.extent,
                 .mip_levels = std::max(desc.mip_levels, 1u),
+                .samples = desc.samples,
+                .usage = desc.usage,
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
@@ -305,7 +312,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 //    intentional in several existing passes (presentation + overlay, bloom mip updates) and are
 //    never rejected — only an uninitialized *read* is a compile error.
 // 2. Liveness: backward-reachability flood fill starting from every pass that writes a texture the
-//    caller explicitly marked as a graph output, or that declared a side effect (`always_live`; passes
+//    caller explicitly marked as a liveness output, or that declared a side effect (`always_live`; passes
 //    with no tracked attachment/storage output retain the conservative side-effect fallback). Importing
 //    a texture is not itself a liveness root: cached/history resources can be imported speculatively and
 //    their unused branches still culled. A pass reachable from a root through `depends_on` is live too.
@@ -398,6 +405,27 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 }
                 return std::nullopt;
             };
+            for (const RenderGraphCopyDesc &copy : copy_passes_) {
+                const TextureRecord *source = texture_record(copy.source);
+                const TextureRecord *destination = texture_record(copy.destination);
+                const bool distinct_backing = source != nullptr && destination != nullptr && copy.source != copy.destination &&
+                    (source->is_transient || destination->is_transient ||
+                     source->imported.texture != destination->imported.texture);
+                const bool compatible = distinct_backing && source->format == destination->format &&
+                    source->extent.width == destination->extent.width &&
+                    source->extent.height == destination->extent.height && source->extent.depth_or_layers == 1 &&
+                    destination->extent.depth_or_layers == 1 && source->mip_levels == 1 && destination->mip_levels == 1 &&
+                    source->samples == destination->samples &&
+                    (source->usage & RHI::TextureUsage::TransferSrc) != RHI::TextureUsage::None &&
+                    (destination->usage & RHI::TextureUsage::TransferDst) != RHI::TextureUsage::None;
+                if (!compatible) {
+                    return std::unexpected(RenderGraphCompileError{
+                        .code = RenderGraphCompileErrorCode::IncompatibleTextureCopy,
+                        .message = "Render graph exact-copy pass requires distinct single-mip/single-layer textures with identical format, extent, and sample count plus TransferSrc/TransferDst usage.",
+                    });
+                }
+            }
+
             for (const RenderGraphRenderPassBuilder &pass : render_passes_) {
                 for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
                     if (auto error = validate_buffer_access(access)) {
@@ -1173,11 +1201,14 @@ void RenderGraph::reset() noexcept {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Render graph color attachment references an unknown texture.");
                 }
+                const RHI::AccessFlags attachment_access = attachment.load_op == RHI::LoadOp::Load
+                    ? RHI::AccessFlags::ColorAttachmentRead | RHI::AccessFlags::ColorAttachmentWrite
+                    : RHI::AccessFlags::ColorAttachmentWrite;
                 Core::RendererResult transition = transition_texture(encoder,
                                                                      attachment.texture,
                                                                      RHI::TextureLayout::ColorAttachment,
                                                                      RHI::PipelineStage::ColorAttachmentOutput,
-                                                                     RHI::AccessFlags::ColorAttachmentWrite,
+                                                                     attachment_access,
                                                                      attachment.subresources);
                 if (!transition.has_value()) {
                     return transition;

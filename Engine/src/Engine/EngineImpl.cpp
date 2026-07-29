@@ -398,28 +398,128 @@ namespace SFT::Engine {
         const bool has_tone_mapping = path_contains(RenderGraphPassKind::ToneMapping);
         const bool has_debug_overlay = path_contains(RenderGraphPassKind::DebugOverlay);
 
-        std::vector<RendererApi::CustomPostProcessEffect> custom_effects;
-        bool passed_bloom_module = false;
+        const auto logical = [](RenderGraphTextureHandle handle) {
+            return handle ? RendererApi::LogicalRenderGraphTexture{.index = handle.index}
+                          : RendererApi::LogicalRenderGraphTexture{};
+        };
+        enum class TextureDomain : u8 { Unknown, BeforeBloom, AfterBloom, Display };
+        std::vector<TextureDomain> domains(executable_graph.textures().size(), TextureDomain::Unknown);
+        std::vector<bool> live_pass(executable_graph.passes().size(), false);
+        std::vector<bool> presentation_pass(executable_graph.passes().size(), false);
+        for (RenderGraphPassHandle handle : presentation_path) {
+            if (handle.index < presentation_pass.size()) {
+                presentation_pass[handle.index] = true;
+            }
+        }
+        for (RenderGraphPassHandle handle : executable_graph.execution_passes()) {
+            if (handle.index < live_pass.size()) {
+                live_pass[handle.index] = true;
+            }
+        }
+
+        RendererApi::CustomGraphProgram custom_graph{
+            .texture_count = static_cast<u32>(executable_graph.textures().size()),
+        };
+        for (const RenderGraphPassDescription &pass : executable_graph.passes()) {
+            const TextureDomain input_domain = pass.input && pass.input.index < domains.size()
+                ? domains[pass.input.index]
+                : TextureDomain::Unknown;
+            TextureDomain output_domain = input_domain;
+            switch (pass.kind) {
+                case RenderGraphPassKind::DeferredScene:
+                case RenderGraphPassKind::AntiAliasing:
+                    output_domain = TextureDomain::BeforeBloom;
+                    break;
+                case RenderGraphPassKind::Bloom:
+                    output_domain = TextureDomain::AfterBloom;
+                    break;
+                case RenderGraphPassKind::ToneMapping:
+                case RenderGraphPassKind::DebugOverlay:
+                    output_domain = TextureDomain::Display;
+                    break;
+                case RenderGraphPassKind::FullscreenEffect:
+                case RenderGraphPassKind::ComputeEffect:
+                case RenderGraphPassKind::Copy:
+                case RenderGraphPassKind::Present:
+                    break;
+            }
+            if (pass.output && pass.output.index < domains.size()) {
+                domains[pass.output.index] = output_domain;
+            }
+
+            if (pass.handle.index < presentation_pass.size() && presentation_pass[pass.handle.index]) {
+                if (pass.kind == RenderGraphPassKind::DeferredScene) {
+                    custom_graph.deferred_scene_output = logical(pass.output);
+                } else if (pass.kind == RenderGraphPassKind::AntiAliasing) {
+                    custom_graph.anti_aliasing_output = logical(pass.output);
+                } else if (pass.kind == RenderGraphPassKind::Bloom) {
+                    custom_graph.bloom_output = logical(pass.output);
+                }
+            }
+
+            if (pass.handle.index >= live_pass.size() || !live_pass[pass.handle.index]) {
+                continue;
+            }
+            const RendererApi::PostProcessStage stage = input_domain == TextureDomain::AfterBloom
+                ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
+                : RendererApi::PostProcessStage::BeforeBloom;
+            if (pass.kind == RenderGraphPassKind::FullscreenEffect) {
+                custom_graph.passes.push_back(RendererApi::CustomGraphPass{
+                    .kind = RendererApi::CustomGraphPassKind::RasterEffect,
+                    .stage = stage,
+                    .input = logical(pass.input),
+                    .output = logical(pass.output),
+                    .raster = RendererApi::CustomPostProcessEffect{
+                        .shader_path = pass.fullscreen_effect.shader_path.string(),
+                        .module_name = pass.fullscreen_effect.module_name,
+                        .fragment_entry_point = pass.fullscreen_effect.fragment_entry_point,
+                        .push_constants = pass.fullscreen_effect.push_constants,
+                        .label = pass.fullscreen_effect.label,
+                        .stage = stage,
+                    },
+                    .label = pass.label,
+                });
+            } else if (pass.kind == RenderGraphPassKind::ComputeEffect) {
+                custom_graph.passes.push_back(RendererApi::CustomGraphPass{
+                    .kind = RendererApi::CustomGraphPassKind::ComputeEffect,
+                    .stage = stage,
+                    .input = logical(pass.input),
+                    .output = logical(pass.output),
+                    .compute = RendererApi::CustomComputeEffect{
+                        .shader_path = pass.compute_effect.shader_path.string(),
+                        .module_name = pass.compute_effect.module_name,
+                        .compute_entry_point = pass.compute_effect.compute_entry_point,
+                        .push_constants = pass.compute_effect.push_constants,
+                        .label = pass.compute_effect.label,
+                    },
+                    .label = pass.label,
+                });
+            } else if (pass.kind == RenderGraphPassKind::Copy) {
+                custom_graph.passes.push_back(RendererApi::CustomGraphPass{
+                    .kind = RendererApi::CustomGraphPassKind::Copy,
+                    .stage = stage,
+                    .input = logical(pass.input),
+                    .output = logical(pass.output),
+                    .label = pass.copy.label,
+                });
+            }
+        }
+        for (RenderGraphTextureHandle output : executable_graph.outputs()) {
+            custom_graph.outputs.push_back(logical(output));
+        }
         for (RenderGraphPassHandle handle : presentation_path) {
             const RenderGraphPassDescription &pass = executable_graph.passes()[handle.index];
             if (pass.kind == RenderGraphPassKind::Bloom) {
-                passed_bloom_module = true;
-                continue;
+                custom_graph.before_bloom_presentation_output = logical(pass.input);
+            } else if (pass.kind == RenderGraphPassKind::ToneMapping) {
+                if (!custom_graph.before_bloom_presentation_output) {
+                    custom_graph.before_bloom_presentation_output = logical(pass.input);
+                }
+                custom_graph.after_bloom_presentation_output = logical(pass.input);
             }
-            if (pass.kind != RenderGraphPassKind::FullscreenEffect) {
-                continue;
-            }
-            custom_effects.push_back(RendererApi::CustomPostProcessEffect{
-                .shader_path = pass.fullscreen_effect.shader_path.string(),
-                .module_name = pass.fullscreen_effect.module_name,
-                .fragment_entry_point = pass.fullscreen_effect.fragment_entry_point,
-                .push_constants = pass.fullscreen_effect.push_constants,
-                .label = pass.fullscreen_effect.label,
-                .stage = passed_bloom_module
-                             ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
-                             : RendererApi::PostProcessStage::BeforeBloom,
-            });
         }
+
+        std::vector<RendererApi::CustomPostProcessEffect> custom_effects;
 
         RendererApi::RenderFrameDesc desc{};
         desc.surface = frame.surface;
@@ -464,6 +564,7 @@ namespace SFT::Engine {
             .bloom_soft_knee = graph.bloom.soft_knee,
             .bloom_intensity = graph.bloom.intensity,
             .bloom_scatter = graph.bloom.scatter,
+            .bloom_downsample_ratio = graph.bloom.downsample_ratio,
             .bloom_max_levels = graph.bloom.max_levels,
             .tone_mapping_operator = lower_tone_mapping(graph.tone_mapping.operation),
             .tone_mapping_exposure = graph.tone_mapping.exposure,
@@ -487,6 +588,7 @@ namespace SFT::Engine {
             .psychov_adapted_gray_bt709 = graph.tone_mapping.psycho_v.adapted_gray_bt709,
             .psychov_background_gray_bt709 = graph.tone_mapping.psycho_v.background_gray_bt709,
             .custom_post_processes = std::move(custom_effects),
+            .custom_graph = std::move(custom_graph),
             .ui_overlay = frame.ui_overlay,
         };
         desc.view.visibility_mask = frame.visibility_mask;

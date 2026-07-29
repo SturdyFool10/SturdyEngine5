@@ -154,16 +154,22 @@ namespace SFT::Engine {
         f32 edge_threshold = 0.125f;
     };
 
-    // Mip-pyramid bloom based on the downsample/upsample approach popularized by the
+    // Fractional-resolution pyramid bloom based on the downsample/upsample approach popularized by the
     // Call of Duty: Advanced Warfare post-processing presentation. Bright pixels are
     // soft-thresholded into a progressively filtered pyramid, then accumulated back upward.
     struct BloomSettings {
         bool enabled = true;
-        f32 threshold = 1.0f; // Scene-linear brightness where bloom begins.
-        f32 soft_knee = 0.5f; // [0, 1]: smooth transition below threshold.
-        f32 intensity = 0.08f;
-        f32 scatter = 0.7f;   // [0, 1]: contribution from each wider pyramid level.
-        u32 max_levels = 6;   // [1, 10], additionally limited by render resolution.
+        // Jimenez-style physical mode defaults to no threshold and a low energy-preserving mix.
+        // Set threshold above zero to opt into the conventional artistic additive bright-pass mode.
+        f32 threshold = 0.0f;
+        f32 soft_knee = 0.5f; // [0, 1]: smooth transition below a positive threshold.
+        f32 intensity = 0.04f;
+        f32 scatter = 0.7f;   // [0, 1]: coarse-vs-fine reconstruction interpolation.
+        // Irrational by default so successive level grids do not repeatedly align. Valid [1.25, 2.0].
+        f32 downsample_ratio = 1.61803398875f;
+        // Fractional golden-ratio reductions need more stages than power-of-two mips to cover a similar
+        // radius. Renderer stops before either axis falls below four texels.
+        u32 max_levels = 12;  // [1, 12], additionally limited by render resolution.
     };
 
     struct ToneMappingSettings {
@@ -220,6 +226,8 @@ namespace SFT::Engine {
         InvalidFeatureCombination,
         InvalidPassGraph,
         InvalidFullscreenEffect,
+        InvalidComputeEffect,
+        InvalidGraphOutput,
         UnsupportedPassOrder,
     };
 
@@ -276,6 +284,13 @@ namespace SFT::Engine {
         [[nodiscard]] std::vector<RenderGraphPassHandle> presentation_path() const;
         [[nodiscard]] bool presentation_contains_pass(RenderGraphPassKind kind) const;
 
+        // Explicit outputs keep non-presentation branches executable for GPU-side work. They do not
+        // export a persistent Engine texture or expose an RHI object; graph transients still retire with
+        // the frame. execution_passes() is the union of presentation and explicit-output ancestry.
+        void mark_output(RenderGraphTextureHandle texture);
+        [[nodiscard]] const std::vector<RenderGraphTextureHandle> &outputs() const noexcept;
+        [[nodiscard]] std::vector<RenderGraphPassHandle> execution_passes() const;
+
         // Modules are ordinary CPU objects whose build() method appends declarative resources/passes.
         // No callback is retained or invoked by render workers; the resulting graph remains plain data.
         template <typename Module>
@@ -290,6 +305,12 @@ namespace SFT::Engine {
         [[nodiscard]] RenderGraphTextureHandle add_fullscreen_effect(
             RenderGraphTextureHandle input,
             const FullscreenEffectDescription &effect);
+        [[nodiscard]] RenderGraphTextureHandle add_compute_effect(
+            RenderGraphTextureHandle input,
+            const ComputeEffectDescription &effect);
+        [[nodiscard]] RenderGraphTextureHandle add_copy(
+            RenderGraphTextureHandle input,
+            const CopyDescription &copy);
 
         [[nodiscard]] bool enabled(RenderFeature feature) const noexcept;
         RenderGraph &set_enabled(RenderFeature feature, bool enabled) noexcept;
@@ -348,6 +369,9 @@ namespace SFT::Engine {
         friend struct RenderModules::AntiAliasing;
         friend struct RenderModules::Bloom;
         friend struct RenderModules::FullscreenEffect;
+        friend struct RenderModules::RasterEffect;
+        friend struct RenderModules::ComputeEffect;
+        friend struct RenderModules::Copy;
         friend struct RenderModules::ToneMapping;
         friend struct RenderModules::DebugOverlay;
         friend struct RenderModules::Present;
@@ -367,6 +391,7 @@ namespace SFT::Engine {
         u32 generation_ = 0;
         std::vector<RenderGraphTextureDescription> textures_;
         std::vector<RenderGraphPassDescription> passes_;
+        std::vector<RenderGraphTextureHandle> outputs_;
         RenderGraphTextureHandle presented_texture_{};
     };
 

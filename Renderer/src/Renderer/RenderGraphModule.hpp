@@ -91,8 +91,8 @@ namespace SFT::Renderer {
             static constexpr std::string_view name = "sturdy.render.presentation-target";
         };
 
-        // Optional full-resolution allocation whose earlier contents are dead and which may therefore
-        // be reused as SRAA's output instead of allocating another HDR image.
+        // Optional full-resolution HDR allocation whose earlier contents are dead. AA modules reuse it
+        // as a distinct destination whenever it is not already the current SceneHdrColor.
         struct ReusableSceneHdrScratch {
             static constexpr std::string_view name = "sturdy.render.reusable-scene-hdr-scratch";
         };

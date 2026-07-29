@@ -245,6 +245,7 @@ namespace SFT::Renderer {
         destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
         destroy_custom_post_process_resources();
+        destroy_custom_compute_effect_resources();
         destroy_atmosphere_lut_resources();
 
         // Not per-window-surface/per-FrameInFlight-slot like the targets destroyed above — see

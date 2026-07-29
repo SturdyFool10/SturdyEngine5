@@ -183,6 +183,78 @@ namespace {
         return passed;
     }
 
+    bool compute_copy_branches_and_copy_compatibility_are_validated() {
+        using namespace SFT::Renderer;
+
+        const auto build_branch = [](bool mark_output) {
+            RenderGraph graph;
+            const RenderGraphTextureHandle source = graph.import_texture(RenderGraphImportedTextureDesc{
+                .format = SFT::RHI::Format::RGBA16Float,
+                .extent = SFT::RHI::Extent3D{.width = 64, .height = 64, .depth_or_layers = 1},
+                .label = "compute-copy source",
+            });
+            const RenderGraphTextureHandle computed = graph.create_texture(RenderGraphTextureDesc{
+                .format = SFT::RHI::Format::RGBA16Float,
+                .extent = SFT::RHI::Extent3D{.width = 64, .height = 64, .depth_or_layers = 1},
+                .usage = SFT::RHI::TextureUsage::Storage | SFT::RHI::TextureUsage::Sampled |
+                         SFT::RHI::TextureUsage::TransferSrc,
+                .label = "compute output",
+            });
+            const RenderGraphTextureHandle copied = graph.create_texture(RenderGraphTextureDesc{
+                .format = SFT::RHI::Format::RGBA16Float,
+                .extent = SFT::RHI::Extent3D{.width = 64, .height = 64, .depth_or_layers = 1},
+                .usage = SFT::RHI::TextureUsage::TransferDst | SFT::RHI::TextureUsage::Sampled,
+                .label = "copy output",
+            });
+            graph.add_compute_pass("custom compute")
+                .add_sampled_texture(source)
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{
+                    .texture = computed,
+                    .read = false,
+                    .write = true,
+                });
+            graph.add_copy_pass(RenderGraphCopyDesc{
+                .source = computed,
+                .destination = copied,
+                .label = "custom exact copy",
+            });
+            if (mark_output) {
+                graph.mark_output(copied);
+            }
+            return graph.compile();
+        };
+
+        const RenderGraph::CompileResult dead = build_branch(false);
+        bool passed = check(dead.has_value() && dead->order.empty(),
+                            "unmarked compute-copy branch was not culled");
+        const RenderGraph::CompileResult live = build_branch(true);
+        passed &= check(live.has_value() && live->order.size() == 2 &&
+                        live->order[0].kind == RenderGraph::PassKind::Compute &&
+                        live->order[1].kind == RenderGraph::PassKind::Copy,
+                        "marked compute-copy branch did not retain both passes in dependency order");
+
+        RenderGraph incompatible;
+        const RenderGraphTextureHandle source = incompatible.import_texture(RenderGraphImportedTextureDesc{
+            .format = SFT::RHI::Format::RGBA16Float,
+            .extent = SFT::RHI::Extent3D{.width = 64, .height = 64, .depth_or_layers = 1},
+            .usage = SFT::RHI::TextureUsage::TransferSrc,
+            .label = "incompatible copy source",
+        });
+        const RenderGraphTextureHandle destination = incompatible.create_texture(RenderGraphTextureDesc{
+            .format = SFT::RHI::Format::RGBA16Float,
+            .extent = SFT::RHI::Extent3D{.width = 32, .height = 64, .depth_or_layers = 1},
+            .usage = SFT::RHI::TextureUsage::TransferDst,
+            .label = "incompatible copy destination",
+        });
+        incompatible.add_copy_pass(RenderGraphCopyDesc{.source = source, .destination = destination});
+        incompatible.mark_output(destination);
+        const RenderGraph::CompileResult rejected = incompatible.compile();
+        passed &= check(!rejected.has_value() &&
+                        rejected.error().code == RenderGraphCompileErrorCode::IncompatibleTextureCopy,
+                        "exact copy accepted mismatched texture extents");
+        return passed;
+    }
+
     bool transient_chain_contributes_to_compile_levels() {
         using namespace SFT::Renderer;
 
@@ -232,6 +304,7 @@ int main() {
                         explicit_outputs_control_liveness() &&
                         invalid_buffer_ranges_and_access_intent_are_rejected() &&
                         imported_buffers_drive_dependencies_and_liveness() &&
+                        compute_copy_branches_and_copy_compatibility_are_validated() &&
                         transient_chain_contributes_to_compile_levels();
     return passed ? 0 : 1;
 }

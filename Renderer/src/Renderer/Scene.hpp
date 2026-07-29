@@ -107,7 +107,48 @@ namespace SFT::Renderer {
         PostProcessStage stage = PostProcessStage::BeforeBloom;
     };
 
+    struct LogicalRenderGraphTexture {
+        u32 index = ~0u;
+        [[nodiscard]] explicit constexpr operator bool() const noexcept { return index != ~0u; }
+        friend constexpr bool operator==(LogicalRenderGraphTexture, LogicalRenderGraphTexture) noexcept = default;
+    };
 
+    enum class CustomGraphPassKind : u8 {
+        RasterEffect,
+        ComputeEffect,
+        Copy,
+    };
+
+    struct CustomComputeEffect {
+        std::string shader_path;
+        std::string module_name;
+        std::string compute_entry_point = "computeMain";
+        std::vector<std::byte> push_constants;
+        UString label;
+    };
+
+    struct CustomGraphPass {
+        CustomGraphPassKind kind = CustomGraphPassKind::RasterEffect;
+        PostProcessStage stage = PostProcessStage::BeforeBloom;
+        LogicalRenderGraphTexture input{};
+        LogicalRenderGraphTexture output{};
+        CustomPostProcessEffect raster{};
+        CustomComputeEffect compute{};
+        UString label;
+    };
+
+    // Submission-local logical program. Engine generations have already been validated, so compact
+    // texture indices are sufficient here; RendererLifecycle maps them to concrete low-level handles.
+    struct CustomGraphProgram {
+        u32 texture_count = 0;
+        std::vector<CustomGraphPass> passes;
+        std::vector<LogicalRenderGraphTexture> outputs;
+        LogicalRenderGraphTexture deferred_scene_output{};
+        LogicalRenderGraphTexture anti_aliasing_output{};
+        LogicalRenderGraphTexture bloom_output{};
+        LogicalRenderGraphTexture before_bloom_presentation_output{};
+        LogicalRenderGraphTexture after_bloom_presentation_output{};
+    };
 
     // Optional final overlay hook, run as the very last pass before present — after tone mapping
     // and the debug text overlay, straight onto the swapchain target (Load/Store, no depth). This
@@ -170,11 +211,12 @@ namespace SFT::Renderer {
         u32 post_process_aa = 1; // 0 none, 1 FXAA, 2 conservative morphological.
         f32 aa_subpixel_quality = 0.75f;
         f32 aa_edge_threshold = 0.125f;
-        f32 bloom_threshold = 1.0f;
+        f32 bloom_threshold = 0.0f;
         f32 bloom_soft_knee = 0.5f;
-        f32 bloom_intensity = 0.08f;
+        f32 bloom_intensity = 0.04f;
         f32 bloom_scatter = 0.7f;
-        u32 bloom_max_levels = 6;
+        f32 bloom_downsample_ratio = 1.61803398875f;
+        u32 bloom_max_levels = 12;
         ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Agx;
         f32 tone_mapping_exposure = 1.0f;
         f32 tone_mapping_white_point = 1.0f;
@@ -207,6 +249,7 @@ namespace SFT::Renderer {
         glm::vec3 psychov_adapted_gray_bt709{0.18f};
         glm::vec3 psychov_background_gray_bt709{0.18f};
         std::vector<CustomPostProcessEffect> custom_post_processes;
+        CustomGraphProgram custom_graph;
         UiOverlayHooks ui_overlay;
     };
 

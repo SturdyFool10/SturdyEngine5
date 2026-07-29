@@ -42,6 +42,18 @@ namespace SFT::Engine::RenderModules {
         return graph.add_fullscreen_effect(input, effect);
     }
 
+    RenderGraphTextureHandle RasterEffect::build(RenderGraph &graph) const {
+        return graph.add_fullscreen_effect(input, effect);
+    }
+
+    RenderGraphTextureHandle ComputeEffect::build(RenderGraph &graph) const {
+        return graph.add_compute_effect(input, effect);
+    }
+
+    RenderGraphTextureHandle Copy::build(RenderGraph &graph) const {
+        return graph.add_copy(input, copy);
+    }
+
     RenderGraphTextureHandle ToneMapping::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::ToneMapping,

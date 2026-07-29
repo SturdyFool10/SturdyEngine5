@@ -346,12 +346,15 @@ namespace SFT::Renderer {
             RHI::BufferHandle constants_buffer{};
         };
 
+        // Fractionally-scaled bloom levels cannot use hardware mips (which are fixed at powers of two),
+        // so each level owns one independently-sized image. The total RG11B10 footprint remains bounded
+        // by a geometric series and each per-frame slot reuses these allocations until extent/settings change.
         struct FrameBloomTargets {
             Core::Extent2D source_extent{};
             u32 requested_levels = 0;
-            RHI::TextureViewHandle scene_source_view{};
+            f32 downsample_ratio = 1.61803398875f;
             vector<Core::Extent2D> extents;
-            RHI::TextureHandle texture{};
+            vector<RHI::TextureHandle> textures;
             vector<RHI::TextureViewHandle> views;
             vector<RHI::BindGroupHandle> downsample_bind_groups;
             vector<RHI::BindGroupHandle> upsample_bind_groups;
@@ -806,7 +809,7 @@ namespace SFT::Renderer {
             bool ready = false;
         };
 
-        // GPU state for the explicit bloom-composite pass (scene HDR + resolved bloom mip chain -> one
+        // GPU state for the explicit bloom-composite pass (scene HDR + reconstructed bloom pyramid -> one
         // scene-linear HDR result). Two sampled textures + one sampler in a single reflected bind
         // group, one render pipeline per color format — same shape as TonemapResources used to have
         // before bloom compositing moved out of the tonemap shader into its own pass.
@@ -843,9 +846,25 @@ namespace SFT::Renderer {
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::SamplerHandle sampler{};
             RHI::RenderPipelineHandle pipeline{};
-            u32 set = 0;
             u32 image_binding = 0;
             u32 sampler_binding = 0;
+            u32 push_constant_size = 0;
+        };
+
+        struct CustomComputeEffectResources {
+            std::string shader_path;
+            std::string module_name;
+            std::string compute_entry_point;
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            RHI::ComputePipelineHandle pipeline{};
+            u32 source_binding = 0;
+            u32 sampler_binding = 0;
+            u32 output_binding = 0;
+            u32 push_constant_size = 0;
         };
 
         struct SceneFrameGpuResources {
@@ -970,7 +989,8 @@ namespace SFT::Renderer {
                                                                  Core::Extent2D render_extent);
         [[nodiscard]] Core::RendererResult ensure_frame_bloom_targets(FrameInFlight &slot,
                                                                       Core::Extent2D extent,
-                                                                      u32 requested_levels);
+                                                                      u32 requested_levels,
+                                                                      f32 downsample_ratio);
         void destroy_frame_bloom_targets(FrameInFlight &slot) noexcept;
         [[nodiscard]] Core::RendererResult ensure_frame_composite_target(FrameInFlight &slot,
                                                                          Core::Extent2D extent,
@@ -1289,10 +1309,14 @@ namespace SFT::Renderer {
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
             RHI::SampleCount samples);
-        [[nodiscard]] Core::RendererResult build_custom_post_process_modules(
+        [[nodiscard]] Core::RendererResult build_post_process_aa_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission);
+        [[nodiscard]] Core::RendererResult build_custom_graph_stage(
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
-            PostProcessStage stage);
+            PostProcessStage stage,
+            span<RenderGraphTextureHandle> logical_textures);
         [[nodiscard]] Core::RendererResult build_bloom_module(
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
@@ -1330,12 +1354,14 @@ namespace SFT::Renderer {
                                                               RHI::TextureViewHandle source_view,
                                                               glm::vec2 source_texel_size,
                                                               f32 threshold, f32 soft_knee, f32 scatter,
+                                                              glm::vec2 filter_scale,
                                                               bool prefilter, bool upsample,
                                                               RHI::BindGroupHandle bind_group);
         [[nodiscard]] Core::RendererResult record_bloom_downsample(RHI::RenderPassEncoder &pass,
                                                                     RHI::TextureViewHandle source_view,
                                                                     glm::vec2 source_texel_size,
                                                                     const RenderGraphSettings &settings,
+                                                                    glm::vec2 filter_scale,
                                                                     bool apply_threshold,
                                                                     RHI::BindGroupHandle bind_group);
         [[nodiscard]] Core::RendererResult record_bloom_upsample(RHI::RenderPassEncoder &pass,
@@ -1349,12 +1375,12 @@ namespace SFT::Renderer {
         // Mints a one-off (source texture + bloom sampler) bind group against bloom_'s cached sampled
         // layout. Used for bloom's level-0 downsample, whose source is the (possibly custom-effect-
         // produced, therefore per-frame-transient) BeforeBloom result rather than a stable persistent
-        // view — so unlike every other bloom mip's bind group, it cannot be cached in FrameBloomTargets
+        // view — so unlike every other bloom level's bind group, it cannot be cached in FrameBloomTargets
         // and must be created fresh per frame and retired with that frame (transient_bind_groups).
         [[nodiscard]] Core::RendererExpected<RHI::BindGroupHandle> create_bloom_source_bind_group(
             RHI::TextureViewHandle source_view);
 
-        // Explicit HDR bloom composite: scene HDR + resolved bloom mip chain -> one scene-linear HDR
+        // Explicit HDR bloom composite: scene HDR + reconstructed bloom pyramid -> one scene-linear HDR
         // result, so AfterBloomBeforeToneMap custom effects and tonemapping both see a single plain
         // texture instead of bloom being folded into the tonemap shader.
         [[nodiscard]] Core::RendererResult ensure_bloom_composite_resources();
@@ -1364,6 +1390,7 @@ namespace SFT::Renderer {
                                                                    RHI::TextureViewHandle bloom_view,
                                                                    RHI::Format color_format,
                                                                    f32 bloom_intensity,
+                                                                   bool threshold_enabled,
                                                                    vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_bloom_composite_resources() noexcept;
         void destroy_bloom_composite_resources_locked(BloomCompositeResources &resources) noexcept;
@@ -1376,6 +1403,26 @@ namespace SFT::Renderer {
                                                                       const CustomPostProcessEffect &effect,
                                                                       vector<RHI::BindGroupHandle> &transient_bind_groups);
         void destroy_custom_post_process_resources() noexcept;
+
+        [[nodiscard]] Core::RendererResult ensure_post_process_aa_resources(
+            const RenderGraphSettings &settings,
+            RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_post_process_aa(
+            RHI::RenderPassEncoder &pass,
+            RHI::TextureViewHandle source_view,
+            RHI::Format color_format,
+            const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        [[nodiscard]] Core::RendererResult ensure_custom_compute_effect(const CustomComputeEffect &effect);
+        [[nodiscard]] Core::RendererResult record_custom_compute_effect(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle source_view,
+            RHI::TextureViewHandle output_view,
+            Core::Extent2D extent,
+            const CustomComputeEffect &effect,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_custom_compute_effect_resources() noexcept;
 
         // Lazily compiles Shaders/fullscreen_tonemap.slang and builds its reflection-derived layouts +
         // sampler (once). Builds/caches the render pipeline for one swapchain color format. Records the
@@ -1503,6 +1550,7 @@ namespace SFT::Renderer {
         // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
         Async::Mutex<std::unordered_map<u64, vector<DepthOnlyPipelineVariant>>> depth_only_pipeline_variants_;
         Async::Mutex<vector<CustomPostProcessResources>> custom_post_process_resources_;
+        Async::Mutex<vector<CustomComputeEffectResources>> custom_compute_effect_resources_;
         Async::Mutex<InstanceCullResources> instance_cull_;
         // instanced_pipeline_for()'s per-template cache, same rationale/shape as
         // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).
