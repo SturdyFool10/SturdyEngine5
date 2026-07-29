@@ -8,6 +8,7 @@
 #include "AssetManager.hpp"
 #include "GltfImport.hpp"
 #include "Camera.hpp"
+#include "RenderTarget.hpp"
 #include "RenderGraph.hpp"
 #include "EngineModule.hpp"
 #include "Application.hpp"

@@ -276,6 +276,8 @@ namespace SFT::Engine {
         [[nodiscard]] const std::vector<RenderGraphTextureDescription> &textures() const noexcept;
         [[nodiscard]] const std::vector<RenderGraphPassDescription> &passes() const noexcept;
         [[nodiscard]] RenderGraphTextureHandle presented_texture() const noexcept;
+        // Stable destination selected by the unique Present node. Invalid means the frame's surface.
+        [[nodiscard]] RenderTargetHandle selected_render_target() const noexcept;
         [[nodiscard]] bool contains_pass(RenderGraphPassKind kind) const noexcept;
 
         // Producer ancestry of the texture consumed by Present, in execution order and including the
@@ -382,7 +384,8 @@ namespace SFT::Engine {
             RenderGraphTextureHandle input,
             RenderGraphTextureDescription output,
             UString label);
-        [[nodiscard]] RenderGraphPassHandle add_present_pass(RenderGraphTextureHandle input);
+        [[nodiscard]] RenderGraphPassHandle add_present_pass(
+            RenderGraphTextureHandle input, RenderTargetHandle target);
         void build_standard_topology();
         void rebase_handles() noexcept;
         [[nodiscard]] RenderGraphResult validate_topology() const noexcept;

@@ -69,6 +69,26 @@ namespace SFT::RHI {
         HdrMetadataConfidence confidence = HdrMetadataConfidence::Unknown;
     };
 
+    // A "poor man's HDR10+" content-light-level refresh: HDR10+'s actual defining feature is dynamic
+    // metadata standardized in SMPTE ST 2094-40, delivered per-scene/per-frame — Vulkan's
+    // VK_EXT_hdr_metadata only exposes the *static* ST 2086 mastering-display metadata
+    // vkSetHdrMetadataEXT sets once, and there is no portable Vulkan API for real ST 2094-40 delivery
+    // (it isn't part of the Vulkan spec at all). This lets a caller re-call vkSetHdrMetadataEXT on an
+    // already-live swapchain — legal per spec, no swapchain recreation needed — with updated
+    // content-light-level numbers for the current scene, reusing the display's real mastering
+    // primaries/white-point/luminance range captured at swapchain-creation time. It is NOT SMPTE ST
+    // 2094-40 and will not be recognized as "HDR10+" by any receiver/certification test — it is only
+    // ever as good as whatever `RhiDevice::update_hdr_content_light_level()`'s caller supplies (this
+    // engine does not compute scene luminance statistics itself). Only meaningful for a swapchain
+    // created with ColorSpace::Hdr10St2084 — HLG carries no metadata by design and scRGB/DolbyVision
+    // don't use this metadata path either (DolbyVision's real dynamic metadata is an entirely
+    // different, proprietary format this can't produce — see ColorSpace::DolbyVision's own doc
+    // comment).
+    struct HdrContentLightLevelUpdate {
+        f32 max_content_light_level_nits = 0.0f;       // MaxCLL for the current scene/frame window.
+        f32 max_frame_average_light_level_nits = 0.0f; // MaxFALL for the current scene/frame window.
+    };
+
     struct HdrPresentationMode {
         HdrTransferFunction transfer = HdrTransferFunction::Unknown;
         HdrColorGamut gamut = HdrColorGamut::Unknown;

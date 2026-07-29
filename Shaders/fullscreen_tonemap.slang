@@ -10,10 +10,12 @@
 // have no headroom concept), while Hermite/PsychoV can exceed 1.0 up to a defined ceiling when
 // `hdrOutput` is set, since only those two are built around an explicit highlight-headroom target.
 // The final encode step below is what actually branches on SDR vs HDR: SDR saturates to [0,1] and
-// relies on the *Srgb swapchain format's automatic linear->sRGB encode on write; HDR scales by
-// paper-white nits and PQ-encodes explicitly, since Vulkan applies no equivalent fixed-function
-// curve for an HDR10/ST2084 swapchain (RendererLifecycle.cpp picks that format/color space whenever
-// PresentationSettings::hdr_enabled is set).
+// relies on the *Srgb swapchain format's automatic linear->sRGB encode on write. HDR scales by
+// paper-white nits and then either PQ-encodes explicitly (Hdr10St2084 — Vulkan applies no equivalent
+// fixed-function curve the way it does for an *Srgb format) or divides by scRGB's fixed 80-nit
+// reference white with no curve at all (ScrgbLinear — the OS/compositor tone-maps the linear float
+// target itself). RendererLifecycle.cpp picks the matching swapchain format/color space whenever
+// PresentationSettings::hdr_enabled is set, from hdr_color_space (Hdr10St2084 vs ScrgbLinear).
 
 import sturdy_common;
 import sturdy_tonemap_agx;
@@ -49,6 +51,12 @@ struct TonemapConstants {
     uint operation;
 
     uint hdrOutput;
+    // Only read when hdrOutput != 0 — 0 = Hdr10St2084 (PQ-encode), 1 = ScrgbLinear (no curve),
+    // 2 = Hdr10Hlg (HLG-encode), 3 = DolbyVision (best-effort: falls back to PQ-encode, same as
+    // Hdr10St2084 — see RHI::ColorSpace::DolbyVision's own doc comment for why). Must stay
+    // numerically in sync with RendererPostProcess.cpp's TonemapConstants and
+    // Core::HdrColorSpaceMode's enumerator order (Core/Renderer.hpp).
+    uint hdrColorSpace;
     float hdrPaperWhiteNits;
     float hdrPeakNits;
 
@@ -124,7 +132,17 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     mapped = lerp(float3(gray), mapped, tonemap.saturation);
 
     if (tonemap.hdrOutput != 0u) {
-        return float4(pqEncode(max(mapped, 0.0) * tonemap.hdrPaperWhiteNits), 1.0);
+        float3 nits = max(mapped, 0.0) * tonemap.hdrPaperWhiteNits;
+        float3 encoded;
+        if (tonemap.hdrColorSpace == 1u) { // ScrgbLinear
+            encoded = scrgbEncode(nits);
+        } else if (tonemap.hdrColorSpace == 2u) { // Hdr10Hlg
+            encoded = hlgEncode(nits);
+        } else { // Hdr10St2084, or DolbyVision falling back to the same PQ encode (best-effort — see
+                 // RHI::ColorSpace::DolbyVision's own doc comment).
+            encoded = pqEncode(nits);
+        }
+        return float4(encoded, 1.0);
     }
     return float4(saturate(mapped), 1.0);
 }

@@ -68,6 +68,7 @@ namespace SFT::Engine {
         }
         for (usize index = 0; index < passes_.size(); ++index) {
             RenderGraphPassDescription &pass = passes_[index];
+            // pass.target is a stable Renderer-owned identity, not a graph-local handle; do not rebase it.
             pass.handle = RenderGraphPassHandle{
                 .index = static_cast<u32>(index),
                 .generation = generation_,
@@ -127,6 +128,13 @@ namespace SFT::Engine {
     const std::vector<RenderGraphTextureDescription> &RenderGraph::textures() const noexcept { return textures_; }
     const std::vector<RenderGraphPassDescription> &RenderGraph::passes() const noexcept { return passes_; }
     RenderGraphTextureHandle RenderGraph::presented_texture() const noexcept { return presented_texture_; }
+
+    RenderTargetHandle RenderGraph::selected_render_target() const noexcept {
+        const auto present = std::ranges::find_if(passes_, [](const RenderGraphPassDescription &pass) {
+            return pass.kind == RenderGraphPassKind::Present;
+        });
+        return present != passes_.end() ? present->target : RenderTargetHandle{};
+    }
 
     bool RenderGraph::contains_pass(RenderGraphPassKind kind) const noexcept {
         return std::ranges::any_of(passes_, [kind](const RenderGraphPassDescription &pass) {
@@ -337,7 +345,8 @@ namespace SFT::Engine {
         return output;
     }
 
-    RenderGraphPassHandle RenderGraph::add_present_pass(RenderGraphTextureHandle input) {
+    RenderGraphPassHandle RenderGraph::add_present_pass(
+        RenderGraphTextureHandle input, RenderTargetHandle target) {
         const RenderGraphPassHandle pass_handle{
             .index = static_cast<u32>(passes_.size()),
             .generation = generation_,
@@ -346,6 +355,7 @@ namespace SFT::Engine {
             .handle = pass_handle,
             .kind = RenderGraphPassKind::Present,
             .input = input,
+            .target = target,
             .label = UString{"present"_ustr},
         });
         presented_texture_ = input;
@@ -814,6 +824,18 @@ namespace SFT::Engine {
     }
 
     RenderGraph RenderGraph::normalized() const noexcept {
+        RenderTargetHandle fallback_target{};
+        usize present_count = 0;
+        for (const RenderGraphPassDescription &pass : passes_) {
+            if (pass.kind == RenderGraphPassKind::Present) {
+                fallback_target = pass.target;
+                ++present_count;
+            }
+        }
+        if (present_count != 1) {
+            fallback_target = {};
+        }
+
         RenderGraph result = *this;
         RenderGraphDescription &desc = result.description_;
         desc.resolution_scale = std::isfinite(desc.resolution_scale)
@@ -902,7 +924,15 @@ namespace SFT::Engine {
         }
 
         if (!result.validate_topology()) {
-            return RenderGraph{desc};
+            RenderGraph fallback{desc};
+            const auto present = std::ranges::find_if(
+                fallback.passes_, [](const RenderGraphPassDescription &pass) {
+                    return pass.kind == RenderGraphPassKind::Present;
+                });
+            if (present != fallback.passes_.end()) {
+                present->target = fallback_target;
+            }
+            return fallback;
         }
         return result;
     }

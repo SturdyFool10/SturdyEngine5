@@ -13,6 +13,7 @@
 #include "EcsUi.hpp"
 #include "WindowState.hpp"
 #include "AssetManager.hpp"
+#include "RenderTarget.hpp"
 #include <Core/Core.hpp>
 #include <Ecs/src/System.hpp>
 #include <Ecs/src/World.hpp>
@@ -57,6 +58,21 @@ namespace SFT::Engine {
         // Destroys one window's backend-owned resources. Call when a window is closed.
         void remove_window(Core::RenderSurfaceHandle surface) noexcept;
 
+        // Persistent, absolute-size offscreen output owned by Renderer. The Engine handle remains a
+        // stable opaque identity across graph and prepared-frame copies; zero is never returned.
+        [[nodiscard]] Core::RendererExpected<RenderTargetHandle> create_offscreen_render_target(
+            const OffscreenRenderTargetDescription &description);
+        void destroy_offscreen_render_target(RenderTargetHandle target) noexcept;
+        // Query this before freezing camera projection or UI layout. In particular, pass width/height
+        // to Camera::set_viewport_size() and UiContext::begin_layout() for an off-screen frame.
+        [[nodiscard]] optional<OffscreenRenderTargetDescription> offscreen_render_target_description(
+            RenderTargetHandle target) const;
+
+        // Sampling bridge for materials/UI that consume Renderer texture handles. The returned handle
+        // is borrowed from the live offscreen target and becomes invalid when that target is destroyed.
+        [[nodiscard]] SFT::Renderer::TextureHandle offscreen_render_target_texture(
+            RenderTargetHandle target) const noexcept;
+
         // Pairs with Platform::Windowing::Window::recreate(): once the old window has been
         // destroyed and its replacement constructed, call this to retire the old window's
         // backend resources (which are keyed by its now-gone WindowId) and stand up fresh ones
@@ -79,6 +95,21 @@ namespace SFT::Engine {
         [[nodiscard]] Core::RendererExpected<Core::RuntimeSettingsChangeResult>
         apply_runtime_settings(Core::RenderSurfaceHandle primary_surface,
                                const EngineConfig &settings);
+
+        // Real HDR capability of whichever display `surface`'s window is currently on — peak/min
+        // nits, supported transfer functions (PQ/HLG/scRGB), gamut, platform-reported metadata when
+        // available. Call this before offering an HDR toggle in a settings UI: a multi-window app
+        // must query per-window, since two windows can be on two different displays with different
+        // (or no) HDR support — never assume one window's answer applies to another.
+        [[nodiscard]] RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> query_hdr_capabilities(
+            Core::RenderSurfaceHandle surface) const;
+
+        // See RHI::HdrContentLightLevelUpdate's own doc comment (RHI/HdrDisplay.hpp): a manual,
+        // caller-supplied per-scene HDR metadata refresh, not real HDR10+/ST 2094-40 (this engine
+        // doesn't analyze scene luminance itself). Returns Unsupported for a window not currently
+        // presenting Hdr10St2084.
+        [[nodiscard]] RHI::RhiResult update_hdr_content_light_level(
+            Core::RenderSurfaceHandle surface, const RHI::HdrContentLightLevelUpdate &update);
 
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 

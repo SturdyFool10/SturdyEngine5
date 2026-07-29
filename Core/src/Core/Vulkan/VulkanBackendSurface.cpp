@@ -39,6 +39,25 @@ using std::unexpected;
 
 namespace SFT::Core::Vulkan {
 
+    namespace {
+
+        // Core::SurfaceSystem has no separate Xlib/Xcb entry (Platform::Windowing::NativeWindowSystem
+        // doesn't distinguish them either — see WindowConfig.hpp) — SDL3/GLFW's X11 native handles are
+        // Xlib's (Display*, Window), matching what VulkanRhiDeviceBridge::create_surface's own Xlib
+        // branch expects, so X11 maps to RHI::WindowSystem::Xlib here, not Xcb.
+        [[nodiscard]] RHI::WindowSystem to_rhi_window_system(SurfaceSystem system) noexcept {
+            switch (system) {
+                case SurfaceSystem::Win32: return RHI::WindowSystem::Win32;
+                case SurfaceSystem::X11: return RHI::WindowSystem::Xlib;
+                case SurfaceSystem::Wayland: return RHI::WindowSystem::Wayland;
+                case SurfaceSystem::Cocoa: return RHI::WindowSystem::Cocoa;
+                case SurfaceSystem::Unknown: return RHI::WindowSystem::Unknown;
+            }
+            return RHI::WindowSystem::Unknown;
+        }
+
+    } // namespace
+
     VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) noexcept {
         if (!handle.is_valid()) {
             return nullptr;
@@ -215,7 +234,13 @@ namespace SFT::Core::Vulkan {
                                                   "Vulkan backend RHI device is not the Vulkan bridge."});
         }
 
-        auto imported = bridge->import_surface(surface->vk_handle());
+        const RenderSurfaceDescriptor &native_descriptor = surface->descriptor();
+        const RHI::SurfaceDesc rhi_surface_desc{
+            .system = to_rhi_window_system(native_descriptor.system),
+            .display = native_descriptor.display,
+            .window = native_descriptor.window,
+        };
+        auto imported = bridge->import_surface(surface->vk_handle(), rhi_surface_desc);
         if (!imported) {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
                                                   imported.error().message});

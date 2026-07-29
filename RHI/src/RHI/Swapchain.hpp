@@ -184,6 +184,47 @@ namespace SFT::RHI {
     enum class ColorSpace : u32 {
         SrgbNonlinear,
         Hdr10St2084,
+        // scRGB: linear light encoded directly in a float format (Format::RGBA16Float is the
+        // conventional pairing), 1.0 == the SDR reference white, values beyond 1.0 (and below 0.0,
+        // for out-of-gamut colors) are legal — no PQ/HLG curve, no fixed-function tonemap needed on
+        // the way out. Backed by VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT. Prefer this over
+        // Hdr10St2084 when the compositor/OS supports it: it avoids baking a peak-nits assumption
+        // into the output encode, so the OS/display handles tone mapping to its own real capability.
+        ScrgbLinear,
+        // Hybrid Log-Gamma (ARIB STD-B67 / BT.2100 HLG): the broadcast-oriented HDR transfer function
+        // (BBC/NHK), scene-referred and self-describing — no HDR metadata is needed or sent for this
+        // mode (see hlgEncode() in sturdy_common.slang), unlike Hdr10St2084. Backed by
+        // VK_COLOR_SPACE_HDR10_HLG_EXT; despite the "HDR10" in the Vulkan enumerant name this is a
+        // distinct, unrelated-to-HDR10 transfer function (Vulkan's naming, not this codebase's).
+        // Pairs with a 10-bit UNORM format (RGB10A2Unorm), same as Hdr10St2084 — like PQ, HLG's OETF
+        // output is a normalized [0,1] code value, not a linear-with-headroom one like ScrgbLinear.
+        Hdr10Hlg,
+        // Dolby Vision (VK_COLOR_SPACE_DOLBYVISION_EXT). Best-effort plumbing only: real Dolby Vision
+        // requires per-frame dynamic metadata in Dolby's proprietary "RPU" format, which needs a
+        // licensed Dolby SDK to produce — nothing here generates it. Selecting this color space is
+        // therefore expected to report Unsupported on the overwhelming majority of real displays
+        // (Dolby Vision output requires OS/driver-level certification this engine doesn't have), and
+        // even where a surface *does* report the format pair, the shader falls back to plain PQ
+        // encoding (pqEncode(), same as Hdr10St2084) as the closest available approximation — this is
+        // not certified Dolby Vision output, just "don't crash, do something visually reasonable if a
+        // surface ever claims to accept it."
+        DolbyVision,
+
+        // ── Wide color *gamut* spaces — orthogonal to HDR ──
+        // All still nominally [0,1]-range SDR content, just against wider primaries than sRGB/BT.709.
+        // Deliberately NOT part of Core::HdrColorSpaceMode/PresentationSettings::hdr_enabled: selecting
+        // one of these correctly requires the renderer to actually chromatically adapt/gamut-map its
+        // output to the target primaries, which this engine does not do yet (its internal working
+        // space is sRGB/BT.709 primaries throughout) — tagging a swapchain with a wider gamut without
+        // remapping the content would misrepresent colors to the display, not just render
+        // conservatively. Real, selectable RHI-layer capability (create_swapchain() negotiates them
+        // against the surface exactly like any other ColorSpace) for a future color-management pass to
+        // build on; Core::PresentationSettings/Engine don't expose them today.
+        AdobeRgbLinear,
+        AdobeRgbNonlinear,
+        DisplayP3Linear,
+        DisplayP3Nonlinear,
+        Bt2020Linear,
     };
 
     struct SwapchainDesc {

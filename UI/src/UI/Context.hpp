@@ -113,6 +113,16 @@ namespace SFT::UI {
         FrameSnapshot &operator=(FrameSnapshot &&) noexcept = default;
         ~FrameSnapshot() = default;
 
+        // Pixel extent used when this immutable layout snapshot was produced. Overlay consumers use
+        // this to reject accidentally drawing a window-sized layout into a differently-sized off-screen
+        // endpoint; prepare/draw viewport constants cannot retroactively reflow Clay's baked geometry.
+        [[nodiscard]] Core::Extent2D viewport_extent() const noexcept {
+            return Core::Extent2D{
+                .width = full_viewport_scissor_.width,
+                .height = full_viewport_scissor_.height,
+            };
+        }
+
       private:
         friend class Context;
         friend class UiRenderer;
@@ -242,9 +252,14 @@ namespace SFT::UI {
 
         // Finishes the layout tree (Clay_EndLayout()), walks the resulting render commands, shapes
         // any new text via TextBridge, and returns everything UiRenderer needs as an owned,
-        // Context-independent FrameSnapshot. Must run on the same thread that built this frame's
-        // tree; the returned snapshot itself is then safe to hand to another thread.
-        [[nodiscard]] FrameSnapshot finish_frame(glm::vec2 viewport_size);
+        // Context-independent FrameSnapshot. The snapshot records begin_layout()'s actual baked
+        // extent; callers cannot accidentally relabel window-sized geometry as target-sized here.
+        // Must run on the same thread that built this frame's tree; the returned snapshot itself is
+        // then safe to hand to another thread.
+        [[nodiscard]] FrameSnapshot finish_frame();
+        // Source-compatible legacy overload. Layout dimensions are owned by begin_layout(); this
+        // argument is intentionally ignored so endpoint validation still sees the true baked extent.
+        [[nodiscard]] FrameSnapshot finish_frame(glm::vec2) { return finish_frame(); }
 
         void destroy() noexcept;
 
@@ -267,6 +282,7 @@ namespace SFT::UI {
         // Renderer/RendererTextOverlay.cpp's own per-glyph outline cache, just keyed across every
         // font this Context has registered instead of one.
         unordered_map<u64, Text::GlyphOutline> outline_cache_;
+        Core::Extent2D layout_extent_{.width = 1, .height = 1};
 
         // This/last frame's raw pointer-button state, set by begin_layout() — clicked()'s edge
         // trigger is derived from the transition between these two, not from Clay's own internal

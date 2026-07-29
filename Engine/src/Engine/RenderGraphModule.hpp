@@ -9,6 +9,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "RenderTarget.hpp"
+
 namespace SFT::Engine {
 
     class RenderGraph;
@@ -155,6 +157,8 @@ namespace SFT::Engine {
         FullscreenEffectDescription fullscreen_effect{};
         ComputeEffectDescription compute_effect{};
         CopyDescription copy{};
+        // Present-only destination. Invalid means the frame's window surface.
+        RenderTargetHandle target{};
         UString label;
     };
 
@@ -210,6 +214,8 @@ namespace SFT::Engine {
 
         struct Present {
             RenderGraphTextureHandle input{};
+            // Invalid preserves standard on-screen presentation; a live handle selects an offscreen target.
+            RenderTargetHandle target{};
             [[nodiscard]] RenderGraphPassHandle build(RenderGraph &graph) const;
         };
 

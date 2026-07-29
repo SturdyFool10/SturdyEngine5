@@ -23,6 +23,7 @@
 #include "Queries.hpp"
 #include "Execution.hpp"
 #include "Command.hpp"
+#include "HdrDisplay.hpp"
 #include "Swapchain.hpp"
 
 using std::span;
@@ -281,6 +282,26 @@ namespace SFT::RHI {
         // requested strategy when the surface actually forced a fallback). Returns a default-
         // constructed PresentationResolution for an unknown/already-destroyed handle.
         [[nodiscard]] virtual PresentationResolution presentation_resolution(SwapchainHandle handle) const noexcept = 0;
+
+        // Queries the real HDR capability of the display `handle`'s surface currently sits on —
+        // peak/min luminance, supported transfer functions (PQ/HLG/scRGB), gamut, and OS-reported
+        // metadata (EDID or platform-equivalent) when available. Meant to be called before requesting
+        // an HDR/wide-gamut SwapchainDesc::color_space, so a caller/UI can decide whether to offer HDR
+        // at all and what nits to target — never assume a display can do HDR just because the GPU/API
+        // can. Returns a query whose `message.status` explains *why* when the platform can't answer
+        // (Unsupported: no platform HDR-capability backend for this OS; NotAvailable: supported in
+        // principle but nothing could be determined for this specific surface/display right now).
+        [[nodiscard]] virtual RhiExpected<SurfaceHdrCapabilityQuery> query_hdr_capabilities(
+            SurfaceHandle handle) const = 0;
+
+        // Re-sends HDR mastering metadata to an already-live Hdr10St2084 swapchain with updated
+        // per-scene content-light-level numbers — see HdrContentLightLevelUpdate's own doc comment
+        // (HdrDisplay.hpp) for exactly what this is (and is not: not real HDR10+/ST 2094-40). No
+        // swapchain recreation needed. Returns Unsupported for a swapchain that wasn't created with
+        // Hdr10St2084 (nothing to update — HLG/scRGB carry no such metadata, DolbyVision's real
+        // dynamic metadata is a different, unproducible format).
+        [[nodiscard]] virtual RhiResult update_hdr_content_light_level(
+            SwapchainHandle handle, const HdrContentLightLevelUpdate &update) = 0;
 
         // Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
         // caller to recreate the swapchain.

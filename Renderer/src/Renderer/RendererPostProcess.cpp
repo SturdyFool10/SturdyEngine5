@@ -39,6 +39,10 @@ namespace SFT::Renderer {
             u32 operation = 0;
 
             u32 hdr_output = 0;
+            // Only read when hdr_output != 0 — 0 = Hdr10St2084 (PQ-encode), 1 = ScrgbLinear (no
+            // curve). Must stay numerically in sync with fullscreen_tonemap.slang's own encoding and
+            // Core::HdrColorSpaceMode's enumerator order (Core/Renderer.hpp).
+            u32 hdr_color_space = 0;
             f32 hdr_paper_white_nits = 203.0f;
             f32 hdr_peak_nits = 1000.0f;
 
@@ -64,7 +68,7 @@ namespace SFT::Renderer {
             f32 psychov_background_gray_g = 0.18f;
             f32 psychov_background_gray_b = 0.18f;
         };
-        static_assert(sizeof(TonemapConstants) == 104);
+        static_assert(sizeof(TonemapConstants) == 108);
 
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -299,6 +303,7 @@ namespace SFT::Renderer {
             .saturation = settings.tone_mapping_saturation,
             .operation = static_cast<u32>(operation),
             .hdr_output = static_cast<u32>(settings.tone_mapping_hdr_output),
+            .hdr_color_space = static_cast<u32>(settings.tone_mapping_hdr_color_space),
             .hdr_paper_white_nits = settings.tone_mapping_hdr_paper_white_nits,
             .hdr_peak_nits = settings.tone_mapping_hdr_peak_nits,
             .agx_look = static_cast<u32>(settings.agx_look),

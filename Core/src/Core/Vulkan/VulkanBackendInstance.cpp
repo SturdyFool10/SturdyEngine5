@@ -119,13 +119,18 @@ namespace SFT::Core::Vulkan {
         add_supported_extension("VK_KHR_wayland_surface");
 #endif
 
-        if (static_cast<bool>(init.features.presentation.hdr_enabled)) {
-            hdr_swapchain_colorspace_enabled_ = add_supported_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
-            if (!hdr_swapchain_colorspace_enabled_) {
-                return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
-                                              format("HDR presentation requires Vulkan instance extension {}.",
-                                                     VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
-            }
+        // Enable HDR/wide-gamut colorspace support opportunistically even when the initial swapchain
+        // is SDR. Instance extensions cannot be enabled later without replacing the entire Vulkan
+        // instance/device; doing that after GPU-only scene uploads invalidates assets whose optional CPU
+        // recovery copies were deliberately released. Keeping this lightweight extension ready makes a
+        // later HDR toggle a swapchain-only operation and preserves all resident scene content.
+        hdr_swapchain_colorspace_enabled_ =
+            add_supported_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        if (static_cast<bool>(init.features.presentation.hdr_enabled) &&
+            !hdr_swapchain_colorspace_enabled_) {
+            return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
+                                          format("HDR presentation requires Vulkan instance extension {}.",
+                                                 VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
         }
 
 #ifdef DEBUG

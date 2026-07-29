@@ -148,12 +148,28 @@ namespace SFT::Core::Vulkan {
             switch (color_space) {
                 case rhi::ColorSpace::SrgbNonlinear: return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
                 case rhi::ColorSpace::Hdr10St2084: return VK_COLOR_SPACE_HDR10_ST2084_EXT;
+                case rhi::ColorSpace::ScrgbLinear: return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+                case rhi::ColorSpace::Hdr10Hlg: return VK_COLOR_SPACE_HDR10_HLG_EXT;
+                // Deprecated in the Vulkan spec itself (no reason given in the API XML) but still the
+                // only enumerant that exists for it — see ColorSpace::DolbyVision's own doc comment
+                // (Swapchain.hpp) for why this is best-effort plumbing, not certified Dolby Vision.
+                case rhi::ColorSpace::DolbyVision: return VK_COLOR_SPACE_DOLBYVISION_EXT;
+                case rhi::ColorSpace::AdobeRgbLinear: return VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT;
+                case rhi::ColorSpace::AdobeRgbNonlinear: return VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT;
+                case rhi::ColorSpace::DisplayP3Linear: return VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT;
+                case rhi::ColorSpace::DisplayP3Nonlinear: return VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT;
+                case rhi::ColorSpace::Bt2020Linear: return VK_COLOR_SPACE_BT2020_LINEAR_EXT;
             }
             return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         }
 
-        [[nodiscard]] bool is_hdr_color_space(rhi::ColorSpace color_space) noexcept {
-            return color_space == rhi::ColorSpace::Hdr10St2084;
+        // Every ColorSpace other than the Vulkan-core default (SrgbNonlinear) is only exposed once
+        // VK_EXT_swapchain_colorspace is enabled — not just the HDR ones — so this gates all of them
+        // uniformly rather than enumerating cases as they're added. When no exact (format, colorSpace)
+        // pair is exposed, choose_surface_format below falls back to *any* format sharing the
+        // requested color space rather than silently downgrading to SDR.
+        [[nodiscard]] bool requires_swapchain_colorspace_extension(rhi::ColorSpace color_space) noexcept {
+            return color_space != rhi::ColorSpace::SrgbNonlinear;
         }
 
         [[nodiscard]] std::optional<VkSurfaceFormatKHR> choose_surface_format(span<const VkSurfaceFormatKHR> formats,
@@ -166,7 +182,7 @@ namespace SFT::Core::Vulkan {
                     return format;
                 }
             }
-            if (is_hdr_color_space(requested_color_space)) {
+            if (requires_swapchain_colorspace_extension(requested_color_space)) {
                 for (const VkSurfaceFormatKHR &format : formats) {
                     if (format.colorSpace == preferred_color_space) {
                         return format;
@@ -252,7 +268,62 @@ namespace SFT::Core::Vulkan {
             return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         }
 
+        // Builds the VkHdrMetadataEXT this bridge sends via vkSetHdrMetadataEXT, preferring the
+        // display's real, platform-reported primaries/white-point/luminance
+        // (rhi::HdrDisplayMetadata — sourced from EDID/OS/window-system, see HdrMetadataSource) over
+        // a fixed guess. `hdr_query` is the freshly-queried capability for this exact surface/display
+        // (query_platform_hdr_display_capabilities() is called fresh at every create_swapchain(), so
+        // this reflects the display the window is on *right now*, not whatever was true at startup —
+        // matters for windows that move to a different monitor between swapchain rebuilds). Falls back
+        // to conservative DCI-P3-ish primaries and a 1000/0.001 nit range — this bridge's original
+        // fixed values — whenever the platform can't report real metadata (display_metadata unset:
+        // Linux/X11 without DRM/EDID access, an unsupported OS backend, or the query itself failing).
+        [[nodiscard]] VkHdrMetadataEXT build_hdr_metadata(const rhi::SurfaceHdrCapabilityQuery &hdr_query) noexcept {
+            VkHdrMetadataEXT metadata{
+                .sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT,
+                .pNext = nullptr,
+                .displayPrimaryRed = VkXYColorEXT{.x = 0.680f, .y = 0.320f},
+                .displayPrimaryGreen = VkXYColorEXT{.x = 0.265f, .y = 0.690f},
+                .displayPrimaryBlue = VkXYColorEXT{.x = 0.150f, .y = 0.060f},
+                .whitePoint = VkXYColorEXT{.x = 0.3127f, .y = 0.3290f},
+                .maxLuminance = 1000.0f,
+                .minLuminance = 0.001f,
+                .maxContentLightLevel = 1000.0f,
+                .maxFrameAverageLightLevel = 400.0f,
+            };
+            if (!hdr_query || !hdr_query.capabilities.display_metadata.has_value()) {
+                return metadata;
+            }
+            const rhi::HdrDisplayMetadata &real = *hdr_query.capabilities.display_metadata;
+            metadata.displayPrimaryRed = VkXYColorEXT{.x = real.red_primary.x, .y = real.red_primary.y};
+            metadata.displayPrimaryGreen = VkXYColorEXT{.x = real.green_primary.x, .y = real.green_primary.y};
+            metadata.displayPrimaryBlue = VkXYColorEXT{.x = real.blue_primary.x, .y = real.blue_primary.y};
+            metadata.whitePoint = VkXYColorEXT{.x = real.white_point.x, .y = real.white_point.y};
+            if (real.max_luminance_nits > 0.0f) {
+                metadata.maxLuminance = real.max_luminance_nits;
+                metadata.maxContentLightLevel = real.max_luminance_nits;
+            }
+            metadata.minLuminance = real.min_luminance_nits;
+            if (real.max_full_frame_luminance_nits > 0.0f) {
+                metadata.maxFrameAverageLightLevel = real.max_full_frame_luminance_nits;
+            }
+            return metadata;
+        }
+
     } // namespace
+
+    VulkanRhiDeviceBridge::SurfaceRecord VulkanRhiDeviceBridge::make_surface_record(VkSurfaceKHR surface, bool owns_surface,
+                                                                                    const rhi::SurfaceDesc &desc) {
+        SurfaceRecord record{.surface = surface, .owns_surface = owns_surface};
+        record.stored_label = desc.label != nullptr ? std::string{desc.label} : std::string{};
+        record.desc = rhi::SurfaceDesc{
+            .system = desc.system,
+            .display = desc.display,
+            .window = desc.window,
+            .label = record.stored_label.c_str(),
+        };
+        return record;
+    }
 
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::create_surface(const rhi::SurfaceDesc &desc) {
         if (instance_ == VK_NULL_HANDLE) {
@@ -324,15 +395,15 @@ namespace SFT::Core::Vulkan {
                               "create_surface: raw-native Vulkan RHI surfaces are not compiled into this platform build.");
 #endif
 
-        return surfaces_.insert(SurfaceRecord{.surface = surface, .owns_surface = true});
+        return surfaces_.insert(make_surface_record(surface, /*owns_surface=*/true, desc));
     }
 
-    rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface) {
+    rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface, const rhi::SurfaceDesc &desc) {
         if (surface == VK_NULL_HANDLE) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                   "import_surface: cannot import a null VkSurfaceKHR.");
         }
-        return surfaces_.insert(SurfaceRecord{.surface = surface, .owns_surface = false});
+        return surfaces_.insert(make_surface_record(surface, /*owns_surface=*/false, desc));
     }
 
     void VulkanRhiDeviceBridge::destroy_surface(rhi::SurfaceHandle handle) noexcept {
@@ -378,14 +449,14 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(modes.error());
         }
 
-        if (is_hdr_color_space(desc.color_space) && !hdr_swapchain_colorspace_enabled_) {
+        if (requires_swapchain_colorspace_extension(desc.color_space) && !hdr_swapchain_colorspace_enabled_) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
-                                  "create_swapchain: HDR color-space requested but VK_EXT_swapchain_colorspace was not enabled.");
+                                  "create_swapchain: HDR/wide-gamut color-space requested but VK_EXT_swapchain_colorspace was not enabled.");
         }
         const auto selected_format = choose_surface_format(*formats, desc.format, desc.color_space);
         if (!selected_format) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
-                                  "create_swapchain: surface does not expose a Vulkan HDR10/ST2084 swapchain format.");
+                                  "create_swapchain: surface does not expose a Vulkan surface format for the requested color space.");
         }
         const VkSurfaceFormatKHR format = *selected_format;
         const VkExtent2D extent{
@@ -479,21 +550,20 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(swapchain.error());
         }
 
+        VkHdrMetadataEXT initial_hdr_metadata{};
+        bool initial_hdr_metadata_set = false;
         if (desc.color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
-            const VkHdrMetadataEXT metadata{
-                .sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT,
-                .pNext = nullptr,
-                .displayPrimaryRed = VkXYColorEXT{.x = 0.680f, .y = 0.320f},
-                .displayPrimaryGreen = VkXYColorEXT{.x = 0.265f, .y = 0.690f},
-                .displayPrimaryBlue = VkXYColorEXT{.x = 0.150f, .y = 0.060f},
-                .whitePoint = VkXYColorEXT{.x = 0.3127f, .y = 0.3290f},
-                .maxLuminance = 1000.0f,
-                .minLuminance = 0.001f,
-                .maxContentLightLevel = 1000.0f,
-                .maxFrameAverageLightLevel = 400.0f,
-            };
+            const rhi::SurfaceHdrCapabilityQuery hdr_query = rhi::query_platform_hdr_display_capabilities(surface->desc);
+            if (!hdr_query || !hdr_query.capabilities.display_metadata.has_value()) {
+                Foundation::log_info(
+                    "HDR metadata: no real display metadata available for this surface ({}); using conservative "
+                    "default primaries/luminance instead.",
+                    hdr_query.message.message.empty() ? "platform did not report any" : hdr_query.message.message);
+            }
+            initial_hdr_metadata = build_hdr_metadata(hdr_query);
             const VkSwapchainKHR swapchain_handle = swapchain->vk_handle();
-            vkSetHdrMetadataEXT(logical_device_->vk_handle(), 1, &swapchain_handle, &metadata);
+            vkSetHdrMetadataEXT(logical_device_->vk_handle(), 1, &swapchain_handle, &initial_hdr_metadata);
+            initial_hdr_metadata_set = true;
         }
 
         SwapchainRecord record{};
@@ -504,6 +574,11 @@ namespace SFT::Core::Vulkan {
         // Fifo-retry-on-creation-failure path above.
         record.presentation_resolution = resolution;
         record.present_via_compute = present_via_compute;
+        // Retained so update_hdr_content_light_level() can resend this metadata with just the
+        // content-light-level fields overwritten, without re-querying display primaries — see
+        // SwapchainRecord::stored_hdr_metadata's own doc comment (VulkanRhiBridge.hpp).
+        record.stored_hdr_metadata = initial_hdr_metadata;
+        record.has_hdr_metadata = initial_hdr_metadata_set;
         record.textures.reserve(record.swapchain.image_count());
         record.views.reserve(record.swapchain.image_count());
         record.image_available_semaphores.reserve(record.swapchain.image_count());
@@ -555,6 +630,34 @@ namespace SFT::Core::Vulkan {
         }
 
         return swapchains_.insert(std::move(record));
+    }
+
+    rhi::RhiExpected<rhi::SurfaceHdrCapabilityQuery> VulkanRhiDeviceBridge::query_hdr_capabilities(
+        rhi::SurfaceHandle handle) const {
+        const SurfaceRecord *surface = surfaces_.find(handle);
+        if (surface == nullptr) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "query_hdr_capabilities: unknown surface handle.");
+        }
+        return rhi::query_platform_hdr_display_capabilities(surface->desc);
+    }
+
+    rhi::RhiResult VulkanRhiDeviceBridge::update_hdr_content_light_level(
+        rhi::SwapchainHandle handle, const rhi::HdrContentLightLevelUpdate &update) {
+        SwapchainRecord *record = swapchains_.find(handle);
+        if (record == nullptr) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                  "update_hdr_content_light_level: unknown swapchain handle.");
+        }
+        if (!record->has_hdr_metadata || vkSetHdrMetadataEXT == nullptr) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "update_hdr_content_light_level: this swapchain has no HDR metadata to update "
+                                  "(only an Hdr10St2084 swapchain created with VK_EXT_hdr_metadata enabled has any).");
+        }
+        record->stored_hdr_metadata.maxContentLightLevel = update.max_content_light_level_nits;
+        record->stored_hdr_metadata.maxFrameAverageLightLevel = update.max_frame_average_light_level_nits;
+        const VkSwapchainKHR swapchain_handle = record->swapchain.vk_handle();
+        vkSetHdrMetadataEXT(logical_device_->vk_handle(), 1, &swapchain_handle, &record->stored_hdr_metadata);
+        return {};
     }
 
     void VulkanRhiDeviceBridge::destroy_swapchain(rhi::SwapchainHandle handle) noexcept {

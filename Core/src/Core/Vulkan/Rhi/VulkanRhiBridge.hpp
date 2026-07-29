@@ -124,9 +124,16 @@ namespace SFT::Core::Vulkan {
         void destroy_render_bundle(rhi::RenderBundleHandle handle) noexcept override;
         [[nodiscard]] rhi::RhiResult submit(const rhi::SubmitDesc &desc) override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHandle> create_surface(const rhi::SurfaceDesc &desc) override;
-        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHandle> import_surface(VkSurfaceKHR surface);
+        // `desc` carries the native (system, display, window) identity used later for
+        // query_hdr_capabilities() — the surface was already created by a windowing library
+        // (SDL/GLFW) when this is called, so it can't be recovered from the raw VkSurfaceKHR alone.
+        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHandle> import_surface(VkSurfaceKHR surface, const rhi::SurfaceDesc &desc);
         void destroy_surface(rhi::SurfaceHandle handle) noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SwapchainHandle> create_swapchain(const rhi::SwapchainDesc &desc) override;
+        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceHdrCapabilityQuery> query_hdr_capabilities(
+            rhi::SurfaceHandle handle) const override;
+        [[nodiscard]] rhi::RhiResult update_hdr_content_light_level(
+            rhi::SwapchainHandle handle, const rhi::HdrContentLightLevelUpdate &update) override;
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
         [[nodiscard]] rhi::PresentationResolution presentation_resolution(rhi::SwapchainHandle handle) const noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain) override;
@@ -226,7 +233,19 @@ namespace SFT::Core::Vulkan {
         struct SurfaceRecord {
             VkSurfaceKHR surface = VK_NULL_HANDLE;
             bool owns_surface = true;
+            // Native (system, display, window) identity, kept for query_hdr_capabilities() — display/
+            // window are non-owning (the owning Window/VulkanSurface outlives this record; a surface
+            // never survives its window closing). `label` is copied so query_hdr_capabilities() never
+            // reads through a caller's possibly-freed const char* — desc_.label always points at
+            // stored_label below, never at the original caller's pointer.
+            rhi::SurfaceDesc desc{};
+            std::string stored_label{};
         };
+
+        // Builds a SurfaceRecord that owns a copy of `desc`'s label rather than the caller's raw
+        // pointer (the returned record's desc.label always points at its own stored_label).
+        [[nodiscard]] static SurfaceRecord make_surface_record(VkSurfaceKHR surface, bool owns_surface,
+                                                                const rhi::SurfaceDesc &desc);
 
         struct SwapchainRecord {
             VulkanSwapchain swapchain;
@@ -247,6 +266,13 @@ namespace SFT::Core::Vulkan {
             // re-read from presentation_resolution) so present() can check it without reasoning about
             // the rest of that struct; set once at create_swapchain() time alongside it.
             bool present_via_compute = false;
+            // The VkHdrMetadataEXT last sent via vkSetHdrMetadataEXT (create_swapchain() sends the
+            // first one for an Hdr10St2084 swapchain), retained so
+            // update_hdr_content_light_level() can resend it with just maxContentLightLevel/
+            // maxFrameAverageLightLevel overwritten — the display's real primaries/white-point/
+            // luminance range shouldn't need re-querying on every scene-light-level update.
+            VkHdrMetadataEXT stored_hdr_metadata{};
+            bool has_hdr_metadata = false;
         };
 
         friend VkAccelerationStructureGeometryKHR to_vk_geometry(

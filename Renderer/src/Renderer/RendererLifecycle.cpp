@@ -106,6 +106,51 @@ namespace SFT::Renderer {
             return {};
         }
 
+        // The presentation format/color-space pair for `presentation` — shared by the real swapchain
+        // (recreate_rhi_swapchain below) and the offscreen presentation-target texture format used to
+        // pick the tonemap pipeline (render_frame_rhi), so both always agree on what "HDR output"
+        // means for a given window. RGB10A2Unorm pairs with Hdr10St2084 (10-bit non-linear PQ target);
+        // RGBA16Float pairs with ScrgbLinear (float target, no curve — see fullscreen_tonemap.slang).
+        [[nodiscard]] RHI::Format hdr_presentation_format(const Core::PresentationSettings &presentation) noexcept {
+            if (!static_cast<bool>(presentation.hdr_enabled)) {
+                return RHI::Format::BGRA8UnormSrgb;
+            }
+            switch (presentation.hdr_color_space) {
+                // scRGB is linear-with-headroom — needs a float format, not a normalized one.
+                case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::Format::RGBA16Float;
+                // PQ, HLG, and (best-effort) Dolby Vision all encode to a normalized [0,1] code
+                // value in the shader (pqEncode/hlgEncode/pqEncode-as-fallback) — a 10-bit UNORM
+                // target is the conventional pairing for all three.
+                case Core::HdrColorSpaceMode::Hdr10St2084:
+                case Core::HdrColorSpaceMode::Hdr10Hlg:
+                case Core::HdrColorSpaceMode::DolbyVision:
+                default: return RHI::Format::RGB10A2Unorm;
+            }
+        }
+
+        [[nodiscard]] RHI::ColorSpace hdr_presentation_color_space(const Core::PresentationSettings &presentation) noexcept {
+            if (!static_cast<bool>(presentation.hdr_enabled)) {
+                return RHI::ColorSpace::SrgbNonlinear;
+            }
+            switch (presentation.hdr_color_space) {
+                case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::ColorSpace::ScrgbLinear;
+                case Core::HdrColorSpaceMode::Hdr10Hlg: return RHI::ColorSpace::Hdr10Hlg;
+                case Core::HdrColorSpaceMode::DolbyVision: return RHI::ColorSpace::DolbyVision;
+                case Core::HdrColorSpaceMode::Hdr10St2084:
+                default: return RHI::ColorSpace::Hdr10St2084;
+            }
+        }
+
+        [[nodiscard]] const char *hdr_color_space_name(Core::HdrColorSpaceMode mode) noexcept {
+            switch (mode) {
+                case Core::HdrColorSpaceMode::Hdr10St2084: return "HDR10 (ST2084/PQ)";
+                case Core::HdrColorSpaceMode::ScrgbLinear: return "scRGB linear";
+                case Core::HdrColorSpaceMode::Hdr10Hlg: return "HLG";
+                case Core::HdrColorSpaceMode::DolbyVision: return "Dolby Vision (best-effort)";
+            }
+            return "unknown";
+        }
+
         [[maybe_unused]] [[nodiscard]] Core::GraphicsBackendError graphics_error_from_shader(const Core::Slang::ShaderError &error,
                                                                                             const char *operation) {
             string message = string(operation) + " failed: " + error.message;
@@ -247,6 +292,40 @@ namespace SFT::Renderer {
         return {};
     }
 
+    RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Renderer::query_hdr_capabilities(
+        Core::RenderSurfaceHandle surface) const {
+        const WindowSurfaceRecord *record = window_surface(surface);
+        if (record == nullptr) {
+            return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
+        }
+        const RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "Renderer RHI device is unavailable.");
+        }
+        if (!record->rhi_surface) {
+            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
+                                  "This window has no RHI surface yet (first frame not rendered).");
+        }
+        return device->query_hdr_capabilities(record->rhi_surface);
+    }
+
+    RHI::RhiResult Renderer::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
+                                                             const RHI::HdrContentLightLevelUpdate &update) {
+        const WindowSurfaceRecord *record = window_surface(surface);
+        if (record == nullptr) {
+            return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "Renderer RHI device is unavailable.");
+        }
+        if (!record->rhi_swapchain) {
+            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
+                                  "This window has no live swapchain yet (first frame not rendered).");
+        }
+        return device->update_hdr_content_light_level(record->rhi_swapchain, update);
+    }
+
     Core::RendererResult Renderer::submit_draw(MeshHandle mesh_handle, MaterialInstanceHandle material_handle) {
         if (mesh(mesh_handle) == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -271,6 +350,7 @@ namespace SFT::Renderer {
         submission.lighting = desc.view.lighting;
         submission.deferred_formats = desc.view.deferred_formats;
         submission.render_graph = desc.view.render_graph;
+        submission.offscreen_target = desc.offscreen_target;
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
         submission.debug_label = desc.view.debug_label;
 
@@ -859,8 +939,8 @@ namespace SFT::Renderer {
             .surface = record.rhi_surface,
             .width = extent.width,
             .height = extent.height,
-            .format = static_cast<bool>(record.presentation.hdr_enabled) ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb,
-            .color_space = static_cast<bool>(record.presentation.hdr_enabled) ? RHI::ColorSpace::Hdr10St2084 : RHI::ColorSpace::SrgbNonlinear,
+            .format = hdr_presentation_format(record.presentation),
+            .color_space = hdr_presentation_color_space(record.presentation),
             // Core::resolve_present_strategy() is the one place vsync/variable_refresh/latency/
             // preference get interpreted together (Core/Renderer.hpp) — the backend then resolves
             // that strategy against this surface's real supported present modes
@@ -1053,60 +1133,57 @@ namespace SFT::Renderer {
             slot.fence = *fence;
         }
 
-        if (Core::RendererResult resources = ensure_rhi_presentation_resources(record); !resources.has_value()) {
-            return resources;
+        const bool offscreen_output = static_cast<bool>(submission.offscreen_target);
+        optional<ResolvedOffscreenRenderTarget> resolved_offscreen;
+        Core::Extent2D presentation_extent{};
+        if (offscreen_output) {
+            resolved_offscreen = resolve_offscreen_render_target(submission.offscreen_target);
+            if (!resolved_offscreen) {
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    "Render graph selected an unknown or destroyed off-screen target.");
+            }
+            presentation_extent = resolved_offscreen->extent;
+        } else {
+            if (Core::RendererResult resources = ensure_rhi_presentation_resources(record); !resources.has_value()) {
+                return resources;
+            }
+
+            // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
+            // this tick — see Application::render_managed_window), never by re-querying the Window object.
+            const Core::Extent2D surface_extent{frame.framebuffer_width, frame.framebuffer_height};
+            if (surface_extent.is_zero()) {
+                return {};
+            }
+            const bool size_changed = surface_extent.width != record.swapchain_extent.width ||
+                surface_extent.height != record.swapchain_extent.height;
+            const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
+            if (should_recreate) {
+                {
+                    ScopedRendererStageTimer timer{"recreate swapchain", &current_frame_cpu_stage_timings_ms};
+                    if (Core::RendererResult recreated = recreate_rhi_swapchain(
+                            record, frame.frame_index, surface_extent);
+                        !recreated.has_value()) {
+                        return recreated;
+                    }
+                }
+                maybe_flush_retired_swapchains(record, false);
+            } else {
+                maybe_flush_retired_swapchains(record, true);
+            }
+            if (!record.rhi_swapchain) {
+                return {};
+            }
+            presentation_extent = record.swapchain_extent;
         }
 
-        // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
-        // this tick — see Application::render_managed_window), never by re-querying the Window object
-        // here: this runs on the render thread, which must never touch a Window directly once a separate
-        // window-event thread may be pumping it concurrently.
-        const Core::Extent2D extent{frame.framebuffer_width, frame.framebuffer_height};
-        if (extent.is_zero()) {
-            return {};
-        }
-        const bool size_changed = extent.width != record.swapchain_extent.width ||
-            extent.height != record.swapchain_extent.height;
-        const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
-        if (should_recreate) {
-            // Rebuild immediately on every size change, every frame — no debounce/rate-limit. A
-            // gate here (wait for the extent to stabilize, or cap rebuild frequency) trades away
-            // exactly the "surface visibly tracks the live drag" behavior we want: on Linux/Wayland
-            // especially, a continuous drag delivers a new extent essentially every frame, and any
-            // gate either never fires (frozen at the pre-drag size until the drag pauses) or caps
-            // the resize to a fixed cadence — both look laggy compared to just recreating every time.
-            {
-                ScopedRendererStageTimer timer{"recreate swapchain", &current_frame_cpu_stage_timings_ms};
-                if (Core::RendererResult recreated = recreate_rhi_swapchain(record, frame.frame_index, extent); !recreated.has_value()) {
-                    return recreated;
-                }
-            }
-            // Bounded safety net only — see maybe_flush_retired_swapchains' declaration comment.
-            // Doesn't fire on an ordinary resize (one retired swapchain); only kicks in if a single
-            // continuous drag runs long enough to pile up several without ever pausing.
-            maybe_flush_retired_swapchains(record, false);
-        } else {
-            // Not resizing this frame: any swapchain retired by an *earlier* resize is cleaned up
-            // right now rather than left to linger — an extra live swapchain is dead weight the WSI
-            // carries on every subsequent acquire/present until it's gone, so "no active resize
-            // happening" is the first safe, free opportunity to pay the one wait_idle() that proves
-            // it's actually safe to destroy (see reclaim_frame_slot's comment on why we can't do
-            // this off a single frame-fence wait). A no-op most frames — it only does anything when
-            // there's an actual backlog.
-            maybe_flush_retired_swapchains(record, true);
-        }
-        if (!record.rhi_swapchain) {
-            return {};
-        }
-        const Core::Extent2D presentation_extent = record.swapchain_extent;
+        const bool hdr_output = !offscreen_output && static_cast<bool>(record.presentation.hdr_enabled);
+        const RHI::Format output_format = hdr_output ? hdr_presentation_format(record.presentation) : RHI::Format::BGRA8UnormSrgb;
         const f32 resolution_scale = std::clamp(submission.render_graph.resolution_scale, 0.1f, 2.0f);
         const Core::Extent2D render_extent{
             .width = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.width) * resolution_scale))),
             .height = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.height) * resolution_scale))),
         };
-        if (Core::RendererResult depth_resources = ensure_rhi_depth_resources(record); !depth_resources.has_value()) {
-            return depth_resources;
-        }
         {
             ScopedRendererStageTimer timer{"prepare scene GPU data", &current_frame_cpu_stage_timings_ms};
             if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index, submission); !scene_gpu_data.has_value()) {
@@ -1288,27 +1365,37 @@ namespace SFT::Renderer {
         if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
             return tonemap_ready;
         }
-        if (auto tonemap_pipeline = tonemap_pipeline_for(RHI::Format::BGRA8UnormSrgb); !tonemap_pipeline) {
+        if (auto tonemap_pipeline = tonemap_pipeline_for(output_format); !tonemap_pipeline) {
             return unexpected(tonemap_pipeline.error());
         }
 
-        auto acquired = [&]() {
-            ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
-            return device->acquire_next_texture(record.rhi_swapchain);
-        }();
-        if (!acquired) {
-            if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
-                return {};
+        optional<RHI::SurfaceTexture> acquired_surface;
+        if (!offscreen_output) {
+            auto acquired = [&]() {
+                ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
+                return device->acquire_next_texture(record.rhi_swapchain);
+            }();
+            if (!acquired) {
+                if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
+                    return {};
+                }
+                if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
+                    record.rhi_swapchain_dirty = true;
+                }
+                return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
             }
-            if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
+            acquired_surface = *acquired;
+            if (acquired_surface->suboptimal) {
                 record.rhi_swapchain_dirty = true;
             }
-            return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
         }
-        RHI::SurfaceTexture texture = *acquired;
-        if (texture.suboptimal) {
-            record.rhi_swapchain_dirty = true;
-        }
+
+        const RHI::TextureHandle output_texture = offscreen_output
+            ? resolved_offscreen->texture
+            : acquired_surface->texture;
+        const RHI::TextureViewHandle output_view = offscreen_output
+            ? resolved_offscreen->view
+            : acquired_surface->view;
 
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
@@ -1333,12 +1420,20 @@ namespace SFT::Renderer {
                 std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
                 std::format("Frame: {}", frame.frame_index),
                 [&] {
-                    // The *actual* present mode the surface ended up with, not just what was
-                    // requested — see RHI::PresentationResolution's own doc comment for why this
-                    // must never silently claim the requested strategy took effect when the surface
-                    // forced a fallback (e.g. Mailbox requested under "VSync On" but the surface
-                    // only supports Fifo, common on native Wayland).
-                    const RHI::PresentationResolution presentation = device->presentation_resolution(record.rhi_swapchain);
+                    if (!hdr_output) {
+                        return offscreen_output
+                                   ? string{"HDR: disabled (off-screen SDR)"}
+                                   : string{"HDR: disabled (SDR/sRGB)"};
+                    }
+                    return std::format("HDR: enabled ({})",
+                                       hdr_color_space_name(record.presentation.hdr_color_space));
+                }(),
+                [&] {
+                    if (offscreen_output) {
+                        return std::format("Output: off-screen SDR target #{}", submission.offscreen_target.value);
+                    }
+                    const RHI::PresentationResolution presentation =
+                        device->presentation_resolution(record.rhi_swapchain);
                     return std::format("Present: {}{}", RHI::present_mode_name(presentation.effective_mode),
                                        presentation.degraded ? " (degraded)" : "");
                 }(),
@@ -1428,20 +1523,38 @@ namespace SFT::Renderer {
             submission.render_graph.background_color.b * submission.render_graph.background_intensity,
             submission.render_graph.background_color.a,
         };
-        const RenderGraphTextureHandle swapchain_texture = graph.import_texture(RenderGraphImportedTextureDesc{
-            .texture = texture.texture,
-            .default_view = texture.view,
-            .format = RHI::Format::BGRA8UnormSrgb,
-            .extent = RHI::Extent3D{.width = presentation_extent.width, .height = presentation_extent.height, .depth_or_layers = 1},
-            .initial_layout = RHI::TextureLayout::Undefined,
-            .initial_stage = RHI::PipelineStage::None,
-            .initial_access = RHI::AccessFlags::None,
-            .final_layout = RHI::TextureLayout::Present,
-            .final_stage = RHI::PipelineStage::None,
-            .final_access = RHI::AccessFlags::None,
-            .label = "swapchain color",
+        const RenderGraphTextureHandle final_output = graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = output_texture,
+            .default_view = output_view,
+            .format = output_format,
+            .extent = RHI::Extent3D{
+                .width = presentation_extent.width,
+                .height = presentation_extent.height,
+                .depth_or_layers = 1,
+            },
+            .usage = offscreen_output
+                ? RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                      RHI::TextureUsage::TransferSrc
+                : RHI::TextureUsage::ColorAttachment,
+            .initial_layout = offscreen_output && resolved_offscreen->initialized
+                ? RHI::TextureLayout::ShaderReadOnly
+                : RHI::TextureLayout::Undefined,
+            .initial_stage = offscreen_output && resolved_offscreen->initialized
+                ? RHI::PipelineStage::AllGraphics | RHI::PipelineStage::ComputeShader
+                : RHI::PipelineStage::None,
+            .initial_access = offscreen_output && resolved_offscreen->initialized
+                ? RHI::AccessFlags::ShaderRead
+                : RHI::AccessFlags::None,
+            .final_layout = offscreen_output
+                ? RHI::TextureLayout::ShaderReadOnly
+                : RHI::TextureLayout::Present,
+            .final_stage = offscreen_output
+                ? RHI::PipelineStage::AllGraphics | RHI::PipelineStage::ComputeShader
+                : RHI::PipelineStage::None,
+            .final_access = offscreen_output ? RHI::AccessFlags::ShaderRead : RHI::AccessFlags::None,
+            .label = offscreen_output ? "off-screen final color" : "swapchain color",
         });
-        graph.mark_output(swapchain_texture);
+        graph.mark_output(final_output);
         const RHI::Extent3D frame_extent{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1};
         const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
@@ -1591,7 +1704,7 @@ namespace SFT::Renderer {
         graph_resources.publish_texture<RenderGraphSemantics::SceneHdrColor>(scene_color);
         graph_resources.publish_texture<RenderGraphSemantics::ResolvedSceneDepth>(depth_texture);
         graph_resources.publish_texture<RenderGraphSemantics::RasterVisibilityDepth>(raster_depth);
-        graph_resources.publish_texture<RenderGraphSemantics::PresentationTarget>(swapchain_texture);
+        graph_resources.publish_texture<RenderGraphSemantics::PresentationTarget>(final_output);
         if (submission.deferred_formats.emissive == submission.deferred_formats.scene_color) {
             // Deferred lighting is the last consumer of emissive. SRAA can overwrite the allocation
             // afterward instead of allocating another full-resolution HDR texture.
@@ -2161,15 +2274,15 @@ namespace SFT::Renderer {
         }
 
         // Tonemap post-process: sample the final scene-linear HDR result (bloom already composited in
-        // above, if active) and resolve it to the swapchain. recreate_rhi_swapchain() above already picks
-        // RGB10A2Unorm/Hdr10St2084 for the swapchain itself once presentation.hdr_enabled is set — the
-        // tonemap pipeline's own color-attachment format must match, and the shader must know to
-        // PQ-encode instead of relying on an *Srgb format's automatic sRGB OETF (Vulkan applies no
-        // equivalent fixed-function curve for PQ).
-        const bool hdr_output = static_cast<bool>(record.presentation.hdr_enabled);
-        const RHI::Format swapchain_format = hdr_output ? RHI::Format::RGB10A2Unorm : RHI::Format::BGRA8UnormSrgb;
+        // above, if active) and resolve it to the swapchain. recreate_rhi_swapchain() above already
+        // picks a matching format/color-space for the swapchain itself once presentation.hdr_enabled
+        // is set (hdr_presentation_format/hdr_presentation_color_space) — the tonemap pipeline's own
+        // color-attachment format must match, and the shader must know which curve to apply: PQ for
+        // Hdr10St2084 (and DolbyVision, best-effort — Vulkan applies no fixed-function PQ curve),
+        // HLG for Hdr10Hlg, none at all for ScrgbLinear (the OS/compositor tone-maps a linear float
+        // target itself), sRGB's automatic OETF for SDR.
         if (Core::RendererResult tone_mapped = build_tonemap_module(
-                module_context, submission, swapchain_format, hdr_output);
+                module_context, submission, output_format, hdr_output, record.presentation.hdr_color_space);
             !tone_mapped.has_value()) {
             return tone_mapped;
         }
@@ -2179,7 +2292,7 @@ namespace SFT::Renderer {
             // instanced draws over the tonemapped scene.
             graph.add_render_pass("debug text overlay")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = swapchain_texture,
+                    .texture = final_output,
                     .load_op = RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
                 })
@@ -2203,9 +2316,9 @@ namespace SFT::Renderer {
         if (submission.render_graph.ui_overlay) {
             // prepare() already ran above (before this graph's first pass was declared) — this
             // pass only issues the draw calls it prepared, over the fully composited frame.
-            graph.add_render_pass("ui overlay")
+            graph.add_render_pass("UI overlay")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = swapchain_texture,
+                    .texture = final_output,
                     .load_op = RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
                 })
@@ -2271,12 +2384,14 @@ namespace SFT::Renderer {
             }
         }
 
-        const array presented_textures{texture};
+        const span<const RHI::SurfaceTexture> presented_textures = acquired_surface
+            ? span<const RHI::SurfaceTexture>{&*acquired_surface, 1}
+            : span<const RHI::SurfaceTexture>{};
         RHI::SubmitDesc submit_desc{
             .command_buffers = span<const RHI::CommandBufferHandle>{frame_command_buffers.data(), frame_command_buffers.size()},
             .waits = {},
             .signals = {},
-            .presented_textures = span<const RHI::SurfaceTexture>{presented_textures.data(), presented_textures.size()},
+            .presented_textures = presented_textures,
             .fence = slot.fence,
             .flags = RHI::SubmitFlags::OneShot,
             .label = "renderer frame submit",
@@ -2304,18 +2419,25 @@ namespace SFT::Renderer {
         slot.transient_render_bundles = std::move(submission.transient_render_bundles);
         slot.submitted = true;
 
-        auto presented = [&]() {
-            ScopedRendererStageTimer timer{"present RHI frame", &current_frame_cpu_stage_timings_ms};
-            return device->present(RHI::PresentDesc{.texture = texture, .label = "renderer present"});
-        }();
-        if (!presented) {
-            if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
+        if (offscreen_output) {
+            mark_offscreen_render_target_initialized(submission.offscreen_target);
+        } else {
+            auto presented = [&]() {
+                ScopedRendererStageTimer timer{"present RHI frame", &current_frame_cpu_stage_timings_ms};
+                return device->present(RHI::PresentDesc{
+                    .texture = *acquired_surface,
+                    .label = "renderer present",
+                });
+            }();
+            if (!presented) {
+                if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
+                    record.rhi_swapchain_dirty = true;
+                }
+                return unexpected(graphics_error_from_rhi(presented.error(), "present RHI frame"));
+            }
+            if (*presented) {
                 record.rhi_swapchain_dirty = true;
             }
-            return unexpected(graphics_error_from_rhi(presented.error(), "present RHI frame"));
-        }
-        if (*presented) {
-            record.rhi_swapchain_dirty = true;
         }
 
         if (submission.render_graph.wait_for_completion) {

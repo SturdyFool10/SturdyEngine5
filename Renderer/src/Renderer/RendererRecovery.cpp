@@ -124,6 +124,9 @@ namespace SFT::Renderer {
             texture.view = {};
             texture.sampler = {};
         }
+        // Preserve public target identities/descriptions and their borrowed TextureHandle slots, but
+        // never let old-device RHI handles survive into the replacement backend.
+        invalidate_offscreen_render_targets_after_device_loss();
 
         for (MaterialTemplateResource &material_template : material_templates_) {
             material_template.vertex_module = {};
@@ -171,6 +174,13 @@ namespace SFT::Renderer {
             if (!uploaded.has_value()) {
                 return uploaded;
             }
+        }
+
+        // Recreate target backing in place before material bind groups are rebuilt below. Both the
+        // OffscreenRenderTargetHandle and its borrowed TextureHandle remain stable across recovery.
+        if (Core::RendererResult targets = restore_offscreen_render_targets_after_recovery();
+            !targets.has_value()) {
+            return targets;
         }
 
         // Already-cleared in invalidate_gpu_resource_handles_no_destroy() (see its doc comment), but

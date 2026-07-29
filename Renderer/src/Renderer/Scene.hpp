@@ -17,6 +17,7 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 #include "Handles.hpp"
+#include "RenderTarget.hpp"
 #include "Light.hpp"
 #include "TextAtlas.hpp"
 
@@ -150,14 +151,15 @@ namespace SFT::Renderer {
         LogicalRenderGraphTexture after_bloom_presentation_output{};
     };
 
-    // Optional final overlay hook, run as the very last pass before present — after tone mapping
-    // and the debug text overlay, straight onto the swapchain target (Load/Store, no depth). This
+    // Optional final overlay hook, run as the very last pass before the selected endpoint — after
+    // tone mapping and the debug text overlay, straight onto the surface or off-screen final target
+    // (Load/Store, no depth). This
     // is the seam Sturdy.UI's UiRenderer plugs into (plans/clay-ui-renderer.md) without Renderer
     // needing to know Clay/UI exists at all: both callbacks only ever see plain RHI types. Mirrors
     // the two-phase prepare()/draw() split the debug text overlay already uses
     // (Renderer::prepare_text_overlay()/draw_text_overlay()) for the same reason — `prepare` runs
     // with a live CommandEncoder before any render pass is declared (so it can record atlas
-    // uploads), `draw` runs with a live RenderPassEncoder already bound to the swapchain target.
+    // uploads), `draw` runs with a live RenderPassEncoder already bound to the final target.
     // `prepare`'s last two parameters are this frame's transient-staging-buffer and retired-atlas-
     // resource sinks (the exact same ones the debug text overlay's own prepare_text_overlay() call
     // appends to) — a hook using Renderer::TextAtlas of its own (as UiRenderer does) appends to
@@ -222,12 +224,16 @@ namespace SFT::Renderer {
         f32 tone_mapping_white_point = 1.0f;
         f32 tone_mapping_saturation = 1.0f;
 
-        // Consumer-requested nits (Engine::ToneMappingSettings). tone_mapping_hdr_output itself is
-        // NOT consumer-set here — Renderer derives it per-frame from the surface's actual
-        // PresentationSettings::hdr_enabled (see RendererLifecycle.cpp's render_frame_rhi) right
-        // before recording the tonemap pass, since only Renderer knows the swapchain's real color
-        // space at that point.
+        // Consumer-requested nits (Engine::ToneMappingSettings). tone_mapping_hdr_output/
+        // tone_mapping_hdr_color_space themselves are NOT consumer-set here — Renderer derives them
+        // per-frame from the surface's actual PresentationSettings::hdr_enabled/hdr_color_space (see
+        // RendererLifecycle.cpp's render_frame_rhi) right before recording the tonemap pass, since
+        // only Renderer knows the swapchain's real color space at that point.
         bool tone_mapping_hdr_output = false;
+        // Only meaningful when tone_mapping_hdr_output is true — which swapchain HDR encoding the
+        // tonemap shader must produce (PQ for Hdr10St2084/DolbyVision-best-effort, none for
+        // ScrgbLinear, HLG for Hdr10Hlg — see Core::HdrColorSpaceMode's own doc comment).
+        Core::HdrColorSpaceMode tone_mapping_hdr_color_space = Core::HdrColorSpaceMode::Hdr10St2084;
         f32 tone_mapping_hdr_paper_white_nits = 203.0f;
         f32 tone_mapping_hdr_peak_nits = 1000.0f;
 
@@ -290,9 +296,12 @@ namespace SFT::Renderer {
         UString debug_label;
     };
 
-    // High-level per-frame renderer entry point: one surface, timing, and the scene view to render into it.
+    // High-level per-frame renderer entry point. `surface` continues to select the submission/frame ring;
+    // an optional offscreen_target redirects the complete final output and suppresses swapchain acquire/
+    // present for this frame.
     struct RenderFrameDesc {
         Core::RenderSurfaceHandle surface{};
+        OffscreenRenderTargetHandle offscreen_target{};
         Core::FrameInput frame{};
         RenderViewDesc view{};
     };

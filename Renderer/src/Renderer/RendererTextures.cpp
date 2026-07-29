@@ -267,7 +267,7 @@ namespace SFT::Renderer {
 
     void Renderer::destroy_texture(TextureHandle handle) noexcept {
         TextureResource *resource = texture(handle);
-        if (resource == nullptr) {
+        if (resource == nullptr || !resource->externally_destroyable) {
             return;
         }
         if (resource->owns_gpu_resources) {

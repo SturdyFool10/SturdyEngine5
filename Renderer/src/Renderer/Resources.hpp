@@ -71,6 +71,10 @@ namespace SFT::Renderer {
         // owning) `texture`/`view`/`sampler`, so destroy_texture() must release only this wrapper
         // entry, not the underlying RHI objects.
         bool owns_gpu_resources = true;
+        // False for borrowed views whose wrapper lifetime belongs to another Renderer resource (an
+        // off-screen target). Public destroy_texture() must not invalidate such a target-owned wrapper;
+        // destroying the owning target retires it explicitly.
+        bool externally_destroyable = true;
     };
 
 } // namespace SFT::Renderer

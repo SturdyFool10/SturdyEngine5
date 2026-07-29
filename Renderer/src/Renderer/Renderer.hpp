@@ -5,6 +5,7 @@
 #include <RHI/RHI.hpp>
 #include <Core/Core.hpp>
 #include "Handles.hpp"
+#include "RenderTarget.hpp"
 #include "TileGrid.hpp"
 #include "TextAtlas.hpp"
 #include "TextInstance.hpp"

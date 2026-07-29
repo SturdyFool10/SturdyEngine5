@@ -14,6 +14,11 @@ sturdy_add_package(Runtime
 if(STURDY_GLTF_SAMPLE_ASSETS_DIR)
     target_compile_definitions(Runtime PRIVATE
         "STURDY_GLTF_SAMPLE_ASSETS_DIR=\"${STURDY_GLTF_SAMPLE_ASSETS_DIR}\"")
+else()
+    message(STATUS
+        "Runtime demo assets are disabled: Sponza will not be spawned. "
+        "Configure with -DSTURDY_FETCH_SAMPLE_ASSETS=ON or set "
+        "STURDY_GLTF_SAMPLE_ASSETS_DIR explicitly.")
 endif()
 
 if(WIN32)

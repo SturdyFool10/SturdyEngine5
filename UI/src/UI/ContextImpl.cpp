@@ -267,6 +267,7 @@ namespace SFT::UI {
           image_storage_(std::move(other.image_storage_)),
           custom_storage_(std::move(other.custom_storage_)),
           outline_cache_(std::move(other.outline_cache_)),
+          layout_extent_(other.layout_extent_),
           pointer_down_(other.pointer_down_),
           pointer_pressed_this_frame_(other.pointer_pressed_this_frame_),
           z_stack_(std::move(other.z_stack_)) {
@@ -288,6 +289,7 @@ namespace SFT::UI {
             image_storage_ = std::move(other.image_storage_);
             custom_storage_ = std::move(other.custom_storage_);
             outline_cache_ = std::move(other.outline_cache_);
+            layout_extent_ = other.layout_extent_;
             pointer_down_ = other.pointer_down_;
             pointer_pressed_this_frame_ = other.pointer_pressed_this_frame_;
             z_stack_ = std::move(other.z_stack_);
@@ -334,6 +336,18 @@ namespace SFT::UI {
     }
 
     void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer, f32 delta_seconds) {
+        const auto layout_dimension = [](f32 value) noexcept {
+            constexpr f32 max_exact_pixel_dimension = 16777216.0f;
+            if (!std::isfinite(value) || value <= 0.0f) {
+                return 1u;
+            }
+            return static_cast<u32>(std::clamp(std::round(value), 1.0f, max_exact_pixel_dimension));
+        };
+        layout_extent_ = Core::Extent2D{
+            .width = layout_dimension(viewport_size.x),
+            .height = layout_dimension(viewport_size.y),
+        };
+
         set_current();
         text_bridge_.begin_frame();
         text_storage_.clear();
@@ -344,7 +358,10 @@ namespace SFT::UI {
         // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
         // a later frame permanently stuck at some stale nonzero z.
         z_stack_.assign(1, 0);
-        Clay_SetLayoutDimensions(Clay_Dimensions{.width = viewport_size.x, .height = viewport_size.y});
+        Clay_SetLayoutDimensions(Clay_Dimensions{
+            .width = static_cast<f32>(layout_extent_.width),
+            .height = static_cast<f32>(layout_extent_.height),
+        });
         // Must run before Clay_BeginLayout(): it hit-tests against last frame's still-committed
         // layout tree, which is exactly what makes hovered(id)/clicked(id) answerable before this
         // frame has declared anything (see their doc comments in Context.hpp).
@@ -594,11 +611,15 @@ namespace SFT::UI {
 
     } // namespace
 
-    FrameSnapshot Context::finish_frame(glm::vec2 viewport_size) {
+    FrameSnapshot Context::finish_frame() {
         set_current();
         FrameSnapshot snapshot;
         snapshot.full_viewport_scissor_ = RHI::Rect2D{
-            .x = 0, .y = 0, .width = static_cast<u32>(viewport_size.x), .height = static_cast<u32>(viewport_size.y)};
+            .x = 0,
+            .y = 0,
+            .width = layout_extent_.width,
+            .height = layout_extent_.height,
+        };
 
         Clay_RenderCommandArray commands = Clay_EndLayout();
         vector<RHI::Rect2D> scissor_stack{snapshot.full_viewport_scissor_};

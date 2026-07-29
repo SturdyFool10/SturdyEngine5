@@ -79,7 +79,7 @@ namespace SFT::Engine::RenderModules {
     }
 
     RenderGraphPassHandle Present::build(RenderGraph &graph) const {
-        return graph.add_present_pass(input);
+        return graph.add_present_pass(input, target);
     }
 
 } // namespace SFT::Engine::RenderModules

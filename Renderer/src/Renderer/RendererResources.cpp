@@ -201,16 +201,22 @@ namespace SFT::Renderer {
             resource.alive = false;
             resource.label.clear();
         }
+        // Off-screen targets own the GPU objects behind non-owning TextureHandle sampling wrappers.
+        // Destroy those owners first; the texture table loop below then only destroys resources whose
+        // wrapper itself owns the GPU allocation.
+        destroy_all_offscreen_render_targets();
         for (TextureResource &resource : textures_) {
-            if (RHI::RhiDevice *device = rhi_device()) {
-                if (resource.sampler) {
-                    device->destroy_sampler(resource.sampler);
-                }
-                if (resource.view) {
-                    device->destroy_texture_view(resource.view);
-                }
-                if (resource.texture) {
-                    device->destroy_texture(resource.texture);
+            if (resource.owns_gpu_resources) {
+                if (RHI::RhiDevice *device = rhi_device()) {
+                    if (resource.sampler) {
+                        device->destroy_sampler(resource.sampler);
+                    }
+                    if (resource.view) {
+                        device->destroy_texture_view(resource.view);
+                    }
+                    if (resource.texture) {
+                        device->destroy_texture(resource.texture);
+                    }
                 }
             }
             resource = {};

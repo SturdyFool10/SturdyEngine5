@@ -12,6 +12,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -64,14 +65,22 @@ namespace SFT::Engine {
     // the caller's job (font choice/discovery is app policy, not Engine policy); this only owns
     // the two GPU-backed objects every UI consumer needs regardless of what it draws.
     class UiContext {
+        struct UiRendererState {
+            std::mutex mutex;
+            std::optional<UI::UiRenderer> renderer;
+        };
+
       public:
         // Lazily creates the UI::Context/UI::UiRenderer pair against `device`/`color_format`.
         // Needs a live RHI device, which isn't necessarily up before the first frame — safe to
         // call every frame; a cheap no-op once ready() (or once creation has already failed once,
         // to avoid retrying a hard failure every single frame).
         [[nodiscard]] bool ensure_ready(RHI::RhiDevice &device, RHI::Format color_format) {
-            if (renderer_.has_value()) {
-                return true;
+            {
+                const std::lock_guard lock{renderer_state_->mutex};
+                if (renderer_state_->renderer.has_value()) {
+                    return true;
+                }
             }
             if (create_attempted_) {
                 return false;
@@ -91,11 +100,17 @@ namespace SFT::Engine {
                 context_.destroy();
                 return false;
             }
-            renderer_ = std::move(*renderer);
+            {
+                const std::lock_guard lock{renderer_state_->mutex};
+                renderer_state_->renderer = std::move(*renderer);
+            }
             return true;
         }
 
-        [[nodiscard]] bool ready() const noexcept { return renderer_.has_value(); }
+        [[nodiscard]] bool ready() const {
+            const std::lock_guard lock{renderer_state_->mutex};
+            return renderer_state_->renderer.has_value();
+        }
         [[nodiscard]] UI::Context &context() noexcept { return context_; }
 
         // Thin wrapper over UI::Context::begin_layout() that also keeps `pointer_state`'s consumed
@@ -119,26 +134,55 @@ namespace SFT::Engine {
         [[nodiscard]] Renderer::UiOverlayHooks build_overlay_hooks(std::shared_ptr<UI::FrameSnapshot> snapshot,
                                                                     Renderer::Renderer *texture_resolver) {
             Renderer::UiOverlayHooks hooks;
-            if (!renderer_.has_value()) {
-                return hooks;
+            const std::shared_ptr<UiRendererState> renderer_state = renderer_state_;
+            {
+                const std::lock_guard lock{renderer_state->mutex};
+                if (!renderer_state->renderer.has_value() || !snapshot) {
+                    return hooks;
+                }
             }
-            hooks.prepare = [this, snapshot, texture_resolver](
-                                RHI::RhiDevice &device, RHI::CommandEncoder &encoder, glm::vec2 /*viewport_size*/,
+            hooks.prepare = [renderer_state, snapshot, texture_resolver](
+                                RHI::RhiDevice &device, RHI::CommandEncoder &encoder, glm::vec2 viewport_size,
                                 std::vector<RHI::BufferHandle> &transient_buffers,
-                                Renderer::TextAtlasRetiredResources &retired_atlas_resources) {
-                return renderer_->prepare(device, encoder, *snapshot, texture_resolver, transient_buffers,
-                                          retired_atlas_resources);
+                                Renderer::TextAtlasRetiredResources &retired_atlas_resources) -> Core::RendererResult {
+                const Core::Extent2D layout_extent = snapshot->viewport_extent();
+                if (viewport_size.x != static_cast<f32>(layout_extent.width) ||
+                    viewport_size.y != static_cast<f32>(layout_extent.height)) {
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        "UI snapshot extent does not match the selected render endpoint; call begin_layout() "
+                        "with the off-screen target's absolute extent.");
+                }
+                const std::lock_guard lock{renderer_state->mutex};
+                if (!renderer_state->renderer) {
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        "UI renderer was destroyed before overlay preparation.");
+                }
+                return renderer_state->renderer->prepare(
+                    device, encoder, *snapshot, texture_resolver, transient_buffers,
+                    retired_atlas_resources);
             };
-            hooks.draw = [this](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size) {
-                return renderer_->draw(pass, viewport_size);
+            hooks.draw = [renderer_state](RHI::RenderPassEncoder &pass,
+                                          glm::vec2 viewport_size) -> Core::RendererResult {
+                const std::lock_guard lock{renderer_state->mutex};
+                if (!renderer_state->renderer) {
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        "UI renderer was destroyed before overlay drawing.");
+                }
+                return renderer_state->renderer->draw(pass, viewport_size);
             };
             return hooks;
         }
 
         void destroy(RHI::RhiDevice &device) noexcept {
-            if (renderer_) {
-                renderer_->destroy(device);
-                renderer_.reset();
+            {
+                const std::lock_guard lock{renderer_state_->mutex};
+                if (renderer_state_->renderer) {
+                    renderer_state_->renderer->destroy(device);
+                    renderer_state_->renderer.reset();
+                }
             }
             context_.destroy();
             create_attempted_ = false;
@@ -146,7 +190,7 @@ namespace SFT::Engine {
 
       private:
         UI::Context context_{};
-        std::optional<UI::UiRenderer> renderer_{};
+        std::shared_ptr<UiRendererState> renderer_state_ = std::make_shared<UiRendererState>();
         bool create_attempted_ = false;
     };
 

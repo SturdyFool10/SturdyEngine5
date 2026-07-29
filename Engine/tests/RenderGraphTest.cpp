@@ -23,6 +23,10 @@ namespace {
                         "standard graph does not end with present");
         passed &= check(graph.presented_texture() == graph.passes()[4].output,
                         "standard present input is not the final module output");
+        passed &= check(!graph.selected_render_target(),
+                        "standard graph does not target the frame surface");
+        passed &= check(!graph.passes().back().target,
+                        "standard Present node stores a non-surface target");
         return passed;
     }
 
@@ -221,6 +225,40 @@ namespace {
         return passed;
     }
 
+    bool offscreen_target_survives_graph_copies_without_rebasing() {
+        using namespace SFT::Engine;
+
+        constexpr RenderTargetHandle target{.value = 0x1020304050607080ull};
+        RenderGraph source = RenderGraph::empty();
+        RenderGraphTextureHandle color = source.compose(RenderModules::DeferredScene{});
+        color = source.compose(RenderModules::ToneMapping{.input = color});
+        (void)source.compose(RenderModules::Present{.input = color, .target = target});
+
+        RenderGraph constructed = source;
+        RenderGraph assigned;
+        assigned = source;
+        RenderGraph normalized = source.normalized();
+
+        bool passed = check(source.validate().has_value(), "targeted source graph failed validation");
+        passed &= check(constructed.validate().has_value() && assigned.validate().has_value() &&
+                            normalized.validate().has_value(),
+                        "targeted graph copy failed validation");
+        passed &= check(constructed.selected_render_target() == target &&
+                            assigned.selected_render_target() == target &&
+                            normalized.selected_render_target() == target,
+                        "offscreen target identity changed across graph copies");
+        passed &= check(constructed.passes().back().target == target &&
+                            assigned.passes().back().target == target &&
+                            normalized.passes().back().target == target,
+                        "copied Present node did not retain its offscreen target");
+        passed &= check(constructed.passes().front().handle.generation !=
+                            source.passes().front().handle.generation &&
+                        assigned.passes().front().handle.generation !=
+                            source.passes().front().handle.generation,
+                        "graph-local handles were not rebased while preserving the target");
+        return passed;
+    }
+
     bool copied_graphs_rebase_graph_local_handles() {
         using namespace SFT::Engine;
 
@@ -249,6 +287,7 @@ namespace {
     bool invalid_graph_normalizes_to_safe_standard() {
         using namespace SFT::Engine;
 
+        constexpr RenderTargetHandle target{.value = 77};
         RenderGraph graph = RenderGraph::empty();
         RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
         color = graph.compose(RenderModules::FullscreenEffect{
@@ -256,7 +295,7 @@ namespace {
             .effect = FullscreenEffectDescription{},
         });
         color = graph.compose(RenderModules::ToneMapping{.input = color});
-        (void)graph.compose(RenderModules::Present{.input = color});
+        (void)graph.compose(RenderModules::Present{.input = color, .target = target});
 
         const RenderGraphResult validation = graph.validate();
         bool passed = check(!validation.has_value(), "invalid fullscreen shader identity passed validation");
@@ -267,6 +306,8 @@ namespace {
         passed &= check(normalized.validate().has_value(), "normalization did not produce a safe graph");
         passed &= check(normalized.passes().size() == RenderGraph::standard().passes().size(),
                         "invalid topology did not fall back to the standard module chain");
+        passed &= check(normalized.selected_render_target() == target,
+                        "normalization redirected an off-screen graph to the window surface");
         return passed;
     }
 
@@ -279,6 +320,7 @@ int main() {
     passed &= branches_are_valid_and_presentation_lowering_is_reachable_only();
     passed &= fullscreen_modules_compose_by_dataflow();
     passed &= explicit_compute_copy_outputs_control_execution();
+    passed &= offscreen_target_survives_graph_copies_without_rebasing();
     passed &= copied_graphs_rebase_graph_local_handles();
     passed &= invalid_graph_normalizes_to_safe_standard();
     return passed ? 0 : 1;

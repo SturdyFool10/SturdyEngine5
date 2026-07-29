@@ -70,6 +70,20 @@ namespace SFT::Renderer {
                                                                      const Core::PresentationSettings &settings);
         [[nodiscard]] Core::RendererResult reconfigure_backend(const Core::RendererCreateInfo &create_info);
 
+        // Queries the real HDR capability of whichever display `surface`'s window currently sits
+        // on — see RHI::RhiDevice::query_hdr_capabilities's own doc comment. Each window has its own
+        // WindowSurfaceRecord/RHI::SurfaceHandle, so this is correctly per-window: a multi-window app
+        // with windows on different monitors gets a different, independently accurate answer for each.
+        [[nodiscard]] RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> query_hdr_capabilities(
+            Core::RenderSurfaceHandle surface) const;
+
+        // See RHI::HdrContentLightLevelUpdate's own doc comment (RHI/HdrDisplay.hpp) for exactly
+        // what this is (a manual, caller-supplied per-scene metadata refresh) and is not (real
+        // HDR10+/ST 2094-40 — this engine doesn't analyze scene luminance itself). No-ops usefully
+        // (returns Unsupported) on a surface not currently presenting Hdr10St2084.
+        [[nodiscard]] RHI::RhiResult update_hdr_content_light_level(
+            Core::RenderSurfaceHandle surface, const RHI::HdrContentLightLevelUpdate &update);
+
         [[nodiscard]] Core::RendererResult render_frame(Core::RenderSurfaceHandle surface,
                                                         const Core::FrameInput &frame);
 
@@ -148,6 +162,13 @@ namespace SFT::Renderer {
         void destroy_texture(TextureHandle handle) noexcept;
         [[nodiscard]] TextureResource *texture(TextureHandle handle) noexcept;
         [[nodiscard]] const TextureResource *texture(TextureHandle handle) const noexcept;
+
+        [[nodiscard]] Core::RendererExpected<OffscreenRenderTargetHandle> create_offscreen_render_target(
+            const OffscreenRenderTargetDescription &description);
+        void destroy_offscreen_render_target(OffscreenRenderTargetHandle handle) noexcept;
+        [[nodiscard]] optional<OffscreenRenderTargetDescription> offscreen_render_target_description(
+            OffscreenRenderTargetHandle handle) const;
+        [[nodiscard]] TextureHandle offscreen_render_target_texture(OffscreenRenderTargetHandle handle) const noexcept;
 
         // Wraps an already-created RHI texture (+ view + optional sampler) as a Renderer::TextureHandle
         // without uploading/owning it — the concrete mechanism behind "bind an off-screen render target
@@ -467,6 +488,29 @@ namespace SFT::Renderer {
             bool submitted = false;
         };
 
+        struct OffscreenRenderTargetGpuResources {
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle view{};
+            RHI::SamplerHandle sampler{};
+        };
+
+        struct OffscreenRenderTargetRecord {
+            OffscreenRenderTargetDescription description{};
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle view{};
+            RHI::SamplerHandle sampler{};
+            TextureHandle sampled_texture{};
+            bool initialized = false;
+            bool alive = false;
+        };
+
+        struct ResolvedOffscreenRenderTarget {
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle view{};
+            Core::Extent2D extent{};
+            bool initialized = false;
+        };
+
         struct WindowSurfaceRecord {
             Platform::Windowing::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
@@ -547,6 +591,7 @@ namespace SFT::Renderer {
             SceneLighting lighting{};
             DeferredTargetFormats deferred_formats{};
             RenderGraphSettings render_graph{};
+            OffscreenRenderTargetHandle offscreen_target{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
             // Render bundles (secondary command buffers) finished this frame via
@@ -935,6 +980,15 @@ namespace SFT::Renderer {
         // Briefly locks window_surfaces_ to find the record matching `surface`, then returns the (stable,
         // heap-allocated) raw pointer with the lock released. Matches the same "caller-owns-lifetime,
         // lock only protects the container's own structure" contract VulkanRhiResourcePool documents.
+        [[nodiscard]] Core::RendererExpected<OffscreenRenderTargetGpuResources>
+        create_offscreen_render_target_gpu_resources(const OffscreenRenderTargetDescription &description);
+        [[nodiscard]] optional<ResolvedOffscreenRenderTarget> resolve_offscreen_render_target(
+            OffscreenRenderTargetHandle handle) const noexcept;
+        void mark_offscreen_render_target_initialized(OffscreenRenderTargetHandle handle) noexcept;
+        void invalidate_offscreen_render_targets_after_device_loss() noexcept;
+        [[nodiscard]] Core::RendererResult restore_offscreen_render_targets_after_recovery();
+        void destroy_all_offscreen_render_targets() noexcept;
+
         [[nodiscard]] WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) noexcept;
         [[nodiscard]] const WindowSurfaceRecord *window_surface(Core::RenderSurfaceHandle surface) const noexcept;
         [[nodiscard]] Core::RendererResult ensure_rhi_presentation_resources(WindowSurfaceRecord &record);
@@ -1327,7 +1381,8 @@ namespace SFT::Renderer {
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
             RHI::Format presentation_format,
-            bool hdr_output);
+            bool hdr_output,
+            Core::HdrColorSpaceMode hdr_color_space);
 
         // ── Fullscreen post-processes ──
         // NVIDIA SRAA: reconstructs 1x deferred shading from multisampled depth visibility before
@@ -1488,6 +1543,7 @@ namespace SFT::Renderer {
         // elements so a WindowSurfaceRecord's address stays stable across push_back/erase — a render call
         // only needs the lock for the brief lookup, then keeps using the (stable) pointer unlocked.
         mutable Async::Mutex<vector<unique_ptr<WindowSurfaceRecord>>> window_surfaces_;
+        mutable Async::Mutex<vector<OffscreenRenderTargetRecord>> offscreen_render_targets_;
         Core::RendererCapabilities capabilities_{};
         // A single growable GPU buffer that mesh uploads sub-allocate append-only ranges from, instead
         // of each Mesh owning its own dedicated VkBuffer — see try_upload_mesh/grow_geometry_arena.

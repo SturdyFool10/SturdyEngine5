@@ -571,7 +571,8 @@ namespace SFT::Renderer {
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
         RHI::Format presentation_format,
-        bool hdr_output) {
+        bool hdr_output,
+        Core::HdrColorSpaceMode hdr_color_space) {
         using namespace RenderGraphSemantics;
 
         const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
@@ -584,6 +585,7 @@ namespace SFT::Renderer {
         }
 
         submission.render_graph.tone_mapping_hdr_output = hdr_output;
+        submission.render_graph.tone_mapping_hdr_color_space = hdr_color_space;
         context.graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap" : "present scene color")
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = destination,

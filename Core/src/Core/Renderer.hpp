@@ -100,6 +100,23 @@ namespace SFT::Core {
         PowerEfficient,
     };
 
+    // Which HDR swapchain encoding to request when PresentationSettings::hdr_enabled is set. Both
+    // are gated behind VK_EXT_swapchain_colorspace — see RHI::ColorSpace's own doc comment
+    // (RHI/Swapchain.hpp) for the tradeoff: Hdr10St2084 bakes in a fixed peak-nits assumption via
+    // PQ, ScrgbLinear leaves tone mapping to the OS/compositor. Ignored when hdr_enabled is false.
+    enum class HdrColorSpaceMode : u8 {
+        Hdr10St2084,
+        ScrgbLinear,
+        // ITU-R BT.2100 Hybrid Log-Gamma — no HDR metadata needed at all (backward-compatible,
+        // self-describing scene-referred curve). See RHI::ColorSpace::Hdr10Hlg's own doc comment.
+        Hdr10Hlg,
+        // Best-effort only: real Dolby Vision needs per-frame dynamic metadata in Dolby's proprietary
+        // format, which this engine cannot produce. Selecting this is expected to report Unsupported
+        // on the overwhelming majority of real displays — see RHI::ColorSpace::DolbyVision's own doc
+        // comment for the full explanation and what the tonemap shader falls back to.
+        DolbyVision,
+    };
+
     struct PresentationSettings {
         VSyncMode vsync = VSyncMode::On;
         // Defaults to Disabled, not Automatic: resolve_present_strategy() below gives variable
@@ -112,6 +129,7 @@ namespace SFT::Core {
         // Requests an HDR-capable presentation path. Backends should rebuild the swapchain/device as needed
         // and report Unsupported only when the OS/display/API genuinely cannot expose HDR.
         b8 hdr_enabled = false;
+        HdrColorSpaceMode hdr_color_space = HdrColorSpaceMode::Hdr10St2084;
         // 0 = renderer/backend chooses. Non-zero is clamped by the backend/surface capabilities.
         u32 swapchain_image_count = 0;
         // Opt-out, not opt-in: when the device has a compute queue whose family also supports

@@ -168,6 +168,21 @@ namespace SFT::Runtime {
             BloomKeyboardControls{.threshold_step = 0.05f},
             BloomTuningState{.threshold = render_graph_.bloom().threshold});
 
+        hdr_controls_entity_ = engine.ecs_world().spawn(HdrToggleState{});
+        engine.update_schedule().add_system(
+            [](Ecs::Entity, HdrToggleState &state, Ecs::EventReader<Engine::KeyboardEvent> keyboard) noexcept {
+                for (const Engine::KeyboardEvent &event : keyboard.read()) {
+                    if (!event.pressed() || event.repeat) continue;
+                    if (event.key == 'h' || event.key == 'H') {
+                        state.toggle_requested = true;
+                    } else if (event.key == 'j' || event.key == 'J') {
+                        state.cycle_color_space_requested = true;
+                    } else if (event.key == 'k' || event.key == 'K') {
+                        state.refresh_metadata_requested = true;
+                    }
+                }
+            });
+
         engine.update_schedule().add_system(
             [](Ecs::Entity,
                const BloomKeyboardControls &controls,
@@ -369,11 +384,106 @@ namespace SFT::Runtime {
 #endif
     }
 
+    namespace {
+        [[nodiscard]] const char *hdr_color_space_name(Core::HdrColorSpaceMode mode) noexcept {
+            switch (mode) {
+                case Core::HdrColorSpaceMode::Hdr10St2084: return "HDR10 (ST2084/PQ)";
+                case Core::HdrColorSpaceMode::ScrgbLinear: return "scRGB linear";
+                case Core::HdrColorSpaceMode::Hdr10Hlg: return "HLG";
+                case Core::HdrColorSpaceMode::DolbyVision: return "Dolby Vision (best-effort)";
+            }
+            return "unknown";
+        }
+    } // namespace
+
+    void RuntimeClient::handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface) {
+        auto state = engine.ecs_world().get_component<HdrToggleState>(hdr_controls_entity_);
+        if (!state) {
+            return;
+        }
+
+        if (state->toggle_requested) {
+            state->toggle_requested = false;
+
+            // Real per-window display query — this window's HdrToggleState/surface pair is all it
+            // takes; a multi-window app calling this per-surface gets an independently correct
+            // answer for each window even when they're on different monitors with different (or no)
+            // HDR support, since query_hdr_capabilities() never assumes one window's display applies
+            // to another.
+            if (const auto capability = engine.query_hdr_capabilities(surface)) {
+                const RHI::SurfaceHdrCapabilities &caps = capability->capabilities;
+                Foundation::log_info(
+                    "HDR capability for this window's current display: supported={} enabled_by_os={} "
+                    "sdr_white={:.0f} nits edr_headroom={:.2f}x supported_modes={} ({})",
+                    caps.hdr_supported, caps.hdr_enabled_by_os, caps.sdr_white_nits, caps.edr_headroom,
+                    caps.supported_modes.size(), capability->message.message);
+            } else {
+                Foundation::log_warn("HDR capability query failed: {}", capability.error().message);
+            }
+
+            Engine::EngineConfig new_config = config_.engine;
+            new_config.features.presentation.hdr_enabled = !new_config.features.presentation.hdr_enabled;
+            if (const auto applied = engine.apply_runtime_settings(surface, new_config)) {
+                config_.engine = new_config;
+                Foundation::log_info("HDR {} — {}",
+                                     new_config.features.presentation.hdr_enabled ? "enabled" : "disabled",
+                                     applied->message);
+            } else {
+                Foundation::log_warn("Failed to toggle HDR: {}", applied.error().message);
+            }
+        }
+
+        if (state->cycle_color_space_requested) {
+            state->cycle_color_space_requested = false;
+
+            // Cycles all four Core::HdrColorSpaceMode values in enumerator order — HDR10 -> scRGB ->
+            // HLG -> Dolby Vision (best-effort) -> back to HDR10. See that enum's own doc comment
+            // (Core/Renderer.hpp) for what each mode actually does/doesn't do; Dolby Vision in
+            // particular is expected to report Unsupported on real displays.
+            Engine::EngineConfig new_config = config_.engine;
+            const auto current = static_cast<u8>(new_config.features.presentation.hdr_color_space);
+            constexpr u8 mode_count = 4;
+            new_config.features.presentation.hdr_color_space =
+                static_cast<Core::HdrColorSpaceMode>((current + 1) % mode_count);
+            if (const auto applied = engine.apply_runtime_settings(surface, new_config)) {
+                config_.engine = new_config;
+                Foundation::log_info("HDR color space set to {} — {}",
+                                     hdr_color_space_name(new_config.features.presentation.hdr_color_space),
+                                     applied->message);
+            } else {
+                Foundation::log_warn("Failed to switch HDR color space to {}: {}",
+                                     hdr_color_space_name(new_config.features.presentation.hdr_color_space),
+                                     applied.error().message);
+            }
+        }
+
+        if (state->refresh_metadata_requested) {
+            state->refresh_metadata_requested = false;
+
+            // Demonstrates RhiDevice::update_hdr_content_light_level() — a manual, caller-supplied
+            // per-scene HDR10 metadata refresh (see its own doc comment, RHI/HdrDisplay.hpp, for why
+            // this is not real HDR10+/ST 2094-40). Runtime has no actual scene-luminance analysis, so
+            // this sends a fixed illustrative value rather than a real measurement — a real game would
+            // compute these from the current frame/scene instead of hardcoding them.
+            constexpr RHI::HdrContentLightLevelUpdate demo_update{
+                .max_content_light_level_nits = 600.0f,
+                .max_frame_average_light_level_nits = 150.0f,
+            };
+            if (const auto updated = engine.update_hdr_content_light_level(surface, demo_update)) {
+                Foundation::log_info(
+                    "HDR content-light-level metadata refreshed (demo values: MaxCLL={:.0f} nits, MaxFALL={:.0f} nits).",
+                    demo_update.max_content_light_level_nits, demo_update.max_frame_average_light_level_nits);
+            } else {
+                Foundation::log_warn("Failed to refresh HDR content-light-level metadata: {}", updated.error().message);
+            }
+        }
+    }
+
     std::optional<Engine::RenderFrameParameters> RuntimeClient::request_render_frame(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle surface,
         const Core::FrameInput &frame) {
-        (void)surface;
+        handle_hdr_controls(engine, surface);
 
         bool threshold_view = false;
         if (auto bloom = engine.ecs_world().get_component<BloomTuningState>(bloom_controls_entity_)) {

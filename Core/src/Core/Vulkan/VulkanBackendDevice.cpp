@@ -396,8 +396,10 @@ namespace SFT::Core::Vulkan {
         if (video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME);
         }
-        if (static_cast<bool>(init.features.presentation.hdr_enabled) &&
-            this->physicalDevice.supports_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME)) {
+        // HDR metadata is optional, but enable it up front whenever available. Device extensions are
+        // immutable after creation; pre-enabling this avoids replacing the device—and invalidating
+        // GPU-only scene assets—when an SDR application later switches its swapchain to HDR.
+        if (this->physicalDevice.supports_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME)) {
             extensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
             hdr_metadata_enabled_ = true;
         }

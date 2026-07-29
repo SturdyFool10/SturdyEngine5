@@ -216,6 +216,42 @@ namespace SFT::Engine {
         renderer_.destroy_window_surface(surface);
     }
 
+    Core::RendererExpected<RenderTargetHandle> Engine::create_offscreen_render_target(
+        const OffscreenRenderTargetDescription &description) {
+        auto target = renderer_.create_offscreen_render_target(RendererApi::OffscreenRenderTargetDescription{
+            .extent = Core::Extent2D{.width = description.width, .height = description.height},
+            .label = description.label,
+        });
+        if (!target) {
+            return unexpected(target.error());
+        }
+        return RenderTargetHandle{.value = target->value};
+    }
+
+    void Engine::destroy_offscreen_render_target(RenderTargetHandle target) noexcept {
+        renderer_.destroy_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value});
+    }
+
+    optional<OffscreenRenderTargetDescription> Engine::offscreen_render_target_description(
+        RenderTargetHandle target) const {
+        const optional<RendererApi::OffscreenRenderTargetDescription> description =
+            renderer_.offscreen_render_target_description(
+                RendererApi::OffscreenRenderTargetHandle{.value = target.value});
+        if (!description) {
+            return std::nullopt;
+        }
+        return OffscreenRenderTargetDescription{
+            .width = description->extent.width,
+            .height = description->extent.height,
+            .label = description->label,
+        };
+    }
+
+    RendererApi::TextureHandle Engine::offscreen_render_target_texture(RenderTargetHandle target) const noexcept {
+        return renderer_.offscreen_render_target_texture(
+            RendererApi::OffscreenRenderTargetHandle{.value = target.value});
+    }
+
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::recreate_window(Core::RenderSurfaceHandle old_surface,
                                                                               Platform::Windowing::Window &new_window,
                                                                               u32 desired_frames_in_flight) {
@@ -232,6 +268,16 @@ namespace SFT::Engine {
         return renderer_.set_presentation_settings(surface, settings);
     }
 
+    RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Engine::query_hdr_capabilities(
+        Core::RenderSurfaceHandle surface) const {
+        return renderer_.query_hdr_capabilities(surface);
+    }
+
+    RHI::RhiResult Engine::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
+                                                           const RHI::HdrContentLightLevelUpdate &update) {
+        return renderer_.update_hdr_content_light_level(surface, update);
+    }
+
     Core::RendererExpected<Core::RuntimeSettingsChangeResult>
     Engine::apply_runtime_settings(Core::RenderSurfaceHandle primary_surface,
                                    const EngineConfig &settings) {
@@ -244,16 +290,29 @@ namespace SFT::Engine {
         const Core::PresentationSettings &old_presentation = config_.features.presentation;
         const Core::PresentationSettings &new_presentation = settings.features.presentation;
 
-        const bool hdr_changed =
+        const bool hdr_enabled_changed =
             static_cast<bool>(old_presentation.hdr_enabled) != static_cast<bool>(new_presentation.hdr_enabled);
+        // Color-space mode only matters while HDR is (or is becoming) enabled. The backend enables
+        // its optional HDR extensions during initial startup, so both enabling HDR and switching its
+        // encoding are swapchain-only changes.
+        const bool hdr_color_space_changed = static_cast<bool>(new_presentation.hdr_enabled) &&
+                                             old_presentation.hdr_color_space != new_presentation.hdr_color_space;
+        const bool hdr_changed = hdr_enabled_changed || hdr_color_space_changed;
         const RHI::RhiDevice *active_rhi = renderer_.rhi_device();
         const bool hdr_colorspace_enabled = active_rhi != nullptr &&
                                             active_rhi->is_extension_enabled(RHI::ExtensionId{"vulkan", "VK_EXT_swapchain_colorspace", 1});
-        const bool hdr_metadata_enabled = active_rhi != nullptr &&
-                                          active_rhi->is_extension_enabled(RHI::ExtensionId{"vulkan", "VK_EXT_hdr_metadata", 1});
-        const bool hdr_requires_backend_rebuild = hdr_changed &&
-                                                  (!static_cast<bool>(new_presentation.hdr_enabled) || !hdr_colorspace_enabled || !hdr_metadata_enabled);
-
+        // Vulkan instance/device extensions are immutable. The backend now enables the lightweight HDR
+        // colorspace/metadata extensions opportunistically during initial SDR startup, so an HDR mode
+        // change never needs to destroy GPU-only meshes/textures just to rebuild the instance. If the
+        // colorspace extension is genuinely unsupported, reject the toggle while the existing SDR scene
+        // remains intact instead of attempting a destructive rebuild that cannot make it supported.
+        if (hdr_enabled_changed && static_cast<bool>(new_presentation.hdr_enabled) &&
+            !hdr_colorspace_enabled) {
+            return unexpected(Core::GraphicsBackendError{
+                Core::GraphicsBackendErrorCode::Unsupported,
+                "HDR presentation is unavailable because VK_EXT_swapchain_colorspace is not supported.",
+            });
+        }
         const bool presentation_changed =
             old_presentation.vsync != new_presentation.vsync ||
             old_presentation.variable_refresh != new_presentation.variable_refresh ||
@@ -261,7 +320,7 @@ namespace SFT::Engine {
             old_presentation.preference != new_presentation.preference ||
             old_presentation.swapchain_image_count != new_presentation.swapchain_image_count ||
             static_cast<bool>(old_presentation.allow_present_from_compute) != static_cast<bool>(new_presentation.allow_present_from_compute) ||
-            (hdr_changed && !hdr_requires_backend_rebuild);
+            hdr_changed;
 
         const bool backend_features_changed =
             static_cast<bool>(config_.features.raytracing) != static_cast<bool>(settings.features.raytracing) ||
@@ -282,7 +341,7 @@ namespace SFT::Engine {
             return result;
         }
 
-        if (backend_features_changed || hdr_requires_backend_rebuild || app_name_changed || config_.shaders_directory != settings.shaders_directory) {
+        if (backend_features_changed || app_name_changed || config_.shaders_directory != settings.shaders_directory) {
             auto wsi_extensions = primary_window_->required_vulkan_instance_extensions();
             if (!wsi_extensions) {
                 return unexpected(Core::GraphicsBackendError{
@@ -308,9 +367,7 @@ namespace SFT::Engine {
             config_ = settings;
             capabilities_ = renderer_.capabilities();
             result.mode = Core::RuntimeSettingApplyMode::BackendRecreated;
-            result.message = hdr_requires_backend_rebuild
-                                 ? "Runtime settings changed Vulkan extension requirements; the graphics backend was rebuilt with the requested extension set without restarting the game."
-                                 : "Runtime settings required graphics backend/device recreation and were applied without restarting the game.";
+            result.message = "Runtime settings required graphics backend/device recreation and were applied without restarting the game.";
             return result;
         }
 
@@ -523,6 +580,9 @@ namespace SFT::Engine {
 
         RendererApi::RenderFrameDesc desc{};
         desc.surface = frame.surface;
+        desc.offscreen_target = RendererApi::OffscreenRenderTargetHandle{
+            .value = executable_graph.selected_render_target().value,
+        };
         desc.frame = frame.frame;
         desc.view.camera = frame.camera;
         desc.view.lighting = frame.lighting;

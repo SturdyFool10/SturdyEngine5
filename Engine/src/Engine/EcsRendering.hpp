@@ -135,7 +135,9 @@ namespace SFT::Engine {
     };
 
     // Fully owned CPU snapshot. Application builds this before queuing the frame, so ECS may start
-    // preparing later frames while the dedicated render thread consumes this one.
+    // preparing later frames while the dedicated render thread consumes this one. `surface` remains
+    // populated even when RenderGraph's Present selects an offscreen target: Renderer still uses the
+    // surface to select and retire the correct frame-in-flight ring.
     struct PreparedRenderFrame {
         Core::RenderSurfaceHandle surface{};
         Core::FrameInput frame{};

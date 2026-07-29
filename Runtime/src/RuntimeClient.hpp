@@ -17,6 +17,18 @@ namespace SFT::Runtime {
         bool threshold_view = false;
     };
 
+    // Written by a keyboard system, consumed (and cleared) in request_render_frame — the same split
+    // BloomKeyboardControls/BloomTuningState uses. Demonstrates Engine::query_hdr_capabilities()
+    // (per-surface, so a multi-window app gets an independently correct answer per window/display —
+    // this demo has one window, but the API call it exercises is not window-count-specific) and the
+    // Engine::apply_runtime_settings() runtime HDR on/off + HDR10<->scRGB toggle path, both real
+    // presses, not simulated.
+    struct HdrToggleState {
+        bool toggle_requested = false;
+        bool cycle_color_space_requested = false;
+        bool refresh_metadata_requested = false;
+    };
+
     // Consumer-defined event: registered and consumed through the exact same ECS API as Engine's
     // built-in keyboard/window/mouse events.
     struct BloomThresholdChanged {
@@ -69,6 +81,11 @@ namespace SFT::Runtime {
         void configure_render_extraction(Engine::Engine &engine);
         void configure_event_systems(Engine::Engine &engine);
         void spawn_demo_entities(Engine::Engine &engine);
+        // Consumes HdrToggleState (set by the keyboard system in configure_event_systems), if any
+        // toggle was requested this frame — this is the one place with the Engine&/surface pair
+        // Engine::query_hdr_capabilities()/apply_runtime_settings() need, so the actual response to
+        // 'H'/'J' happens here rather than in the ECS system that only observed the key press.
+        void handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface);
 
         Engine::ApplicationConfig config_{};
         Engine::Asset gltf_shader_{};
@@ -79,6 +96,7 @@ namespace SFT::Runtime {
         Engine::RenderGraph render_graph_{};
         Ecs::Entity bloom_controls_entity_{};
         Ecs::Entity camera_control_entity_{};
+        Ecs::Entity hdr_controls_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
     };
 
@@ -86,5 +104,6 @@ namespace SFT::Runtime {
 
 SFT_ECS_COMPONENT(SFT::Runtime::BloomKeyboardControls, "sturdy.runtime.bloom_keyboard_controls");
 SFT_ECS_COMPONENT(SFT::Runtime::BloomTuningState, "sturdy.runtime.bloom_tuning_state");
+SFT_ECS_COMPONENT(SFT::Runtime::HdrToggleState, "sturdy.runtime.hdr_toggle_state");
 SFT_ECS_EVENT(SFT::Runtime::BloomThresholdChanged, "sturdy.runtime.bloom_threshold_changed");
 SFT_ECS_COMPONENT(SFT::Runtime::FlyCameraState, "sturdy.runtime.fly_camera_state");

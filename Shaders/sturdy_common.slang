@@ -187,6 +187,46 @@ float3 pqEncode(float3 nits) {
     return pow((PQ_C1 + PQ_C2 * yM1) / (1.0 + PQ_C3 * yM1), PQ_M2);
 }
 
+// scRGB's fixed reference white, by definition (Microsoft's scRGB spec / RHI::ColorSpace::ScrgbLinear's
+// own doc comment): a value of 1.0 in an extended-linear-sRGB target always means 80 cd/m^2, regardless
+// of what nits an app treats as "paper white" for its own exposure/tonemap purposes. `nits` is absolute
+// display luminance, same convention pqEncode() above takes; unlike PQ this is a pure linear scale, no
+// curve — the OS/compositor is the one that maps this float target to the real display's capability.
+float3 scrgbEncode(float3 nits) {
+    static const float SCRGB_REFERENCE_WHITE_NITS = 80.0;
+    return nits / SCRGB_REFERENCE_WHITE_NITS;
+}
+
+// ITU-R BT.2100 Hybrid Log-Gamma (HLG / ARIB STD-B67). `nits` is absolute display luminance, same
+// convention pqEncode()/scrgbEncode() above take. Unlike PQ, HLG carries no HDR metadata at all —
+// RHI::ColorSpace::Hdr10Hlg's own doc comment — its OETF plus a nominal-peak-referenced OOTF is the
+// whole signal; a compliant receiver needs nothing else to reproduce it.
+//
+// BT.2100's real pipeline is scene-linear -> OOTF -> display-linear, and the OOTF
+// (F_D = L_W * Y_S^(gamma-1) * E, gamma=1.2 at the L_W=1000 cd/m^2 nominal peak) couples all three
+// channels through scene luma Y_S rather than acting per-channel — solving that exactly for content
+// that's already display-referred (as `nits` here is, having already been through this engine's own
+// tonemap operator) means inverting a 3D system. This uses the common real-time simplification
+// instead: treat `nits` as if it already were display-linear light against the 1000-nit nominal
+// peak, and invert the OOTF as a flat per-channel power curve (dropping the luma-coupling term) to
+// recover the scene-linear E the OETF below expects — matches how other real-time HLG output paths
+// approximate this pipeline; not a certified-exact BT.2100 Annex 2 implementation.
+float3 hlgEncode(float3 nits) {
+    static const float HLG_NOMINAL_PEAK_NITS = 1000.0;
+    static const float HLG_SYSTEM_GAMMA = 1.2;
+    static const float HLG_A = 0.17883277;
+    static const float HLG_B = 0.28466892; // 1 - 4*HLG_A
+    static const float HLG_C = 0.55991073; // 0.5 - HLG_A * ln(4*HLG_A)
+
+    float3 sceneLinear = saturate(nits / HLG_NOMINAL_PEAK_NITS);
+    float3 e = pow(sceneLinear, 1.0 / HLG_SYSTEM_GAMMA);
+
+    float3 lowBranch = sqrt(3.0 * e);
+    float3 highBranch = HLG_A * log(max(12.0 * e - HLG_B, SFT_EPSILON)) + HLG_C;
+    float3 useHighBranch = step(1.0 / 12.0, e);
+    return lerp(lowBranch, highBranch, useHighBranch);
+}
+
 float linearToSrgbChannel(float linearValue) {
     return linearValue <= 0.0031308
         ? linearValue * 12.92
