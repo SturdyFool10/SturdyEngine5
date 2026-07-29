@@ -1105,6 +1105,15 @@ namespace SFT::Core::Slang {
         return bytecode;
     }
 
+    void Shader::release_compiler_state() noexcept {
+        if (!state_) {
+            return;
+        }
+        state_->linked_program.setNull();
+        state_->module.setNull();
+        state_->session.setNull();
+    }
+
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(string_view entry_point_name, usize target_index) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
@@ -1129,6 +1138,14 @@ namespace SFT::Core::Slang {
     }
 
     ShaderCompiler::~ShaderCompiler() = default;
+
+    void ShaderCompiler::release_session() noexcept {
+        if (!state_) {
+            return;
+        }
+        auto global_session = state_->global_session.lock();
+        global_session->setNull();
+    }
 
     ShaderExpected<ShaderReflection> ShaderCompiler::reflect(const ShaderSource &source, const ShaderCompileOptions &options) {
         if (!state_) {

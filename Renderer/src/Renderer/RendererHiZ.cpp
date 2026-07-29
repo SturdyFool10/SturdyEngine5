@@ -126,6 +126,7 @@ namespace SFT::Renderer {
         if (!pipeline) { destroy_hiz_build_resources(); return unexpected(graphics_error_from_rhi(pipeline.error(), "create hiz build pipeline")); }
         guard->pipeline = *pipeline;
 
+        guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
     }

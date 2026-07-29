@@ -89,6 +89,12 @@ namespace SFT::Core::Slang {
         // ```
         [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(string_view entry_point_name, usize target_index = 0) const;
 
+        // Releases Slang's session/module/linked-program graph after callers have extracted every
+        // bytecode blob they need. The plain C++ reflection snapshot and module metadata remain valid,
+        // but subsequent entry_point_code() calls return OperationFailed. Renderer pipeline caches use
+        // this once VkShaderModules have been created to avoid retaining a compiler arena per shader.
+        void release_compiler_state() noexcept;
+
       private:
         friend class ShaderCompiler;
         explicit Shader(shared_ptr<ShaderState> state) noexcept;
@@ -144,6 +150,10 @@ namespace SFT::Core::Slang {
         // if (refl) for (auto &ep : refl->entry_points) log_info("entry point: {}", ep.name);
         // ```
         [[nodiscard]] ShaderExpected<ShaderReflection> reflect(const ShaderSource &source, const ShaderCompileOptions &options = {});
+
+        // Drops the lazily-created Slang global session. A later compile()/reflect() recreates it.
+        // Call only when no compilation is active; the internal mutex serializes this with callers.
+        void release_session() noexcept;
 
       private:
         shared_ptr<ShaderCompilerState> state_;

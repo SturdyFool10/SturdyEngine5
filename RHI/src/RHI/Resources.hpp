@@ -71,6 +71,10 @@ namespace SFT::RHI {
         Storage = 1u << 3,          // read/write image load/store in a shader
         ColorAttachment = 1u << 4,  // rendered into as a color target
         DepthStencilAttachment = 1u << 5,
+        // Attachment-only scratch storage whose contents do not need to survive the rendering
+        // instance (for example, an MSAA source resolved into a single-sample texture). Backends may
+        // place it in lazily allocated/tile memory; it must not be combined with sampled/storage use.
+        TransientAttachment = 1u << 6,
     };
 
     struct TextureDesc {

@@ -706,6 +706,44 @@ namespace SFT::Engine {
             }
         }
 
+        // Load-time summary: triangle count + a rough VRAM estimate, so a game watching this log (or
+        // a tool parsing it) can catch an unexpectedly heavy asset before it ships. Built entirely
+        // from AssetManager's own already-computed, already-queryable numbers (AssetInfo::memory_bytes,
+        // ModelAssetInfo::triangle_count) rather than re-deriving them here, so this log can never
+        // drift out of sync with what AssetManager::info()/model_info() report to a caller later.
+        {
+            usize total_triangles = 0;
+            usize total_mesh_bytes = 0;
+            for (Asset model : out.models) {
+                if (auto model_info = assets.model_info(model)) {
+                    total_triangles += model_info->triangle_count;
+                }
+                if (auto asset_info = assets.info(model)) {
+                    total_mesh_bytes += asset_info->memory_bytes;
+                }
+            }
+            usize total_texture_bytes = 0;
+            for (const std::array<std::optional<Asset>, 2> &entry : image_cache.entries) {
+                for (const std::optional<Asset> &texture : entry) {
+                    if (texture) {
+                        if (auto texture_info = assets.info(*texture)) {
+                            total_texture_bytes += texture_info->memory_bytes;
+                        }
+                    }
+                }
+            }
+            if (flat_normal_texture) {
+                if (auto texture_info = assets.info(*flat_normal_texture)) {
+                    total_texture_bytes += texture_info->memory_bytes;
+                }
+            }
+            const f64 mesh_mb = static_cast<f64>(total_mesh_bytes) / (1024.0 * 1024.0);
+            const f64 texture_mb = static_cast<f64>(total_texture_bytes) / (1024.0 * 1024.0);
+            Foundation::log_info(
+                "Loaded glTF '{}': {} model(s), {} triangles, ~{:.2f} MB VRAM ({:.2f} MB mesh, {:.2f} MB textures)",
+                source_path, out.models.size(), total_triangles, mesh_mb + texture_mb, mesh_mb, texture_mb);
+        }
+
         return out;
     }
 

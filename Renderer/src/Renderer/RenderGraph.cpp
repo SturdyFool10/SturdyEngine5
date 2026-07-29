@@ -109,6 +109,11 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_view_mask(u32 vi
             return *this;
         }
 
+RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_allow_bundles(bool allow_bundles) noexcept {
+            allow_bundles_ = allow_bundles;
+            return *this;
+        }
+
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGraphExecuteFn execute) noexcept {
             execute_ = std::move(execute);
             return *this;
@@ -1039,6 +1044,7 @@ void RenderGraph::reset() noexcept {
                 .depth_stencil = depth_stencil,
                 .render_area = pass.render_area_,
                 .view_mask = pass.view_mask_,
+                .allow_bundles = pass.allow_bundles_,
                 .label = pass.label_.empty() ? nullptr : pass.label_.c_str(),
             };
             auto render_pass = encoder.begin_render_pass(pass_desc);

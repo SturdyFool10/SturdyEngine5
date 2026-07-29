@@ -11,10 +11,11 @@ namespace SFT::RHI {
     // ─── Formats ─────────────────────────────────────────────────────────────────
 
     // A practical cross-API texel/vertex format set — the common ground every desktop API (Vulkan,
-    // D3D12, Metal) and WebGPU agree on. Not exhaustive (no BCn/ASTC/ETC block-compression, no
-    // exotic packed formats yet); those get added when a real asset pipeline needs them rather than
-    // enumerated speculatively. `Undefined` is the zero value so a default-constructed descriptor is
-    // obviously unset.
+    // D3D12, Metal) and WebGPU agree on. Not exhaustive (no ASTC/ETC block-compression, no exotic
+    // packed formats yet); those get added when a real asset pipeline needs them rather than
+    // enumerated speculatively — BC7/BC5/BC4 landed for exactly that reason (Engine::AssetManager's
+    // texture-compression pipeline). `Undefined` is the zero value so a default-constructed
+    // descriptor is obviously unset.
     enum class Format : u32 {
         Undefined = 0,
 
@@ -66,7 +67,31 @@ namespace SFT::RHI {
         D24UnormS8Uint,
         D32Float,
         D32FloatS8Uint,
+
+        // Block-compressed (4x4 texel blocks) — lossy. BC7 stores full RGBA and is a drop-in
+        // replacement for RGBA8Unorm/RGBA8UnormSrgb in any sampling shader (no shader changes
+        // needed). BC5 (2-channel, e.g. tangent-space normal maps with a shader-side Z
+        // reconstruction) and BC4 (1-channel) are declared but not yet wired into any asset-import
+        // policy — see Engine::AssetManager::create_texture.
+        BC7Unorm,
+        BC7UnormSrgb,
+        BC5Unorm,
+        BC4Unorm,
     };
+
+    // True for any block-compressed format (4x4 texel blocks, byte size computed per-block rather
+    // than per-texel — see Renderer::texture_data_bytes).
+    [[nodiscard]] constexpr bool format_is_block_compressed(Format format) noexcept {
+        switch (format) {
+            case Format::BC7Unorm:
+            case Format::BC7UnormSrgb:
+            case Format::BC5Unorm:
+            case Format::BC4Unorm:
+                return true;
+            default:
+                return false;
+        }
+    }
 
     // True for any format usable as a depth attachment (with or without a packed stencil).
     [[nodiscard]] constexpr bool format_has_depth(Format format) noexcept {

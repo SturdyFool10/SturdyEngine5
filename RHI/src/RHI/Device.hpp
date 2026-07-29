@@ -104,6 +104,11 @@ namespace SFT::RHI {
         // Bit N is set when N samples are supported (Vulkan's native bit layout is 1/2/4/...).
         u32 framebuffer_sample_counts = 1;
         bool supports_minimum_depth_resolve = false;
+        // True when the device can sample BC1-7 block-compressed textures (core Vulkan
+        // textureCompressionBC, not a vendor extension — near-universal on desktop GPUs). Callers
+        // uploading Format::BC7Unorm/etc. (e.g. Engine::AssetManager::create_texture) must check
+        // this and fall back to an uncompressed format when false.
+        bool supports_bc_texture_compression = false;
         u32 max_compute_workgroup_size_x = 0;
         u32 max_compute_workgroup_size_y = 0;
         u32 max_compute_workgroup_size_z = 0;

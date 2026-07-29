@@ -338,6 +338,13 @@ namespace SFT::Core::Vulkan {
         if (supportedFeatures.features.samplerAnisotropy) {
             features.features.samplerAnisotropy = VK_TRUE;
         }
+        // BC1-7 texture compression: core Vulkan 1.0 feature (not a vendor extension), enabled
+        // whenever supported — near-universal on desktop GPUs. Lets Engine::AssetManager upload
+        // Format::BC7Unorm/etc. textures (see RHI::DeviceLimits::supports_bc_texture_compression,
+        // populated from this same query in VulkanRhiBridgeCore.cpp).
+        if (supportedFeatures.features.textureCompressionBC) {
+            features.features.textureCompressionBC = VK_TRUE;
+        }
         if (enabled_rhi_features.has(RHI::Feature::ImageCubeArray)) {
             features.features.imageCubeArray = VK_TRUE;
         }

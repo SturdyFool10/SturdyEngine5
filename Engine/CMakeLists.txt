@@ -13,6 +13,7 @@ sturdy_add_package(EngineComponents
         Sturdy::StbImage
         Sturdy::cgltf
         Sturdy::miniaudio
+        Sturdy::bc7enc
 
     DEBUG_PUBLIC_DEPS
 )

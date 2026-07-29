@@ -75,8 +75,12 @@ namespace SFT::Core::Vulkan {
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
         };
+        const bool transient_attachment = rhi::has_any(desc.usage, rhi::TextureUsage::TransientAttachment);
         const VmaAllocationCreateInfo alloc_info{
-            .usage = VMA_MEMORY_USAGE_AUTO,
+            .usage = transient_attachment ? VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE : VMA_MEMORY_USAGE_AUTO,
+            // Lazily allocated heaps are common on tile-based GPUs but optional on desktop. Prefer
+            // rather than require one so VMA transparently falls back to ordinary device-local memory.
+            .preferredFlags = transient_attachment ? VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT : 0u,
         };
 
         auto image = allocator_->create_image(logical_device_->vk_handle(), image_info, alloc_info);

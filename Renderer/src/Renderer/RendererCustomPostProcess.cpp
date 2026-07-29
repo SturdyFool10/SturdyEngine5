@@ -151,6 +151,7 @@ namespace SFT::Renderer {
         });
         if (!pipeline) { cleanup(); return unexpected(graphics_error_from_rhi(pipeline.error(), "create custom post-process pipeline")); }
         resource.pipeline = *pipeline;
+        resource.shader.release_compiler_state();
         resources->push_back(std::move(resource));
         return {};
     }

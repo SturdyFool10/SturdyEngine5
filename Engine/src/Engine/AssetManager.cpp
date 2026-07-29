@@ -1,5 +1,6 @@
 #include "AssetManager.hpp"
 #include "ImageDecode.hpp"
+#include "TextureCompression.hpp"
 
 #include <Core/Core.hpp>
 #include <Renderer/Renderer.hpp>
@@ -11,6 +12,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <utility>
@@ -314,14 +316,34 @@ namespace SFT::Engine {
             desc.label = UString{"texture"_ustr};
         }
 
-        const RHI::Format format = desc.color_space == TextureColorSpace::Srgb
-                                       ? RHI::Format::RGBA8UnormSrgb
-                                       : RHI::Format::RGBA8Unorm;
+        const bool srgb = desc.color_space == TextureColorSpace::Srgb;
+        RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
+        std::span<const std::byte> upload_bytes{desc.rgba8.data(), desc.rgba8.size()};
+
+        // Lossy BC7 compression for a real VRAM win (~4x smaller), with zero shader changes
+        // anywhere — BC7 stores full RGBA, so it's a drop-in replacement for
+        // RGBA8Unorm/RGBA8UnormSrgb wherever a texture is sampled. Falls back to the uncompressed
+        // upload above on any ineligibility (caller opted out, texture too small for one 4x4
+        // block, or the device doesn't support BC compression) or encoder failure — never a hard
+        // error, see Detail::compress_bc7's own doc comment.
+        std::optional<std::vector<std::byte>> compressed;
+        RHI::RhiDevice *device = impl_->renderer.rhi_device();
+        if (desc.allow_compression && device != nullptr && device->limits().supports_bc_texture_compression) {
+            compressed = Detail::compress_bc7(upload_bytes, desc.width, desc.height, srgb);
+            if (compressed) {
+                format = srgb ? RHI::Format::BC7UnormSrgb : RHI::Format::BC7Unorm;
+                upload_bytes = std::span<const std::byte>{compressed->data(), compressed->size()};
+                // The compressed vector now owns the upload payload; release the full RGBA decode
+                // before the renderer allocates and fills its staging buffer.
+                std::vector<std::byte>{}.swap(desc.rgba8);
+            }
+        }
+
         auto texture = impl_->renderer.create_texture(
             desc.width,
             desc.height,
             format,
-            std::span<const std::byte>{desc.rgba8.data(), desc.rgba8.size()},
+            upload_bytes,
             desc.label.c_str());
         if (!texture) {
             return std::unexpected(backend_error(texture.error()));
@@ -331,7 +353,7 @@ namespace SFT::Engine {
         return impl_->insert(Impl::Record{
             .type = AssetType::Texture,
             .label = std::move(desc.label),
-            .memory_bytes = static_cast<usize>(required_bytes),
+            .memory_bytes = upload_bytes.size(),
             .data = Impl::TextureData{
                 .texture = *texture,
                 .info = TextureAssetInfo{
@@ -543,7 +565,7 @@ namespace SFT::Engine {
             model.info.vertex_count += primitive.mesh.vertices().size();
             model.info.index_count += primitive.mesh.indices().size();
 
-            auto mesh = impl_->renderer.upload(primitive.mesh);
+            auto mesh = impl_->renderer.upload(primitive.mesh, desc.retain_cpu_mesh_data);
             if (!mesh) {
                 rollback();
                 return std::unexpected(backend_error(mesh.error()));
@@ -592,6 +614,7 @@ namespace SFT::Engine {
             model.primitives.push_back(std::move(created));
         }
         model.info.primitive_count = model.primitives.size();
+        model.info.triangle_count = model.info.index_count / 3;
 
         const usize approximate_bytes =
             model.info.vertex_count * sizeof(SFT::Renderer::GeometryVertex) +

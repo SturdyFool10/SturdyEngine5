@@ -76,6 +76,15 @@ namespace SFT::RHI {
         // shadows, stereo VR. 0 disables multiview. Pipelines executed here must have a matching
         // RenderPipelineDesc::view_mask.
         u32 view_mask = 0;
+        // Must be true if this render pass instance's encoder will call execute_bundles() at all
+        // (Vulkan: sets VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT on vkCmdBeginRendering,
+        // required before vkCmdExecuteCommands is legal inside it — VUID-vkCmdExecuteCommands-flags-06024).
+        // A pass instance opened this way must record *only* via bundles, never a direct inline
+        // draw/dispatch call on the pass encoder itself — the two are mutually exclusive within one
+        // render pass instance under Vulkan's dynamic rendering model, mirroring the classic
+        // VkSubpassContents::INLINE vs. SECONDARY_COMMAND_BUFFERS split. False (the default) for every
+        // ordinary inline-recording pass.
+        bool allow_bundles = false;
         const char *label = nullptr;
     };
 

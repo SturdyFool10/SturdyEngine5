@@ -195,6 +195,7 @@ namespace SFT::Renderer {
         }
         guard->sampler = *sampler;
 
+        guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
     }

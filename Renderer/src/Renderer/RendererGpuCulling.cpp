@@ -202,6 +202,8 @@ namespace SFT::Renderer {
             guard->instance_data_bind_group_layout = *handle;
         }
 
+        guard->cull_shader.release_compiler_state();
+        guard->instanced_vertex_shader.release_compiler_state();
         guard->ready = true;
         return {};
     }
@@ -382,7 +384,7 @@ namespace SFT::Renderer {
                 return unexpected(instance_cull_error("Instanced batch references an unknown mesh."));
             }
             commands[i] = GpuDrawIndexedIndirectCommand{
-                .index_count = static_cast<u32>(mesh_resource->indices.size()),
+                .index_count = mesh_resource->index_count,
                 .instance_count = 0,
                 .first_index = mesh_resource->index_offset,
                 .vertex_offset = static_cast<i32>(mesh_resource->vertex_offset),
@@ -570,6 +572,47 @@ namespace SFT::Renderer {
             compacted_byte_offset += ((region_bytes + alignment - 1) / alignment) * alignment;
         }
         return {};
+    }
+
+    void Renderer::destroy_instance_cull_resources() noexcept {
+        RHI::RhiDevice *device = rhi_device();
+        auto templates = instanced_pipeline_variants_.lock();
+        if (device != nullptr) {
+            for (auto &[_, resources] : *templates) {
+                for (const InstancedPipelineVariant &variant : resources.pipeline_variants) {
+                    if (variant.pipeline) {
+                        device->destroy_render_pipeline(variant.pipeline);
+                    }
+                }
+                if (resources.pipeline_layout) {
+                    device->destroy_pipeline_layout(resources.pipeline_layout);
+                }
+            }
+        }
+        templates->clear();
+
+        auto resources = instance_cull_.lock();
+        if (device != nullptr) {
+            if (resources->cull_pipeline) {
+                device->destroy_compute_pipeline(resources->cull_pipeline);
+            }
+            if (resources->cull_pipeline_layout) {
+                device->destroy_pipeline_layout(resources->cull_pipeline_layout);
+            }
+            if (resources->cull_bind_group_layout) {
+                device->destroy_bind_group_layout(resources->cull_bind_group_layout);
+            }
+            if (resources->instance_data_bind_group_layout) {
+                device->destroy_bind_group_layout(resources->instance_data_bind_group_layout);
+            }
+            if (resources->instanced_vertex_module) {
+                device->destroy_shader_module(resources->instanced_vertex_module);
+            }
+            if (resources->cull_module) {
+                device->destroy_shader_module(resources->cull_module);
+            }
+        }
+        *resources = {};
     }
 
 } // namespace SFT::Renderer

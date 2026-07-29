@@ -173,6 +173,7 @@ namespace SFT::Renderer {
         if (!up_pipeline) { destroy_bloom_resources_locked(*guard); return unexpected(up_pipeline.error()); }
         guard->upsample_pipeline = *up_pipeline;
         guard->color_format = color_format;
+        guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
     }
@@ -377,6 +378,7 @@ namespace SFT::Renderer {
         }
         guard->sampler = *sampler;
 
+        guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
     }

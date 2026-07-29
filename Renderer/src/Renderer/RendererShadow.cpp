@@ -722,6 +722,7 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(shadow_sampler.error(), "create shadow atlas sampler"));
         }
         guard->shadow_sampler = *shadow_sampler;
+        guard->shader.release_compiler_state();
         guard->ready = true;
         return {};
     }

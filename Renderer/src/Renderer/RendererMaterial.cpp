@@ -349,6 +349,11 @@ namespace SFT::Renderer {
             destroy_material_template_gpu(resource);
             return unexpected(built.error());
         }
+        // GPU modules and the C++ reflection snapshot are complete. Keep source/options for hot reload,
+        // but release the compiled base program and Slang global session until another variant/edit
+        // actually needs compilation.
+        resource.shader.release_compiler_state();
+        variant_cache.release_compiler_memory();
         // Move the cache in only after a successful build so a compile-but-fails-to-build template doesn't
         // leave a half-live cache behind.
         resource.variant_cache = std::move(variant_cache);
@@ -392,6 +397,8 @@ namespace SFT::Renderer {
             destroy_material_template_gpu(next);
             return unexpected(built.error());
         }
+        next.shader.release_compiler_state();
+        tmpl->variant_cache.release_compiler_memory();
 
         // The heavy hammer: make sure no in-flight frame still references the objects we're about to
         // destroy before we swap them. Sanctioned here because a hot-reload is a resource reload, not the

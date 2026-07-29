@@ -121,6 +121,18 @@ namespace SFT::Renderer {
         void set_label(string label) noexcept;
         void set_vertex_color(const glm::vec4 &color) noexcept;
 
+        // Triangle count this mesh draws as (every Mesh factory function populates indices_, even
+        // from_triangles' otherwise-unindexed input, so index_count/3 is always the right count —
+        // vertex_count/3 is only a fallback for a hand-built Mesh that never set indices). Cheap,
+        // pure-CPU — safe to call anytime, GPU-resident or not.
+        [[nodiscard]] usize triangle_count() const noexcept;
+        // Rough GPU footprint estimate: vertex buffer bytes + index buffer bytes, matching
+        // AssetManager::create_model's identical formula for ModelAssetInfo/AssetInfo::memory_bytes
+        // (see Engine/AssetManager.cpp) — kept here too so a Mesh built without ever becoming an
+        // AssetManager Model asset (e.g. procedural geometry a game uploads directly) still has a
+        // queryable estimate.
+        [[nodiscard]] u64 estimated_gpu_bytes() const noexcept;
+
         // False until this exact Mesh (or a copy sharing its handle) has been uploaded via
         // Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading
         // does not move the data off the CPU, it just also puts a copy on the GPU.

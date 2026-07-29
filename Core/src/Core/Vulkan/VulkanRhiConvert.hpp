@@ -69,6 +69,10 @@ namespace SFT::Core::Vulkan {
             case rhi::Format::D24UnormS8Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             case rhi::Format::D32Float: return VK_FORMAT_D32_SFLOAT;
             case rhi::Format::D32FloatS8Uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+            case rhi::Format::BC7Unorm: return VK_FORMAT_BC7_UNORM_BLOCK;
+            case rhi::Format::BC7UnormSrgb: return VK_FORMAT_BC7_SRGB_BLOCK;
+            case rhi::Format::BC5Unorm: return VK_FORMAT_BC5_UNORM_BLOCK;
+            case rhi::Format::BC4Unorm: return VK_FORMAT_BC4_UNORM_BLOCK;
         }
         return VK_FORMAT_UNDEFINED;
     }
@@ -149,6 +153,8 @@ namespace SFT::Core::Vulkan {
         if (rhi::has_any(usage, rhi::TextureUsage::ColorAttachment)) out |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         if (rhi::has_any(usage, rhi::TextureUsage::DepthStencilAttachment))
             out |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        if (rhi::has_any(usage, rhi::TextureUsage::TransientAttachment))
+            out |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
         return out;
     }
 

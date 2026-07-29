@@ -488,7 +488,8 @@ namespace SFT::Renderer {
                             ? depth_only_pipeline_for(*material_template_resource, depth_format, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, samples)
                             : (use_object_history
-                                   ? history_pipeline_for(*material_template_resource, color_formats, depth_format, samples)
+                                   ? history_pipeline_for(*material_template_resource, color_formats, depth_format,
+                                                          standard_depth_test, samples)
                                    : material_pipeline_for(*material_template_resource, color_formats, depth_format,
                                                            standard_depth_test, samples));
         if (!pipeline) {
@@ -549,15 +550,15 @@ namespace SFT::Renderer {
             }
             binding_state.arena_bound = true;
         }
-        if (index_arena_.buffer && !mesh_resource->indices.empty()) {
+        if (index_arena_.buffer && mesh_resource->index_count > 0) {
             pass.draw_indexed(RHI::DrawIndexedArgs{
-                .index_count = static_cast<u32>(mesh_resource->indices.size()),
+                .index_count = mesh_resource->index_count,
                 .first_index = mesh_resource->index_offset,
                 .base_vertex = static_cast<i32>(mesh_resource->vertex_offset),
             });
         } else {
             pass.draw(RHI::DrawArgs{
-                .vertex_count = static_cast<u32>(mesh_resource->vertices.size()),
+                .vertex_count = mesh_resource->vertex_count,
                 .first_vertex = mesh_resource->vertex_offset,
             });
         }
@@ -583,6 +584,8 @@ namespace SFT::Renderer {
                                                                bool depth_only,
                                                                bool standard_depth_test,
                                                                const char *bundle_label,
+                                                               bool use_bundles,
+                                                               vector<RHI::RenderBundleHandle> &retired_bundles,
                                                                bool shadow_map,
                                                                f32 shadow_depth_bias,
                                                                f32 shadow_slope_bias,
@@ -601,8 +604,11 @@ namespace SFT::Renderer {
         // Shadow atlas views change viewport/scissor between light faces. Vulkan render bundles
         // (secondary command buffers) do not portably inherit that dynamic state from the primary
         // pass, so keep shadow-view recording on the primary encoder. Geometry passes use one fixed
-        // full-frame viewport and retain the parallel bundle path.
-        if (shadow_map || visible.size() < kParallelRecordThreshold || worker_count <= 1) {
+        // full-frame viewport and retain the parallel bundle path. `use_bundles` is trusted as-is
+        // (not re-derived from visible.size()/worker_count here) — see this function's doc comment
+        // in RendererModule.hpp for why the caller's pre-declared decision must be the sole source
+        // of truth.
+        if (shadow_map || !use_bundles) {
             RenderItemBindingState binding_state{};
             for (const RenderItem *item : visible) {
                 if (Core::RendererResult recorded = record_render_item(
@@ -657,8 +663,29 @@ namespace SFT::Renderer {
         struct ChunkResult {
             Core::RendererResult status{};
             RHI::RenderBundleHandle bundle{};
+            unique_ptr<RHI::RenderBundleEncoder> encoder;
         };
         vector<ChunkResult> results(chunk_count);
+
+        // Pool/buffer *creation* happens here, serially, on this thread — not inside the spawned
+        // tasks below. Same fix as the shadow-atlas parallel path's own identical issue (see that
+        // code's comment, and memory project_render_threading): concurrent
+        // vkCreateCommandPool/vkAllocateCommandBuffers from multiple worker threads corrupts the heap
+        // on this RADV setup even though each thread creates its own independent pool/buffer. Only
+        // the actual *recording* is dispatched to worker threads below.
+        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+            const usize begin = chunk * chunk_size;
+            const usize end = std::min(visible.size(), begin + chunk_size);
+            if (begin >= end) {
+                continue;
+            }
+            auto encoder = device->create_render_bundle_encoder(bundle_desc);
+            if (!encoder) {
+                return unexpected(graphics_error_from_rhi(encoder.error(), "create render bundle encoder"));
+            }
+            results[chunk].encoder = std::move(*encoder);
+        }
+
         vector<Async::TaskHandle<void>> tasks;
         tasks.reserve(chunk_count);
         for (usize chunk = 0; chunk < chunk_count; ++chunk) {
@@ -667,20 +694,16 @@ namespace SFT::Renderer {
             if (begin >= end) {
                 continue;
             }
-            tasks.push_back(Async::Scheduler::spawn([this, &visible, &results, chunk, begin, end, device, bundle_desc,
+            tasks.push_back(Async::Scheduler::spawn([this, &visible, &results, chunk, begin, end,
                                                       color_formats, depth_format, frame_index, view_projection,
                                                       depth_only, standard_depth_test, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, samples,
                                                       with_object_history, object_history_group]() {
-                auto encoder = device->create_render_bundle_encoder(bundle_desc);
-                if (!encoder) {
-                    results[chunk].status = unexpected(graphics_error_from_rhi(encoder.error(), "create render bundle encoder"));
-                    return;
-                }
+                RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
                 RenderItemBindingState binding_state{};
                 for (usize i = begin; i < end; ++i) {
                     if (Core::RendererResult recorded = record_render_item(
-                            **encoder, *visible[i], color_formats, depth_format, frame_index, view_projection,
+                            encoder, *visible[i], color_formats, depth_format, frame_index, view_projection,
                             depth_only, binding_state, standard_depth_test, shadow_map,
                             shadow_depth_bias, shadow_slope_bias, samples, with_object_history, object_history_group);
                         !recorded.has_value()) {
@@ -688,7 +711,7 @@ namespace SFT::Renderer {
                         return;
                     }
                 }
-                auto finished = (*encoder)->finish();
+                auto finished = encoder.finish();
                 if (!finished) {
                     results[chunk].status = unexpected(graphics_error_from_rhi(finished.error(), "finish render bundle"));
                     return;
@@ -716,11 +739,49 @@ namespace SFT::Renderer {
         if (!bundles.empty()) {
             pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
         }
-        for (RHI::RenderBundleHandle bundle : bundles) {
-            device->destroy_render_bundle(bundle);
-        }
+        // Bundles must outlive this frame's own command buffers — execute_bundles only records a
+        // reference for the GPU to run later, it does not run or even submit anything. Destroying
+        // them here would be a use-after-free once the GPU actually executes the frame. Defer to
+        // FrameInFlight's fence-gated cleanup instead (see FrameSubmission::transient_render_bundles).
+        retired_bundles.insert(retired_bundles.end(), bundles.begin(), bundles.end());
         if (has_error) {
             return first_error;
+        }
+        return {};
+    }
+
+    template <typename Encoder>
+    Core::RendererResult Renderer::record_shadow_view_chunk(Encoder &encoder,
+                                                             span<const ShadowRenderView> views,
+                                                             span<const RenderItem> draws,
+                                                             RHI::Format depth_format,
+                                                             u64 frame_index,
+                                                             f32 shadow_depth_bias,
+                                                             f32 shadow_slope_bias) {
+        RenderItemBindingState binding_state{};
+        for (const ShadowRenderView &view : views) {
+            encoder.set_viewport(RHI::Viewport{
+                .x = static_cast<f32>(view.viewport.x),
+                .y = static_cast<f32>(view.viewport.y),
+                .width = static_cast<f32>(view.viewport.width),
+                .height = static_cast<f32>(view.viewport.height),
+                .min_depth = 0.0f,
+                .max_depth = 1.0f,
+            });
+            encoder.set_scissor(view.viewport);
+            for (const RenderItem &item : draws) {
+                if (!render_item_visible(item, view.frustum)) {
+                    continue;
+                }
+                if (Core::RendererResult recorded = record_render_item(
+                        encoder, item, span<const RHI::Format>{}, depth_format, frame_index,
+                        view.view_projection, /*depth_only=*/true, binding_state,
+                        /*standard_depth_test=*/false, /*shadow_map=*/true, shadow_depth_bias,
+                        shadow_slope_bias, RHI::SampleCount::X1, false, RHI::BindGroupHandle{});
+                    !recorded.has_value()) {
+                    return recorded;
+                }
+            }
         }
         return {};
     }
@@ -1452,59 +1513,12 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::ShaderRead,
             .label = "hi-z pyramid",
         });
-        RenderGraphTextureHandle raster_albedo = gbuffer_albedo;
-        RenderGraphTextureHandle raster_normal = gbuffer_normal;
-        RenderGraphTextureHandle raster_material = gbuffer_material;
-        RenderGraphTextureHandle raster_emissive = gbuffer_emissive;
-        RenderGraphTextureHandle raster_motion = gbuffer_motion;
+        // SRAA keeps only visibility at the requested MSAA rate. Material attributes, motion,
+        // lighting, and every post-process remain single-sampled; the multisampled depth is consumed
+        // by a depth-guided reconstruction pass after deferred lighting.
         RenderGraphTextureHandle raster_depth = depth_texture;
         const bool multisampled = framebuffer_samples != RHI::SampleCount::X1;
         if (multisampled) {
-            raster_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.deferred_targets.msaa_gbuffer_albedo,
-                .default_view = slot.deferred_targets.msaa_gbuffer_albedo_view,
-                .format = submission.deferred_formats.albedo,
-                .extent = frame_extent,
-                .samples = framebuffer_samples,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred gbuffer albedo",
-            });
-            raster_normal = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.deferred_targets.msaa_gbuffer_normal,
-                .default_view = slot.deferred_targets.msaa_gbuffer_normal_view,
-                .format = submission.deferred_formats.normal,
-                .extent = frame_extent,
-                .samples = framebuffer_samples,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred gbuffer normal",
-            });
-            raster_material = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.deferred_targets.msaa_gbuffer_material,
-                .default_view = slot.deferred_targets.msaa_gbuffer_material_view,
-                .format = submission.deferred_formats.material,
-                .extent = frame_extent,
-                .samples = framebuffer_samples,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred gbuffer material",
-            });
-            raster_emissive = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.deferred_targets.msaa_gbuffer_emissive,
-                .default_view = slot.deferred_targets.msaa_gbuffer_emissive_view,
-                .format = submission.deferred_formats.emissive,
-                .extent = frame_extent,
-                .samples = framebuffer_samples,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred gbuffer emissive",
-            });
-            raster_motion = graph.import_texture(RenderGraphImportedTextureDesc{
-                .texture = slot.deferred_targets.msaa_gbuffer_motion,
-                .default_view = slot.deferred_targets.msaa_gbuffer_motion_view,
-                .format = submission.deferred_formats.motion,
-                .extent = frame_extent,
-                .samples = framebuffer_samples,
-                .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred gbuffer motion",
-            });
             raster_depth = graph.import_texture(RenderGraphImportedTextureDesc{
                 .texture = slot.deferred_targets.msaa_depth,
                 .default_view = slot.deferred_targets.msaa_depth_view,
@@ -1512,7 +1526,7 @@ namespace SFT::Renderer {
                 .extent = frame_extent,
                 .samples = framebuffer_samples,
                 .initial_layout = RHI::TextureLayout::Undefined,
-                .label = "multisampled deferred depth",
+                .label = "multisampled deferred visibility depth",
             });
         }
         RenderGraphTextureHandle shadow_atlas{};
@@ -1583,6 +1597,16 @@ namespace SFT::Renderer {
 
         if (submission.render_graph.render_scene) {
             if (shadow_frame.atlas_used) {
+                // Decided once, here, rather than inside the execute_ callback below: Vulkan's
+                // vkCmdBeginRendering must be told up front (VkRenderingInfo's
+                // VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT flag) whether this render-pass
+                // instance will use execute_bundles — that flag has to match what the callback
+                // actually does exactly, including on the "too few views to bother parallelizing"
+                // fallback (which stays fully inline, no bundles, matching allow_bundles=false there).
+                // See RenderGraphRenderPassBuilder::set_allow_bundles' own doc comment for the crash
+                // this fixes (VUID-vkCmdExecuteCommands-flags-06024, hit and root-caused this session).
+                const bool shadow_atlas_uses_bundles =
+                    shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
                 graph.add_render_pass("raster shadow atlas")
                     .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                         .texture = shadow_atlas,
@@ -1593,7 +1617,8 @@ namespace SFT::Renderer {
                     .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
                                                  .width = slot.shadow_targets.atlas_size,
                                                  .height = slot.shadow_targets.atlas_size})
-                    .set_execute([this, &submission, &shadow_frame, &slot, frame](
+                    .set_allow_bundles(shadow_atlas_uses_bundles)
+                    .set_execute([this, &submission, &shadow_frame, &slot, frame, shadow_atlas_uses_bundles](
                                      RenderGraphContext &context) -> Core::RendererResult {
                         RHI::RenderPassEncoder &pass = context.render_pass();
                         const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
@@ -1602,26 +1627,128 @@ namespace SFT::Renderer {
                         const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
                                                           ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
                                                           : 1.0f;
-                        for (usize view_index = 0; view_index < shadow_frame.render_views.size(); ++view_index) {
-                            const ShadowRenderView &shadow_view = shadow_frame.render_views[view_index];
-                            pass.set_viewport(RHI::Viewport{
-                                .x = static_cast<f32>(shadow_view.viewport.x),
-                                .y = static_cast<f32>(shadow_view.viewport.y),
-                                .width = static_cast<f32>(shadow_view.viewport.width),
-                                .height = static_cast<f32>(shadow_view.viewport.height),
-                                .min_depth = 0.0f,
-                                .max_depth = 1.0f,
-                            });
-                            pass.set_scissor(shadow_view.viewport);
-                            if (Core::RendererResult recorded = record_render_items_culled(
-                                    pass, submission.draws, shadow_view.frustum, span<const RHI::Format>{},
-                                    slot.shadow_targets.format, frame.frame_index,
-                                    shadow_view.view_projection, /*depth_only=*/true,
-                                    /*standard_depth_test=*/false, "raster shadow casters",
-                                    /*shadow_map=*/true, shadow_depth_bias, shadow_slope_bias);
-                                !recorded.has_value()) {
-                                return recorded;
+                        const span<const ShadowRenderView> views{shadow_frame.render_views.data(),
+                                                                  shadow_frame.render_views.size()};
+                        const RHI::Format depth_format = slot.shadow_targets.format;
+                        const u32 worker_count = Async::Scheduler::worker_count();
+
+                        // Below this many views, or with no worker pool to spread them across,
+                        // per-chunk RenderBundleEncoder overhead isn't worth it — record every view
+                        // directly into the primary pass encoder, exactly like before this session's
+                        // shadow-parallelization pass (same "not worth it below N" reasoning as
+                        // record_render_items_culled's own kParallelRecordThreshold). Branches on the
+                        // exact same `shadow_atlas_uses_bundles` value the pass was declared with
+                        // (rather than recomputing an equivalent condition here) so this can never drift
+                        // out of sync with the allow_bundles flag the render pass was opened with.
+                        if (!shadow_atlas_uses_bundles) {
+                            return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
+                                                            frame.frame_index, shadow_depth_bias, shadow_slope_bias);
+                        }
+
+                        RHI::RhiDevice *device = rhi_device();
+                        if (device == nullptr) {
+                            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                "Cannot record shadow atlas without an RHI device.");
+                        }
+
+                        const usize chunk_count = std::min<usize>(worker_count, views.size());
+                        const usize chunk_size = (views.size() + chunk_count - 1) / chunk_count;
+
+                        struct ShadowChunkResult {
+                            Core::RendererResult status{};
+                            RHI::RenderBundleHandle bundle{};
+                            unique_ptr<RHI::RenderBundleEncoder> encoder;
+                        };
+                        vector<ShadowChunkResult> results(chunk_count);
+
+                        // Pool/buffer *creation* happens here, serially, on this thread — not inside
+                        // the spawned tasks below. Same root cause and fix as execute_parallel's own
+                        // command-pool-creation race found earlier this session (see memory
+                        // project_render_threading): calling vkCreateCommandPool/vkAllocateCommandBuffers
+                        // concurrently from multiple worker threads reliably corrupts the heap on this
+                        // RADV setup, even though each thread creates its own independent pool/buffer —
+                        // create_render_bundle_encoder has the exact same pool+buffer creation shape
+                        // (VulkanRhiBridgeCommands.cpp) and was never covered by that earlier fix, since
+                        // nothing had called it concurrently until this shadow-parallelization pass (the
+                        // pre-existing record_render_items_culled >128-item bundle path has the same
+                        // latent bug — see that function's own fix in this same change). Only the actual
+                        // *recording* (culling + draws) is dispatched to worker threads below.
+                        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+                            const usize begin = chunk * chunk_size;
+                            const usize end = std::min(views.size(), begin + chunk_size);
+                            if (begin >= end) {
+                                continue;
                             }
+                            const RHI::RenderBundleDesc bundle_desc{
+                                .color_formats = {},
+                                .depth_stencil_format = depth_format,
+                                .samples = RHI::SampleCount::X1,
+                                .view_mask = 0,
+                                .label = "shadow view chunk",
+                            };
+                            auto encoder = device->create_render_bundle_encoder(bundle_desc);
+                            if (!encoder) {
+                                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                    "Cannot create shadow bundle encoder.");
+                            }
+                            results[chunk].encoder = std::move(*encoder);
+                        }
+
+                        vector<Async::TaskHandle<void>> tasks;
+                        tasks.reserve(chunk_count);
+                        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+                            const usize begin = chunk * chunk_size;
+                            const usize end = std::min(views.size(), begin + chunk_size);
+                            if (begin >= end) {
+                                continue;
+                            }
+                            tasks.push_back(Async::Scheduler::spawn([this, &submission, &results, chunk, views, begin,
+                                                                      end, depth_format, frame_index = frame.frame_index,
+                                                                      shadow_depth_bias, shadow_slope_bias]() {
+                                RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
+                                Core::RendererResult recorded = record_shadow_view_chunk(
+                                    encoder, views.subspan(begin, end - begin), submission.draws, depth_format,
+                                    frame_index, shadow_depth_bias, shadow_slope_bias);
+                                if (!recorded.has_value()) {
+                                    results[chunk].status = recorded;
+                                    return;
+                                }
+                                auto finished = encoder.finish();
+                                if (!finished) {
+                                    results[chunk].status =
+                                        unexpected(graphics_error_from_rhi(finished.error(), "finish shadow bundle"));
+                                    return;
+                                }
+                                results[chunk].bundle = *finished;
+                            }));
+                        }
+                        for (const Async::TaskHandle<void> &task : tasks) {
+                            task.wait();
+                        }
+
+                        vector<RHI::RenderBundleHandle> bundles;
+                        bundles.reserve(chunk_count);
+                        Core::RendererResult first_error{};
+                        bool has_error = false;
+                        for (ShadowChunkResult &result : results) {
+                            if (!result.status.has_value() && !has_error) {
+                                first_error = result.status;
+                                has_error = true;
+                            }
+                            if (result.bundle) {
+                                bundles.push_back(result.bundle);
+                            }
+                        }
+                        if (!bundles.empty()) {
+                            pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
+                        }
+                        // Same use-after-free risk as record_render_items_culled's parallel path (see
+                        // its own comment): execute_bundles only records a reference for the GPU to run
+                        // later, so destruction must wait for this frame's fence, not happen here.
+                        submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
+                                                                    bundles.begin(), bundles.end());
+                        if (has_error) {
+                            return first_error;
                         }
                         return {};
                     });
@@ -1632,6 +1759,23 @@ namespace SFT::Renderer {
             // depth match instead of writing depth itself — a fragment that isn't the visible surface
             // never runs full PBR shading, eliminating occluded-fragment overdraw cost. See
             // Renderer::depth_only_pipeline_for's doc comment.
+            //
+            // allow_bundles must be decided here, before the pass is opened, not inside the
+            // execute_ callback below — same reasoning as the raster shadow atlas pass's
+            // shadow_atlas_uses_bundles (see that pass's own comment for the crash this avoids,
+            // VUID-vkCmdExecuteCommands-flags-06024). Counts survivors against
+            // kParallelRecordThreshold up front (a cheap frustum test, not the actual recording
+            // work) rather than using submission.draws.size() outright, so a scene with many total
+            // items but heavy frustum culling (e.g. a large open world) doesn't pay bundle-encoder
+            // overhead for a handful of visible draws.
+            usize zprepass_visible_count = 0;
+            for (const RenderItem &item : submission.draws) {
+                if (render_item_visible(item, camera_frustum)) {
+                    ++zprepass_visible_count;
+                }
+            }
+            const bool zprepass_uses_bundles =
+                zprepass_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
             graph.add_render_pass("z prepass")
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = raster_depth,
@@ -1640,8 +1784,9 @@ namespace SFT::Renderer {
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_allow_bundles(zprepass_uses_bundles)
                 .set_execute([this, &submission, render_extent, frame, camera_frustum,
-                              framebuffer_samples](RenderGraphContext &context) -> Core::RendererResult {
+                              framebuffer_samples, zprepass_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
@@ -1654,57 +1799,66 @@ namespace SFT::Renderer {
                                                        span<const RHI::Format>{}, submission.deferred_formats.depth,
                                                        frame.frame_index, submission.view_projection,
                                                        /*depth_only=*/true, /*standard_depth_test=*/false, "z prepass",
+                                                       zprepass_uses_bundles, submission.transient_render_bundles,
                                                        /*shadow_map=*/false, 0.0f, 0.0f, framebuffer_samples);
                 });
 
+            // Same allow_bundles-decided-before-declaration reasoning as "z prepass" above, against
+            // gbuffer_draws (the individually-drawn subset — instanced batches are recorded
+            // separately below via record_instanced_batches, not through this bundle path).
+            usize gbuffer_visible_count = 0;
+            for (const RenderItem &item : gbuffer_draws) {
+                if (render_item_visible(item, camera_frustum)) {
+                    ++gbuffer_visible_count;
+                }
+            }
+            const bool gbuffer_uses_bundles =
+                gbuffer_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
             graph.add_render_pass("deferred gbuffer geometry")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = raster_albedo,
-                    .resolve_texture = multisampled ? gbuffer_albedo : RenderGraphTextureHandle{},
+                    .texture = gbuffer_albedo,
                     .load_op = RHI::LoadOp::Clear,
-                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
                 })
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = raster_normal,
-                    .resolve_texture = multisampled ? gbuffer_normal : RenderGraphTextureHandle{},
+                    .texture = gbuffer_normal,
                     .load_op = RHI::LoadOp::Clear,
-                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.5f, 0.5f, 0.0f, 0.0f},
                 })
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = raster_material,
-                    .resolve_texture = multisampled ? gbuffer_material : RenderGraphTextureHandle{},
+                    .texture = gbuffer_material,
                     .load_op = RHI::LoadOp::Clear,
-                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
                 })
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = raster_emissive,
-                    .resolve_texture = multisampled ? gbuffer_emissive : RenderGraphTextureHandle{},
+                    .texture = gbuffer_emissive,
                     .load_op = RHI::LoadOp::Clear,
-                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
                 })
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = raster_motion,
-                    .resolve_texture = multisampled ? gbuffer_motion : RenderGraphTextureHandle{},
+                    .texture = gbuffer_motion,
                     .load_op = RHI::LoadOp::Clear,
-                    .store_op = multisampled ? RHI::StoreOp::DontCare : RHI::StoreOp::Store,
+                    .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
                 })
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                    .texture = raster_depth,
-                    .resolve_texture = multisampled ? depth_texture : RenderGraphTextureHandle{},
-                    .depth_resolve_mode = device->limits().supports_minimum_depth_resolve
-                        ? RHI::ResolveMode::Minimum : RHI::ResolveMode::SampleZero,
-                    // The Z prepass above already cleared+wrote this frame's depth — load, don't clear.
-                    .depth_load_op = RHI::LoadOp::Load,
+                    .texture = depth_texture,
+                    // At 1x this is the same target populated by the Z prepass. Under SRAA the
+                    // visibility prepass is a separate MSAA image, so clear and establish 1x depth
+                    // alongside the 1x G-buffer instead of resolving multisampled depth.
+                    .depth_load_op = multisampled ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
                     .depth_store_op = RHI::StoreOp::Store,
+                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_allow_bundles(gbuffer_uses_bundles)
                 .set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
-                             &instance_cull_resources, framebuffer_samples, object_history_group](RenderGraphContext &context) -> Core::RendererResult {
+                             &instance_cull_resources, multisampled, object_history_group,
+                             gbuffer_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
@@ -1724,8 +1878,9 @@ namespace SFT::Renderer {
                     if (Core::RendererResult recorded = record_render_items_culled(
                             pass, gbuffer_draws, camera_frustum, gbuffer_formats_span, submission.deferred_formats.depth,
                             frame.frame_index, submission.view_projection, /*depth_only=*/false,
-                            /*standard_depth_test=*/false, "deferred gbuffer geometry",
-                            /*shadow_map=*/false, 0.0f, 0.0f, framebuffer_samples,
+                            /*standard_depth_test=*/multisampled, "deferred gbuffer geometry",
+                            gbuffer_uses_bundles, submission.transient_render_bundles,
+                            /*shadow_map=*/false, 0.0f, 0.0f, RHI::SampleCount::X1,
                             /*with_object_history=*/true, object_history_group);
                         !recorded.has_value()) {
                         return recorded;
@@ -1734,7 +1889,7 @@ namespace SFT::Renderer {
                         if (Core::RendererResult recorded_instanced = record_instanced_batches(
                                 pass, instanced_batches, gbuffer_formats_span, submission.deferred_formats.depth,
                                 frame.frame_index, submission.view_projection, submission.camera.previous_view_projection,
-                                instance_cull_resources, submission.transient_bind_groups, framebuffer_samples);
+                                instance_cull_resources, submission.transient_bind_groups, RHI::SampleCount::X1);
                             !recorded_instanced.has_value()) {
                             return recorded_instanced;
                         }
@@ -1814,6 +1969,60 @@ namespace SFT::Renderer {
                                              .height = render_extent.height});
         }
 
+        RenderGraphTextureHandle antialiased_scene_color = scene_color;
+        if (submission.render_graph.render_scene && multisampled) {
+            // Deferred lighting has consumed the emissive G-buffer by this point. Reuse that allocation
+            // as the SRAA destination whenever its format matches scene color, avoiding another full-size
+            // RGBA16F image per frame slot. Non-default format combinations fall back to a graph target.
+            const bool can_reuse_emissive =
+                submission.deferred_formats.emissive == submission.deferred_formats.scene_color;
+            const RenderGraphTextureHandle reconstruction_target = can_reuse_emissive
+                ? gbuffer_emissive
+                : graph.create_texture(RenderGraphTextureDesc{
+                      .format = submission.deferred_formats.scene_color,
+                      .extent = frame_extent,
+                      .label = "deferred MSAA reconstruction target",
+                  });
+            graph.add_render_pass("deferred MSAA reconstruction")
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = reconstruction_target,
+                    .load_op = RHI::LoadOp::DontCare,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = scene_color})
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture})
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = raster_depth})
+                .set_render_area(RHI::Rect2D{
+                    .x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height,
+                })
+                .set_execute([this, &submission, render_extent, framebuffer_samples,
+                              scene_color, depth_texture, raster_depth](
+                                 RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .width = static_cast<f32>(render_extent.width),
+                        .height = static_cast<f32>(render_extent.height),
+                        .min_depth = 0.0f,
+                        .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{
+                        .x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height,
+                    });
+                    return record_deferred_msaa_reconstruction(
+                        pass,
+                        context.texture(scene_color).default_view,
+                        context.texture(depth_texture).default_view,
+                        context.texture(raster_depth).default_view,
+                        submission.deferred_formats.scene_color,
+                        render_extent,
+                        framebuffer_samples,
+                        submission.camera.near_plane,
+                        submission.camera.far_plane,
+                        submission.transient_bind_groups);
+                });
+            antialiased_scene_color = reconstruction_target;
+        }
+
         // Applies every custom effect whose declared stage matches `stage`, in original declaration
         // order, chaining source -> new transient target -> ... Reused for both BeforeBloom and
         // AfterBloomBeforeToneMap so the two stages are identical machinery, just different insertion
@@ -1856,7 +2065,7 @@ namespace SFT::Renderer {
         // resulting HDR image immediately afterward, making this exact texture bloom's source
         // instead of relying on an earlier scene-color write surviving every custom pre-bloom pass.
         const RenderGraphTextureHandle post_process_source =
-            apply_custom_post_process_stage(scene_color, PostProcessStage::BeforeBloom);
+            apply_custom_post_process_stage(antialiased_scene_color, PostProcessStage::BeforeBloom);
 
         // Always-on debug markers (e.g. light-position icospheres, Shaders/geometry_color.slang).
         // This pass is immediately before bloom and writes directly into post_process_source, so
@@ -2218,6 +2427,7 @@ namespace SFT::Renderer {
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
         slot.transient_bind_groups = std::move(submission.transient_bind_groups);
         slot.transient_buffers = std::move(submission.transient_buffers);
+        slot.transient_render_bundles = std::move(submission.transient_render_bundles);
         slot.submitted = true;
 
         auto presented = [&]() {
@@ -2405,50 +2615,19 @@ namespace SFT::Renderer {
             .depth_view = depth->second,
         };
         if (samples != RHI::SampleCount::X1) {
-            auto make_msaa = [&](RHI::Format format, RHI::TextureUsage usage, const char *label,
-                                 RHI::TextureHandle &texture, RHI::TextureViewHandle &view)
-                -> Core::RendererResult {
-                auto target = create_target(format, usage, label, samples);
-                if (!target) {
-                    destroy_frame_deferred_targets(slot);
-                    return unexpected(target.error());
-                }
-                texture = target->first;
-                view = target->second;
-                return {};
-            };
-            constexpr RHI::TextureUsage msaa_color_usage = RHI::TextureUsage::ColorAttachment;
-            if (Core::RendererResult result = make_msaa(
-                    formats.albedo, msaa_color_usage, "multisampled deferred gbuffer albedo",
-                    slot.deferred_targets.msaa_gbuffer_albedo,
-                    slot.deferred_targets.msaa_gbuffer_albedo_view);
-                !result.has_value()) return result;
-            if (Core::RendererResult result = make_msaa(
-                    formats.normal, msaa_color_usage, "multisampled deferred gbuffer normal",
-                    slot.deferred_targets.msaa_gbuffer_normal,
-                    slot.deferred_targets.msaa_gbuffer_normal_view);
-                !result.has_value()) return result;
-            if (Core::RendererResult result = make_msaa(
-                    formats.material, msaa_color_usage, "multisampled deferred gbuffer material",
-                    slot.deferred_targets.msaa_gbuffer_material,
-                    slot.deferred_targets.msaa_gbuffer_material_view);
-                !result.has_value()) return result;
-            if (Core::RendererResult result = make_msaa(
-                    formats.emissive, msaa_color_usage, "multisampled deferred gbuffer emissive",
-                    slot.deferred_targets.msaa_gbuffer_emissive,
-                    slot.deferred_targets.msaa_gbuffer_emissive_view);
-                !result.has_value()) return result;
-            if (Core::RendererResult result = make_msaa(
-                    formats.motion, msaa_color_usage, "multisampled deferred gbuffer motion",
-                    slot.deferred_targets.msaa_gbuffer_motion,
-                    slot.deferred_targets.msaa_gbuffer_motion_view);
-                !result.has_value()) return result;
-            if (Core::RendererResult result = make_msaa(
-                    formats.depth, RHI::TextureUsage::DepthStencilAttachment,
-                    "multisampled deferred depth",
-                    slot.deferred_targets.msaa_depth,
-                    slot.deferred_targets.msaa_depth_view);
-                !result.has_value()) return result;
+            // NVIDIA SRAA stores only subpixel visibility. Unlike a transient resolve source this
+            // depth image must survive the prepass and be sampleable by the reconstruction shader.
+            auto msaa_depth = create_target(
+                formats.depth,
+                RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
+                "multisampled deferred visibility depth",
+                samples);
+            if (!msaa_depth) {
+                destroy_frame_deferred_targets(slot);
+                return unexpected(msaa_depth.error());
+            }
+            slot.deferred_targets.msaa_depth = msaa_depth->first;
+            slot.deferred_targets.msaa_depth_view = msaa_depth->second;
         }
         return {};
     }
@@ -2471,16 +2650,6 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.scene_color, slot.deferred_targets.scene_color_view);
             destroy_target(slot.deferred_targets.motion, slot.deferred_targets.motion_view);
             destroy_target(slot.deferred_targets.depth, slot.deferred_targets.depth_view);
-            destroy_target(slot.deferred_targets.msaa_gbuffer_albedo,
-                           slot.deferred_targets.msaa_gbuffer_albedo_view);
-            destroy_target(slot.deferred_targets.msaa_gbuffer_normal,
-                           slot.deferred_targets.msaa_gbuffer_normal_view);
-            destroy_target(slot.deferred_targets.msaa_gbuffer_material,
-                           slot.deferred_targets.msaa_gbuffer_material_view);
-            destroy_target(slot.deferred_targets.msaa_gbuffer_emissive,
-                           slot.deferred_targets.msaa_gbuffer_emissive_view);
-            destroy_target(slot.deferred_targets.msaa_gbuffer_motion,
-                           slot.deferred_targets.msaa_gbuffer_motion_view);
             destroy_target(slot.deferred_targets.msaa_depth, slot.deferred_targets.msaa_depth_view);
         }
         slot.deferred_targets = {};
@@ -2714,6 +2883,11 @@ namespace SFT::Renderer {
                     device->destroy_buffer(buffer);
                 }
             }
+            for (RHI::RenderBundleHandle bundle : slot.transient_render_bundles) {
+                if (bundle) {
+                    device->destroy_render_bundle(bundle);
+                }
+            }
             // Views before the textures they alias.
             for (RHI::TextureViewHandle view : slot.transient_texture_views) {
                 if (view) {
@@ -2757,6 +2931,7 @@ namespace SFT::Renderer {
         }
         slot.transient_bind_groups.clear();
         slot.transient_buffers.clear();
+        slot.transient_render_bundles.clear();
         slot.transient_texture_views.clear();
         slot.transient_textures.clear();
         if (destroy_retired_presentation) {

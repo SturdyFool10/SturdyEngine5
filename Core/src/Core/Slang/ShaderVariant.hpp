@@ -119,6 +119,11 @@ namespace SFT::Core::Slang {
         // an edit to the same file, or to reclaim memory.
         void invalidate() noexcept;
 
+        // Drops compiled variants and the compiler's global Slang session while preserving source and
+        // options. The next get_or_compile() lazily recreates both, so hot reload and future variants
+        // keep working without retaining compiler arenas between edits.
+        void release_compiler_memory() noexcept;
+
         [[nodiscard]] usize size() const noexcept;
         [[nodiscard]] bool contains(const ShaderVariantKey &key) const;
 

@@ -448,6 +448,12 @@ namespace SFT::Core::Vulkan {
         rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> begin_render_pass(const rhi::RenderPassDesc &desc) override {
             RenderingInfo rendering;
             rendering.set_render_area(to_vk_rect(desc.render_area)).set_view_mask(desc.view_mask);
+            if (desc.allow_bundles) {
+                // Required before vkCmdExecuteCommands (RenderPassEncoder::execute_bundles) is legal
+                // inside this render pass instance — see RHI::RenderPassDesc::allow_bundles' own doc
+                // comment for the crash this fixes (VUID-vkCmdExecuteCommands-flags-06024).
+                rendering.add_flags(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT);
+            }
 
             for (const rhi::ColorAttachment &attachment : desc.color_attachments) {
                 VulkanImageView *view = bridge_.texture_views_.find(attachment.view);

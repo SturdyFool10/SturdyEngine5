@@ -82,6 +82,11 @@ void ShaderVariantCache::set_source(ShaderSource source) {
 
 void ShaderVariantCache::invalidate() noexcept { variants_.clear(); }
 
+void ShaderVariantCache::release_compiler_memory() noexcept {
+    variants_.clear();
+    compiler_.release_session();
+}
+
 [[nodiscard]] usize ShaderVariantCache::size() const noexcept { return variants_.size(); }
 
 [[nodiscard]] bool ShaderVariantCache::contains(const ShaderVariantKey &key) const {

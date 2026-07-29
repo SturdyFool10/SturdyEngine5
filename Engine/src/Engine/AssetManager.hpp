@@ -57,6 +57,12 @@ namespace SFT::Engine {
         TextureColorSpace color_space = TextureColorSpace::Srgb;
         std::vector<std::byte> rgba8;
         UString label;
+        // True (default) lets create_texture BC7-compress this texture for a real VRAM win, when
+        // the device supports it and the texture is at least 4x4 (see
+        // RHI::DeviceLimits::supports_bc_texture_compression, Detail::compress_bc7). Set false for
+        // a texture that must stay byte-exact — e.g. a data LUT sampled as non-visual data rather
+        // than a color image, where BC7's lossy artifacts would corrupt the values.
+        bool allow_compression = true;
     };
 
     struct TextureAssetInfo {
@@ -90,12 +96,20 @@ namespace SFT::Engine {
     struct ModelAssetDesc {
         UString label;
         std::vector<ModelPrimitiveDesc> primitives;
+        // False (default) frees every primitive mesh's CPU-side vertex/index data right after its
+        // GPU upload — see Renderer::MeshResource::retain_cpu_copy's doc comment for the tradeoff:
+        // a freed mesh can't be replayed after a Vulkan device-loss event. Applies to every
+        // primitive in this model; there's no per-primitive granularity yet.
+        bool retain_cpu_mesh_data = false;
     };
 
     struct ModelAssetInfo {
         usize primitive_count = 0;
         usize vertex_count = 0;
         usize index_count = 0;
+        // index_count / 3 — every model primitive is built from an indexed, TriangleList-drawn Mesh
+        // (see AssetManager::create_model), so this is exact, not an approximation.
+        usize triangle_count = 0;
     };
 
     class AssetManager {

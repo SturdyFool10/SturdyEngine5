@@ -110,15 +110,21 @@ namespace SFT::Renderer {
         // High-level geometry API: callers hand geometry to the renderer with function calls, not RHI
         // descriptors. The renderer owns the CPU-side resource record and uploads through RHI when the
         // active backend has implemented the needed resource calls.
+        //
+        // `retain_cpu_copy` (default false) controls whether the CPU-side vertex/index arrays are
+        // kept after a successful upload — see MeshResource::retain_cpu_copy's own doc comment
+        // (Resources.hpp) for the RAM-vs-device-loss-recovery tradeoff this makes.
         [[nodiscard]] Core::RendererExpected<MeshHandle> create_mesh(span<const GeometryVertex> vertices,
                                                                      span<const u32> indices,
-                                                                     const char *label = nullptr);
+                                                                     const char *label = nullptr,
+                                                                     bool retain_cpu_copy = false);
 
         // Uploads a CPU-resident Mesh (see :Mesh — Mesh::cube(), Mesh::uv_sphere(), ...) to the GPU
         // and stamps the resulting handle back onto it, so mesh.is_gpu_resident()/mesh.gpu_handle()
         // reflect the upload afterward. Uploading an already-resident mesh is a no-op that just
         // returns its existing handle — callers don't need to guard re-upload themselves.
-        [[nodiscard]] Core::RendererExpected<MeshHandle> upload(Mesh &mesh);
+        // `retain_cpu_copy`: see create_mesh's own doc comment above.
+        [[nodiscard]] Core::RendererExpected<MeshHandle> upload(Mesh &mesh, bool retain_cpu_copy = false);
         void destroy_mesh(MeshHandle handle) noexcept;
         [[nodiscard]] MeshResource *mesh(MeshHandle handle) noexcept;
         [[nodiscard]] const MeshResource *mesh(MeshHandle handle) const noexcept;
@@ -129,8 +135,10 @@ namespace SFT::Renderer {
         [[nodiscard]] const MaterialResource *material(MaterialHandle handle) const noexcept;
 
         // Textures: upload tightly-packed pixel data into a GPU texture (+ a default view and sampler).
-        // `data` must be `width * height * bytes_per_texel(format)` bytes, or empty to allocate an
-        // uninitialized texture. Mirrors the mesh upload path (staged copy through the RHI).
+        // `data` must match the format's expected byte size (width*height*texel_size for
+        // uncompressed formats, block-count*bytes_per_block for BC7/BC5/BC4 — see
+        // texture_data_bytes in RendererTextures.cpp), or be empty to allocate an uninitialized
+        // texture. Mirrors the mesh upload path (staged copy through the RHI).
         [[nodiscard]] Core::RendererExpected<TextureHandle> create_texture(u32 width, u32 height,
                                                                            RHI::Format format,
                                                                            span<const std::byte> data,
@@ -228,16 +236,8 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle scene_color_view{};
             RHI::TextureHandle depth{};
             RHI::TextureViewHandle depth_view{};
-            RHI::TextureHandle msaa_gbuffer_albedo{};
-            RHI::TextureViewHandle msaa_gbuffer_albedo_view{};
-            RHI::TextureHandle msaa_gbuffer_normal{};
-            RHI::TextureViewHandle msaa_gbuffer_normal_view{};
-            RHI::TextureHandle msaa_gbuffer_material{};
-            RHI::TextureViewHandle msaa_gbuffer_material_view{};
-            RHI::TextureHandle msaa_gbuffer_emissive{};
-            RHI::TextureViewHandle msaa_gbuffer_emissive_view{};
-            RHI::TextureHandle msaa_gbuffer_motion{};
-            RHI::TextureViewHandle msaa_gbuffer_motion_view{};
+            // The only multisampled deferred target. SRAA reconstructs subpixel shading from this
+            // high-frequency visibility buffer while all expensive material/lighting buffers stay 1x.
             RHI::TextureHandle msaa_depth{};
             RHI::TextureViewHandle msaa_depth_view{};
         };
@@ -410,6 +410,11 @@ namespace SFT::Renderer {
             vector<RHI::TextureHandle> transient_textures;
             vector<RHI::TextureViewHandle> transient_texture_views;
             vector<RHI::BindGroupHandle> transient_bind_groups;
+            // See FrameSubmission::transient_render_bundles' own doc comment for why these can't be
+            // destroyed synchronously right after execute_bundles() — moved here (from
+            // FrameSubmission) at the end of render_frame_rhi, destroyed by reclaim_frame_slot once
+            // this slot's fence signals, same as every other transient_* field here.
+            vector<RHI::RenderBundleHandle> transient_render_bundles;
             // Buffers retired mid-frame (e.g. a text-atlas staging buffer, or an instance buffer
             // outgrown and replaced) that a just-submitted command buffer may still reference —
             // freed here once this ring slot's fence proves the GPU is done with them, same
@@ -512,6 +517,18 @@ namespace SFT::Renderer {
             RenderGraphSettings render_graph{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
+            // Render bundles (secondary command buffers) finished this frame via
+            // record_render_items_culled's/record_shadow_view_chunk's parallel paths and already
+            // consumed by a pass.execute_bundles() call. Real bug found+fixed this session: destroying
+            // a bundle's underlying command pool/buffer (VulkanRhiDeviceBridge::destroy_render_bundle)
+            // is NOT safe immediately after execute_bundles() returns — execute_bundles only *records*
+            // a vkCmdExecuteCommands referencing it into the primary command buffer, which the GPU
+            // hasn't even been asked to run yet (let alone finished) at that point. Must live at least
+            // as long as this frame's own command buffers do — so retiring bundles go here instead,
+            // moved into FrameInFlight::transient_render_bundles at the end of render_frame_rhi and
+            // destroyed only once that ring slot's fence proves the GPU is done with them, same
+            // fire-and-forget contract as transient_bind_groups/transient_buffers above.
+            vector<RHI::RenderBundleHandle> transient_render_bundles;
             TextAtlasRetiredResources retired_text_atlas_resources;
             UString debug_label;
             // CPU stage timings the caller (render_frame/render_frame_dispatch) measured before
@@ -617,17 +634,43 @@ namespace SFT::Renderer {
         };
 
         // One material template's with-object-history pipeline, keyed by (color formats, depth format,
-        // samples) like InstancedPipelineVariant. `pipeline_layout` combines the template's own reflected
+        // depth policy, samples) like MaterialPipelineVariant. `pipeline_layout` combines the template's own reflected
         // set 0 (reused as-is) with ObjectHistoryResources::bind_group_layout at set 1.
         struct ObjectHistoryPipelineVariant {
             vector<RHI::Format> color_formats;
             RHI::Format depth_format = RHI::Format::Undefined;
+            bool standard_depth_test = false;
             RHI::SampleCount samples = RHI::SampleCount::X1;
             RHI::RenderPipelineHandle pipeline{};
         };
         struct ObjectHistoryTemplateResources {
             RHI::PipelineLayoutHandle pipeline_layout{};
             vector<ObjectHistoryPipelineVariant> pipeline_variants;
+        };
+
+        struct DeferredMsaaPipelineVariant {
+            RHI::Format color_format = RHI::Format::Undefined;
+            RHI::RenderPipelineHandle pipeline{};
+        };
+
+        // NVIDIA SRAA reconstruction resources. The three reflected sampled-image bindings are:
+        // 1x shaded HDR color, 1x shaded depth, and multisampled geometry depth.
+        struct DeferredMsaaResources {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle vertex_module{};
+            RHI::ShaderModuleHandle fragment_module{};
+            string vertex_entry_point;
+            string fragment_entry_point;
+            vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            vector<u32> bind_group_layout_sets;
+            RHI::BindGroupLayoutHandle sampled_layout{};
+            u32 sampled_set = 0;
+            u32 color_binding = 0;
+            u32 depth_binding = 0;
+            u32 geometry_depth_binding = 0;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            vector<DeferredMsaaPipelineVariant> pipeline_variants;
+            bool ready = false;
         };
 
         struct TonemapResources {
@@ -932,20 +975,35 @@ namespace SFT::Renderer {
                                                                RHI::BindGroupHandle object_history_group = {});
 
         // Frustum-culls `items` against `frustum` (render_item_visible), then records survivors
-        // into `pass`. Below kParallelRecordThreshold survivors, or with no worker threads
-        // available, this is just today's single serial loop. Above the threshold, survivors are
-        // split into contiguous chunks (preserving the caller's (material, mesh) sort-coherence
-        // within each chunk) and recorded concurrently, each chunk into its own
+        // into `pass`. If `use_bundles` is false, this is just a single serial loop. If true,
+        // survivors are split into contiguous chunks (preserving the caller's (material, mesh)
+        // sort-coherence within each chunk) and recorded concurrently, each chunk into its own
         // RHI::RenderBundleEncoder via Async::Scheduler::spawn — the exact chunking pattern
         // prepare_scene_gpu_data already uses for object-buffer packing (RendererScene.cpp) — then
         // stitched into `pass` with one execute_bundles call. `bundle_label` names the bundles for
         // any GPU-side debug tooling.
+        //
+        // `use_bundles` is a caller-supplied decision, not recomputed here from the post-cull
+        // survivor count: Vulkan requires vkCmdBeginRendering to declare up front (via
+        // RHI::RenderPassDesc::allow_bundles) whether a render-pass instance will use
+        // execute_bundles, so the caller must decide (typically from a pre-cull visible count
+        // against kParallelRecordThreshold, same threshold this function used to apply
+        // internally) *before* declaring the pass, then pass that exact same decision here so the
+        // branch taken can never drift from the flag the pass was actually opened with — same
+        // fix, same reasoning, as the raster-shadow-atlas pass's shadow_atlas_uses_bundles (see
+        // RendererLifecycle.cpp's "raster shadow atlas" pass declaration).
         //
         // Materials are pre-warmed (prepare_material_frame called once per distinct material, on
         // this thread, before any worker task starts) specifically so concurrent per-chunk calls to
         // record_render_item never race on the same MaterialInstanceFrame's bind-group rebuild —
         // prepare_material_frame only mutates state when a frame's dirty flags are set, and warming
         // them here first means every worker thread's later call is a pure read.
+        //
+        // `retired_bundles` (when the parallel path is taken) receives the RenderBundleHandles that
+        // were just consumed by pass.execute_bundles() — these must NOT be destroyed synchronously
+        // by the caller (execute_bundles only records a reference for the GPU to run later; the
+        // handle must outlive this frame's submission, same as transient_bind_groups/transient_buffers).
+        // Callers should append these into FrameSubmission::transient_render_bundles.
         [[nodiscard]] Core::RendererResult record_render_items_culled(RHI::RenderPassEncoder &pass,
                                                                        span<const RenderItem> items,
                                                                        const Frustum &frustum,
@@ -956,12 +1014,38 @@ namespace SFT::Renderer {
                                                                        bool depth_only,
                                                                        bool standard_depth_test,
                                                                        const char *bundle_label,
+                                                                       bool use_bundles,
+                                                                       vector<RHI::RenderBundleHandle> &retired_bundles,
                                                                        bool shadow_map = false,
                                                                        f32 shadow_depth_bias = 0.0f,
                                                                        f32 shadow_slope_bias = 0.0f,
                                                                        RHI::SampleCount samples = RHI::SampleCount::X1,
                                                                        bool with_object_history = false,
                                                                        RHI::BindGroupHandle object_history_group = {});
+
+        // Records `views` — each with its own viewport/scissor/frustum/view-projection — into
+        // `encoder`, depth-only, sharing a single RenderItemBindingState across the whole span. Used
+        // for shadow-atlas rendering (RendererLifecycle.cpp's "raster shadow atlas" pass): unlike
+        // record_render_items_culled (one shared frustum per call, pre-culled once), each view here
+        // culls `draws` against its own frustum internally, since a shadow atlas pass covers many
+        // independent views (cascades, spot cones, point cube faces) in one RenderGraph pass. Sharing
+        // one binding_state across the chunk — instead of resetting it per view — is deliberate: since
+        // `draws` is already globally sorted by (material, mesh), consecutive views recorded by the
+        // same encoder often keep drawing the same pipeline/bind-group/vertex-buffer, and skip
+        // redundant rebinding exactly like within a single ordinary pass. Templated on Encoder for the
+        // same reason record_render_item is: called with RHI::RenderPassEncoder directly for the
+        // small-view-count serial path, and with RHI::RenderBundleEncoder (one per worker-assigned
+        // chunk of views, via Async::Scheduler::spawn) for the parallel path — each bundle sets its
+        // own viewport/scissor internally rather than relying on inheriting it from the primary pass,
+        // which is what makes recording it concurrently with other views' bundles safe.
+        template <typename Encoder>
+        [[nodiscard]] Core::RendererResult record_shadow_view_chunk(Encoder &encoder,
+                                                                     span<const ShadowRenderView> views,
+                                                                     span<const RenderItem> draws,
+                                                                     RHI::Format depth_format,
+                                                                     u64 frame_index,
+                                                                     f32 shadow_depth_bias,
+                                                                     f32 shadow_slope_bias);
 
         // ── GPU-driven instanced batch draws (RendererGpuCulling.cpp) ──
         // Scans `sorted_draws` (already sorted by (material, mesh) — see render_frame_dispatch) for
@@ -971,6 +1055,7 @@ namespace SFT::Renderer {
         [[nodiscard]] vector<InstancedBatch> detect_instanced_batches(span<const RenderItem> sorted_draws) const;
 
         [[nodiscard]] Core::RendererResult ensure_instance_cull_resources();
+        void destroy_instance_cull_resources() noexcept;
         // Analogous to prepare_scene_gpu_data: called once per frame, before the render graph is
         // declared. (Re)allocates `resources`' indirect-command/compacted-index buffers if this
         // frame's batches need more room than last frame's, then writes every batch's
@@ -984,9 +1069,11 @@ namespace SFT::Renderer {
 
         // ── Per-object motion vectors for non-instanced draws (RendererObjectHistory.cpp) ──
         [[nodiscard]] Core::RendererResult ensure_object_history_resources();
+        void destroy_object_history_resources() noexcept;
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> history_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
-            RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
+            RHI::Format depth_format, bool standard_depth_test = false,
+            RHI::SampleCount samples = RHI::SampleCount::X1);
         // One bind group (set 1: sceneObjects StructuredBuffer + sceneView ConstantBuffer) built once
         // per frame from `resources`' already-populated view_buffer/object_buffer (prepare_scene_gpu_data
         // fills both every frame regardless of whether any draw uses object history) and pushed onto
@@ -1117,6 +1204,25 @@ namespace SFT::Renderer {
         void destroy_shadow_lighting_resources_locked(ShadowLightingResources &resources) noexcept;
 
         // ── Fullscreen post-processes ──
+        // NVIDIA SRAA: reconstructs 1x deferred shading from multisampled depth visibility before
+        // bloom/tonemapping. See Shaders/deferred_msaa_reconstruction.slang.
+        [[nodiscard]] Core::RendererResult ensure_deferred_msaa_resources();
+        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> deferred_msaa_pipeline_for(
+            RHI::Format color_format);
+        [[nodiscard]] Core::RendererResult record_deferred_msaa_reconstruction(
+            RHI::RenderPassEncoder &pass,
+            RHI::TextureViewHandle color_view,
+            RHI::TextureViewHandle depth_view,
+            RHI::TextureViewHandle geometry_depth_view,
+            RHI::Format color_format,
+            Core::Extent2D extent,
+            RHI::SampleCount samples,
+            f32 near_plane,
+            f32 far_plane,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+        void destroy_deferred_msaa_resources() noexcept;
+        void destroy_deferred_msaa_resources_locked(DeferredMsaaResources &resources) noexcept;
+
         [[nodiscard]] Core::RendererResult ensure_bloom_resources(RHI::Format color_format);
         [[nodiscard]] Core::RendererResult record_bloom_draw(RHI::RenderPassEncoder &pass,
                                                               RHI::TextureViewHandle source_view,
@@ -1236,9 +1342,9 @@ namespace SFT::Renderer {
         Core::RendererCapabilities capabilities_{};
         // A single growable GPU buffer that mesh uploads sub-allocate append-only ranges from, instead
         // of each Mesh owning its own dedicated VkBuffer — see try_upload_mesh/grow_geometry_arena.
-        // Growth (doubling) re-uploads every already-resident mesh's retained CPU-side vertices/indices
-        // at their existing (stable) offsets into the new, bigger buffer; this only happens during
-        // asset loading, never mid-frame, so its O(resident data) cost is a non-issue.
+        // Growth (doubling) preserves the old used range with one GPU-to-GPU copy at stable offsets;
+        // it never depends on optional CPU recovery payloads. This only happens during asset loading,
+        // never mid-frame, so its O(resident data) cost is a non-issue.
         struct GeometryArena {
             RHI::BufferHandle buffer{};
             RHI::BufferUsage usage = RHI::BufferUsage::None;
@@ -1247,8 +1353,14 @@ namespace SFT::Renderer {
         };
         [[nodiscard]] Core::RendererResult grow_geometry_arena(GeometryArena &arena, u64 required_bytes,
                                                                const char *label);
-        GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferDst};
-        GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferDst};
+        // TransferSrc (on top of TransferDst) is required so grow_geometry_arena can copy the old
+        // buffer's contents into a newly-grown one GPU-side, instead of depending on every resident
+        // mesh's CPU-side vertices/indices still being around to replay from (see that function's
+        // own doc comment, and MeshResource::retain_cpu_copy).
+        GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferSrc |
+                                             RHI::BufferUsage::TransferDst};
+        GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferSrc |
+                                            RHI::BufferUsage::TransferDst};
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;
@@ -1275,6 +1387,7 @@ namespace SFT::Renderer {
         Async::Mutex<BloomResources> bloom_;
         Async::Mutex<BloomCompositeResources> bloom_composite_;
         Async::Mutex<ShadowLightingResources> shadow_lighting_;
+        Async::Mutex<DeferredMsaaResources> deferred_msaa_;
         Async::Mutex<TonemapResources> tonemap_;
         Async::Mutex<TextOverlayResources> text_overlay_;
         // material_pipeline_for()'s per-template pipeline cache, keyed by MaterialTemplateHandle::value.

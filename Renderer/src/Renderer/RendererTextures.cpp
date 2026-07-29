@@ -25,15 +25,33 @@ namespace SFT::Renderer {
 
     namespace {
 
-        // Bytes per texel for the (uncompressed, single-plane) formats the renderer texture path
-        // accepts. 0 for anything else — the caller rejects an unsupported format rather than guessing.
-        [[nodiscard]] u32 bytes_per_texel(RHI::Format format) noexcept {
+        // Total pixel-data byte size for the (single-plane, single-mip) formats the renderer texture
+        // path accepts, given the format's own packing rules — per-texel for uncompressed formats,
+        // per-4x4-block for block-compressed ones (format_is_block_compressed). 0 for anything else —
+        // the caller rejects an unsupported format rather than guessing.
+        [[nodiscard]] u64 texture_data_bytes(RHI::Format format, u32 width, u32 height) noexcept {
+            if (RHI::format_is_block_compressed(format)) {
+                u32 bytes_per_block = 0;
+                switch (format) {
+                    case RHI::Format::BC7Unorm:
+                    case RHI::Format::BC7UnormSrgb:
+                    case RHI::Format::BC5Unorm: bytes_per_block = 16; break;
+                    case RHI::Format::BC4Unorm: bytes_per_block = 8; break;
+                    default: return 0;
+                }
+                const u64 blocks_wide = (static_cast<u64>(width) + 3) / 4;
+                const u64 blocks_high = (static_cast<u64>(height) + 3) / 4;
+                return blocks_wide * blocks_high * bytes_per_block;
+            }
+
+            u32 texel_size = 0;
             switch (format) {
-                case RHI::Format::R8Unorm: return 1;
+                case RHI::Format::R8Unorm: texel_size = 1; break;
                 case RHI::Format::RGBA8Unorm:
-                case RHI::Format::RGBA8UnormSrgb: return 4;
+                case RHI::Format::RGBA8UnormSrgb: texel_size = 4; break;
                 default: return 0;
             }
+            return static_cast<u64>(width) * height * texel_size;
         }
 
     } // namespace
@@ -49,15 +67,14 @@ namespace SFT::Renderer {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a texture with a zero dimension."});
         }
-        const u32 texel_size = bytes_per_texel(format);
-        if (texel_size == 0) {
+        const u64 expected_bytes = texture_data_bytes(format, width, height);
+        if (expected_bytes == 0) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Unsupported texture format for renderer create_texture."});
         }
-        const u64 expected_bytes = static_cast<u64>(width) * height * texel_size;
         if (!data.empty() && static_cast<u64>(data.size()) != expected_bytes) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        "Texture pixel data size does not match width*height*texel_size."});
+                                                        "Texture pixel data size does not match the format's expected byte size."});
         }
 
         TextureResource resource{};

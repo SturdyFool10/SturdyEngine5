@@ -132,6 +132,7 @@ namespace SFT::Core::Vulkan {
         vkGetPhysicalDeviceProperties2(physical_device.vk_handle(), &extended_properties);
         limits_.supports_minimum_depth_resolve =
             (depth_resolve_properties.supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT) != 0;
+        limits_.supports_bc_texture_compression = physical_device.features().textureCompressionBC == VK_TRUE;
         limits_.max_compute_workgroup_size_x = limits.maxComputeWorkGroupSize[0];
         limits_.max_compute_workgroup_size_y = limits.maxComputeWorkGroupSize[1];
         limits_.max_compute_workgroup_size_z = limits.maxComputeWorkGroupSize[2];

@@ -16,6 +16,15 @@ void Mesh::set_vertex_color(const glm::vec4 &color) noexcept {
             }
         }
 
+[[nodiscard]] usize Mesh::triangle_count() const noexcept {
+            return !indices_.empty() ? indices_.size() / 3 : vertices_.size() / 3;
+        }
+
+[[nodiscard]] u64 Mesh::estimated_gpu_bytes() const noexcept {
+            return static_cast<u64>(vertices_.size()) * sizeof(GeometryVertex) +
+                   static_cast<u64>(indices_.size()) * sizeof(u32);
+        }
+
 [[nodiscard]] bool Mesh::is_gpu_resident() const noexcept { return gpu_resident_; }
 
 [[nodiscard]] MeshHandle Mesh::gpu_handle() const noexcept { return handle_; }

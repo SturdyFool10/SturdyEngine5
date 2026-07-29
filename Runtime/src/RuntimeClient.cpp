@@ -52,8 +52,8 @@ namespace SFT::Runtime {
             .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 1.0f)
             .configure_bloom([](Engine::BloomSettings &bloom) { bloom.threshold = 3.20f; })
             .enable(Engine::RenderFeature::DebugOverlay);
-        // Exercise the hardware coverage path in the reference scene; FXAA remains enabled as the
-        // spatial cleanup for shader/specular aliasing that MSAA cannot see.
+        // Exercise 8x subpixel visibility in the reference scene. Deferred SRAA keeps the G-buffer
+        // and lighting at 1x, while FXAA remains the cleanup for shader/specular edges MSAA cannot see.
         render_graph_.anti_aliasing().msaa_samples = 8;
     }
 

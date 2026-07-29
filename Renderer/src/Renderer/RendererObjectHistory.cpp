@@ -92,13 +92,14 @@ namespace SFT::Renderer {
         }
         guard->bind_group_layout = *handle;
 
+        guard->vertex_shader.release_compiler_state();
         guard->ready = true;
         return {};
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::history_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
-        RHI::Format depth_format, RHI::SampleCount samples) {
+        RHI::Format depth_format, bool standard_depth_test, RHI::SampleCount samples) {
         if (color_formats.empty()) {
             return unexpected(object_history_error("Cannot build a history pipeline without at least one color target."));
         }
@@ -114,7 +115,8 @@ namespace SFT::Renderer {
         ObjectHistoryTemplateResources &template_resources = (*templates)[material_template.handle.value];
 
         for (const ObjectHistoryPipelineVariant &variant : template_resources.pipeline_variants) {
-            if (variant.depth_format == depth_format && variant.samples == samples &&
+            if (variant.depth_format == depth_format &&
+                variant.standard_depth_test == standard_depth_test && variant.samples == samples &&
                 variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -165,20 +167,24 @@ namespace SFT::Renderer {
         for (RHI::Format color_format : color_formats) {
             color_targets.push_back(RHI::ColorTargetState{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All});
         }
-        // Same depth-test/write shape as Renderer::material_pipeline_for's standard_depth_test=false
-        // branch (RendererMaterial.cpp) — the only mode record_render_item ever requests for this
-        // pass. The Z prepass already wrote real depth for every item this pipeline draws (it goes
-        // through the same submission.draws/z-prepass as any other per-item draw, unlike instanced
-        // batches — see instanced_pipeline_for's own doc comment for why *that* path needs standard
-        // depth test/write instead), so this only needs to match it, not write it again.
+        // In the conventional 1x path the Z prepass populated this same depth target, so the
+        // history-aware G-buffer pipeline can use Equal/no-write. SRAA instead writes its visibility
+        // prepass into a separate MSAA depth image; its 1x G-buffer must establish ordinary depth.
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
-            depth_stencil = RHI::DepthStencilState{
-                .format = depth_format,
-                .depth_test_enable = true,
-                .depth_write_enable = false,
-                .depth_compare = RHI::CompareOp::Equal,
-            };
+            depth_stencil = standard_depth_test
+                ? RHI::DepthStencilState{
+                      .format = depth_format,
+                      .depth_test_enable = true,
+                      .depth_write_enable = true,
+                      .depth_compare = RHI::CompareOp::Less,
+                  }
+                : RHI::DepthStencilState{
+                      .format = depth_format,
+                      .depth_test_enable = true,
+                      .depth_write_enable = false,
+                      .depth_compare = RHI::CompareOp::Equal,
+                  };
         }
         const RHI::RenderPipelineDesc desc{
             .layout = template_resources.pipeline_layout,
@@ -201,6 +207,7 @@ namespace SFT::Renderer {
         template_resources.pipeline_variants.push_back(ObjectHistoryPipelineVariant{
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
+            .standard_depth_test = standard_depth_test,
             .samples = samples,
             .pipeline = *pipeline,
         });
@@ -239,6 +246,35 @@ namespace SFT::Renderer {
         // required of every future caller.
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         return *bind_group;
+    }
+
+    void Renderer::destroy_object_history_resources() noexcept {
+        RHI::RhiDevice *device = rhi_device();
+        auto templates = object_history_pipeline_variants_.lock();
+        if (device != nullptr) {
+            for (auto &[_, resources] : *templates) {
+                for (const ObjectHistoryPipelineVariant &variant : resources.pipeline_variants) {
+                    if (variant.pipeline) {
+                        device->destroy_render_pipeline(variant.pipeline);
+                    }
+                }
+                if (resources.pipeline_layout) {
+                    device->destroy_pipeline_layout(resources.pipeline_layout);
+                }
+            }
+        }
+        templates->clear();
+
+        auto resources = object_history_.lock();
+        if (device != nullptr) {
+            if (resources->bind_group_layout) {
+                device->destroy_bind_group_layout(resources->bind_group_layout);
+            }
+            if (resources->vertex_module) {
+                device->destroy_shader_module(resources->vertex_module);
+            }
+        }
+        *resources = {};
     }
 
 } // namespace SFT::Renderer

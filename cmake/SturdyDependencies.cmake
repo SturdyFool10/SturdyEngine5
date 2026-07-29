@@ -62,6 +62,13 @@ set(STURDY_STB_TAG "31c1ad37456438565541f4919958214b6e762fb4" CACHE STRING "stb 
 # cgltf (github.com/jkuhlmann/cgltf, MIT) — single-header glTF 2.0 (.gltf/.glb) parser used by the
 # glTF import path (plans/gltf-import.md). Thin parser only; engine code owns GPU upload.
 set(STURDY_CGLTF_TAG "v1.15" CACHE STRING "cgltf git tag to fetch.")
+# richgel999/bc7enc (MIT/public-domain, ships no releases/tags — pinning a known-good commit like
+# stb above) — BC7 texture-compression encoder used by Engine::AssetManager::create_texture's
+# lossy VRAM-savings pipeline. Only bc7enc.c/.h are vendored (the actual BC7 encoder); the repo's
+# own CMakeLists.txt builds an unrelated CLI test tool (bc7decomp.cpp/lodepng.cpp/test.cpp) that
+# this engine has no use for, so it's built from source files directly rather than via
+# add_subdirectory.
+set(STURDY_BC7ENC_TAG "f66c2e489b07138f2673a2fb3d27c1aa1d565c48" CACHE STRING "bc7enc git commit to fetch.")
 # KhronosGroup/glTF-Sample-Assets (CC-BY, per-model licensing) — real-world glTF content used only
 # to exercise the glTF import path locally (STURDY_FETCH_SAMPLE_ASSETS). Not a build dependency, so
 # pinned to a commit like every other fetched source but never fetched unless explicitly requested.
@@ -188,6 +195,7 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_lunasvg()
         sturdy_fetch_stb_image()
         sturdy_fetch_cgltf()
+        sturdy_fetch_bc7enc()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
@@ -218,6 +226,7 @@ function(sturdy_configure_dependencies)
         find_package(lunasvg CONFIG REQUIRED)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
+        sturdy_find_bc7enc()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
@@ -1093,6 +1102,64 @@ function(sturdy_find_cgltf)
     endif()
 endfunction()
 
+function(sturdy_fetch_bc7enc)
+    # bc7enc.c/.h is the actual BC7 encoder; everything else in the upstream repo (rgbcx.h/
+    # rgbcx_table4.h for BC1/3/4/5, bc7decomp.cpp for decoding, lodepng.cpp/test.cpp for its own
+    # CLI tool) is unused by this engine and deliberately not built — see STURDY_BC7ENC_TAG's own
+    # comment for why add_subdirectory isn't used here. STATIC (not INTERFACE, unlike stb_image/
+    # cgltf) because bc7enc.c is real source that needs compiling, not a header-only library.
+    sturdy_fetchcontent_declare(bc7enc
+        GIT_REPOSITORY https://github.com/richgel999/bc7enc.git
+        GIT_TAG ${STURDY_BC7ENC_TAG}
+    )
+    # Deliberately FetchContent_Populate(), not FetchContent_MakeAvailable(): the upstream repo has
+    # its own CMakeLists.txt (builds an unrelated CLI test tool and mutates CMAKE_C_FLAGS/
+    # CMAKE_CXX_FLAGS globally), so add_subdirectory-ing it would both pull in code we don't want
+    # and pollute this build's compiler flags. Populate() fetches the source without doing either.
+    # CMP0169=OLD scoped to just this call: newer CMake deprecated the two-call
+    # GetProperties+Populate form in favor of MakeAvailable, but MakeAvailable has no equivalent
+    # for "populate only, never add_subdirectory" — this is still the documented way to get that,
+    # so the deprecation warning is expected noise here, not a sign something's wrong.
+    cmake_policy(PUSH)
+    if(POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_GetProperties(bc7enc)
+    if(NOT bc7enc_POPULATED)
+        FetchContent_Populate(bc7enc)
+    endif()
+    cmake_policy(POP)
+
+    if(NOT TARGET bc7enc)
+        add_library(bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.c")
+        target_include_directories(bc7enc PUBLIC "${bc7enc_SOURCE_DIR}")
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(bc7enc)
+    sturdy_register_license(bc7enc "${bc7enc_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_bc7enc)
+    # No CMake config package or vcpkg port exists for this library — best-effort fallback mirrors
+    # sturdy_find_stb_image/sturdy_find_cgltf's raw-header search, but bc7enc also needs its .c
+    # implementation compiled (it's not header-only), so both files must sit side by side wherever
+    # a manually-vendored copy is installed.
+    find_path(STURDY_BC7ENC_INCLUDE_DIR NAMES bc7enc.h)
+    if(NOT STURDY_BC7ENC_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find bc7enc.h. Install bc7enc (bc7enc.h + bc7enc.c side by "
+                            "side on the include path) or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+    if(NOT EXISTS "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c")
+        message(FATAL_ERROR "Found bc7enc.h at ${STURDY_BC7ENC_INCLUDE_DIR} but no adjacent "
+                            "bc7enc.c. Install bc7enc's source (not just its header) or enable "
+                            "STURDY_FETCH_DEPENDENCIES.")
+    endif()
+
+    if(NOT TARGET bc7enc)
+        add_library(bc7enc STATIC "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c")
+        target_include_directories(bc7enc PUBLIC "${STURDY_BC7ENC_INCLUDE_DIR}")
+    endif()
+endfunction()
+
 function(sturdy_fetch_gltf_sample_assets)
     # Asset-only checkout, no CMakeLists.txt/build target of its own — same shape as the stb/cgltf
     # header fetches, minus the INTERFACE library since there is no code to expose, only a source
@@ -1212,6 +1279,10 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::cgltf
         cgltf
+    )
+
+    sturdy_alias_existing_target(Sturdy::bc7enc
+        bc7enc
     )
 endfunction()
 

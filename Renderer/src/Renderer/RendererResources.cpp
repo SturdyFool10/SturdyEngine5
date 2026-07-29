@@ -2,6 +2,7 @@
 
 #pragma region Imports
 #include <algorithm>
+#include <array>
 #include <expected>
 #include <limits>
 #include <span>
@@ -15,6 +16,7 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+using std::array;
 using std::span;
 using std::string;
 using std::unexpected;
@@ -23,10 +25,15 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<MeshHandle> Renderer::create_mesh(span<const GeometryVertex> vertices,
                                                              span<const u32> indices,
-                                                             const char *label) {
+                                                             const char *label,
+                                                             bool retain_cpu_copy) {
         if (vertices.empty()) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a mesh with no vertices."});
+        }
+        if (vertices.size() > std::numeric_limits<u32>::max() || indices.size() > std::numeric_limits<u32>::max()) {
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Mesh vertex/index count exceeds the renderer's 32-bit draw limits."});
         }
 
         MeshResource mesh{};
@@ -34,23 +41,36 @@ namespace SFT::Renderer {
         mesh.label = label ? label : "";
         mesh.vertices.assign(vertices.begin(), vertices.end());
         mesh.indices.assign(indices.begin(), indices.end());
+        mesh.vertex_count = static_cast<u32>(vertices.size());
+        mesh.index_count = static_cast<u32>(indices.size());
         mesh.alive = true;
+        mesh.retain_cpu_copy = retain_cpu_copy;
 
         if (Core::RendererResult upload = try_upload_mesh(mesh); !upload.has_value()) {
             return unexpected(upload.error());
+        }
+
+        // See MeshResource::retain_cpu_copy's doc comment (Resources.hpp): the CPU-side arrays only
+        // needed to exist long enough to write the GPU arenas above — release their capacity now
+        // rather than keeping a second permanent copy of every mesh's geometry in RAM forever.
+        // clear() alone would just reset size and keep capacity; swap-with-empty actually frees it.
+        if (mesh.gpu_resident && !retain_cpu_copy) {
+            vector<GeometryVertex>{}.swap(mesh.vertices);
+            vector<u32>{}.swap(mesh.indices);
         }
 
         meshes_.push_back(std::move(mesh));
         return meshes_.back().handle;
     }
 
-    Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh) {
+    Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh, bool retain_cpu_copy) {
         if (mesh.is_gpu_resident()) {
             return mesh.gpu_handle();
         }
 
         Core::RendererExpected<MeshHandle> handle =
-            create_mesh(mesh.vertices(), mesh.indices(), mesh.label().empty() ? nullptr : mesh.label().c_str());
+            create_mesh(mesh.vertices(), mesh.indices(), mesh.label().empty() ? nullptr : mesh.label().c_str(),
+                        retain_cpu_copy);
         if (!handle.has_value()) {
             return unexpected(handle.error());
         }
@@ -70,10 +90,12 @@ namespace SFT::Renderer {
         // teardown (destroy_all_resources) or a real free-list allocator (not implemented yet; nothing
         // else in the engine reclaims evicted GPU memory either — see asset-manager.md) could reclaim
         // this range. Evicting a mesh here just stops it from being drawn/replayed on future growth.
-        resource->vertices.clear();
-        resource->indices.clear();
+        vector<GeometryVertex>{}.swap(resource->vertices);
+        vector<u32>{}.swap(resource->indices);
         resource->vertex_offset = 0;
         resource->index_offset = 0;
+        resource->vertex_count = 0;
+        resource->index_count = 0;
         resource->gpu_resident = false;
         resource->alive = false;
     }
@@ -145,6 +167,9 @@ namespace SFT::Renderer {
             }
         }
         material_instances_.clear();
+        // Specialized material pipeline variants must go before the templates/modules they link.
+        destroy_object_history_resources();
+        destroy_instance_cull_resources();
         for (MaterialTemplateResource &resource : material_templates_) {
             if (resource.alive) {
                 destroy_material_template_gpu(resource);
@@ -153,6 +178,7 @@ namespace SFT::Renderer {
         }
         material_templates_.clear();
 
+        destroy_deferred_msaa_resources();
         destroy_tonemap_resources();
         destroy_text_overlay_resources();
 
@@ -233,7 +259,6 @@ namespace SFT::Renderer {
         if (!device) {
             return {};
         }
-
         u64 new_capacity = std::max<u64>(required_bytes, std::max<u64>(arena.capacity_bytes * 2, 1u << 20));
         RHI::BufferDesc desc{
             .size = new_capacity,
@@ -246,37 +271,58 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(new_buffer.error(), "grow geometry arena"));
         }
 
-        // Replay every already-resident mesh's retained CPU-side data at its existing offset — arena
-        // offsets are append-only/stable across growth, so nothing needs renumbering, just recopying
-        // into the new, bigger buffer. Only runs on a (rare, load-time) growth event.
-        const bool is_vertex_arena = &arena == &vertex_arena_;
-        for (const MeshResource &existing : meshes_) {
-            if (!existing.alive || !existing.gpu_resident) {
-                continue;
+        // Bulk GPU-to-GPU copy of the old buffer's already-written region into the new, bigger one —
+        // arena offsets are append-only/stable across growth, so this is one copy, not per-mesh
+        // replay. Deliberately does NOT read any MeshResource's CPU-side vertices/indices: growth is
+        // a routine, frequent event (any time enough new geometry pushes used_bytes past capacity),
+        // unlike try_upload_mesh's own CPU-replay path (used only for the rare Vulkan device-loss
+        // case) — it must work regardless of whether a mesh's CPU copy was freed after upload (see
+        // MeshResource::retain_cpu_copy). This used to replay from CPU data per mesh here too, which
+        // silently produced uninitialized geometry for any mesh with an already-empty CPU copy.
+        if (arena.buffer && arena.used_bytes > 0) {
+            auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "geometry arena growth copy"});
+            if (!encoder) {
+                device->destroy_buffer(*new_buffer);
+                return unexpected(graphics_error_from_rhi(encoder.error(), "create geometry arena growth encoder"));
             }
-            if (is_vertex_arena) {
-                if (existing.vertices.empty()) {
-                    continue;
-                }
-                auto write = device->write_buffer(*new_buffer,
-                    static_cast<u64>(existing.vertex_offset) * sizeof(GeometryVertex),
-                    std::as_bytes(span<const GeometryVertex>{existing.vertices.data(), existing.vertices.size()}));
-                if (!write) {
-                    device->destroy_buffer(*new_buffer);
-                    return unexpected(graphics_error_from_rhi(write.error(), "replay vertex arena growth"));
-                }
-            } else {
-                if (existing.indices.empty()) {
-                    continue;
-                }
-                auto write = device->write_buffer(*new_buffer,
-                    static_cast<u64>(existing.index_offset) * sizeof(u32),
-                    std::as_bytes(span<const u32>{existing.indices.data(), existing.indices.size()}));
-                if (!write) {
-                    device->destroy_buffer(*new_buffer);
-                    return unexpected(graphics_error_from_rhi(write.error(), "replay index arena growth"));
-                }
+            const RHI::BufferCopy region{.src_offset = 0, .dst_offset = 0, .size = arena.used_bytes};
+            (*encoder)->copy_buffer_to_buffer(arena.buffer, *new_buffer, region);
+
+            auto command_buffer = (*encoder)->finish();
+            if (!command_buffer) {
+                device->destroy_buffer(*new_buffer);
+                return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish geometry arena growth encoder"));
             }
+
+            auto fence = device->create_fence(RHI::FenceDesc{.label = "geometry arena growth fence"});
+            if (!fence) {
+                device->destroy_command_buffer(*command_buffer);
+                device->destroy_buffer(*new_buffer);
+                return unexpected(graphics_error_from_rhi(fence.error(), "create geometry arena growth fence"));
+            }
+
+            const array command_buffers{*command_buffer};
+            RHI::SubmitDesc submit_desc{
+                .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
+                .fence = *fence,
+                .flags = RHI::SubmitFlags::OneShot,
+                .label = "geometry arena growth submit",
+            };
+            if (auto submitted = device->submit(submit_desc); !submitted) {
+                device->destroy_fence(*fence);
+                device->destroy_command_buffer(*command_buffer);
+                device->destroy_buffer(*new_buffer);
+                return unexpected(graphics_error_from_rhi(submitted.error(), "submit geometry arena growth"));
+            }
+            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true); !waited) {
+                device->destroy_fence(*fence);
+                device->destroy_command_buffer(*command_buffer);
+                device->destroy_buffer(*new_buffer);
+                return unexpected(graphics_error_from_rhi(waited.error(), "wait geometry arena growth fence"));
+            }
+
+            device->destroy_fence(*fence);
+            device->destroy_command_buffer(*command_buffer);
         }
 
         if (arena.buffer) {
@@ -290,6 +336,23 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::try_upload_mesh(MeshResource &mesh) {
         RHI::RhiDevice *device = rhi_device();
         if (!device) {
+            return {};
+        }
+
+        // create_mesh() already rejects empty vertices at creation time, so the only way this
+        // function ever sees an empty mesh.vertices is via restore_gpu_resources_after_recovery()
+        // replaying a mesh whose CPU copy was freed after its initial upload (retain_cpu_copy was
+        // false — see MeshResource's own doc comment). There is nothing to replay: leave
+        // gpu_resident false (already reset by invalidate_gpu_resource_handles_no_destroy) so
+        // record_render_item's existing !gpu_resident check quietly stops drawing this mesh, and
+        // return success rather than an error — restore_gpu_resources_after_recovery aborts recovery
+        // for every other mesh on the first error it sees, which would be a far worse outcome than
+        // one mesh staying undrawn until it's reloaded.
+        if (mesh.vertices.empty()) {
+            Foundation::log_warn("Mesh '{}' has no CPU copy to replay after a GPU device-loss "
+                                 "recovery (retain_cpu_copy was false at creation); it will not be "
+                                 "drawn until reloaded.",
+                                 mesh.label);
             return {};
         }
 

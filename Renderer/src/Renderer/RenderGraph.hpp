@@ -221,6 +221,18 @@ namespace SFT::Renderer {
 
         RenderGraphRenderPassBuilder &set_view_mask(u32 view_mask) noexcept;
 
+        // Opts this pass into recording via RHI::RenderBundleEncoder / RenderPassEncoder::execute_bundles
+        // (secondary command buffers) — Vulkan's vkCmdBeginRendering only permits vkCmdExecuteCommands
+        // inside a render pass instance opened with VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
+        // set (VUID-vkCmdExecuteCommands-flags-06024), and per the same dynamic-rendering model that bit
+        // and ordinary inline vkCmdDraw calls are mutually exclusive within one instance — so any pass
+        // whose execute_ callback might call execute_bundles (record_render_items_culled's own
+        // >kParallelRecordThreshold-items parallel path, or a hand-rolled bundle path like the shadow
+        // atlas pass) must set this to true, and must record *only* via bundles when it does (no direct
+        // inline pass.draw()-style calls in that same pass). False by default, matching every ordinary
+        // inline-recording pass.
+        RenderGraphRenderPassBuilder &set_allow_bundles(bool allow_bundles) noexcept;
+
         RenderGraphRenderPassBuilder &set_execute(RenderGraphExecuteFn execute) noexcept;
 
       private:
@@ -233,6 +245,7 @@ namespace SFT::Renderer {
         vector<RenderGraphSampledTextureReadDesc> sampled_texture_reads_;
         RHI::Rect2D render_area_{};
         u32 view_mask_ = 0;
+        bool allow_bundles_ = false;
         RenderGraphExecuteFn execute_;
     };
 
