@@ -7,6 +7,7 @@
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <algorithm>
 #include <array>
 #include <utility>
 #include <vector>
@@ -140,18 +141,34 @@ namespace SFT::Core::Vulkan {
         bool needs_update_after_bind = false;
         bool has_variable_count = false;
         bool has_acceleration_structure = false;
+        u32 variable_binding = 0;
         u32 variable_count = 0;
+        u32 maximum_binding = 0;
         for (const rhi::BindGroupLayoutEntry &entry : layout_record->entries) {
+            maximum_binding = std::max(maximum_binding, entry.binding);
             if (rhi::has_any(entry.flags, rhi::BindingFlags::UpdateAfterBind)) {
                 needs_update_after_bind = true;
             }
             if (rhi::has_any(entry.flags, rhi::BindingFlags::VariableDescriptorCount)) {
+                if (has_variable_count) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                          "create_bind_group: a layout may have only one variable-count binding.");
+                }
                 has_variable_count = true;
-                variable_count = entry.count;
+                variable_binding = entry.binding;
+                variable_count = desc.variable_descriptor_count == 0 ? entry.count : desc.variable_descriptor_count;
+                if (variable_count == 0 || variable_count > entry.count) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                          "create_bind_group: requested variable descriptor count is outside the layout maximum.");
+                }
             }
             if (entry.type == rhi::BindingType::AccelerationStructure) {
                 has_acceleration_structure = true;
             }
+        }
+        if (has_variable_count && variable_binding != maximum_binding) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                  "create_bind_group: variable-count binding must be the highest binding in its set.");
         }
 
         VulkanDescriptorPool dedicated_pool;
@@ -164,16 +181,18 @@ namespace SFT::Core::Vulkan {
             vector<VkDescriptorPoolSize> pool_sizes;
             for (const rhi::BindGroupLayoutEntry &entry : layout_record->entries) {
                 const VkDescriptorType type = to_vk(entry.type);
+                const u32 descriptor_count = has_variable_count && entry.binding == variable_binding
+                    ? variable_count : entry.count;
                 bool merged = false;
                 for (VkDescriptorPoolSize &size : pool_sizes) {
                     if (size.type == type) {
-                        size.descriptorCount += entry.count;
+                        size.descriptorCount += descriptor_count;
                         merged = true;
                         break;
                     }
                 }
                 if (!merged) {
-                    pool_sizes.push_back(VkDescriptorPoolSize{.type = type, .descriptorCount = entry.count});
+                    pool_sizes.push_back(VkDescriptorPoolSize{.type = type, .descriptorCount = descriptor_count});
                 }
             }
             if (pool_sizes.empty()) {
@@ -246,6 +265,12 @@ namespace SFT::Core::Vulkan {
                 return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                       "create_bind_group: entry binding is not present in the bind group's layout.");
             }
+            const u32 descriptor_count = has_variable_count && entry.binding == variable_binding
+                ? variable_count : layout_entry->count;
+            if (entry.array_element >= descriptor_count) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "create_bind_group: descriptor array element is outside the allocated binding range.");
+            }
 
             switch (layout_entry->type) {
                 case rhi::BindingType::UniformBuffer:
@@ -258,7 +283,7 @@ namespace SFT::Core::Vulkan {
                     }
                     const VkDeviceSize range = entry.size == 0 ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(entry.size);
                     writer.write_buffer(entry.binding, to_vk(layout_entry->type), buffer_record->buffer.vk_handle(),
-                                        entry.offset, range);
+                                        entry.offset, range, entry.array_element);
                     break;
                 }
                 case rhi::BindingType::SampledTexture:
@@ -272,7 +297,8 @@ namespace SFT::Core::Vulkan {
                     const VkImageLayout layout_for_image = layout_entry->type == rhi::BindingType::StorageTexture
                                                                 ? VK_IMAGE_LAYOUT_GENERAL
                                                                 : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    writer.write_image(entry.binding, to_vk(layout_entry->type), view->vk_handle(), layout_for_image);
+                    writer.write_image(entry.binding, to_vk(layout_entry->type), view->vk_handle(), layout_for_image,
+                                       VK_NULL_HANDLE, entry.array_element);
                     break;
                 }
                 case rhi::BindingType::Sampler: {
@@ -281,7 +307,7 @@ namespace SFT::Core::Vulkan {
                         return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                               "create_bind_group: unknown sampler handle for a sampler binding.");
                     }
-                    writer.write_sampler(entry.binding, sampler->vk_handle());
+                    writer.write_sampler(entry.binding, sampler->vk_handle(), entry.array_element);
                     break;
                 }
                 case rhi::BindingType::CombinedImageSampler: {
@@ -292,7 +318,8 @@ namespace SFT::Core::Vulkan {
                                               "create_bind_group: unknown texture view/sampler handle for a "
                                               "combined-image-sampler binding.");
                     }
-                    writer.write_combined_image_sampler(entry.binding, view->vk_handle(), sampler->vk_handle());
+                    writer.write_combined_image_sampler(entry.binding, view->vk_handle(), sampler->vk_handle(),
+                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, entry.array_element);
                     break;
                 }
                 case rhi::BindingType::AccelerationStructure: {
@@ -301,7 +328,8 @@ namespace SFT::Core::Vulkan {
                         return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                               "create_bind_group: unknown acceleration structure handle for an AS binding.");
                     }
-                    writer.write_acceleration_structure(entry.binding, as_record->acceleration_structure.vk_handle());
+                    writer.write_acceleration_structure(entry.binding, as_record->acceleration_structure.vk_handle(),
+                                                        entry.array_element);
                     break;
                 }
             }

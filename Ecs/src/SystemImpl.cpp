@@ -115,22 +115,30 @@ namespace SFT::Ecs {
     }
 
     void Schedule::run(World &world) {
-        if (Async::Scheduler::is_worker_thread()) {
-            Detail::contract_violation(
-                "ECS Schedule::run() must be called from a coordinating non-worker thread; blocking a worker would deadlock nested Async work.");
-        }
-        if (!Async::Scheduler::is_running()) {
-            Async::Scheduler::initialize();
+        // Under ExecutorPolicy::Synchronous this function must never reference Async::Scheduler's
+        // process-global state: a headless/deterministic caller that built a synchronous Schedule
+        // pays no worker-thread, allocation, or static-initialization cost for a scheduler it never
+        // asked for. Chunking still collapses to one chunk per system (target_parallelism == 1) since
+        // splitting work only matters when something else will run the pieces concurrently.
+        usize target_parallelism = 1;
+        if (config_.executor == ExecutorPolicy::Async) {
+            if (Async::Scheduler::is_worker_thread()) {
+                Detail::contract_violation(
+                    "ECS Schedule::run() must be called from a coordinating non-worker thread; blocking a worker would deadlock nested Async work.");
+            }
+            if (!Async::Scheduler::is_running()) {
+                Async::Scheduler::initialize();
+            }
+            const usize worker_count = std::max<usize>(1, Async::Scheduler::worker_count());
+            const usize tasks_per_worker = std::max<usize>(1, config_.tasks_per_worker);
+            target_parallelism = worker_count > std::numeric_limits<usize>::max() / tasks_per_worker
+                                     ? std::numeric_limits<usize>::max()
+                                     : worker_count * tasks_per_worker;
         }
         if (stages_dirty_) {
             rebuild_stages();
         }
 
-        const usize worker_count = std::max<usize>(1, Async::Scheduler::worker_count());
-        const usize tasks_per_worker = std::max<usize>(1, config_.tasks_per_worker);
-        const usize target_parallelism = worker_count > std::numeric_limits<usize>::max() / tasks_per_worker
-                                             ? std::numeric_limits<usize>::max()
-                                             : worker_count * tasks_per_worker;
         const usize minimum_rows_per_task = std::max<usize>(1, config_.minimum_rows_per_task);
 
         ScheduledWorldScope scheduled_world{world};
@@ -145,6 +153,7 @@ namespace SFT::Ecs {
                 systems_[system_index].dispatch(world,
                                                 minimum_rows_per_task,
                                                 target_parallelism,
+                                                config_.executor,
                                                 tasks,
                                                 command_buffers);
             }

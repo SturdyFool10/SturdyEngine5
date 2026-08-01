@@ -2,6 +2,8 @@
 
 namespace SFT::Engine {
 
+    [[nodiscard]] const EngineConfig &Engine::config() const noexcept { return config_; }
+
     [[nodiscard]] const Core::RendererCapabilities &Engine::capabilities() const noexcept { return capabilities_; }
 
     [[nodiscard]] SFT::Renderer::Renderer *Engine::renderer() noexcept { return &renderer_; }
@@ -17,7 +19,16 @@ namespace SFT::Engine {
         platform_event_inbox_.push(window, event);
     }
 
-    void Engine::update() { update_schedule_.run(ecs_world_); }
+    void Engine::update(f64 delta_seconds) {
+        frame_time_.advance(delta_seconds, time_scale_.value());
+        update_schedule_.run(ecs_world_);
+    }
+
+    [[nodiscard]] const FrameTime &Engine::frame_time() const noexcept { return frame_time_; }
+
+    [[nodiscard]] TimeScale &Engine::time_scale() noexcept { return time_scale_; }
+
+    [[nodiscard]] const TimeScale &Engine::time_scale() const noexcept { return time_scale_; }
 
     [[nodiscard]] Ecs::Schedule &Engine::update_schedule() noexcept { return update_schedule_; }
 

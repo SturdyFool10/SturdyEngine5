@@ -124,23 +124,17 @@ namespace SFT::Renderer {
         }
 
         // High-level geometry API: callers hand geometry to the renderer with function calls, not RHI
-        // descriptors. The renderer owns the CPU-side resource record and uploads through RHI when the
-        // active backend has implemented the needed resource calls.
-        //
-        // `retain_cpu_copy` (default false) controls whether the CPU-side vertex/index arrays are
-        // kept after a successful upload — see MeshResource::retain_cpu_copy's own doc comment
-        // (Resources.hpp) for the RAM-vs-device-loss-recovery tradeoff this makes.
+        // descriptors. The renderer owns both the GPU allocation and an authoritative CPU replay copy,
+        // allowing all renderer-managed geometry to survive a complete backend/device reconstruction.
         [[nodiscard]] Core::RendererExpected<MeshHandle> create_mesh(span<const GeometryVertex> vertices,
                                                                      span<const u32> indices,
-                                                                     const char *label = nullptr,
-                                                                     bool retain_cpu_copy = false);
+                                                                     const char *label = nullptr);
 
         // Uploads a CPU-resident Mesh (see :Mesh — Mesh::cube(), Mesh::uv_sphere(), ...) to the GPU
         // and stamps the resulting handle back onto it, so mesh.is_gpu_resident()/mesh.gpu_handle()
         // reflect the upload afterward. Uploading an already-resident mesh is a no-op that just
         // returns its existing handle — callers don't need to guard re-upload themselves.
-        // `retain_cpu_copy`: see create_mesh's own doc comment above.
-        [[nodiscard]] Core::RendererExpected<MeshHandle> upload(Mesh &mesh, bool retain_cpu_copy = false);
+        [[nodiscard]] Core::RendererExpected<MeshHandle> upload(Mesh &mesh);
         void destroy_mesh(MeshHandle handle) noexcept;
         [[nodiscard]] MeshResource *mesh(MeshHandle handle) noexcept;
         [[nodiscard]] const MeshResource *mesh(MeshHandle handle) const noexcept;
@@ -315,6 +309,7 @@ namespace SFT::Renderer {
             glm::vec4 shadow_params{}; // atlas texel, normal bias, PCSS enabled, max distance
             glm::vec4 gtao_params{};    // radius, falloff start, thin-feature thickness, intensity
             glm::vec4 viewport_params{}; // inverse extent xy, projection Y scale, quality+1 (0=off)
+            glm::vec4 spectral_params{}; // x = SpectralRenderMode numeric value, remaining reserved
             DirectionalLightGpuData sun{};
             std::array<SpotLightGpuData, max_lighting_spot_lights> spot_lights{};
             std::array<PointLightGpuData, max_lighting_point_lights> point_lights{};
@@ -453,6 +448,26 @@ namespace SFT::Renderer {
             bool has_pending_results = false;
         };
 
+        struct FrameSpectralPhotonTargets {
+            RHI::BufferHandle photons{};
+            RHI::BufferHandle valid_count{};
+            RHI::BufferHandle hash_heads{};
+            u32 photon_capacity = 0;
+            u32 hash_capacity = 0;
+            // Whether this slot's buffers currently hold a real emitted photon map. Lets
+            // prepare_spectral_photon_mapping/record_spectral_integrator skip re-emitting the caustic
+            // photon map (a full 262144-photon, up-to-8-bounce ray-traced pass) on frames where the
+            // spectral accumulation buffer isn't resetting anyway — a static/converged camera has no
+            // need to pay that cost every single frame. Reset to false whenever the buffers themselves
+            // are (re)allocated, see destroy_frame_spectral_photon_targets.
+            bool populated = false;
+            // FNV-1a signature of the geometry/sun/photon-settings state this slot's photon map was
+            // last emitted from — deliberately excludes the camera's view-projection matrix (the
+            // caustic map is view-independent), unlike SpectralAccumulationTarget::state_signature
+            // which includes it. See render_frame_rhi's spectral_photon_signature computation.
+            u64 state_signature = 0;
+        };
+
         struct FrameInFlight {
             RHI::FenceHandle fence{};
             // One entry per command buffer execute_parallel() finished this frame (the primary encoder
@@ -472,6 +487,7 @@ namespace SFT::Renderer {
             // freed here once this ring slot's fence proves the GPU is done with them, same
             // fire-and-forget contract as transient_textures/transient_bind_groups above.
             vector<RHI::BufferHandle> transient_buffers;
+            vector<RHI::AccelerationStructureHandle> transient_acceleration_structures;
             // Reused after this slot's fence retires; unlike transient_buffers/groups these are
             // not recreated or destroyed every frame.
             TextFrameResources text_overlay_resources{};
@@ -485,6 +501,26 @@ namespace SFT::Renderer {
             FrameCompositeTarget composite_target{};
             FrameGpuTimingTarget gpu_timing{};
             FrameCpuTimingTarget cpu_timing{};
+            // Fixed 4-slot (2 begin/end pairs) query set for GPU work recorded onto the frame's raw
+            // encoder before the RenderGraph exists (TLAS build, photon hash-buffer clear) — it can't
+            // ride RenderGraph::execute_parallel's own per-pass query allocation since that isn't sized
+            // until the graph is fully declared and compiled, much later in the same frame. Deliberately
+            // NOT part of FrameGpuTimingTarget: that target's query_set is destroyed+recreated whenever
+            // required_pass_count grows past its capacity (see ensure_frame_gpu_timing_target), which
+            // would tear down this handle mid-frame while already-recorded timestamp writes referencing
+            // it are still pending submission. Fixed size, created once, never resized.
+            RHI::QuerySetHandle pregraph_gpu_timing_query_set{};
+            vector<RenderGraph::GpuPassTiming> pregraph_gpu_timing_pending;
+            RHI::AccelerationStructureHandle spectral_tlas{};
+            RHI::BufferHandle spectral_scene_instances{};
+            RHI::BufferHandle spectral_materials{};
+            // Frame-local descriptor heap source used by every spectral camera/photon material query.
+            // Renderer texture handles remain authoritative; bind groups resolve their live views/samplers.
+            vector<TextureHandle> spectral_material_textures;
+            RHI::BufferHandle spectral_frame_constants{};
+            RHI::BufferHandle spectral_photon_constants{};
+            glm::vec4 spectral_scene_bounds{0.0f, 0.0f, 0.0f, 1.0f};
+            FrameSpectralPhotonTargets spectral_photon_targets{};
             bool submitted = false;
         };
 
@@ -511,6 +547,15 @@ namespace SFT::Renderer {
             bool initialized = false;
         };
 
+        struct SpectralAccumulationTarget {
+            Core::Extent2D extent{};
+            RHI::TextureHandle texture{};
+            RHI::TextureViewHandle view{};
+            u64 state_signature = 0;
+            u64 last_frame_index = 0;
+            bool initialized = false;
+        };
+
         struct WindowSurfaceRecord {
             Platform::Windowing::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
@@ -524,6 +569,7 @@ namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
+            SpectralAccumulationTarget spectral_accumulation{};
             // Ring of N = desired_frames_in_flight (well, capabilities_.max_frames_in_flight — see
             // render_frame_rhi) deferred-cleanup slots, one per window: each window has its own swapchain
             // and therefore its own frame-in-flight lifetime, so this can never be a Renderer-wide
@@ -545,6 +591,7 @@ namespace SFT::Renderer {
             MeshHandle mesh{};
             MaterialInstanceHandle material{};
             glm::mat4 world_transform{1.0f};
+            glm::mat4 previous_world_transform{1.0f};
             u64 stable_id = 0;
             u32 sort_key = 0;
             // This draw's position in FrameSubmission::draws at the moment render_frame_dispatch
@@ -587,6 +634,7 @@ namespace SFT::Renderer {
             // with a single color target), never fed through the Z-prepass/G-buffer passes.
             vector<RenderItem> gizmo_draws;
             glm::mat4 view_projection{1.0f};
+            u64 frame_index = 0;
             CameraView camera{};
             SceneLighting lighting{};
             DeferredTargetFormats deferred_formats{};
@@ -896,6 +944,81 @@ namespace SFT::Renderer {
             u32 push_constant_size = 0;
         };
 
+        struct SpectralIntegratorViews {
+            RHI::TextureViewHandle raster_albedo{};
+            RHI::TextureViewHandle raster_normal{};
+            RHI::TextureViewHandle raster_material{};
+            RHI::TextureViewHandle raster_emissive{};
+            RHI::TextureViewHandle raster_motion{};
+            RHI::TextureViewHandle raster_depth{};
+            RHI::TextureViewHandle effect_output{};
+            RHI::TextureViewHandle scene_color_output{};
+            RHI::TextureViewHandle gbuffer_motion_output{};
+            RHI::TextureViewHandle primary_depth_output{};
+            RHI::TextureViewHandle accumulation_output{};
+            // Real procedural sky for the miss/background term (environmentRgb in
+            // spectral_integrators.slang) — the same baked LUTs + AtmosphereGpuData buffer
+            // Shaders/deferred_shadow_lighting.slang resolves the rasterized sky from, threaded
+            // through so a path-traced miss ray reads the identical atmosphere instead of a fake
+            // hardcoded gradient. See Renderer::record_atmosphere_lut_bakes (RendererLifecycle.cpp).
+            RHI::TextureViewHandle transmittance_lut{};
+            RHI::TextureViewHandle sky_view_lut{};
+            RHI::BufferHandle atmosphere_constants{};
+        };
+
+        // prepare_spectral_scene_acceleration_structure()'s per-material memoization: the ~13
+        // read_material_parameter lookups + per-slot texture resolution it currently redoes for every
+        // draw, every frame, only actually change when the material's content_revision changes.
+        // Deliberately duplicates SpectralMaterialGpu's scalar fields rather than depending on that
+        // (translation-unit-local, in RendererSpectralPathTracing.cpp) type — texture indices are NOT
+        // cached here since those are frame-local bindless-heap positions assigned by
+        // append_material_texture, not a property of the material itself.
+        struct SpectralMaterialParameterCacheEntry {
+            u64 content_revision = 0;
+            glm::vec4 base_color{0.8f, 0.8f, 0.8f, 1.0f};
+            glm::vec4 emissive_and_strength{0.0f, 0.0f, 0.0f, 1.0f};
+            // x roughness factor, y metallic factor, z occlusion strength, w dielectric F0.
+            glm::vec4 surface{0.5f, 0.0f, 1.0f, 0.04f};
+            // x transmission, y Cauchy A, z Cauchy B (um^2), w absorption coefficient.
+            glm::vec4 transmission{0.0f, 1.4878f, 0.0042f, 0.0f};
+            // x alpha cutoff, y normal-map scale, zw reserved.
+            glm::vec4 alpha_and_normal{0.0f, 1.0f, 0.0f, 0.0f};
+            TextureHandle base_color_texture{};
+            TextureHandle metallic_roughness_texture{};
+            TextureHandle normal_texture{};
+            TextureHandle occlusion_texture{};
+            TextureHandle emissive_texture{};
+        };
+
+        struct SpectralPathTracingResources {
+            Core::Slang::Shader shader;
+            array<RHI::ShaderModuleHandle, 5> modules{};
+            array<RHI::ComputePipelineHandle, 5> pipelines{};
+            vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+            vector<u32> bind_group_layout_sets;
+            std::unordered_map<string, ReflectedResource> resource_bindings;
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            // Linear/clamp-to-edge sampler for the atmosphere LUTs environmentRgb samples — same
+            // desc as ShadowLightingResources::atmosphere_sampler, kept as its own instance since
+            // this resource struct is destroyed/rebuilt independently of shadow lighting's.
+            RHI::SamplerHandle atmosphere_sampler{};
+            Core::Slang::Shader photon_shader;
+            array<RHI::ShaderModuleHandle, 2> photon_modules{};
+            array<RHI::ComputePipelineHandle, 2> photon_pipelines{};
+            RHI::BindGroupLayoutHandle photon_bind_group_layout{};
+            RHI::PipelineLayoutHandle photon_pipeline_layout{};
+            std::unordered_map<string, ReflectedResource> photon_resource_bindings;
+            Core::Slang::Shader depth_commit_shader;
+            RHI::ShaderModuleHandle depth_commit_vertex_module{};
+            RHI::ShaderModuleHandle depth_commit_fragment_module{};
+            RHI::BindGroupLayoutHandle depth_commit_bind_group_layout{};
+            RHI::PipelineLayoutHandle depth_commit_pipeline_layout{};
+            RHI::RenderPipelineHandle depth_commit_pipeline{};
+            u32 depth_commit_texture_binding = 0;
+            u32 material_texture_capacity = 0;
+            bool ready = false;
+        };
+
         struct CustomComputeEffectResources {
             std::string shader_path;
             std::string module_name;
@@ -1058,6 +1181,10 @@ namespace SFT::Renderer {
         // results) only when growing; existing capacity is always reused for a same-or-smaller frame.
         [[nodiscard]] Core::RendererResult ensure_frame_gpu_timing_target(FrameInFlight &slot, u32 required_pass_count);
         void destroy_frame_gpu_timing_target(FrameInFlight &slot) noexcept;
+        // Creates `slot.pregraph_gpu_timing_query_set` once (fixed 4 slots); a no-op on every later
+        // call. See the field's own doc comment on why this is separate from ensure_frame_gpu_timing_target.
+        [[nodiscard]] Core::RendererResult ensure_frame_pregraph_gpu_timing_target(FrameInFlight &slot);
+        void destroy_frame_pregraph_gpu_timing_target(FrameInFlight &slot) noexcept;
         // Waits for every in-flight frame (of one window's ring) to finish, then reclaims its resources
         // (including retired swapchains/presentation textures — safe here specifically because of the
         // wait_idle, see reclaim_frame_slot's comment). The sanctioned heavy wait for teardown / periodic
@@ -1291,6 +1418,7 @@ namespace SFT::Renderer {
         // Uploads tightly-packed pixel `data` into `resource`'s already-created RHI texture via a
         // staged buffer copy + layout transitions (one-shot command buffer, waits — the pre-frame-graph
         // upload path, same shape as the mesh staging copy).
+        [[nodiscard]] Core::RendererResult create_owned_texture_gpu(TextureResource &resource);
         [[nodiscard]] Core::RendererResult upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
                                                                RHI::Format format, span<const std::byte> data);
         // Lazily creates (once) a 1×1 opaque-white texture used to fill unbound material texture slots so
@@ -1344,6 +1472,7 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle material_view,
             RHI::TextureViewHandle emissive_view,
             RHI::TextureViewHandle depth_view,
+            RHI::TextureViewHandle spectral_effect_view,
             RHI::TextureViewHandle shadow_atlas_view,
             RHI::BufferHandle lighting_buffer,
             RHI::TextureViewHandle transmittance_lut_view,
@@ -1469,6 +1598,36 @@ namespace SFT::Renderer {
             const RenderGraphSettings &settings,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
 
+        [[nodiscard]] Core::RendererResult ensure_spectral_path_tracing_resources(SpectralRenderMode mode);
+        [[nodiscard]] Core::RendererResult ensure_spectral_mesh_acceleration_structures(
+            span<const RenderItem> draws);
+        [[nodiscard]] Core::RendererResult prepare_spectral_scene_acceleration_structure(
+            RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission);
+        [[nodiscard]] Core::RendererResult ensure_spectral_accumulation_target(
+            WindowSurfaceRecord &record, Core::Extent2D extent);
+        void destroy_spectral_accumulation_target(WindowSurfaceRecord &record) noexcept;
+        [[nodiscard]] Core::RendererResult ensure_frame_spectral_photon_targets(
+            FrameInFlight &slot, u32 photon_capacity);
+        void destroy_frame_spectral_photon_targets(FrameInFlight &slot) noexcept;
+        [[nodiscard]] Core::RendererResult prepare_spectral_photon_mapping(
+            RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission,
+            bool emission_needed, u64 photon_signature);
+        [[nodiscard]] Core::RendererResult record_spectral_photon_pass(
+            RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
+            usize pipeline_index, const char *label);
+        [[nodiscard]] Core::RendererResult record_spectral_photon_emission(
+            RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission);
+        [[nodiscard]] Core::RendererResult record_spectral_photon_hash(
+            RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission);
+        [[nodiscard]] Core::RendererResult record_spectral_integrator(
+            RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
+            Core::Extent2D extent, const SpectralIntegratorViews &views, bool accumulation_reset);
+        [[nodiscard]] Core::RendererResult record_spectral_depth_commit(
+            RHI::RenderPassEncoder &pass, FrameInFlight &slot, RHI::TextureViewHandle primary_depth_view,
+            Core::Extent2D extent);
+        void destroy_spectral_path_tracing_resources() noexcept;
+        void destroy_spectral_path_tracing_resources_locked(SpectralPathTracingResources &resources) noexcept;
+
         [[nodiscard]] Core::RendererResult ensure_custom_compute_effect(const CustomComputeEffect &effect);
         [[nodiscard]] Core::RendererResult record_custom_compute_effect(
             RHI::ComputePassEncoder &pass,
@@ -1548,7 +1707,7 @@ namespace SFT::Renderer {
         // A single growable GPU buffer that mesh uploads sub-allocate append-only ranges from, instead
         // of each Mesh owning its own dedicated VkBuffer — see try_upload_mesh/grow_geometry_arena.
         // Growth (doubling) preserves the old used range with one GPU-to-GPU copy at stable offsets;
-        // it never depends on optional CPU recovery payloads. This only happens during asset loading,
+        // it does not replay every retained CPU payload. This only happens during asset loading,
         // never mid-frame, so its O(resident data) cost is a non-issue.
         struct GeometryArena {
             RHI::BufferHandle buffer{};
@@ -1559,13 +1718,12 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult grow_geometry_arena(GeometryArena &arena, u64 required_bytes,
                                                                const char *label);
         // TransferSrc (on top of TransferDst) is required so grow_geometry_arena can copy the old
-        // buffer's contents into a newly-grown one GPU-side, instead of depending on every resident
-        // mesh's CPU-side vertices/indices still being around to replay from (see that function's
-        // own doc comment, and MeshResource::retain_cpu_copy).
-        GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::TransferSrc |
-                                             RHI::BufferUsage::TransferDst};
-        GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::TransferSrc |
-                                            RHI::BufferUsage::TransferDst};
+        // buffer's contents into a newly-grown one GPU-side instead of replaying every resident
+        // mesh's retained CPU-side vertices/indices.
+        GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::Storage |
+                                             RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst};
+        GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::Storage |
+                                            RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst};
         vector<MeshResource> meshes_;
         vector<MaterialResource> materials_;
         vector<TextureResource> textures_;
@@ -1607,6 +1765,13 @@ namespace SFT::Renderer {
         Async::Mutex<std::unordered_map<u64, vector<DepthOnlyPipelineVariant>>> depth_only_pipeline_variants_;
         Async::Mutex<vector<CustomPostProcessResources>> custom_post_process_resources_;
         Async::Mutex<vector<CustomComputeEffectResources>> custom_compute_effect_resources_;
+        Async::Mutex<SpectralPathTracingResources> spectral_path_tracing_;
+        // Keyed by MaterialInstanceHandle::value — see SpectralMaterialParameterCacheEntry's own doc
+        // comment. Handle values are never recycled (create_material_instance only ever appends,
+        // destroy_material_instance zeroes the slot in place), so a stale entry can only ever be
+        // shadowed by a content_revision mismatch, never silently misattributed to a different
+        // material that reused the same handle value.
+        Async::Mutex<std::unordered_map<u64, SpectralMaterialParameterCacheEntry>> spectral_material_parameter_cache_;
         Async::Mutex<InstanceCullResources> instance_cull_;
         // instanced_pipeline_for()'s per-template cache, same rationale/shape as
         // material_pipeline_variants_ above (keyed by MaterialTemplateHandle::value).

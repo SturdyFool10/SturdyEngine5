@@ -6,6 +6,14 @@
 
 namespace SFT::Platform::Windowing {
 
+    // Which windowing library backs a live Window. This reports provider identity after explicit
+    // provider composition; it is not a runtime selector. Products choose optional providers through
+    // a WindowFactory so unreferenced provider archives remain dead-strippable.
+    enum class WindowBackendKind {
+        SDL3,
+        GLFW,
+    };
+
     enum class WindowMode {
         Windowed,
         BorderlessFullscreen,

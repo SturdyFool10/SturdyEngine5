@@ -9,7 +9,6 @@ sturdy_add_package(EngineComponents
         Sturdy::Core
         Sturdy::Renderer
         Sturdy::Platform
-        Sturdy::box3d
         Sturdy::UI
 
     PRIVATE_DEPS
@@ -29,4 +28,56 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     sturdy_enable_warnings(EngineRenderGraphTest)
     add_test(NAME EngineRenderGraphTest COMMAND EngineRenderGraphTest)
     set_tests_properties(EngineRenderGraphTest PROPERTIES TIMEOUT 10)
+
+    add_executable(EngineGameLogicContractTest tests/GameLogicContractTest.cpp)
+    target_link_libraries(EngineGameLogicContractTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineGameLogicContractTest)
+    add_test(NAME EngineGameLogicContractTest COMMAND EngineGameLogicContractTest)
+    set_tests_properties(EngineGameLogicContractTest PROPERTIES TIMEOUT 10)
+
+    if(NOT STURDY_BUILD_SHARED_LIBS)
+        add_executable(
+            EngineStaticAggregateUnusedProbe
+            "${CMAKE_SOURCE_DIR}/cmake/tests/StaticAggregateUnused.cpp"
+        )
+        target_link_libraries(
+            EngineStaticAggregateUnusedProbe
+            PRIVATE Sturdy::Engine
+        )
+        sturdy_enable_warnings(EngineStaticAggregateUnusedProbe)
+
+        set(
+            _sturdy_static_aggregate_test
+            "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
+        )
+        set(
+            _sturdy_static_probe_path
+            "$<TARGET_FILE:EngineStaticAggregateUnusedProbe>"
+        )
+        add_test(
+            NAME EngineStaticAggregateUnusedTest
+            COMMAND "${CMAKE_COMMAND}"
+                "-DSTURDY_STATIC_PROBE=${_sturdy_static_probe_path}"
+                -P "${_sturdy_static_aggregate_test}"
+        )
+        set_tests_properties(
+            EngineStaticAggregateUnusedTest
+            PROPERTIES TIMEOUT 10
+        )
+    endif()
+
+    set(
+        _sturdy_base_dependency_boundary_test
+        "${CMAKE_SOURCE_DIR}/cmake/tests/AssertBaseDependencyBoundary.cmake"
+    )
+    add_test(
+        NAME EngineBaseDependencyBoundaryTest
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSTURDY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+            -P "${_sturdy_base_dependency_boundary_test}"
+    )
+    set_tests_properties(
+        EngineBaseDependencyBoundaryTest
+        PROPERTIES TIMEOUT 10
+    )
 endif()

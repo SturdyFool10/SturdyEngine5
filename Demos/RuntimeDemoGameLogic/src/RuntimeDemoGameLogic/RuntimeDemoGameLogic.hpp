@@ -36,6 +36,24 @@ namespace SFT::Runtime {
         bool threshold_view = false;
     };
 
+    // Live-tunable spectral path tracing knobs, same split as Bloom*Controls/*TuningState above:
+    // Keyboard*Controls holds the step sizes, *TuningState holds the current value a keyboard system
+    // mutates directly, request_render_frame() applies it into render_graph_.scene() every frame.
+    struct SpectralPathTracingKeyboardControls {
+        u32 sample_step = 1;
+        u32 bounce_step = 1;
+    };
+
+    struct SpectralPathTracingTuningState {
+        u32 samples_per_pixel = 1;
+        u32 max_bounces = 4;
+    };
+
+    struct SpectralPathTracingSettingsChanged {
+        u32 samples_per_pixel = 1;
+        u32 max_bounces = 4;
+    };
+
     // WASD+QE held-key state and accumulated right-drag mouse-look delta, written by an
     // update_schedule event system and consumed (with the actual per-frame movement math) in
     // request_render_frame — the same split configure_event_systems()/request_render_frame() already
@@ -58,18 +76,13 @@ namespace SFT::Runtime {
         f32 pitch_degrees = 0.0f;
     };
 
-    // Simulated native API consumer. Everything here could live in a game executable or editor:
-    // Engine owns mechanisms and lifetimes; this client chooses policy, content, and ECS behavior.
-    class RuntimeClient final : public Engine::ApplicationClient {
+    // Host-independent demo/game session. Runtime and a future Editor can construct the same type;
+    // neither window creation nor process/title policy lives here.
+    class RuntimeDemoGameLogic final : public Engine::GameLogic {
       public:
-        RuntimeClient();
+        RuntimeDemoGameLogic();
 
-        [[nodiscard]] const Engine::ApplicationConfig &application_config() const noexcept override;
-        [[nodiscard]] Engine::ApplicationResult on_engine_initialized(Engine::Engine &engine) override;
-        [[nodiscard]] UString primary_window_title(
-            Engine::Engine &engine,
-            const Engine::ApplicationFrameStats &stats) override;
-
+        [[nodiscard]] Engine::GameLogicResult on_engine_initialized(Engine::Engine &engine) override;
         [[nodiscard]] std::optional<Engine::RenderFrameParameters> request_render_frame(
             Engine::Engine &engine,
             Core::RenderSurfaceHandle surface,
@@ -87,9 +100,10 @@ namespace SFT::Runtime {
         // 'H'/'J' happens here rather than in the ECS system that only observed the key press.
         void handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface);
 
-        Engine::ApplicationConfig config_{};
+        Engine::EngineConfig engine_config_{};
         Engine::Asset gltf_shader_{};
-        Engine::Asset gizmo_shader_{};
+        Engine::Asset spectral_floor_model_{};
+        Engine::Asset spectral_glass_model_{};
         std::vector<Engine::GltfNodeInstance> gltf_instances_{};
         std::vector<Engine::GltfLightInstance> gltf_lights_{};
         Engine::Camera camera_{};
@@ -97,8 +111,12 @@ namespace SFT::Runtime {
         Ecs::Entity bloom_controls_entity_{};
         Ecs::Entity camera_control_entity_{};
         Ecs::Entity hdr_controls_entity_{};
+        Ecs::Entity spectral_path_tracing_controls_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
+        Ecs::EventModule<SpectralPathTracingSettingsChanged> spectral_path_tracing_events_{};
     };
+
+    [[nodiscard]] std::unique_ptr<Engine::GameLogic> create_runtime_demo_game_logic();
 
 } // namespace SFT::Runtime
 
@@ -107,3 +125,6 @@ SFT_ECS_COMPONENT(SFT::Runtime::BloomTuningState, "sturdy.runtime.bloom_tuning_s
 SFT_ECS_COMPONENT(SFT::Runtime::HdrToggleState, "sturdy.runtime.hdr_toggle_state");
 SFT_ECS_EVENT(SFT::Runtime::BloomThresholdChanged, "sturdy.runtime.bloom_threshold_changed");
 SFT_ECS_COMPONENT(SFT::Runtime::FlyCameraState, "sturdy.runtime.fly_camera_state");
+SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingKeyboardControls, "sturdy.runtime.spectral_path_tracing_keyboard_controls");
+SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingTuningState, "sturdy.runtime.spectral_path_tracing_tuning_state");
+SFT_ECS_EVENT(SFT::Runtime::SpectralPathTracingSettingsChanged, "sturdy.runtime.spectral_path_tracing_settings_changed");

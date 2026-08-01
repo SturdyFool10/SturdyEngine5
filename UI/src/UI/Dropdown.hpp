@@ -44,9 +44,8 @@ namespace SFT::UI {
         // affordance that it's a dropdown is a usability trap. Set false to omit it entirely, e.g.
         // if a caller wants to build their own indicator into the selected option's own build()
         // callback instead. `arrow_font_id` must already be registered (Context::register_font())
-        // with a font that has U+25BE — this engine's bundled Maple Mono NF does, same as the
-        // checkmark checkbox() uses (see RuntimeClient::ensure_ui_resources()'s font-discovery
-        // fallback list).
+        // with a font that has U+25BE — this engine's bundled Maple Mono NF does, as do many common
+        // UI fonts.
         bool show_arrow_indicator = true;
         Color arrow_color{1.0, 1.0, 1.0, 1.0};
         FontId arrow_font_id = 0;

@@ -220,6 +220,12 @@ namespace SFT::Engine {
             f32 roughness_factor = 1.0f;
             f32 specular_factor = 1.0f;
             f32 ior = 1.5f;
+            // cgltf in this dependency revision does not expose KHR_materials_transmission/volume/
+            // dispersion yet. Keep spec-safe opaque defaults; callers can set the reflected parameters
+            // through AssetManager::set_model_float after import.
+            f32 transmission_factor = 0.0f;
+            f32 dispersion_cauchy_b = 0.0042f;
+            f32 absorption_coefficient = 0.0f;
             // 0.0 never discards (glTF OPAQUE, and this struct's own default). MASK sets the glTF
             // material's real alphaCutoff; BLEND is treated as opaque — see gbuffer_geometry.slang's
             // alpha_cutoff comment for why true blending isn't supported by this deferred pass yet.
@@ -667,6 +673,18 @@ namespace SFT::Engine {
                 }
                 if (set) {
                     set = assets.set_model_float(*model, primitive_index, "ior", values.ior);
+                }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "transmission_factor",
+                                                 values.transmission_factor);
+                }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "dispersion_cauchy_b",
+                                                 values.dispersion_cauchy_b);
+                }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "absorption_coefficient",
+                                                 values.absorption_coefficient);
                 }
                 if (set) {
                     set = assets.set_model_float(*model, primitive_index, "alpha_cutoff", values.alpha_cutoff);

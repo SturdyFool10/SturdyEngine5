@@ -1,9 +1,8 @@
-#include <Runtime/src/RuntimeClient.hpp>
+#include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
 #include <algorithm>
 #include <filesystem>
 #include <optional>
-#include <vector>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/vec3.hpp>
@@ -21,47 +20,33 @@ namespace SFT::Runtime {
         static_assert(sizeof(ThresholdConstants) == 8);
     } // namespace
 
-    RuntimeClient::RuntimeClient() {
-        config_.primary_window.title = "Sturdy Engine 5";
-        config_.primary_window.extent = {1280, 720};
-        config_.primary_window.graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan;
-        config_.engine.app_name = "Sturdy Engine 5";
-        config_.engine.shaders_directory = "Shaders";
-        // Adaptive VSync + Ultra latency: tear-free while frames arrive on time, tear rather than
-        // stall an extra refresh interval when late, and prefer the lowest-latency present mode
-        // that still satisfies that (see Core::resolve_present_strategy(), Core/Renderer.hpp) —
-        // the debug overlay's new "Present: ..." line (RenderFeature::DebugOverlay below) shows
-        // which concrete present mode this actually resolved to on the surface in use.
-        config_.engine.features.presentation.vsync = Core::VSyncMode::Adaptive;
-        config_.engine.features.presentation.latency = Core::LatencyMode::Ultra;
-        config_.primary_window_title_update_interval_seconds = 0.25;
-
+    RuntimeDemoGameLogic::RuntimeDemoGameLogic() {
         camera_ = Engine::Camera::perspective(55.0f, 16.0f / 9.0f, 0.05f, 200.0f);
-        // Sponza (see create_demo_content()) is roughly 25m long — stand at one end of the colonnade
-        // hall looking down its length. Fly around with WASD+QE / right-drag mouse-look either way.
-        camera_.set_position({0.0f, 3.0f, 9.0f});
-        camera_.look_at({0.0f, 3.0f, 0.0f});
+        // Look diagonally down Sponza's long central hall, with the dispersive test object near center.
+        camera_.set_position({-10.5f, 2.2f, 0.0f});
+        camera_.look_at({0.0f, 1.0f, 0.0f});
 
         // High-level frame recipe: Runtime selects semantic features and image policy while Engine
         // keeps graph resources, barriers, pass callbacks and synchronization private.
         render_graph_ = Engine::RenderGraph::standard();
         render_graph_
             .set_resolution_scale(1.0f)
-            .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 1.0f)
+            .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 0.55f)
             .configure_bloom([](Engine::BloomSettings &bloom) { bloom.threshold = 3.20f; })
             .enable(Engine::RenderFeature::DebugOverlay);
-        // Exercise 8x subpixel visibility in the reference scene. Deferred SRAA keeps the G-buffer
-        // and lighting at 1x, while FXAA remains the cleanup for shader/specular edges MSAA cannot see.
-        render_graph_.anti_aliasing().msaa_samples = 8;
+        render_graph_.scene().integrator = Engine::SceneIntegrator::FullPathTracing;
+        render_graph_.scene().path_samples_per_pixel = 1;
+        render_graph_.scene().path_max_bounces = 4;
+        render_graph_.scene().path_russian_roulette_start_bounce = 3;
+        render_graph_.scene().caustic_photon_count = 262144;
+        render_graph_.scene().caustic_gather_radius = 0.075f;
+        render_graph_.anti_aliasing().msaa_samples = 1;
     }
 
-    const Engine::ApplicationConfig &RuntimeClient::application_config() const noexcept {
-        return config_;
-    }
-
-    Engine::ApplicationResult RuntimeClient::on_engine_initialized(Engine::Engine &engine) {
+    Engine::GameLogicResult RuntimeDemoGameLogic::on_engine_initialized(Engine::Engine &engine) {
+        engine_config_ = engine.config();
         if (Engine::AssetResult content = create_demo_content(engine); !content) {
-            return std::unexpected(Engine::ApplicationError{.message = content.error().message});
+            return std::unexpected(Engine::GameLogicError{.message = content.error().message});
         }
         configure_render_extraction(engine);
         configure_event_systems(engine);
@@ -69,17 +54,8 @@ namespace SFT::Runtime {
         return {};
     }
 
-    UString RuntimeClient::primary_window_title(
-        Engine::Engine &engine,
-        const Engine::ApplicationFrameStats &stats) {
-        (void)engine;
-        (void)stats;
-        return UString{"SturdyEngine 5"};
-    }
 
-
-
-    Engine::AssetResult RuntimeClient::create_demo_content(Engine::Engine &engine) {
+    Engine::AssetResult RuntimeDemoGameLogic::create_demo_content(Engine::Engine &engine) {
         Engine::AssetManager &assets = engine.assets();
         auto shader = assets.load_shader(Engine::ShaderAssetDesc{
             .source = "Shaders/gbuffer_geometry.slang",
@@ -91,22 +67,79 @@ namespace SFT::Runtime {
         }
         gltf_shader_ = *shader;
 
-        auto gizmo_shader = assets.load_shader(Engine::ShaderAssetDesc{
-            .source = "Shaders/geometry_color.slang",
-            .label = UString{"light gizmo shader"_ustr},
+        auto floor_model = assets.create_model(Engine::ModelAssetDesc{
+            .label = UString{"spectral caustic floor"_ustr},
+            .primitives = {
+                Engine::ModelPrimitiveDesc{
+                    .mesh = RendererApi::Mesh::plane(
+                        {.width = 18.0f, .depth = 18.0f, .width_segments = 1, .depth_segments = 1},
+                        "spectral caustic floor"),
+                    .shader = gltf_shader_,
+                },
+            },
         });
-        if (!gizmo_shader) {
-            return std::unexpected(gizmo_shader.error());
+        if (!floor_model) {
+            return std::unexpected(floor_model.error());
         }
-        gizmo_shader_ = *gizmo_shader;
+        spectral_floor_model_ = *floor_model;
+
+        auto glass_model = assets.create_model(Engine::ModelAssetDesc{
+            .label = UString{"dispersive glass sphere"_ustr},
+            .primitives = {
+                Engine::ModelPrimitiveDesc{
+                    // Refraction is far more sensitive to normal-interpolation discontinuities than
+                    // diffuse shading is: even a "smooth" mesh only has C0-continuous normals across
+                    // triangle edges, and bending light through that visibly facets a coarse sphere
+                    // in a way flat lighting would hide. Higher tessellation than a typical opaque
+                    // prop needs is what actually fixes it (see sturdy_path_transport.slang's
+                    // sampleDielectricDirection for the shading-normal-based refraction itself, which
+                    // was already correct).
+                    .mesh = RendererApi::Mesh::uv_sphere(
+                        {.radius = 1.1f, .rings = 96, .segments = 192},
+                        "dispersive glass sphere"),
+                    .shader = gltf_shader_,
+                },
+            },
+        });
+        if (!glass_model) {
+            return std::unexpected(glass_model.error());
+        }
+        spectral_glass_model_ = *glass_model;
+
+        const auto configure_spectral_material = [&](Engine::Asset model,
+                                                      const glm::vec4 &base_color,
+                                                      f32 roughness,
+                                                      f32 transmission,
+                                                      f32 dispersion,
+                                                      f32 absorption) -> Engine::AssetResult {
+            Engine::AssetResult result = assets.set_model_vec4(model, 0, "base_color_factor", base_color);
+            if (result) result = assets.set_model_float(model, 0, "metallic_factor", 0.0f);
+            if (result) result = assets.set_model_float(model, 0, "roughness_factor", roughness);
+            if (result) result = assets.set_model_float(model, 0, "specular_factor", 1.0f);
+            if (result) result = assets.set_model_float(model, 0, "ior", 1.5f);
+            if (result) result = assets.set_model_float(model, 0, "transmission_factor", transmission);
+            if (result) result = assets.set_model_float(model, 0, "dispersion_cauchy_b", dispersion);
+            if (result) result = assets.set_model_float(model, 0, "absorption_coefficient", absorption);
+            if (result) result = assets.set_model_float(model, 0, "alpha_cutoff", 0.0f);
+            if (result) result = assets.set_model_float(model, 0, "occlusion_strength", 1.0f);
+            if (result) result = assets.set_model_vec4(model, 0, "emissive_factor", glm::vec4{0.0f});
+            if (result) result = assets.set_model_float(model, 0, "emissive_strength", 1.0f);
+            return result;
+        };
+        if (Engine::AssetResult configured = configure_spectral_material(
+                spectral_floor_model_, glm::vec4{0.72f, 0.74f, 0.78f, 1.0f},
+                0.72f, 0.0f, 0.0042f, 0.0f);
+            !configured) {
+            return configured;
+        }
+        if (Engine::AssetResult configured = configure_spectral_material(
+                spectral_glass_model_, glm::vec4{0.92f, 0.97f, 1.0f, 1.0f},
+                0.025f, 1.0f, 0.0042f, 0.045f);
+            !configured) {
+            return configured;
+        }
 
 #ifdef STURDY_GLTF_SAMPLE_ASSETS_DIR
-        // Sponza is the only scene Runtime shows right now — kept deliberately simple, one thing at
-        // a time. Only present when configured with -DSTURDY_FETCH_SAMPLE_ASSETS=ON, which fetches
-        // the (large, non-build) sample-assets repo; without it Runtime builds but shows nothing
-        // (CI never runs Runtime, only builds it, so this is a safe default for other build configs).
-        // Sponza is a plain-JSON .gltf with external .bin/.jpg/.png files (unlike a .glb's embedded
-        // buffer views), so this also exercises import_gltf()'s external-URI image-loading path.
         auto gltf = Engine::import_gltf(
             assets,
             std::filesystem::path{STURDY_GLTF_SAMPLE_ASSETS_DIR} / "Models" / "Sponza" / "glTF" / "Sponza.gltf",
@@ -121,7 +154,7 @@ namespace SFT::Runtime {
         return {};
     }
 
-    void RuntimeClient::configure_render_extraction(Engine::Engine &engine) {
+    void RuntimeDemoGameLogic::configure_render_extraction(Engine::Engine &engine) {
         engine.ecs_world().bind_resource(engine.render_frame_requests());
         engine.render_extraction_schedule().add_system(
             [](Ecs::Entity entity,
@@ -162,7 +195,7 @@ namespace SFT::Runtime {
             });
     }
 
-    void RuntimeClient::configure_event_systems(Engine::Engine &engine) {
+    void RuntimeDemoGameLogic::configure_event_systems(Engine::Engine &engine) {
         bloom_threshold_events_.build(engine.ecs_world(), engine.update_schedule());
         bloom_controls_entity_ = engine.ecs_world().spawn(
             BloomKeyboardControls{.threshold_step = 0.05f},
@@ -231,6 +264,54 @@ namespace SFT::Runtime {
                 }
             });
 
+        // Live spectral path tracing tuning — [/] step max_bounces, ,/. step samples_per_pixel. Same
+        // split/apply pattern as Bloom above: this system only mutates SpectralPathTracingTuningState,
+        // request_render_frame() is what actually writes it into render_graph_.scene() every frame.
+        spectral_path_tracing_events_.build(engine.ecs_world(), engine.update_schedule());
+        spectral_path_tracing_controls_entity_ = engine.ecs_world().spawn(
+            SpectralPathTracingKeyboardControls{},
+            SpectralPathTracingTuningState{
+                .samples_per_pixel = render_graph_.scene().path_samples_per_pixel,
+                .max_bounces = render_graph_.scene().path_max_bounces,
+            });
+        engine.update_schedule().add_system(
+            [](Ecs::Entity,
+               const SpectralPathTracingKeyboardControls &controls,
+               SpectralPathTracingTuningState &state,
+               Ecs::EventReader<Engine::KeyboardEvent> keyboard,
+               Ecs::EventWriter<SpectralPathTracingSettingsChanged> changed_events) noexcept {
+                bool changed = false;
+                for (const Engine::KeyboardEvent &event : keyboard.read()) {
+                    if (!event.pressed()) continue;
+                    if (event.key == '[') {
+                        state.max_bounces = std::max(1u, state.max_bounces - controls.bounce_step);
+                        changed = true;
+                    } else if (event.key == ']') {
+                        state.max_bounces = std::min(64u, state.max_bounces + controls.bounce_step);
+                        changed = true;
+                    } else if (event.key == ',') {
+                        state.samples_per_pixel = std::max(1u, state.samples_per_pixel - controls.sample_step);
+                        changed = true;
+                    } else if (event.key == '.') {
+                        state.samples_per_pixel = std::min(64u, state.samples_per_pixel + controls.sample_step);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    changed_events.send(SpectralPathTracingSettingsChanged{
+                        .samples_per_pixel = state.samples_per_pixel,
+                        .max_bounces = state.max_bounces,
+                    });
+                }
+            });
+        engine.update_schedule().add_system(
+            [](Ecs::EventReader<SpectralPathTracingSettingsChanged> changes) noexcept {
+                for (const SpectralPathTracingSettingsChanged &change : changes.read()) {
+                    Foundation::log_info("Path tracing: {} spp, {} bounces",
+                                         change.samples_per_pixel, change.max_bounces);
+                }
+            });
+
         // Free-fly camera: WASD+QE held state and right-drag mouse-look deltas are tracked here;
         // request_render_frame() applies the actual per-frame movement (it has real delta time,
         // Core::FrameInput::delta_seconds — see FlyCameraState's own comment).
@@ -270,22 +351,15 @@ namespace SFT::Runtime {
             });
     }
 
-    void RuntimeClient::spawn_demo_entities(Engine::Engine &engine) {
+    void RuntimeDemoGameLogic::spawn_demo_entities(Engine::Engine &engine) {
 #ifdef STURDY_GLTF_SAMPLE_ASSETS_DIR
-        // Every resolved Sponza node instance is spawned as-is, at its own baked world transform.
-        // glTF's coordinate convention (Y-up, right-handed) already matches this engine's, so no
-        // basis-change rotation is needed.
         for (const Engine::GltfNodeInstance &instance : gltf_instances_) {
-            if (!instance.model) {
-                continue;
+            if (instance.model) {
+                (void)engine.ecs_world().spawn(
+                    Engine::WorldTransform{.value = instance.world_transform},
+                    Engine::ModelRenderer{.model = instance.model});
             }
-            (void)engine.ecs_world().spawn(
-                Engine::WorldTransform{.value = instance.world_transform},
-                Engine::ModelRenderer{.model = instance.model});
         }
-
-        // Sponza itself carries no KHR_lights_punctual nodes, but any glTF asset that does gets its
-        // lights spawned here alongside its meshes.
         for (const Engine::GltfLightInstance &light : gltf_lights_) {
             const Engine::WorldTransform transform{.value = light.world_transform};
             switch (light.kind) {
@@ -300,88 +374,36 @@ namespace SFT::Runtime {
                 case Engine::GltfLightKind::Spot:
                     (void)engine.ecs_world().spawn(
                         transform, Engine::SpotLightRenderer{
-                                       .radiance = light.radiance,
-                                       .range = light.range,
-                                       .inner_cone_cos = light.inner_cone_cos,
-                                       .outer_cone_cos = light.outer_cone_cos,
-                                   });
+                            .radiance = light.radiance,
+                            .range = light.range,
+                            .inner_cone_cos = light.inner_cone_cos,
+                            .outer_cone_cos = light.outer_cone_cos,
+                        });
                     break;
             }
         }
+#else
+        (void)engine.ecs_world().spawn(
+            Engine::WorldTransform{.value = glm::mat4{1.0f}},
+            Engine::ModelRenderer{.model = spectral_floor_model_});
+#endif
+        (void)engine.ecs_world().spawn(
+            Engine::WorldTransform{.value = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 1.12f, 0.0f})},
+            Engine::ModelRenderer{.model = spectral_glass_model_});
 
-        // Hand-authored demo lights: one sun plus a few local lights placed along Sponza's
-        // colonnade hall so point/spot shading is visible without a light-carrying glTF asset.
+        // The photon mapper currently emits from the directional sun. Keep this light and the closed
+        // dispersive sphere unconditional so caustics are exercised even without optional sample assets.
         {
-            // An identity WorldTransform would leave the sun pointing straight down (its
-            // world_direction() reads local -Y as forward) — build a transform that instead faces
-            // the same angled direction DirectionalLight's own hand-authored default uses, via the
-            // same lookAtRH-inverse-plus-remap technique spawn_spot_light uses below.
-            const glm::vec3 sun_direction = glm::normalize(glm::vec3{0.35f, -0.75f, 0.55f});
+            const glm::vec3 sun_direction = glm::normalize(glm::vec3{0.18f, -1.0f, 0.12f});
             glm::mat4 sun_transform =
                 glm::inverse(glm::lookAtRH(glm::vec3{0.0f}, sun_direction, glm::vec3{0.0f, 1.0f, 0.0f}));
-            // +90 degrees, not -90: inverse(lookAt) sends local -Z to the target direction, and we
-            // need local -Y (world_direction()'s forward axis) to land there too — i.e. the rotation
-            // that sends -Y to -Z, which is the +90-about-X map (rotate(-90,X) sends -Z to -Y, the
-            // opposite composition; using it here silently negates the whole direction instead).
-            sun_transform = sun_transform * glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+            sun_transform = sun_transform * glm::rotate(
+                glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{1.0f, 0.0f, 0.0f});
             (void)engine.ecs_world().spawn(
                 Engine::WorldTransform{.value = sun_transform},
-                Engine::DirectionalLightRenderer{.radiance = {4.0f, 3.75f, 3.35f}});
+                Engine::DirectionalLightRenderer{.radiance = {3.0f, 2.8f, 2.5f}});
         }
 
-        // Always-on debug marker at a light's position: a low-poly (base, unsubdivided) icosphere,
-        // tinted by the light's scene-linear radiance so the HDR marker participates in bloom
-        // — see RuntimeClient.hpp/EcsRendering.hpp's LightGizmoRenderer doc comment for why this
-        // needs its own component/pass rather than reusing ModelRenderer.
-        const auto spawn_light_gizmo = [&](glm::vec3 position, glm::vec3 radiance) {
-            auto model = engine.assets().create_model(Engine::ModelAssetDesc{
-                .label = UString{"light gizmo"_ustr},
-                .primitives = {
-                    Engine::ModelPrimitiveDesc{
-                        .mesh = RendererApi::Mesh::ico_sphere({.radius = 0.15f, .subdivisions = 0}),
-                        .shader = gizmo_shader_,
-                        .vertex_color = glm::vec4{glm::max(radiance, glm::vec3{0.0f}), 1.0f},
-                    },
-                },
-            });
-            if (!model) {
-                Foundation::log_error("Failed to create light gizmo model: {}", model.error().message.cpp_string());
-                return;
-            }
-            (void)engine.ecs_world().spawn(
-                Engine::WorldTransform{.value = glm::translate(glm::mat4{1.0f}, position)},
-                Engine::LightGizmoRenderer{.model = *model});
-        };
-
-        const auto spawn_point_light = [&](glm::vec3 position, glm::vec3 radiance, f32 range) {
-            (void)engine.ecs_world().spawn(
-                Engine::WorldTransform{.value = glm::translate(glm::mat4{1.0f}, position)},
-                Engine::PointLightRenderer{.radiance = radiance, .range = range});
-            spawn_light_gizmo(position, radiance);
-        };
-        spawn_point_light({-6.0f, 2.0f, 0.0f}, {6.0f, 3.5f, 2.0f}, 8.0f);
-        spawn_point_light({6.0f, 2.0f, 0.0f}, {2.0f, 3.0f, 6.0f}, 8.0f);
-
-        const auto spawn_spot_light = [&](glm::vec3 position, glm::vec3 target, glm::vec3 radiance) {
-            glm::mat4 transform = glm::inverse(glm::lookAtRH(position, target, glm::vec3{0.0f, 1.0f, 0.0f}));
-            // +90 degrees — see the sun's identical construction above for the derivation of why
-            // -90 (this line's old value) silently negated the whole direction instead of just
-            // remapping the axis.
-            transform = transform * glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f), glm::vec3{1.0f, 0.0f, 0.0f});
-            (void)engine.ecs_world().spawn(
-                Engine::WorldTransform{.value = transform},
-                Engine::SpotLightRenderer{
-                    .radiance = radiance,
-                    .range = 15.0f,
-                    .inner_cone_cos = 0.95f,
-                    .outer_cone_cos = 0.85f,
-                });
-            spawn_light_gizmo(position, radiance);
-        };
-        spawn_spot_light({0.75f, 6.26f, 1.34f}, {0.0f, 0.0f, 0.0f}, {5.0f, 4.5f, 4.0f});
-#else
-        (void)engine;
-#endif
     }
 
     namespace {
@@ -396,7 +418,7 @@ namespace SFT::Runtime {
         }
     } // namespace
 
-    void RuntimeClient::handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface) {
+    void RuntimeDemoGameLogic::handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface) {
         auto state = engine.ecs_world().get_component<HdrToggleState>(hdr_controls_entity_);
         if (!state) {
             return;
@@ -421,10 +443,10 @@ namespace SFT::Runtime {
                 Foundation::log_warn("HDR capability query failed: {}", capability.error().message);
             }
 
-            Engine::EngineConfig new_config = config_.engine;
+            Engine::EngineConfig new_config = engine_config_;
             new_config.features.presentation.hdr_enabled = !new_config.features.presentation.hdr_enabled;
             if (const auto applied = engine.apply_runtime_settings(surface, new_config)) {
-                config_.engine = new_config;
+                engine_config_ = new_config;
                 Foundation::log_info("HDR {} — {}",
                                      new_config.features.presentation.hdr_enabled ? "enabled" : "disabled",
                                      applied->message);
@@ -440,13 +462,13 @@ namespace SFT::Runtime {
             // HLG -> Dolby Vision (best-effort) -> back to HDR10. See that enum's own doc comment
             // (Core/Renderer.hpp) for what each mode actually does/doesn't do; Dolby Vision in
             // particular is expected to report Unsupported on real displays.
-            Engine::EngineConfig new_config = config_.engine;
+            Engine::EngineConfig new_config = engine_config_;
             const auto current = static_cast<u8>(new_config.features.presentation.hdr_color_space);
             constexpr u8 mode_count = 4;
             new_config.features.presentation.hdr_color_space =
                 static_cast<Core::HdrColorSpaceMode>((current + 1) % mode_count);
             if (const auto applied = engine.apply_runtime_settings(surface, new_config)) {
-                config_.engine = new_config;
+                engine_config_ = new_config;
                 Foundation::log_info("HDR color space set to {} — {}",
                                      hdr_color_space_name(new_config.features.presentation.hdr_color_space),
                                      applied->message);
@@ -479,7 +501,7 @@ namespace SFT::Runtime {
         }
     }
 
-    std::optional<Engine::RenderFrameParameters> RuntimeClient::request_render_frame(
+    std::optional<Engine::RenderFrameParameters> RuntimeDemoGameLogic::request_render_frame(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle surface,
         const Core::FrameInput &frame) {
@@ -491,6 +513,12 @@ namespace SFT::Runtime {
             threshold_view = bloom->threshold_view;
         }
         render_graph_.bloom().enabled = !threshold_view;
+
+        if (auto spectral = engine.ecs_world().get_component<SpectralPathTracingTuningState>(
+                spectral_path_tracing_controls_entity_)) {
+            render_graph_.scene().path_samples_per_pixel = spectral->samples_per_pixel;
+            render_graph_.scene().path_max_bounces = spectral->max_bounces;
+        }
 
         Engine::RenderGraph frame_graph = render_graph_;
         if (threshold_view) {
@@ -563,6 +591,10 @@ namespace SFT::Runtime {
         return parameters;
     }
 
-    void RuntimeClient::on_shutdown(Engine::Engine & /*engine*/) noexcept {}
+    void RuntimeDemoGameLogic::on_shutdown(Engine::Engine & /*engine*/) noexcept {}
+
+    std::unique_ptr<Engine::GameLogic> create_runtime_demo_game_logic() {
+        return std::make_unique<RuntimeDemoGameLogic>();
+    }
 
 } // namespace SFT::Runtime

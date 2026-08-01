@@ -730,6 +730,20 @@ namespace SFT::Engine {
                 .message = UString{"Render graph background intensity must be finite and non-negative."_ustr},
             });
         }
+        const SceneRenderSettings &scene = description_.scene;
+        if (scene.path_samples_per_pixel < 1 || scene.path_samples_per_pixel > 64 ||
+            scene.path_max_bounces < 1 || scene.path_max_bounces > 64 ||
+            scene.path_russian_roulette_start_bounce > scene.path_max_bounces ||
+            scene.caustic_photon_count > 4u * 1024u * 1024u ||
+            !std::isfinite(scene.caustic_gather_radius) || scene.caustic_gather_radius <= 0.0f ||
+            !std::isfinite(scene.wavelength_min_nm) || !std::isfinite(scene.wavelength_max_nm) ||
+            scene.wavelength_min_nm < 360.0f || scene.wavelength_max_nm > 830.0f ||
+            scene.wavelength_min_nm >= scene.wavelength_max_nm) {
+            return std::unexpected(RenderGraphError{
+                .code = RenderGraphErrorCode::InvalidSpectralPathTracingSettings,
+                .message = UString{"Spectral path tracing requires 1-64 samples/bounces, roulette no later than the final bounce, at most 4M photons, a positive gather radius, and an ordered wavelength interval inside [360, 830] nm."_ustr},
+            });
+        }
         const ShadowSettings &shadows = description_.shadows;
         if (shadows.atlas_size < 512 || shadows.atlas_size > 16384 || shadows.atlas_size % 8 != 0 ||
             shadows.cascade_count < 1 || shadows.cascade_count > 4 ||
@@ -847,6 +861,19 @@ namespace SFT::Engine {
         desc.scene.background_intensity = std::isfinite(desc.scene.background_intensity)
                                               ? std::max(desc.scene.background_intensity, 0.0f)
                                               : 1.0f;
+        desc.scene.path_samples_per_pixel = std::clamp(desc.scene.path_samples_per_pixel, 1u, 64u);
+        desc.scene.path_max_bounces = std::clamp(desc.scene.path_max_bounces, 1u, 64u);
+        desc.scene.path_russian_roulette_start_bounce = std::min(
+            desc.scene.path_russian_roulette_start_bounce, desc.scene.path_max_bounces);
+        desc.scene.caustic_photon_count = std::min(desc.scene.caustic_photon_count, 4u * 1024u * 1024u);
+        desc.scene.caustic_gather_radius = std::isfinite(desc.scene.caustic_gather_radius) &&
+                                                   desc.scene.caustic_gather_radius > 0.0f
+                                               ? desc.scene.caustic_gather_radius : 0.075f;
+        desc.scene.wavelength_min_nm = std::isfinite(desc.scene.wavelength_min_nm)
+                                           ? std::clamp(desc.scene.wavelength_min_nm, 360.0f, 829.0f) : 380.0f;
+        desc.scene.wavelength_max_nm = std::isfinite(desc.scene.wavelength_max_nm)
+                                           ? std::clamp(desc.scene.wavelength_max_nm,
+                                                        desc.scene.wavelength_min_nm + 1.0f, 830.0f) : 780.0f;
         ShadowSettings &shadows = desc.shadows;
         shadows.atlas_size = std::clamp(shadows.atlas_size, 512u, 16384u);
         shadows.atlas_size -= shadows.atlas_size % 8u;
@@ -870,6 +897,9 @@ namespace SFT::Engine {
         ao.thickness = std::isfinite(ao.thickness) ? std::max(ao.thickness, 0.0f) : 0.15f;
         ao.intensity = std::isfinite(ao.intensity) ? std::clamp(ao.intensity, 0.0f, 4.0f) : 1.0f;
         AntiAliasingSettings &aa = desc.anti_aliasing;
+        if (desc.scene.integrator == SceneIntegrator::FullPathTracing) {
+            aa.msaa_samples = 1;
+        }
         if (aa.msaa_samples != 1 && aa.msaa_samples != 2 &&
             aa.msaa_samples != 4 && aa.msaa_samples != 8) {
             aa.msaa_samples = 1;

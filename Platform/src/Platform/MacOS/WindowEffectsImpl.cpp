@@ -4,10 +4,6 @@
 #include <expected>
 #if defined(__APPLE__)
 #include <SDL3/SDL.h>
-
-#define GLFW_EXPOSE_NATIVE_COCOA
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #endif
 #pragma endregion
 
@@ -62,26 +58,6 @@ namespace SFT::Platform::Windowing {
 
 namespace SFT::Platform::Windowing::Detail {
 
-    expected<NativeWindowHandle, WindowError> native_window_handle_from_glfw(void *window_handle) noexcept {
-#if defined(__APPLE__)
-        auto *window = static_cast<GLFWwindow *>(window_handle);
-        if (!window) [[unlikely]] {
-            Detail::window_error("GLFW Cocoa native handle rejected null window.");
-            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Cocoa native handle requires a live window."});
-        }
-
-        NativeWindowHandle handle{NativeWindowSystem::Cocoa, nullptr, glfwGetCocoaWindow(window)};
-        if (!handle.window) [[unlikely]] {
-            Detail::window_error("GLFW Cocoa native handle missing NSWindow: glfw_window={}", static_cast<void *>(window));
-            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Cocoa native handle is incomplete."});
-        }
-        Detail::window_debug("GLFW Cocoa native handle resolved: glfw_window={} ns_window={}", static_cast<void *>(window), handle.window);
-        return handle;
-#else
-        (void)window_handle;
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW Cocoa native handles are only available on Apple builds."});
-#endif
-    }
 
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
 #if defined(__APPLE__)

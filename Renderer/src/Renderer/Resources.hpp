@@ -31,21 +31,16 @@ namespace SFT::Renderer {
         // DrawIndexedArgs::base_vertex / DrawIndexedArgs::first_index / DrawArgs::first_vertex.
         u32 vertex_offset = 0;
         u32 index_offset = 0;
-        // Immutable draw metadata must remain resident even when the optional CPU recovery payload
-        // below is released. In particular, index_count determines indexed vs. non-indexed draws.
+        // Immutable draw metadata retained alongside the CPU recovery payload. In particular,
+        // index_count determines indexed vs. non-indexed draws.
         u32 vertex_count = 0;
         u32 index_count = 0;
         bool gpu_resident = false;
+        RHI::AccelerationStructureHandle bottom_level_acceleration_structure{};
         bool alive = false;
-        // False (the default) means `vertices`/`indices` above get their capacity released right
-        // after the initial upload succeeds (Renderer::create_mesh); vertex_count/index_count remain
-        // available for drawing. True keeps the recovery payload populated
-        // forever so Renderer::try_upload_mesh can replay this mesh's upload after a Vulkan
-        // device-loss event (see restore_gpu_resources_after_recovery); a mesh created with this
-        // false and later hit by device loss simply can't be recovered — try_upload_mesh detects the
-        // empty arrays and skips it rather than uploading garbage or aborting recovery for every
-        // other mesh. Set from Engine::AssetManager::ModelAssetDesc::retain_cpu_mesh_data.
-        bool retain_cpu_copy = false;
+        // `vertices`/`indices` are the authoritative replay payload. Renderer-managed GPU state must
+        // survive a complete backend/device reconstruction, so alive meshes retain these arrays until
+        // destroy_mesh() rather than exposing a CPU-residency opt-out.
         // Object-space bounding sphere (mesh-local, before any world_transform), computed once from
         // `vertices` at upload time — CPU frustum culling (Culling.hpp, applied per geometry pass in
         // RendererLifecycle.cpp) transforms this by each RenderItem's world_transform rather than
@@ -66,6 +61,12 @@ namespace SFT::Renderer {
         RHI::TextureHandle texture{};
         RHI::TextureViewHandle view{};
         RHI::SamplerHandle sampler{};
+        // Authoritative replay description for renderer-owned textures. Pixel data is deep-copied at
+        // creation because the caller's span is ephemeral; empty data preserves allocation-only textures.
+        u32 width = 0;
+        u32 height = 0;
+        RHI::Format format = RHI::Format::Undefined;
+        vector<byte> pixel_data;
         bool alive = false;
         // False for a handle minted by Renderer::adopt_texture() — the caller created (and keeps
         // owning) `texture`/`view`/`sampler`, so destroy_texture() must release only this wrapper

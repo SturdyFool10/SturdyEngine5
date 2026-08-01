@@ -565,7 +565,7 @@ namespace SFT::Engine {
             model.info.vertex_count += primitive.mesh.vertices().size();
             model.info.index_count += primitive.mesh.indices().size();
 
-            auto mesh = impl_->renderer.upload(primitive.mesh, desc.retain_cpu_mesh_data);
+            auto mesh = impl_->renderer.upload(primitive.mesh);
             if (!mesh) {
                 rollback();
                 return std::unexpected(backend_error(mesh.error()));

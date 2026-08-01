@@ -93,6 +93,8 @@ namespace SFT::RHI {
     // binding to a sub-range (size 0 means "to the end").
     struct BindGroupEntry {
         u32 binding = 0;
+        // Descriptor-array element to write. Zero preserves the ordinary non-array binding path.
+        u32 array_element = 0;
         BufferHandle buffer{};
         u64 offset = 0;
         u64 size = 0;
@@ -106,6 +108,9 @@ namespace SFT::RHI {
     struct BindGroupDesc {
         BindGroupLayoutHandle layout{};
         span<const BindGroupEntry> entries;
+        // Actual descriptor count for a VariableDescriptorCount binding. Zero uses the layout maximum,
+        // preserving existing callers; frame-local bindless heaps set this to their populated size.
+        u32 variable_descriptor_count = 0;
         const char *label = nullptr;
     };
 

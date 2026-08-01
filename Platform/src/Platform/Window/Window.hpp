@@ -32,16 +32,6 @@ using std::vector;
 
 namespace SFT::Platform::Windowing {
 
-    // Which windowing **library** is driving a window — the concrete abstraction backend behind the
-    // `Window` interface.
-    //
-    // Switch on this only when a library-specific path is unavoidable, e.g. picking the matching
-    // Vulkan surface-creation provider (see `Core::Vulkan::to_surface_provider`). Reported by
-    // `Window::backend_kind()`.
-    enum class WindowBackendKind {
-        SDL3,
-        GLFW,
-    };
 
     // The windowing **system** a window belongs to, reported by `Window::type()`.
     //
@@ -396,6 +386,15 @@ namespace SFT::Platform::Windowing {
         // ```
         [[nodiscard]] virtual expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept = 0;
+
+        // Ask the concrete window provider to create its Vulkan presentation surface. Vulkan types
+        // stay out of Platform's public headers: `instance` is a VkInstance, `allocation_callbacks`
+        // is a VkAllocationCallbacks pointer (or null), and `surface_out` points to VkSurfaceKHR.
+        // Keeping this operation virtual ensures Core never references SDL/GLFW helper symbols.
+        virtual expected<void, WindowError> create_vulkan_surface(
+            void *instance,
+            const void *allocation_callbacks,
+            void *surface_out) const noexcept = 0;
 
         // Register a callback the backend invokes to render a frame **while the OS holds the message pump
         // hostage** — most notably the Windows move/resize modal loop, during which `pump_events()` would

@@ -39,22 +39,16 @@ endif()
 
 set(_sturdy_platform_excluded_source_dirs ${_sturdy_platform_all_source_dirs})
 list(REMOVE_ITEM _sturdy_platform_excluded_source_dirs "${_sturdy_platform_active_source_dir}")
-if(_sturdy_effective_platform STREQUAL "Web")
-    list(APPEND _sturdy_platform_excluded_source_dirs Window/GLFW)
-endif()
 
 string(TOUPPER "${_sturdy_effective_platform}" _sturdy_effective_platform_upper)
 list(APPEND _sturdy_platform_definitions STURDY_VIEW_OS_${_sturdy_effective_platform_upper}=1)
 
 message(STATUS "Platform source view: ${_sturdy_effective_platform}")
 
-# GLFW has no official Emscripten/wasm support (unlike SDL3, which is actively maintained there),
-# so Web builds only ever get the SDL3 windowing backend — see Window::create<Backend> call sites,
-# which must use SDL3::SDL3Window on Web since GLFW::GLFWWindow will not be compiled in.
+# SDL3 is the built-in managed-Application default. Optional providers are separate packages so
+# enabling their build does not add their symbols or dependencies to Sturdy::Platform consumers.
 set(_sturdy_platform_windowing_deps Sturdy::SDL3)
-if(NOT _sturdy_effective_platform STREQUAL "Web")
-    list(APPEND _sturdy_platform_windowing_deps Sturdy::GLFW)
-endif()
+message(STATUS "Platform built-in window provider: SDL3")
 
 sturdy_add_package(Platform
     EXCLUDE_SOURCE_DIRS
@@ -74,3 +68,17 @@ if(WIN32 AND _sturdy_effective_platform STREQUAL "Windows")
 endif()
 
 target_compile_definitions(Platform PUBLIC ${_sturdy_platform_definitions})
+
+get_target_property(
+    _sturdy_platform_link_interface
+    Platform
+    INTERFACE_LINK_LIBRARIES
+)
+foreach(_sturdy_platform_dependency IN LISTS _sturdy_platform_link_interface)
+    if(_sturdy_platform_dependency MATCHES "[Gg][Ll][Ff][Ww]")
+        message(FATAL_ERROR
+            "Base Platform must not link optional GLFW provider dependencies: "
+            "${_sturdy_platform_dependency}"
+        )
+    endif()
+endforeach()

@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <Foundation/src/ConsoleDiagnostic.hpp>
+
 #include <string_view>
 #include <utility>
 
@@ -78,6 +80,12 @@ namespace SFT::Foundation {
     }
 
     inline void log_error(string_view message) noexcept { log(spdlog::level::err, message); }
+
+    // Render one compiler-style diagnostic as a single log record, so the logger contributes only
+    // one timestamp/level prefix and the diagnostic's indented continuation lines remain readable.
+    inline void log_diagnostic(const ConsoleDiagnostic &diagnostic) noexcept {
+        log(diagnostic_log_level(diagnostic.severity), format_console_diagnostic(diagnostic));
+    }
 
     // Force pending messages to their sinks. Fatal contract paths call this immediately before
     // termination so their final diagnostic reaches the console even if a future logger becomes

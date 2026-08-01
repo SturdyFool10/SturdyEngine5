@@ -7,7 +7,9 @@ set(STURDY_GLM_TAG "1.0.3" CACHE STRING "glm git tag to fetch.")
 set(STURDY_VMA_TAG "v3.4.0" CACHE STRING "Vulkan Memory Allocator git tag to fetch.")
 set(STURDY_VOLK_TAG "1.4.350" CACHE STRING "volk git tag to fetch.")
 set(STURDY_SDL3_TAG "release-3.4.10" CACHE STRING "SDL3 git tag to fetch.")
-set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
+if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
+    set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
+endif()
 # {fmt} is fetched as a standalone library and spdlog is pointed at it via SPDLOG_FMT_EXTERNAL
 # (see sturdy_fetch_spdlog), so the engine's direct <fmt/...> includes and spdlog share one fmt
 # instead of spdlog's private bundled copy (two copies would collide in the fmt:: namespace).
@@ -41,7 +43,6 @@ set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # Core's interface for Web (precompiled/offline shaders instead of in-engine compilation).
 # Foundation and Platform are unaffected and build/link cleanly for Web today.
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
-set(STURDY_BOX3D_TAG "v0.1.0" CACHE STRING "Box3D git tag to fetch.")
 set(STURDY_CLAY_TAG "v0.14" CACHE STRING "Clay git tag to fetch.")
 # msdfgen-core has no dependency on FreeType/PNG/Skia — those only gate msdfgen-ext (font loading)
 # and the msdfgen-standalone CLI, neither of which this engine uses: HarfBuzz's hb-draw already
@@ -174,10 +175,9 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_vma()
         sturdy_fetch_volk()
         sturdy_fetch_sdl3()
-        # GLFW has no official Emscripten/wasm support (unlike SDL3, which is actively maintained
-        # there), so it is not part of the Web build at all — see Platform/CMakeLists.txt, which
-        # only links Sturdy::SDL3 for STURDY_OS=Web.
-        if(NOT STURDY_OS STREQUAL "Web")
+        # SDL3 is the default provider. GLFW is fetched only when a product explicitly asks
+        # for the additional desktop provider; Web rejects that option in the root project.
+        if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
             sturdy_fetch_glfw()
         endif()
         sturdy_fetch_fmt()
@@ -189,7 +189,6 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_libunibreak()
         sturdy_fetch_miniaudio()
         sturdy_fetch_slang()
-        sturdy_fetch_box3d()
         sturdy_fetch_clay()
         sturdy_fetch_msdfgen()
         sturdy_fetch_lunasvg()
@@ -208,7 +207,7 @@ function(sturdy_configure_dependencies)
         find_package(VulkanMemoryAllocator CONFIG REQUIRED)
         find_package(volk CONFIG REQUIRED)
         find_package(SDL3 CONFIG REQUIRED)
-        if(NOT STURDY_OS STREQUAL "Web")
+        if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
             find_package(glfw3 CONFIG REQUIRED)
         endif()
         find_package(fmt CONFIG REQUIRED)
@@ -220,7 +219,6 @@ function(sturdy_configure_dependencies)
         sturdy_find_libunibreak()
         find_package(miniaudio CONFIG REQUIRED)
         sturdy_find_slang()
-        find_package(box3d CONFIG REQUIRED)
         sturdy_find_clay()
         find_package(msdfgen CONFIG REQUIRED)
         find_package(lunasvg CONFIG REQUIRED)
@@ -944,21 +942,6 @@ function(sturdy_fetch_miniaudio)
     sturdy_register_license(miniaudio "${miniaudio_SOURCE_DIR}")
 endfunction()
 
-function(sturdy_fetch_box3d)
-    # Box3D is Erin Catto's 3D physics engine (the Box2D author's successor project). Its
-    # add_library() call carries no STATIC/SHARED keyword, so it follows BUILD_SHARED_LIBS
-    # (forced OFF globally) and links statically. Its samples/tests/docs subdirectories are
-    # gated behind PROJECT_IS_TOP_LEVEL in its own CMakeLists, which is false when it's pulled
-    # in via FetchContent, so they're skipped automatically.
-    sturdy_fetchcontent_declare(box3d
-        GIT_REPOSITORY https://github.com/erincatto/box3d.git
-        GIT_TAG ${STURDY_BOX3D_TAG}
-        FIND_PACKAGE_ARGS CONFIG QUIET NAMES box3d
-    )
-    FetchContent_MakeAvailable(box3d)
-    sturdy_mark_dependency_targets_exclude_from_all(box3d box3d::box3d)
-    sturdy_register_license(box3d "${box3d_SOURCE_DIR}")
-endfunction()
 
 function(sturdy_fetch_clay)
     # Clay (clay.h) is a single-header UI layout library with no library target of its own — its
@@ -1199,7 +1182,7 @@ function(sturdy_normalize_dependency_targets)
     )
 
     # No GLFW on Web — see the STURDY_OS STREQUAL "Web" guards in sturdy_configure_dependencies().
-    if(NOT STURDY_OS STREQUAL "Web")
+    if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
         sturdy_alias_existing_target(Sturdy::GLFW
             glfw
             glfw3
@@ -1250,11 +1233,6 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::miniaudio
         miniaudio::miniaudio
         miniaudio
-    )
-
-    sturdy_alias_existing_target(Sturdy::box3d
-        box3d::box3d
-        box3d
     )
 
     sturdy_alias_existing_target(Sturdy::clay

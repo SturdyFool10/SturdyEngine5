@@ -88,6 +88,11 @@ float metallic_factor;
 float roughness_factor;
 float specular_factor;
 float ior;
+// Ray-query material extensions. Raster G-buffer channels remain unchanged; the spectral scene packer
+// reads these reflected CPU values directly for transmission, dispersion, and Beer-Lambert absorption.
+float transmission_factor;
+float dispersion_cauchy_b;
+float absorption_coefficient;
 // glTF alpha-mask (cutout) threshold. 0.0 (the zero-initialized default) never discards, matching
 // glTF's OPAQUE mode; a glTF MASK material sets this to its real alphaCutoff (spec default 0.5).
 // True alpha BLEND is not supported by this deferred G-buffer pass (transparency needs a forward

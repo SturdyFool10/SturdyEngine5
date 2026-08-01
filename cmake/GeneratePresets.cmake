@@ -73,9 +73,9 @@ foreach(_arch IN LISTS STURDY_ARCH_LIST)
 
                 string(APPEND _build_presets "    {
       \"name\": \"runtime-${_name}\",
-      \"displayName\": \"Runtime ${_arch} ${_os} ${_profile} (${_compiler})\",
+      \"displayName\": \"Runtime Demo ${_arch} ${_os} ${_profile} (${_compiler})\",
       \"configurePreset\": \"${_name}\",
-      \"targets\": [\"Runtime\"]
+      \"targets\": [\"RuntimeDemo\"]
     },\n")
             endforeach()
         endforeach()
@@ -135,6 +135,20 @@ ${_build_presets}  ]
 }
 ")
 
+# Parse before replacing the generated file. This turns accidental quoting/comma
+# regressions into a generator failure instead of leaving every IDE task with a
+# malformed CMakePresets.json.
+string(JSON _generated_presets_version GET "${_json}" version)
+if(NOT _generated_presets_version EQUAL 6)
+    message(FATAL_ERROR
+        "Generated an unexpected CMakePresets.json version: "
+        "${_generated_presets_version}"
+    )
+endif()
+
 file(WRITE "${_root}/CMakePresets.json" "${_json}")
 
-message(STATUS "Wrote ${_root}/CMakePresets.json: ${_combo_count} configure presets + ${_combo_count} build presets")
+message(STATUS
+    "Wrote ${_root}/CMakePresets.json: ${_combo_count} configure presets + "
+    "${_combo_count} build presets"
+)

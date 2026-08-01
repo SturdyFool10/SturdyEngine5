@@ -1,50 +1,26 @@
+# Reusable standalone-application host. Runtime owns no demo content and selects no GameLogic
+# implementation; products pass an explicit factory to Runtime::run().
 sturdy_add_package(Runtime
-    EXECUTABLE
-
     PUBLIC_DEPS
         Sturdy::Foundation
-        Sturdy::EngineComponents
+        Sturdy::Engine
+        Sturdy::ApplicationHost
 
     DEBUG_PUBLIC_DEPS
 )
 
-# Only defined when STURDY_FETCH_SAMPLE_ASSETS pulled KhronosGroup/glTF-Sample-Assets in — gates the
-# glTF import demo hook in RuntimeClient.cpp so a normal build (the option defaults OFF) never
-# depends on this large, non-build asset checkout being present.
-if(STURDY_GLTF_SAMPLE_ASSETS_DIR)
-    target_compile_definitions(Runtime PRIVATE
-        "STURDY_GLTF_SAMPLE_ASSETS_DIR=\"${STURDY_GLTF_SAMPLE_ASSETS_DIR}\"")
-else()
-    message(STATUS
-        "Runtime demo assets are disabled: Sponza will not be spawned. "
-        "Configure with -DSTURDY_FETCH_SAMPLE_ASSETS=ON or set "
-        "STURDY_GLTF_SAMPLE_ASSETS_DIR explicitly.")
-endif()
-
-if(WIN32)
-    # Shell32 provides CommandLineToArgvW, used by Sturdy.Runtime.Cli to tokenize the raw command
-    # line for the WinMain entry point. Kernel32 (GetCommandLineW / WideCharToMultiByte / LocalFree)
-    # is linked by default.
-    target_link_libraries(Runtime PRIVATE Shell32)
-
-    # When the WinMain entry point is in play — Dist builds, or any build with SFT_USE_WINMAIN — link
-    # as a GUI (WINDOWS subsystem) executable so launching it never spawns a console window. The
-    # clang driver forwards /subsystem to the MSVC-style linker, and the CRT's WinMainCRTStartup
-    # then calls WinMain. This condition must stay in sync with the entry-point guard in main.cpp.
-    target_link_options(Runtime PRIVATE
-        "$<$<OR:$<CONFIG:Dist>,$<BOOL:${SFT_USE_WINMAIN}>>:LINKER:/subsystem:windows>")
-endif()
-
-if(UNIX AND NOT APPLE AND NOT STURDY_OS STREQUAL "Web")
-    # GLFW and SDL3 each vendor the generated Wayland client-protocol code, so linking both
-    # pulls two copies of identical symbols (e.g. wp_fractional_scale_manager_v1_interface).
-    # The shared Platform/Linux/WindowEffects.cpp references both backends, so any binary that
-    # creates a window pulls both. The duplicate definitions are the same upstream protocol, so
-    # accept them. Clean long-term fix: compile-time window-backend selection that links only
-    # the chosen backend library (then this flag can be removed).
-    #
-    # Excluded on Web: the Emscripten toolchain reports UNIX=TRUE/APPLE=FALSE too, but GLFW is
-    # never linked there (see Platform/CMakeLists.txt) so the duplicate-symbol problem does not
-    # exist, and wasm-ld does not accept GNU ld's --allow-multiple-definition anyway.
-    target_link_options(Runtime PRIVATE "LINKER:--allow-multiple-definition")
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web" AND NOT STURDY_BUILD_SHARED_LIBS)
+    add_executable(
+        RuntimeStaticUnusedProbe
+        "${CMAKE_SOURCE_DIR}/cmake/tests/StaticAggregateUnused.cpp"
+    )
+    target_link_libraries(RuntimeStaticUnusedProbe PRIVATE Sturdy::Runtime)
+    sturdy_enable_warnings(RuntimeStaticUnusedProbe)
+    add_test(
+        NAME RuntimeStaticUnusedTest
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSTURDY_STATIC_PROBE=$<TARGET_FILE:RuntimeStaticUnusedProbe>"
+            -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
+    )
+    set_tests_properties(RuntimeStaticUnusedTest PROPERTIES TIMEOUT 10)
 endif()

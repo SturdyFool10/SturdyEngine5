@@ -1,8 +1,8 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/src/Cli.hpp>
+
 #include <cstddef>
 #include <string>
 #include <utility>
-#include <Runtime/src/Cli.hpp>
 
 #if defined(STURDY_PLATFORM_WINDOWS)
 #include <cwchar>
@@ -15,7 +15,7 @@
 
 #if defined(STURDY_PLATFORM_WINDOWS)
 
-namespace SFT::Runtime {
+namespace SFT::Foundation {
 
     CliArgs args_from_windows_command_line() {
         CliArgs args;
@@ -53,6 +53,6 @@ namespace SFT::Runtime {
         return args;
     }
 
-} // namespace SFT::Runtime
+} // namespace SFT::Foundation
 
 #endif // STURDY_PLATFORM_WINDOWS

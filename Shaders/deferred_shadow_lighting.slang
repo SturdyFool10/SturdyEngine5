@@ -74,6 +74,7 @@ struct ShadowLightingGpuData {
     float4 shadowParams;
     float4 gtaoParams;
     float4 viewportParams;
+    float4 spectralParams;
     DirectionalLightGpuData sun;
     SpotLightGpuData spotLights[SFT_MAX_SPOT_LIGHTS];
     PointLightGpuData pointLights[SFT_MAX_POINT_LIGHTS];
@@ -87,6 +88,7 @@ Texture2D<float2> gbufferNormal;
 Texture2D<float4> gbufferMaterial;
 Texture2D<float4> gbufferEmissive;
 Texture2D<float> gbufferDepth;
+Texture2D<float4> spectralEffect;
 Texture2D<float> shadowAtlas;
 Texture2D<float4> transmittanceLut;
 Texture2D<float4> multiScatteringLut;
@@ -525,21 +527,31 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float roughness = max(material.x * material.x, SFT_MIN_PBR_ROUGHNESS);
     float metallic = saturate(material.y);
     float ambientOcclusion = saturate(material.z);
+    uint spectralMode = (uint)round(lightingData.spectralParams.x);
+    float4 tracedEffect = spectralEffect.SampleLevel(gbufferSampler, input.uv, 0.0);
     float dielectricF0 = saturate(material.w);
     float3 viewVector = safeNormalizeOr(lightingData.cameraPositionNear.xyz - worldPosition, normal);
     float3 worldDx = ddx(worldPosition);
     float3 worldDy = ddy(worldPosition);
     float viewDepth = abs(mul(float4(worldPosition, 1.0), lightingData.view).z);
     float2 pixelPosition = input.position.xy;
-    ambientOcclusion *= groundTruthAmbientOcclusion(input.uv, depth, normal, pixelPosition);
+    ambientOcclusion *= spectralMode == 3u
+        ? saturate(tracedEffect.r)
+        : groundTruthAmbientOcclusion(input.uv, depth, normal, pixelPosition);
 
     float3 hdr = albedo * lightingData.ambientRadianceExposure.rgb *
                  gtaoMultiBounce(ambientOcclusion, albedo);
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
-    float sunVisibility = directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
-                                            viewDepth, pixelPosition);
+    float3 sunVisibility = float3(directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
+                                                    viewDepth, pixelPosition));
+    if (spectralMode == 1u) sunVisibility = saturate(tracedEffect.rrr);
+    if (spectralMode == 4u) sunVisibility = max(tracedEffect.rgb, 0.0);
     hdr += evaluateDirect(albedo, metallic, roughness, dielectricF0, normal, viewVector,
                           sunVector, lightingData.sun.radianceShadow.rgb) * sunVisibility;
+    if (spectralMode == 2u) {
+        float3 specularTint = lerp(float3(dielectricF0), albedo, metallic);
+        hdr += max(tracedEffect.rgb, 0.0) * specularTint * (1.0 - saturate(roughness));
+    }
 
     uint spotCount = min((uint)lightingData.counts.x, SFT_MAX_SPOT_LIGHTS);
     [loop]

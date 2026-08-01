@@ -78,6 +78,10 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         [[nodiscard]] expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept override;
+        expected<void, WindowError> create_vulkan_surface(
+            void *instance,
+            const void *allocation_callbacks,
+            void *surface_out) const noexcept override;
 
         void set_repaint_callback(std::function<void()> callback) noexcept override;
 

@@ -34,6 +34,15 @@ namespace SFT::Engine {
         DebugOverlay,
     };
 
+    enum class SceneIntegrator : u8 {
+        RasterDeferred,
+        ShadowOnly,
+        ReflectionOnly,
+        AmbientOcclusionOnly,
+        ShadowAndTransmission,
+        FullPathTracing,
+    };
+
     enum class AmbientOcclusionQuality : u8 {
         Low,
         Medium,
@@ -108,6 +117,15 @@ namespace SFT::Engine {
 
     struct SceneRenderSettings {
         bool enabled = true;
+        SceneIntegrator integrator = SceneIntegrator::RasterDeferred;
+        u32 path_samples_per_pixel = 1;
+        u32 path_max_bounces = 8;
+        u32 path_russian_roulette_start_bounce = 3;
+        u32 caustic_photon_count = 262144;
+        f32 caustic_gather_radius = 0.075f;
+        f32 wavelength_min_nm = 380.0f;
+        f32 wavelength_max_nm = 780.0f;
+
         // Empty inherits Camera::clear_color(). This is display-independent linear color.
         std::optional<glm::vec4> background_color;
         // Multiplies the background before it enters the HDR scene target.
@@ -218,6 +236,7 @@ namespace SFT::Engine {
     enum class RenderGraphErrorCode : u8 {
         InvalidResolutionScale,
         InvalidBackgroundColor,
+        InvalidSpectralPathTracingSettings,
         InvalidShadowSettings,
         InvalidAmbientOcclusionSettings,
         InvalidAntiAliasingSettings,

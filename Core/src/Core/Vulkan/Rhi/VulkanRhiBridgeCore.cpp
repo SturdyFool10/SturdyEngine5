@@ -6,6 +6,7 @@
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
 #include "volk.h"
+#include <algorithm>
 #include <expected>
 #include <memory>
 #include <span>
@@ -122,8 +123,20 @@ namespace SFT::Core::Vulkan {
             (framebuffer_samples & VK_SAMPLE_COUNT_8_BIT) != 0 ? 8u :
             (framebuffer_samples & VK_SAMPLE_COUNT_4_BIT) != 0 ? 4u :
             (framebuffer_samples & VK_SAMPLE_COUNT_2_BIT) != 0 ? 2u : 1u;
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
+        };
+        VkPhysicalDeviceDescriptorIndexingProperties descriptor_indexing_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES,
+            .pNext = &acceleration_structure_properties,
+        };
+        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
+            .pNext = &descriptor_indexing_properties,
+        };
         VkPhysicalDeviceDepthStencilResolveProperties depth_resolve_properties{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES,
+            .pNext = &ray_tracing_properties,
         };
         VkPhysicalDeviceProperties2 extended_properties{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
@@ -132,6 +145,27 @@ namespace SFT::Core::Vulkan {
         vkGetPhysicalDeviceProperties2(physical_device.vk_handle(), &extended_properties);
         limits_.supports_minimum_depth_resolve =
             (depth_resolve_properties.supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT) != 0;
+        if (enabled_features_.has(rhi::Feature::RayTracingPipeline)) {
+            feature_properties_.ray_tracing.max_ray_recursion_depth = ray_tracing_properties.maxRayRecursionDepth;
+            feature_properties_.ray_tracing.shader_group_handle_size = ray_tracing_properties.shaderGroupHandleSize;
+            feature_properties_.ray_tracing.shader_group_base_alignment = ray_tracing_properties.shaderGroupBaseAlignment;
+            feature_properties_.ray_tracing.max_ray_hit_attribute_size = ray_tracing_properties.maxRayHitAttributeSize;
+        }
+        if (enabled_features_.has(rhi::Feature::AccelerationStructures)) {
+            feature_properties_.ray_tracing.max_acceleration_structure_geometry_count =
+                static_cast<u32>(acceleration_structure_properties.maxGeometryCount);
+            feature_properties_.ray_tracing.max_acceleration_structure_instance_count =
+                static_cast<u32>(acceleration_structure_properties.maxInstanceCount);
+            feature_properties_.ray_tracing.min_acceleration_structure_scratch_offset_alignment =
+                acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
+        }
+        if (enabled_features_.has(rhi::Feature::BindlessResources)) {
+            feature_properties_.descriptor_indexing.max_update_after_bind_descriptors =
+                descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools;
+            feature_properties_.descriptor_indexing.max_variable_descriptor_count = std::min(
+                descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers,
+                descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages);
+        }
         limits_.supports_bc_texture_compression = physical_device.features().textureCompressionBC == VK_TRUE;
         limits_.max_compute_workgroup_size_x = limits.maxComputeWorkGroupSize[0];
         limits_.max_compute_workgroup_size_y = limits.maxComputeWorkGroupSize[1];

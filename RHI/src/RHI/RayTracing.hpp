@@ -3,6 +3,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <array>
 #include <span>
 #include <type_traits>
 #pragma endregion
@@ -75,6 +76,27 @@ namespace SFT::RHI {
         u64 offset = 0;
         u64 stride = 0;
     };
+
+    // Portable binary TLAS instance record. Backends consume this 64-byte ABI directly; transform is a
+    // row-major 3x4 affine matrix. The packed words match the cross-API 24-bit-index/8-bit-mask shape.
+    struct AccelerationStructureInstance {
+        std::array<f32, 12> transform{
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+        };
+        u32 custom_index_and_mask = 0xff000000u;
+        u32 shader_binding_table_offset_and_flags = 0;
+        u64 acceleration_structure_device_address = 0;
+
+        void set_custom_index_and_mask(u32 custom_index, u8 mask) noexcept {
+            custom_index_and_mask = (custom_index & 0x00ffffffu) | (static_cast<u32>(mask) << 24u);
+        }
+        void set_shader_binding_table_offset_and_flags(u32 offset, u8 flags) noexcept {
+            shader_binding_table_offset_and_flags = (offset & 0x00ffffffu) | (static_cast<u32>(flags) << 24u);
+        }
+    };
+    static_assert(sizeof(AccelerationStructureInstance) == 64);
 
     struct AccelerationStructureInstancesDesc {
         BufferHandle buffer{};

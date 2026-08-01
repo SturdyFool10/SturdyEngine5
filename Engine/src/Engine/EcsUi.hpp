@@ -27,7 +27,7 @@ namespace SFT::Engine {
 
     // Accumulated primary-pointer state (position + primary-button-down), kept current by a
     // built-in system Engine registers in its own constructor (folding MouseMoveEvent/
-    // MouseButtonEvent, the same streams RuntimeClient's own FlyCameraState reads). This is the
+    // MouseButtonEvent, the same streams a consumer may use for camera controls). This is the
     // minimal slice of the still-unbuilt InputState (plans/ecs-engine-subsystem-access.md) that
     // UI hit-testing actually needs — not a general input-state resource. Read via
     // Ecs::ReadResource<UiPointerState>; hand `.state()` straight to UI::Context::begin_layout().

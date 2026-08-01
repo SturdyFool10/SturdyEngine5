@@ -96,11 +96,6 @@ namespace SFT::Engine {
     struct ModelAssetDesc {
         UString label;
         std::vector<ModelPrimitiveDesc> primitives;
-        // False (default) frees every primitive mesh's CPU-side vertex/index data right after its
-        // GPU upload — see Renderer::MeshResource::retain_cpu_copy's doc comment for the tradeoff:
-        // a freed mesh can't be replayed after a Vulkan device-loss event. Applies to every
-        // primitive in this model; there's no per-primitive granularity yet.
-        bool retain_cpu_mesh_data = false;
     };
 
     struct ModelAssetInfo {

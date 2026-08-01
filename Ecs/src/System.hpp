@@ -69,6 +69,15 @@ namespace SFT::Ecs {
                access_sets_conflict(a.resource_reads, a.resource_writes, b.resource_reads, b.resource_writes);
     }
 
+    // Selects how a Schedule executes chunk-level system work. Async is the default full-throughput
+    // path and lazily starts the process-global Async::Scheduler worker pool on first use. Synchronous
+    // never touches Async::Scheduler at all — no initialize(), no worker threads, no global state —
+    // so a headless/deterministic/test caller that never asked for a worker pool never pays for one.
+    enum class ExecutorPolicy {
+        Async,
+        Synchronous,
+    };
+
     struct ScheduleConfig {
         // Small queries remain one task. Larger archetypes are divided toward
         // worker_count * tasks_per_worker without creating tiny scheduling-granularity tasks.
@@ -77,6 +86,7 @@ namespace SFT::Ecs {
         // Tick/update schedules normally clear Events<T> before producers run. Secondary schedules in
         // the same frame can preserve those events so extraction/tooling systems observe the same tick.
         bool clear_events_on_run = true;
+        ExecutorPolicy executor = ExecutorPolicy::Async;
     };
 
     namespace Detail {
@@ -276,7 +286,21 @@ namespace SFT::Ecs {
 
         using AsyncTaskList = std::vector<Async::TaskHandle<void>>;
         using CommandBufferList = std::deque<CommandBuffer>;
-        using SystemDispatch = std::function<void(World &, usize, usize, AsyncTaskList &, CommandBufferList &)>;
+        using SystemDispatch =
+            std::function<void(World &, usize, usize, ExecutorPolicy, AsyncTaskList &, CommandBufferList &)>;
+
+        // The one place a chunk task is either run inline or handed to Async::Scheduler. Synchronous
+        // must never call Async::Scheduler::spawn() — doing so would enqueue work that nothing ever
+        // executes unless the scheduler happens to be running for an unrelated reason, since Schedule::run()
+        // deliberately skips Async::Scheduler::initialize() under this policy.
+        template <class F>
+        void dispatch_task(ExecutorPolicy policy, AsyncTaskList &tasks, F &&fn) {
+            if (policy == ExecutorPolicy::Synchronous) {
+                std::forward<F>(fn)();
+            } else {
+                tasks.push_back(Async::Scheduler::spawn(std::forward<F>(fn)));
+            }
+        }
 
         template <class QueryType, class ResourceTuple, bool HasCommands>
         struct EntitySystemRunner;
@@ -330,6 +354,7 @@ namespace SFT::Ecs {
                 return [fn = std::move(fn)](World &world,
                                             usize minimum_rows_per_task,
                                             usize target_parallelism,
+                                            ExecutorPolicy policy,
                                             AsyncTaskList &tasks,
                                             CommandBufferList &command_buffers) mutable {
                     auto query = WorldAccess::query<Ts...>(world);
@@ -350,7 +375,7 @@ namespace SFT::Ecs {
                         }
 
                         if constexpr (HasCommands) {
-                            tasks.push_back(Async::Scheduler::spawn(
+                            dispatch_task(policy, tasks,
                                 [fn, chunks = std::move(chunks), resources, command_buffer]() mutable noexcept {
                                     const F &system = fn;
                                     Commands commands = command_buffer->view();
@@ -359,9 +384,9 @@ namespace SFT::Ecs {
                                             invoke_with_commands(system, resources, commands, entity, components...);
                                         });
                                     }
-                                }));
+                                });
                         } else {
-                            tasks.push_back(Async::Scheduler::spawn(
+                            dispatch_task(policy, tasks,
                                 [fn, chunks = std::move(chunks), resources]() mutable noexcept {
                                     const F &system = fn;
                                     for (const auto &chunk : chunks) {
@@ -369,7 +394,7 @@ namespace SFT::Ecs {
                                             invoke_without_commands(system, resources, entity, components...);
                                         });
                                     }
-                                }));
+                                });
                         }
                         return;
                     }
@@ -382,22 +407,22 @@ namespace SFT::Ecs {
                         }
 
                         if constexpr (HasCommands) {
-                            tasks.push_back(Async::Scheduler::spawn(
+                            dispatch_task(policy, tasks,
                                 [fn, chunk = std::move(chunk), resources, command_buffer]() mutable noexcept {
                                     const F &system = fn;
                                     Commands commands = command_buffer->view();
                                     chunk.each([&](Entity entity, Ts &...components) noexcept {
                                         invoke_with_commands(system, resources, commands, entity, components...);
                                     });
-                                }));
+                                });
                         } else {
-                            tasks.push_back(Async::Scheduler::spawn(
+                            dispatch_task(policy, tasks,
                                 [fn, chunk = std::move(chunk), resources]() mutable noexcept {
                                     const F &system = fn;
                                     chunk.each([&](Entity entity, Ts &...components) noexcept {
                                         invoke_without_commands(system, resources, entity, components...);
                                     });
-                                }));
+                                });
                         }
                     }
                 };
@@ -471,6 +496,7 @@ namespace SFT::Ecs {
                 return [fn = std::move(fn)](World &world,
                                             usize /*minimum_rows_per_task*/,
                                             usize /*target_parallelism*/,
+                                            ExecutorPolicy policy,
                                             AsyncTaskList &tasks,
                                             CommandBufferList &command_buffers) mutable {
                     auto resources = resolve_resource_arguments<ResourceArgs...>(world);
@@ -481,7 +507,7 @@ namespace SFT::Ecs {
                     }
 
                     if constexpr (HasCommands) {
-                        tasks.push_back(Async::Scheduler::spawn(
+                        dispatch_task(policy, tasks,
                             [fn, resources, command_buffer]() mutable noexcept {
                                 const F &system = fn;
                                 Commands commands = command_buffer->view();
@@ -490,9 +516,9 @@ namespace SFT::Ecs {
                                         std::invoke(system, resource_views..., commands);
                                     },
                                     resources);
-                            }));
+                            });
                     } else {
-                        tasks.push_back(Async::Scheduler::spawn(
+                        dispatch_task(policy, tasks,
                             [fn, resources]() mutable noexcept {
                                 const F &system = fn;
                                 std::apply(
@@ -500,7 +526,7 @@ namespace SFT::Ecs {
                                         std::invoke(system, resource_views...);
                                     },
                                     resources);
-                            }));
+                            });
                     }
                 };
             }

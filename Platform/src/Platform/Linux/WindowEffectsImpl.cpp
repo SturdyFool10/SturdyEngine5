@@ -6,28 +6,6 @@
 
 #if defined(__linux__)
 #include <SDL3/SDL.h>
-
-#define GLFW_EXPOSE_NATIVE_WAYLAND
-#define GLFW_EXPOSE_NATIVE_X11
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
-
-// X11 headers (pulled in transitively via glfw3native.h) define several bare-word macros that
-// collide with this codebase's own enumerators — undef every one known to collide (cross-checked
-// against RHI/Core/Platform/Text/Renderer/Engine's public headers) rather than just the one that
-// happened to bite first.
-#if defined(Success)
-#undef Success
-#endif
-#if defined(None)
-#undef None
-#endif
-#if defined(Always)
-#undef Always
-#endif
-#if defined(Bool)
-#undef Bool
-#endif
 #endif
 #pragma endregion
 
@@ -161,44 +139,6 @@ namespace SFT::Platform::Windowing {
 
 namespace SFT::Platform::Windowing::Detail {
 
-    expected<NativeWindowHandle, WindowError> native_window_handle_from_glfw(void *window_handle) noexcept {
-#if defined(__linux__)
-        auto *window = static_cast<GLFWwindow *>(window_handle);
-        if (!window) [[unlikely]] {
-            Detail::window_error("GLFW Linux native handle rejected null window.");
-            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Linux native handle requires a live window."});
-        }
-
-        if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
-            NativeWindowHandle handle{NativeWindowSystem::Wayland, glfwGetWaylandDisplay(), glfwGetWaylandWindow(window)};
-            if (!handle.display || !handle.window) [[unlikely]] {
-                Detail::window_error("GLFW Linux Wayland native handle missing display or surface: glfw_window={} display={} window={}", static_cast<void *>(window), handle.display, handle.window);
-                return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Wayland native handle is incomplete."});
-            }
-            Detail::window_debug("GLFW Linux native handle resolved Wayland: glfw_window={} display={} window={}", static_cast<void *>(window), handle.display, handle.window);
-            return handle;
-        }
-
-        if (glfwGetPlatform() == GLFW_PLATFORM_X11) {
-            NativeWindowHandle handle{
-                NativeWindowSystem::X11,
-                glfwGetX11Display(),
-                reinterpret_cast<void *>(static_cast<uintptr_t>(glfwGetX11Window(window))),
-            };
-            if (!handle.display || !handle.window) [[unlikely]] {
-                Detail::window_error("GLFW Linux X11 native handle missing display or window: glfw_window={} display={} window={}", static_cast<void *>(window), handle.display, handle.window);
-                return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW X11 native handle is incomplete."});
-            }
-            Detail::window_debug("GLFW Linux native handle resolved X11: glfw_window={} display={} window={}", static_cast<void *>(window), handle.display, handle.window);
-            return handle;
-        }
-        Detail::window_warn("GLFW Linux native handle unresolved platform: glfw_window={} glfw_platform={}", static_cast<void *>(window), glfwGetPlatform());
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW Linux native handle platform is unsupported."});
-#else
-        (void)window_handle;
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW Linux native handles are only available on Linux builds."});
-#endif
-    }
 
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
 #if defined(__linux__)

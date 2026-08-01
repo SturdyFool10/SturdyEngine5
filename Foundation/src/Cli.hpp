@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace SFT::Runtime {
+namespace SFT::Foundation {
 
     using CliArgs = std::vector<std::string>;
 
@@ -25,4 +25,4 @@ namespace SFT::Runtime {
     [[nodiscard]] CliArgs args_from_windows_command_line();
 #endif
 
-} // namespace SFT::Runtime
+} // namespace SFT::Foundation

@@ -1,4 +1,5 @@
 #include <Engine/RenderGraph.hpp>
+#include <Renderer/SpectralPathTracing.hpp>
 
 #include <algorithm>
 #include <iostream>
@@ -284,6 +285,49 @@ namespace {
         return passed;
     }
 
+    bool spectral_integrator_contracts_are_explicit() {
+        using namespace SFT::Renderer;
+        const SpectralIntegratorPolicy shadow = spectral_integrator_policy(SpectralRenderMode::ShadowOnly);
+        const SpectralIntegratorPolicy reflection = spectral_integrator_policy(SpectralRenderMode::ReflectionOnly);
+        const SpectralIntegratorPolicy ao = spectral_integrator_policy(SpectralRenderMode::AmbientOcclusionOnly);
+        const SpectralIntegratorPolicy transmission = spectral_integrator_policy(SpectralRenderMode::ShadowAndTransmission);
+        const SpectralIntegratorPolicy full = spectral_integrator_policy(SpectralRenderMode::FullPathTracing);
+        bool passed = check(shadow.uses_ray_queries && shadow.raster_primary_visibility &&
+                                shadow.raster_shadow_atlas,
+                            "shadow-only policy does not preserve punctual-light shadow maps");
+        passed &= check(reflection.uses_ray_queries && reflection.raster_deferred_lighting,
+                        "reflection-only policy unexpectedly replaces deferred lighting");
+        passed &= check(ao.uses_ray_queries && ao.raster_primary_visibility,
+                        "AO-only policy unexpectedly replaces primary visibility");
+        passed &= check(transmission.traces_transmission && transmission.raster_shadow_atlas,
+                        "shadow+transmission policy does not preserve punctual-light shadow maps");
+        passed &= check(full.writes_canonical_gbuffer &&
+                            !full.raster_primary_visibility && !full.raster_deferred_lighting,
+                        "full path tracing policy does not replace the raster scene producer");
+        return passed;
+    }
+
+    bool spectral_settings_validate_and_normalize() {
+        using namespace SFT::Engine;
+        RenderGraph graph = RenderGraph::standard();
+        graph.scene().integrator = SceneIntegrator::FullPathTracing;
+        graph.scene().wavelength_min_nm = 780.0f;
+        graph.scene().wavelength_max_nm = 380.0f;
+        bool passed = check(!graph.validate().has_value(),
+                            "inverted spectral wavelength interval passed validation");
+        graph.scene().path_samples_per_pixel = 500;
+        graph.scene().path_max_bounces = 0;
+        graph.anti_aliasing().msaa_samples = 8;
+        const RenderGraph normalized = graph.normalized();
+        passed &= check(normalized.validate().has_value(), "spectral settings did not normalize safely");
+        passed &= check(normalized.scene().path_samples_per_pixel == 64 &&
+                            normalized.scene().path_max_bounces == 1,
+                        "spectral sample/bounce limits were not clamped");
+        passed &= check(normalized.anti_aliasing().msaa_samples == 1,
+                        "full path tracing did not disable raster MSAA");
+        return passed;
+    }
+
     bool invalid_graph_normalizes_to_safe_standard() {
         using namespace SFT::Engine;
 
@@ -322,6 +366,8 @@ int main() {
     passed &= explicit_compute_copy_outputs_control_execution();
     passed &= offscreen_target_survives_graph_copies_without_rebasing();
     passed &= copied_graphs_rebase_graph_local_handles();
+    passed &= spectral_integrator_contracts_are_explicit();
+    passed &= spectral_settings_validate_and_normalize();
     passed &= invalid_graph_normalizes_to_safe_standard();
     return passed ? 0 : 1;
 }

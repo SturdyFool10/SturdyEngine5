@@ -80,11 +80,35 @@ namespace SFT::Renderer {
         TextureResource resource{};
         resource.handle = TextureHandle{static_cast<u64>(textures_.size() + 1)};
         resource.label = label ? label : "";
+        resource.width = width;
+        resource.height = height;
+        resource.format = format;
+        resource.pixel_data.assign(data.begin(), data.end());
+        resource.alive = true;
+
+        if (Core::RendererResult created = create_owned_texture_gpu(resource); !created.has_value()) {
+            return unexpected(created.error());
+        }
+        textures_.push_back(std::move(resource));
+        return textures_.back().handle;
+    }
+
+    Core::RendererResult Renderer::create_owned_texture_gpu(TextureResource &resource) {
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot create an owned texture without an RHI device.");
+        }
+        if (!resource.owns_gpu_resources || resource.width == 0 || resource.height == 0 ||
+            resource.format == RHI::Format::Undefined) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Owned texture is missing a valid CPU replay description.");
+        }
 
         auto texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
-            .format = format,
-            .extent = RHI::Extent3D{.width = width, .height = height, .depth_or_layers = 1},
+            .format = resource.format,
+            .extent = RHI::Extent3D{.width = resource.width, .height = resource.height, .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst,
@@ -102,6 +126,7 @@ namespace SFT::Renderer {
         });
         if (!view) {
             device->destroy_texture(resource.texture);
+            resource.texture = {};
             return unexpected(graphics_error_from_rhi(view.error(), "create RHI texture view"));
         }
         resource.view = *view;
@@ -110,23 +135,27 @@ namespace SFT::Renderer {
         if (!sampler) {
             device->destroy_texture_view(resource.view);
             device->destroy_texture(resource.texture);
+            resource.view = {};
+            resource.texture = {};
             return unexpected(graphics_error_from_rhi(sampler.error(), "create RHI texture sampler"));
         }
         resource.sampler = *sampler;
 
-        if (!data.empty()) {
-            if (Core::RendererResult upload = upload_texture_rgba(resource, width, height, format, data);
+        if (!resource.pixel_data.empty()) {
+            const span<const std::byte> pixels{resource.pixel_data.data(), resource.pixel_data.size()};
+            if (Core::RendererResult upload = upload_texture_rgba(
+                    resource, resource.width, resource.height, resource.format, pixels);
                 !upload.has_value()) {
                 device->destroy_sampler(resource.sampler);
                 device->destroy_texture_view(resource.view);
                 device->destroy_texture(resource.texture);
-                return unexpected(upload.error());
+                resource.sampler = {};
+                resource.view = {};
+                resource.texture = {};
+                return upload;
             }
         }
-
-        resource.alive = true;
-        textures_.push_back(std::move(resource));
-        return textures_.back().handle;
+        return {};
     }
 
     Core::RendererResult Renderer::upload_texture_rgba(TextureResource &resource, u32 width, u32 height,

@@ -16,6 +16,7 @@
 
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
+#include "SpectralPathTracing.hpp"
 #include "Handles.hpp"
 #include "RenderTarget.hpp"
 #include "Light.hpp"
@@ -178,6 +179,7 @@ namespace SFT::Renderer {
 
     struct RenderGraphSettings {
         bool render_scene = true;
+        SpectralPathTracingSettings spectral_path_tracing{};
         bool shadows = true;
         bool ambient_occlusion = true;
         bool bloom = true;

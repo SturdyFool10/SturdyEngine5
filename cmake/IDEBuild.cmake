@@ -15,9 +15,9 @@
 # STURDY_RUN launches the built target afterwards (single profile, host-native only).
 # STURDY_RENDERDOC launches it through renderdoccmd, ready for an F12/Print Screen capture, and
 # writes timestamped captures beneath <project-root>/captures (single profile, host-native only).
-# STURDY_TARGET defaults to Runtime. Every configure this script runs also forces
-# STURDY_FETCH_SAMPLE_ASSETS=ON, so an editor's "Run"/"Debug" launch profile always gets Runtime's
-# full demo scene (Sponza geometry + sample-texture-backed UI demo) rather than an empty one — see
+# STURDY_TARGET defaults to RuntimeDemo. Every configure this script runs also forces
+# STURDY_FETCH_SAMPLE_ASSETS=ON, so an editor's "Run"/"Debug" launch profile always gets the external
+# demo package's full scene rather than an empty one — see
 # the configure step's own comment below.
 cmake_minimum_required(VERSION 3.28)
 
@@ -46,7 +46,7 @@ if(NOT DEFINED STURDY_OS OR STURDY_OS STREQUAL "")
     set(STURDY_OS "${_host_os}")
 endif()
 if(NOT DEFINED STURDY_TARGET OR STURDY_TARGET STREQUAL "")
-    set(STURDY_TARGET "Runtime")
+    set(STURDY_TARGET "RuntimeDemo")
 endif()
 if(NOT DEFINED STURDY_COMPILER OR STURDY_COMPILER STREQUAL "")
     set(STURDY_COMPILER "Clang")
@@ -89,7 +89,7 @@ foreach(_profile IN LISTS _profiles)
     execute_process(
         # STURDY_FETCH_SAMPLE_ASSETS=ON unconditionally: every task in .zed/tasks.json (Compile/
         # Run/Capture, across every profile) funnels through this one configure step, and without
-        # it Runtime's demo scene silently spawns nothing (Renderables: 0, no Sponza geometry, no
+        # it RuntimeDemo's scene silently spawns nothing (Renderables: 0, no Sponza geometry, no
         # sample-texture-backed UI demo tile) — a "full run" from an editor launch profile should
         # show the real demo, not a degraded one. CI configures presets directly (never through this
         # script), so it's unaffected and still never fetches the sample-assets repo.

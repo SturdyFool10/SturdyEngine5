@@ -21,6 +21,18 @@ namespace SFT::Platform::Windowing {
         OutOfMemory,
     };
 
+    [[nodiscard]] constexpr string_view window_error_code_name(WindowErrorCode code) noexcept {
+        switch (code) {
+            case WindowErrorCode::Unsupported: return "platform.window.unsupported";
+            case WindowErrorCode::InvalidArgument: return "platform.window.invalid_argument";
+            case WindowErrorCode::BackendUnavailable: return "platform.window.backend_unavailable";
+            case WindowErrorCode::CreationFailed: return "platform.window.creation_failed";
+            case WindowErrorCode::OperationFailed: return "platform.window.operation_failed";
+            case WindowErrorCode::OutOfMemory: return "platform.window.out_of_memory";
+        }
+        return "platform.window.unknown";
+    }
+
     struct WindowError {
         WindowErrorCode code;
         string message;

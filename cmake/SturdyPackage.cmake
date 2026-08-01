@@ -232,6 +232,7 @@ function(sturdy_add_package package_name)
         PUBLIC_DEFINES ${STURDY_PACKAGE_PUBLIC_DEFINES}
         PRIVATE_DEFINES ${STURDY_PACKAGE_PRIVATE_DEFINES}
     )
+  sturdy_enable_static_dead_stripping("${package_name}")
 
   if(STURDY_PACKAGE_EXECUTABLE AND _compile_sources)
     set(_sturdy_debuggable_path
@@ -325,6 +326,51 @@ function(sturdy_configure_package_target target_name)
         ${_private_scope}
             ${STURDY_TARGET_PRIVATE_DEFINES}
     )
+endfunction()
+
+function(sturdy_enable_static_dead_stripping target_name)
+  if(NOT STURDY_ENABLE_STATIC_DEAD_STRIPPING OR STURDY_BUILD_SHARED_LIBS)
+    return()
+  endif()
+
+  get_target_property(_target_type "${target_name}" TYPE)
+  if(_target_type STREQUAL "INTERFACE_LIBRARY" OR
+     _target_type STREQUAL "SHARED_LIBRARY" OR
+     _target_type STREQUAL "MODULE_LIBRARY")
+    return()
+  endif()
+
+  if(MSVC)
+    set(_sturdy_section_options /Gy /Gw)
+    set(_sturdy_dead_strip_link_option "LINKER:/OPT:REF")
+  elseif(APPLE)
+    set(_sturdy_section_options -ffunction-sections -fdata-sections)
+    set(_sturdy_dead_strip_link_option "LINKER:-dead_strip")
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(_sturdy_section_options -ffunction-sections -fdata-sections)
+    set(_sturdy_dead_strip_link_option "LINKER:--gc-sections")
+  else()
+    message(WARNING
+      "Static dead stripping is enabled, but ${CMAKE_CXX_COMPILER_ID} "
+      "has no configured section/linker policy."
+    )
+    return()
+  endif()
+
+  target_compile_options("${target_name}" PRIVATE ${_sturdy_section_options})
+  if(_target_type STREQUAL "EXECUTABLE")
+    target_link_options(
+      "${target_name}"
+      PRIVATE "${_sturdy_dead_strip_link_option}"
+    )
+  else()
+    # Static archives do not perform a link step. Propagate section GC to
+    # the final consumer instead of forcing whole-archive semantics.
+    target_link_options(
+      "${target_name}"
+      INTERFACE "${_sturdy_dead_strip_link_option}"
+    )
+  endif()
 endfunction()
 
 function(sturdy_enable_warnings target_name)

@@ -87,6 +87,10 @@ namespace SFT::Platform::Windowing::GLFW {
 
         [[nodiscard]] expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept override;
+        expected<void, WindowError> create_vulkan_surface(
+            void *instance,
+            const void *allocation_callbacks,
+            void *surface_out) const noexcept override;
 
         [[nodiscard]] std::string clipboard_text() const noexcept override;
         expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;

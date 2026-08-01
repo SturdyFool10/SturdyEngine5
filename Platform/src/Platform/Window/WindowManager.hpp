@@ -26,6 +26,10 @@ using std::vector;
 
 namespace SFT::Platform::Windowing {
 
+    // Explicit static-composition seam for optional window providers. A product references a
+    // provider's factory symbol directly; no global registration or whole-archive linking is needed.
+    using WindowFactory = expected<unique_ptr<Window>, WindowError> (*)(const WindowConfig &) noexcept;
+
     enum class WindowEventPumpMode : u8 {
         // Required on Web and safest for APIs/platforms that require all window calls on the main thread.
         CallerThread,
@@ -89,6 +93,32 @@ namespace SFT::Platform::Windowing {
         [[nodiscard]] expected<WindowId, WindowError> spawn_window(const WindowConfig &config) {
             return dispatch([this, &config]() -> expected<WindowId, WindowError> {
                 auto created = Window::create<Backend>(config);
+                if (!created) {
+                    return unexpected(created.error());
+                }
+                const WindowId id = (*created)->id();
+                if (!primary_window_id_) {
+                    primary_window_id_ = id;
+                }
+                windows_.push_back(std::move(*created));
+                return id;
+            });
+        }
+
+        // Factory overload used by explicitly linked optional providers. The indirect call keeps the
+        // base WindowManager free of concrete provider references, so an unselected static provider
+        // archive is not extracted by the linker.
+        [[nodiscard]] expected<WindowId, WindowError> spawn_window(
+            const WindowConfig &config,
+            WindowFactory factory) {
+            if (factory == nullptr) {
+                return unexpected(WindowError{
+                    WindowErrorCode::InvalidArgument,
+                    "WindowManager::spawn_window requires a non-null WindowFactory.",
+                });
+            }
+            return dispatch([this, &config, factory]() -> expected<WindowId, WindowError> {
+                auto created = factory(config);
                 if (!created) {
                     return unexpected(created.error());
                 }

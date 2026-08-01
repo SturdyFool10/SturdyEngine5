@@ -6,8 +6,8 @@
 
 namespace SFT::Core {
 
-    // Who owns the native window handle. The renderer uses this to choose the helper path
-    // for surface creation (SDL_Vulkan_CreateSurface, glfwCreateWindowSurface, or native WSI).
+    // Which provider owns the presentation window. Surface creation itself is dispatched through
+    // Window's provider-owned virtual seam; this identity remains useful for diagnostics and policy.
     enum class SurfaceProvider {
         Unknown,
         Native,
@@ -26,14 +26,12 @@ namespace SFT::Core {
     };
 
     // A neutral, non-owning description of a window the renderer can present into.
-    // `provider_window` is the provider-specific window object (SDL_Window*, GLFWwindow*, etc.).
-    // `display`/`window` are native OS handles for direct WSI paths and diagnostics.
+    // `display`/`window` are native OS handles retained for RHI import and diagnostics.
     struct RenderSurfaceDescriptor {
         SurfaceProvider provider = SurfaceProvider::Unknown;
         SurfaceSystem system = SurfaceSystem::Unknown;
-        void *display = nullptr;         // native display/connection (X11 Display*, wl_display*, HINSTANCE)
-        void *window = nullptr;          // native window (X11 Window, wl_surface*, HWND, NSWindow*)
-        void *provider_window = nullptr; // SDL_Window*, GLFWwindow*, etc.; interpreted by provider
+        void *display = nullptr; // native display/connection (X11 Display*, wl_display*, HINSTANCE)
+        void *window = nullptr;  // native window (X11 Window, wl_surface*, HWND, NSWindow*)
     };
 
     struct Extent2D {

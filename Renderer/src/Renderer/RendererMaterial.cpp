@@ -442,6 +442,7 @@ namespace SFT::Renderer {
                 continue;
             }
             MaterialTemplateResource *live = material_template(template_handle);
+            ++instance.content_revision;
             if (compatible) {
                 for (MaterialInstanceFrame &frame : instance.frames) {
                     frame.uniform_dirty = true;
@@ -852,6 +853,7 @@ namespace SFT::Renderer {
                                                     "Material parameter write is out of the uniform block bounds.");
             }
             std::memcpy(instance->uniform_values.data() + parameter.offset, value.data(), value.size());
+            ++instance->content_revision;
             for (MaterialInstanceFrame &frame : instance->frames) {
                 frame.uniform_dirty = true;
             }
@@ -891,6 +893,7 @@ namespace SFT::Renderer {
             for (MaterialTextureBinding &binding : instance->textures) {
                 if (binding.binding == texture_slot.binding) {
                     binding.texture = texture_handle;
+                    ++instance->content_revision;
                     for (MaterialInstanceFrame &frame : instance->frames) {
                         frame.bind_groups_dirty = true;
                     }

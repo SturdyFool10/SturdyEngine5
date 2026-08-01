@@ -13,7 +13,16 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
 
         error_code ec;
         if (!fs::is_directory(directory, ec) || ec) {
-            Foundation::log_warn("Shader directory does not exist, skipping discovery: {}", directory.string());
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .severity = Foundation::DiagnosticSeverity::Warning,
+                .code = "shader.discovery.directory_missing",
+                .summary = "shader discovery directory is unavailable",
+                .context = directory.string(),
+                .cause_code = ec ? "filesystem.error" : "filesystem.not_found",
+                .cause = ec ? ec.message() : "the configured path is not a directory",
+                .details = {},
+                .help = "set EngineConfig::shaders_directory to a readable shader directory",
+            });
             return shaders;
         }
 
@@ -28,7 +37,15 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
             const string path_string = entry.path().string();
             auto text = Foundation::read_file_to_string(entry.path());
             if (!text) {
-                Foundation::log_error("Failed to read Slang shader file: {}", path_string);
+                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                    .code = "shader.discovery.read",
+                    .summary = "could not read a shader source file",
+                    .context = path_string,
+                    .cause_code = "shader.file_read_failed",
+                    .cause = "the file could not be opened or read completely",
+                    .details = {},
+                    .help = "check the file path and read permissions",
+                });
                 continue;
             }
 
@@ -37,7 +54,16 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
             ShaderSource source = ShaderSource::from_source(entry.path().stem().string(), std::move(*text), path_string);
             auto reflected = compiler.reflect(source, options);
             if (!reflected) {
-                Foundation::log_error("Failed to reflect Slang shader {}: {}", path_string, reflected.error().message);
+                const ShaderError &error = reflected.error();
+                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                    .code = "shader.discovery.reflect",
+                    .summary = "shader reflection failed",
+                    .context = path_string,
+                    .cause_code = string{shader_error_code_name(error.code)},
+                    .cause = error.message,
+                    .details = error.diagnostics,
+                    .help = "fix the reported Slang diagnostics before starting the renderer",
+                });
                 continue;
             }
 

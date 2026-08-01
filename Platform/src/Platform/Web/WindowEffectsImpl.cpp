@@ -43,10 +43,6 @@ namespace SFT::Platform::Windowing {
 
 namespace SFT::Platform::Windowing::Detail {
 
-    expected<NativeWindowHandle, WindowError> native_window_handle_from_glfw(void *window_handle) noexcept {
-        (void)window_handle;
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW is not built for Web; SDL3 is the only windowing backend."});
-    }
 
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
         (void)window_handle;

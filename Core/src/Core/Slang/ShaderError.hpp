@@ -5,11 +5,13 @@
 #pragma region Imports
 #include <expected>
 #include <string>
+#include <string_view>
 #include <utility>
 #pragma endregion
 
 using std::expected;
 using std::string;
+using std::string_view;
 using std::unexpected;
 
 namespace SFT::Core::Slang {
@@ -29,6 +31,21 @@ namespace SFT::Core::Slang {
         OutOfMemory,
         OperationFailed,
     };
+
+    [[nodiscard]] constexpr string_view shader_error_code_name(ShaderErrorCode code) noexcept {
+        switch (code) {
+            case ShaderErrorCode::InitializationFailed: return "shader.initialization_failed";
+            case ShaderErrorCode::InvalidArgument: return "shader.invalid_argument";
+            case ShaderErrorCode::FileReadFailed: return "shader.file_read_failed";
+            case ShaderErrorCode::CompilationFailed: return "shader.compilation_failed";
+            case ShaderErrorCode::ReflectionFailed: return "shader.reflection_failed";
+            case ShaderErrorCode::EntryPointNotFound: return "shader.entry_point_not_found";
+            case ShaderErrorCode::CodeGenerationFailed: return "shader.code_generation_failed";
+            case ShaderErrorCode::OutOfMemory: return "shader.out_of_memory";
+            case ShaderErrorCode::OperationFailed: return "shader.operation_failed";
+        }
+        return "shader.unknown";
+    }
 
     // A shader failure: a machine-readable `code`, a short human `message`, and — for front-end
     // failures — the compiler's full `diagnostics` text (the multi-line Slang error dump), which is

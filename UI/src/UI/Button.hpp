@@ -125,8 +125,8 @@ namespace SFT::UI {
 
     // Persistent per-button animation state — one instance per logical button, kept alive across
     // frames by the caller. Immediate-mode UI has no per-widget storage of its own (Context rebuilds
-    // its whole tree every frame), so this is the caller's job, the same way any other cross-frame UI
-    // state (e.g. RuntimeClient's own selected_swatch_) already lives outside Context.
+    // its whole tree every frame), so this is the caller's job, just like any other cross-frame
+    // application state that lives outside Context.
     class ButtonState {
       public:
         // Advances the blend toward whichever of style's four colors `hovered`/`pressed`/`enabled`

@@ -5,10 +5,6 @@
 #if defined(_WIN32)
 #include <SDL3/SDL.h>
 
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
-
 #include <dwmapi.h>
 #include <windows.h>
 #endif
@@ -198,26 +194,6 @@ namespace SFT::Platform::Windowing {
 
 namespace SFT::Platform::Windowing::Detail {
 
-    expected<NativeWindowHandle, WindowError> native_window_handle_from_glfw(void *window_handle) noexcept {
-#if defined(_WIN32)
-        auto *window = static_cast<GLFWwindow *>(window_handle);
-        if (!window) [[unlikely]] {
-            Detail::window_error("GLFW Win32 native handle rejected null window.");
-            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Win32 native handle requires a live window."});
-        }
-
-        NativeWindowHandle handle{NativeWindowSystem::Win32, nullptr, glfwGetWin32Window(window)};
-        if (!handle.window) [[unlikely]] {
-            Detail::window_error("GLFW Win32 native handle missing HWND: glfw_window={}", static_cast<void *>(window));
-            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW Win32 native handle is incomplete."});
-        }
-        Detail::window_debug("GLFW Win32 native handle resolved: glfw_window={} hwnd={}", static_cast<void *>(window), handle.window);
-        return handle;
-#else
-        (void)window_handle;
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW Win32 native handles are only available on Windows builds."});
-#endif
-    }
 
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
 #if defined(_WIN32)

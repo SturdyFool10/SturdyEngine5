@@ -8,13 +8,13 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
-#include <expected>
 #include <memory>
 #include <optional>
 #include <vector>
 #pragma endregion
 
 #include "EngineModule.hpp"
+#include "GameLogic.hpp"
 #include <Core/Core.hpp>
 #include <Platform/Platform.hpp>
 
@@ -26,6 +26,9 @@ namespace SFT::Engine {
 
     struct ApplicationConfig {
         Platform::Windowing::WindowConfig primary_window;
+        // Null selects Application's built-in SDL3 path. Optional providers supply an explicit factory
+        // symbol here, so merely building or linking their static archives has no binary footprint.
+        Platform::Windowing::WindowFactory primary_window_factory = nullptr;
         EngineConfig engine;
         // No periodic title mutation unless the consumer explicitly enables it.
         optional<f64> primary_window_title_update_interval_seconds;
@@ -37,40 +40,21 @@ namespace SFT::Engine {
         usize window_count = 0;
     };
 
-    struct ApplicationError {
-        UString message;
-    };
+    // Compatibility names retained while Application migrates from the combined host/client API.
+    using ApplicationError = GameLogicError;
+    using ApplicationResult = GameLogicResult;
 
-    using ApplicationResult = std::expected<void, ApplicationError>;
-
-    // Host-facing lifecycle boundary. Runtime is the first simulated API consumer: it owns policy
-    // and sample/game behavior while Application owns only platform pumping and render dispatch.
-    class ApplicationClient {
+    // Desktop-host policy layered over host-independent GameLogic. Runtime supplies this policy for a
+    // delivered app; a future Editor drives GameLogic directly with its own windows, titles, viewport,
+    // pause/step, and process lifetime instead of inheriting Runtime's choices.
+    class ApplicationClient : public GameLogic {
       public:
-        virtual ~ApplicationClient() = default;
+        ~ApplicationClient() override = default;
 
         [[nodiscard]] virtual const ApplicationConfig &application_config() const noexcept = 0;
-        [[nodiscard]] virtual ApplicationResult on_engine_initialized(Engine &engine) = 0;
         [[nodiscard]] virtual UString primary_window_title(
             Engine &engine,
             const ApplicationFrameStats &stats) = 0;
-
-        [[nodiscard]] virtual optional<RenderFrameParameters> request_render_frame(
-            Engine &engine,
-            Core::RenderSurfaceHandle surface,
-            const Core::FrameInput &frame) = 0;
-
-        // Called by Application once every in-flight frame has been drained but before the RHI
-        // device is actually torn down — the one point where a client that owns its own raw RHI
-        // resources (e.g. a UI::UiRenderer built outside Engine/Renderer, per
-        // plans/clay-ui-renderer.md) can still safely call engine.rhi_device() to release them.
-        // Fires when the last managed window's surface is about to be removed (that's what actually
-        // destroys the device, not ~Application() — there's no separate "shut down now" moment
-        // otherwise), and once more from ~Application() as a harmless fallback for any path that
-        // skips the first call. May therefore run more than once; implementations must tolerate
-        // that (e.g. by resetting whatever they destroyed so a second call is a no-op). Default
-        // no-op: most clients own no GPU resources of their own and don't need to override this.
-        virtual void on_shutdown(Engine & /*engine*/) noexcept {}
     };
 
     // Process host: owns the WindowManager and the engine, runs the main loop, and forwards OS events,
@@ -120,14 +104,19 @@ namespace SFT::Engine {
         // joins its worker but does not drain queued tasks first (see AffinityImpl.cpp), so any frame
         // still queued at that point would simply be abandoned.
         void drain_render_thread() noexcept;
+        // Runs GameLogic shutdown at most once after successful initialization, after all CPU
+        // submissions and GPU work are complete but before Engine/device destruction.
+        void shutdown_client() noexcept;
 
         [[nodiscard]] ManagedWindow *find_managed_window(Platform::Windowing::WindowId id) noexcept;
 
-        // Spawns one SDL3 window and registers it with both WindowManager and the engine's
-        // render-surface set, wiring up its repaint callback. Kept out of the exported module
-        // interface to avoid exporting a large backend-specific template/lambda body through the C++
-        // module BMI; Clang ThinLTO was miscompiling that boundary in Dist.
-        bool spawn_sdl3_managed_window(const Platform::Windowing::WindowConfig &config, bool is_primary);
+        // Spawns one window through an explicitly supplied optional provider factory, or SDL3 when
+        // factory is null, then registers it with the engine's render-surface set and repaint path.
+        // Keeping the factory indirect prevents Application from retaining optional provider symbols.
+        bool spawn_managed_window(
+            const Platform::Windowing::WindowConfig &config,
+            Platform::Windowing::WindowFactory factory,
+            bool is_primary);
 
         // Core per-window render dispatch: given this tick's already-known framebuffer extent and
         // whether a resize was just observed, builds FrameInput and either runs it inline or dispatches
@@ -182,6 +171,8 @@ namespace SFT::Engine {
         vector<unique_ptr<ManagedWindow>> windows_;
         unique_ptr<Engine> engine_;
         ApplicationClient *client_ = nullptr;
+        bool client_initialized_ = false;
+        bool client_shutdown_ = false;
 
         // Primary Render Thread: null means the single-threaded fallback is in effect (Web, or the
         // backend/platform declining RHI::RenderThreadingMode above SingleThreaded via

@@ -108,8 +108,7 @@ namespace SFT::UI {
 
     // A square box; filled + a checkmark glyph when `checked`. `decl.id` must be set (same
     // convention as button()). `font_id` must already be registered (Context::register_font()) with
-    // a font that has U+2713 (✓) — Noto Sans/DejaVu Sans (this engine's own font-discovery
-    // fallbacks — see RuntimeClient::ensure_ui_resources()) both do.
+    // a font that has U+2713 (✓), such as Noto Sans or DejaVu Sans.
     [[nodiscard]] inline ToggleResult checkbox(Context &ctx, const ElementDecl &decl, const ToggleStyle &style,
                                                ToggleState &state, f32 delta_seconds, bool checked, FontId font_id,
                                                bool enabled = true) {

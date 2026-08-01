@@ -262,11 +262,11 @@ namespace SFT::Renderer {
         static_assert(sizeof(DirectionalLightGpuData) == 64);
         static_assert(sizeof(SpotLightGpuData) == 64);
         static_assert(sizeof(PointLightGpuData) == 48);
-        static_assert(sizeof(ShadowLightingGpuData) == 5232);
-        static_assert(offsetof(ShadowLightingGpuData, sun) == 240);
-        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 304);
-        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 816);
-        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1200);
+        static_assert(sizeof(ShadowLightingGpuData) == 5248);
+        static_assert(offsetof(ShadowLightingGpuData, sun) == 256);
+        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 320);
+        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 832);
+        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1216);
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !targets.lighting_buffer) {
             return unexpected(shadow_error("Cannot prepare shadow lighting without its per-frame constant buffer."));
@@ -294,6 +294,7 @@ namespace SFT::Renderer {
             std::max(finite_or(submission.render_graph.gtao_thickness, 0.15f), 0.0f),
             std::clamp(finite_or(submission.render_graph.gtao_intensity, 1.0f), 0.0f, 4.0f),
         };
+        gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.width, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.height, 1u)),
@@ -795,6 +796,7 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle material_view,
         RHI::TextureViewHandle emissive_view,
         RHI::TextureViewHandle depth_view,
+        RHI::TextureViewHandle spectral_effect_view,
         RHI::TextureViewHandle shadow_atlas_view,
         RHI::BufferHandle lighting_buffer,
         RHI::TextureViewHandle transmittance_lut_view,
@@ -809,7 +811,7 @@ namespace SFT::Renderer {
         }
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
-            !shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
+            !spectral_effect_view || !shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
             !sky_view_lut_view || !atmosphere_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
@@ -843,6 +845,8 @@ namespace SFT::Renderer {
                 entry.texture_view = emissive_view;
             } else if (resource.name == "gbufferDepth") {
                 entry.texture_view = depth_view;
+            } else if (resource.name == "spectralEffect") {
+                entry.texture_view = spectral_effect_view;
             } else if (resource.name == "shadowAtlas") {
                 entry.texture_view = shadow_atlas_view;
             } else if (resource.name == "transmittanceLut") {

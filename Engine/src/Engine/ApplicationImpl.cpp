@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -26,15 +27,7 @@ namespace SFT::Engine {
     Application::Application(ApplicationClient &client) noexcept : client_(&client) {}
 
     Application::~Application() {
-        drain_render_thread();
-        if (engine_) {
-            // drain_render_thread() only awaits each frame's CPU-side recording/submission task,
-            // not the GPU's own completion of that work (the async submission model lets the CPU
-            // run frames_in_flight ahead of the GPU) — client_->on_shutdown() is documented as safe
-            // to destroy live GPU objects in, so the device must actually be idle first.
-            engine_->wait_idle();
-            client_->on_shutdown(*engine_);
-        }
+        shutdown_client();
         render_thread_.reset();
         engine_.reset();
         Async::Scheduler::shutdown();
@@ -47,6 +40,18 @@ namespace SFT::Engine {
                 managed->in_flight_frames.pop_front();
             }
         }
+    }
+
+    void Application::shutdown_client() noexcept {
+        if (!client_initialized_ || client_shutdown_ || engine_ == nullptr) {
+            return;
+        }
+        client_shutdown_ = true;
+        // CPU-side submission completion does not imply GPU completion. GameLogic shutdown may
+        // release raw GPU resources, so both layers must be drained before invoking it.
+        drain_render_thread();
+        engine_->wait_idle();
+        client_->on_shutdown(*engine_);
     }
 
     Application::ManagedWindow *Application::find_managed_window(Platform::Windowing::WindowId id) noexcept {
@@ -62,19 +67,42 @@ namespace SFT::Engine {
         if (!result) {
             ++consecutive_render_errors_;
             if (consecutive_render_errors_ == 1 || consecutive_render_errors_ % 120 == 0) {
-                Foundation::log_error("Render error: " + result.error().message);
+                const Core::GraphicsBackendError &error = result.error();
+                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                    .code = "engine.render.frame",
+                    .summary = "frame rendering failed",
+                    .context = "Engine::Application::render_managed_window",
+                    .cause_code = std::string{Core::graphics_backend_error_code_name(error.code)},
+                    .cause = error.message,
+                    .details = "failure occurrence " + std::to_string(consecutive_render_errors_) +
+                               "; repeated failures are reported every 120 frames",
+                    .help = "inspect earlier backend diagnostics; device or surface loss may require recovery",
+                });
             }
         } else {
             consecutive_render_errors_ = 0;
         }
     }
 
-    bool Application::spawn_sdl3_managed_window(const Platform::Windowing::WindowConfig &config, bool is_primary) {
+    bool Application::spawn_managed_window(
+        const Platform::Windowing::WindowConfig &config,
+        Platform::Windowing::WindowFactory factory,
+        bool is_primary) {
         using namespace Platform::Windowing;
 
-        auto id = window_manager_.spawn_window<SDL3::SDL3Window>(config);
+        expected<WindowId, WindowError> id = factory != nullptr
+            ? window_manager_.spawn_window(config, factory)
+            : window_manager_.spawn_window<SDL3::SDL3Window>(config);
         if (!id) {
-            Foundation::log_error("Failed to spawn window: {}", id.error().message);
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "engine.window.spawn",
+                .summary = "could not create the application window",
+                .context = "Engine::Application::spawn_managed_window",
+                .cause_code = std::string{window_error_code_name(id.error().code)},
+                .cause = id.error().message,
+                .details = {},
+                .help = "check the selected window backend, display connection, and window configuration",
+            });
             return false;
         }
 
@@ -89,9 +117,26 @@ namespace SFT::Engine {
         });
 
         if (!register_result) {
-            Foundation::log_error("Window vanished before its render surface could be registered.");
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "engine.surface.window_lost",
+                .summary = "the window disappeared before graphics initialization completed",
+                .context = "Engine::Application::spawn_managed_window",
+                .cause_code = {},
+                .cause = {},
+                .details = {},
+                .help = "ensure the window remains alive until its render surface is registered",
+            });
         } else if (!*register_result) {
-            Foundation::log_error("Failed to register window's render surface: {}", register_result->error().message);
+            const Core::GraphicsBackendError &error = register_result->error();
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "engine.surface.register",
+                .summary = "could not create a render surface for the application window",
+                .context = "Engine::Application::spawn_managed_window",
+                .cause_code = std::string{Core::graphics_backend_error_code_name(error.code)},
+                .cause = error.message,
+                .details = {},
+                .help = "verify graphics feature requirements and presentation support for this display",
+            });
         }
         if (!register_result || !*register_result) {
             window_manager_.destroy_window(*id);
@@ -283,12 +328,17 @@ namespace SFT::Engine {
     bool Application::initialize() {
         using namespace Platform::Windowing;
 
+        client_initialized_ = false;
+        client_shutdown_ = false;
         engine_ = make_unique<Engine>();
 
-        // SDL3 is the default windowing backend (broad platform reach + robust Vulkan surface
-        // creation). GLFW remains available - this is the one line that selects the primary window's
-        // backend; spawn_managed_window<Backend> works with either.
-        if (!spawn_sdl3_managed_window(client_->application_config().primary_window, /*is_primary=*/true)) {
+        // SDL3 is the built-in default. Optional providers are selected by an explicit factory
+        // reference in ApplicationConfig, preserving static dead-stripping when they are unselected.
+        const ApplicationConfig &config = client_->application_config();
+        if (!spawn_managed_window(
+                config.primary_window,
+                config.primary_window_factory,
+                /*is_primary=*/true)) {
             engine_.reset();
             Async::Scheduler::shutdown();
             return false;
@@ -296,7 +346,15 @@ namespace SFT::Engine {
 
         if (ApplicationResult consumer_initialized = client_->on_engine_initialized(*engine_);
             !consumer_initialized) {
-            Foundation::log_error("Runtime consumer initialization failed: {}", consumer_initialized.error().message);
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "engine.game_logic.initialize",
+                .summary = "game or application logic failed to initialize",
+                .context = "Engine::Application::initialize",
+                .cause_code = "engine.game_logic.failure",
+                .cause = consumer_initialized.error().message.cpp_string(),
+                .details = {},
+                .help = "resolve the reported content, resource, or system setup failure and restart",
+            });
             for (auto &managed : windows_) {
                 if (managed->surface) {
                     engine_->remove_window(*managed->surface);
@@ -309,6 +367,7 @@ namespace SFT::Engine {
             Async::Scheduler::shutdown();
             return false;
         }
+        client_initialized_ = true;
 
         // Stand up the Primary Render Thread only when the backend/platform combination actually
         // recommends it (see RHI::choose_render_threading_mode) - Web and STURDY_RHI_FORCE_SINGLE_THREADED
@@ -336,6 +395,7 @@ namespace SFT::Engine {
 
         auto last_memory_log = high_resolution_clock::now();
         auto last_title_update = last_memory_log;
+        auto last_tick_time = last_memory_log;
         constexpr f64 memory_log_interval_seconds = 5.0;
         usize peak_resident_bytes = 0;
 
@@ -348,7 +408,15 @@ namespace SFT::Engine {
             Async::pump_main_thread();
 
             if (auto pump = window_manager_.pump(window_events); !pump) {
-                Foundation::log_error("Event pump failed: {}", pump.error().message);
+                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                    .code = "engine.events.pump",
+                    .summary = "the platform event loop failed",
+                    .context = "Engine::Application::run",
+                    .cause_code = std::string{window_error_code_name(pump.error().code)},
+                    .cause = pump.error().message,
+                    .details = {},
+                    .help = "the application will stop cleanly; inspect the window backend state",
+                });
                 break;
             }
 
@@ -358,7 +426,10 @@ namespace SFT::Engine {
                 }
             }
             sync_window_state(window_events);
-            engine_->update();
+            const auto tick_now = high_resolution_clock::now();
+            const f64 tick_delta_seconds = duration<f64>(tick_now - last_tick_time).count();
+            last_tick_time = tick_now;
+            engine_->update(tick_delta_seconds);
 
             for (const ManagedWindowEvents &events : window_events) {
 
@@ -414,8 +485,7 @@ namespace SFT::Engine {
                     // ahead of the GPU) — an explicit wait_idle() is what actually guarantees the
                     // GPU itself is done with everything client_->on_shutdown() is about to destroy.
                     if (windows_.size() == 1) {
-                        engine_->wait_idle();
-                        client_->on_shutdown(*engine_);
+                        shutdown_client();
                     }
                     const Core::RenderSurfaceHandle surface = *managed.surface;
                     managed.surface.reset();
@@ -463,7 +533,16 @@ namespace SFT::Engine {
                             });
                         window_manager_.with_window(*primary_id, [&](Window &w) -> bool {
                             if (auto result = w.set_title(title.c_str()); !result) {
-                                Foundation::log_error("Failed to set window title: {}", result.error().message);
+                                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                                    .severity = Foundation::DiagnosticSeverity::Warning,
+                                    .code = "engine.window.title",
+                                    .summary = "could not update the primary window title",
+                                    .context = "Engine::Application::run",
+                                    .cause_code = std::string{window_error_code_name(result.error().code)},
+                                    .cause = result.error().message,
+                                    .details = {},
+                                    .help = "rendering will continue; disable periodic title updates if unsupported",
+                                });
                             }
                             return true;
                         });
@@ -476,8 +555,7 @@ namespace SFT::Engine {
         for (auto &managed : windows_) {
             managed->surface.reset();
         }
-        drain_render_thread();
-        engine_->wait_idle();
+        shutdown_client();
         engine_.reset();
         Async::Scheduler::shutdown();
     }

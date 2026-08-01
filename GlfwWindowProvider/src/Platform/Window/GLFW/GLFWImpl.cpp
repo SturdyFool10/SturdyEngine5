@@ -1,6 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include <expected>
@@ -14,6 +15,7 @@
 
 #include <Platform/Window/Window.hpp>
 #include <Platform/Window/GLFW/Window.hpp>
+#include <Platform/Window/GLFW/GlfwWindowNative.hpp>
 #include <Platform/Platform.hpp>
 
 using std::bad_alloc;
@@ -28,6 +30,15 @@ using std::unique_ptr;
 using std::vector;
 
 namespace SFT::Platform::Windowing::GLFW {
+
+    expected<unique_ptr<Window>, WindowError> create_window(const WindowConfig &config) noexcept {
+        auto created = Window::create<GLFWWindow>(config);
+        if (!created) {
+            return unexpected(created.error());
+        }
+        return unique_ptr<Window>{std::move(*created)};
+    }
+
     namespace {
 
         WindowError glfw_error(WindowErrorCode code, const char *fallback) noexcept {
@@ -520,7 +531,7 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(destroyed_window_error());
         }
 
-        auto handle = Detail::native_window_handle_from_glfw(window_);
+        auto handle = GLFW::Detail::native_window_handle(window_);
         if (!handle) [[unlikely]] {
             return unexpected(handle.error());
         }
@@ -1100,6 +1111,29 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(WindowError{WindowErrorCode::OutOfMemory,
                                           "Out of memory querying Vulkan WSI extensions."});
         }
+    }
+
+    expected<void, WindowError> GLFWWindow::create_vulkan_surface(
+        void *instance,
+        const void *allocation_callbacks,
+        void *surface_out) const noexcept {
+        const lock_guard lock(glfw_window_mutex());
+        if (!window_ || instance == nullptr || surface_out == nullptr) {
+            return unexpected(WindowError{
+                WindowErrorCode::InvalidArgument,
+                "GLFW Vulkan surface creation requires a live window, instance, and output pointer.",
+            });
+        }
+        const auto result = glfwCreateWindowSurface(
+            static_cast<VkInstance>(instance),
+            window_,
+            static_cast<const VkAllocationCallbacks *>(allocation_callbacks),
+            static_cast<VkSurfaceKHR *>(surface_out));
+        if (result != VK_SUCCESS) {
+            return unexpected(WindowError{WindowErrorCode::CreationFailed,
+                                          "glfwCreateWindowSurface failed."});
+        }
+        return {};
     }
 
     std::string GLFWWindow::clipboard_text() const noexcept {

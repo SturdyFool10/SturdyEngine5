@@ -116,6 +116,7 @@ namespace SFT::Renderer {
         for (MeshResource &mesh : meshes_) {
             mesh.vertex_offset = 0;
             mesh.index_offset = 0;
+            mesh.bottom_level_acceleration_structure = {};
             mesh.gpu_resident = false;
         }
 
@@ -131,6 +132,9 @@ namespace SFT::Renderer {
         for (MaterialTemplateResource &material_template : material_templates_) {
             material_template.vertex_module = {};
             material_template.fragment_module = {};
+            material_template.depth_only_fragment_module = {};
+            material_template.depth_only_fragment_entry_point.clear();
+            material_template.has_depth_only_fragment = false;
             material_template.bind_group_layouts.clear();
             material_template.bind_group_layout_sets.clear();
             material_template.pipeline_layout = {};
@@ -156,11 +160,30 @@ namespace SFT::Renderer {
             auto guard = window_surfaces_.lock();
             for (auto &record : *guard) {
                 record->frames_in_flight.clear();
+                record->spectral_accumulation = {};
             }
         }
         scene_frame_resources_.clear();
+
+        // Every handle cached below belonged to the destroyed device. Reset without calling ordinary
+        // destroy functions: replacement-device pools restart their numeric IDs, so destroying an old
+        // handle against the new device could accidentally destroy an unrelated colliding resource.
+        *bloom_.lock() = {};
+        *bloom_composite_.lock() = {};
         *shadow_lighting_.lock() = {};
+        *deferred_msaa_.lock() = {};
         *tonemap_.lock() = {};
+        *text_overlay_.lock() = {};
+        custom_post_process_resources_.lock()->clear();
+        custom_compute_effect_resources_.lock()->clear();
+        *spectral_path_tracing_.lock() = {};
+        *instance_cull_.lock() = {};
+        instanced_pipeline_variants_.lock()->clear();
+        *object_history_.lock() = {};
+        object_history_pipeline_variants_.lock()->clear();
+        *hiz_build_.lock() = {};
+        *hiz_pyramid_.lock() = {};
+        *atmosphere_lut_.lock() = {};
 
         frame_draws_.clear();
     }
@@ -173,6 +196,18 @@ namespace SFT::Renderer {
             Core::RendererResult uploaded = try_upload_mesh(mesh);
             if (!uploaded.has_value()) {
                 return uploaded;
+            }
+        }
+
+        // Recreate ordinary renderer-owned textures under their stable public handles before any
+        // material bind groups are rebuilt. Adopted/borrowed wrappers are restored by their owner (the
+        // offscreen-target path immediately below) or by the external caller that owns the raw RHI state.
+        for (TextureResource &texture : textures_) {
+            if (!texture.alive || !texture.owns_gpu_resources) {
+                continue;
+            }
+            if (Core::RendererResult restored = create_owned_texture_gpu(texture); !restored.has_value()) {
+                return restored;
             }
         }
 

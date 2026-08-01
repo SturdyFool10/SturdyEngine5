@@ -1,6 +1,6 @@
 [
   {
-    "label": "Compile Runtime (Debug)",
+    "label": "Compile Runtime Demo (Debug)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Debug", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -11,7 +11,7 @@
     "save": "all"
   },
   {
-    "label": "Compile Runtime (RelWithDebInfo)",
+    "label": "Compile Runtime Demo (RelWithDebInfo)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -22,7 +22,7 @@
     "save": "all"
   },
   {
-    "label": "Compile Runtime (Release)",
+    "label": "Compile Runtime Demo (Release)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Release", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -33,7 +33,7 @@
     "save": "all"
   },
   {
-    "label": "Compile Runtime (Dist)",
+    "label": "Compile Runtime Demo (Dist)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Dist", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -44,7 +44,7 @@
     "save": "all"
   },
   {
-    "label": "Run Runtime (Debug)",
+    "label": "Run Runtime Demo (Debug)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Debug", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -55,7 +55,7 @@
     "save": "all"
   },
   {
-    "label": "Capture Runtime (Debug, RenderDoc)",
+    "label": "Capture Runtime Demo (Debug, RenderDoc)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Debug", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -66,7 +66,7 @@
     "save": "all"
   },
   {
-    "label": "Run Runtime (RelWithDebInfo)",
+    "label": "Run Runtime Demo (RelWithDebInfo)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=RelWithDebInfo", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -77,7 +77,7 @@
     "save": "all"
   },
   {
-    "label": "Run Runtime (Release)",
+    "label": "Run Runtime Demo (Release)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Release", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -88,7 +88,7 @@
     "save": "all"
   },
   {
-    "label": "Capture Runtime (Release, RenderDoc)",
+    "label": "Capture Runtime Demo (Release, RenderDoc)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Release", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -99,7 +99,7 @@
     "save": "all"
   },
   {
-    "label": "Run Runtime (Dist)",
+    "label": "Run Runtime Demo (Dist)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Dist", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
@@ -110,9 +110,130 @@
     "save": "all"
   },
   {
-    "label": "Capture Runtime (Dist, RenderDoc)",
+    "label": "Capture Runtime Demo (Dist, RenderDoc)",
     "command": "cmake",
     "args": ["-DSTURDY_PROFILE=Dist", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Keyboard Tester (Debug)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Debug", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Keyboard Tester (RelWithDebInfo)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Keyboard Tester (Release)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Release", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Compile Keyboard Tester (Dist)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Dist", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Keyboard Tester (Debug)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Debug", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Capture Keyboard Tester (Debug, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Debug", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Keyboard Tester (RelWithDebInfo)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=RelWithDebInfo", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Keyboard Tester (Release)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Release", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Capture Keyboard Tester (Release, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Release", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Run Keyboard Tester (Dist)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Dist", "-DSTURDY_RUN=ON", "-P", "cmake/IDEBuild.cmake"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "save": "all"
+  },
+  {
+    "label": "Capture Keyboard Tester (Dist, RenderDoc)",
+    "command": "cmake",
+    "args": ["-DSTURDY_TARGET=KeyboardTester", "-DSTURDY_PROFILE=Dist", "-DSTURDY_RENDERDOC=ON", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",

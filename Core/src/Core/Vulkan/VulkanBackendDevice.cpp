@@ -143,7 +143,22 @@ namespace SFT::Core::Vulkan {
         // own doc comment, and the "Optional Core: enabled when present" handling below).
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR, .pNext = nullptr};
-        VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, .pNext = &supportedPresentModeFifoLatestReadyFeatures};
+        VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQueryFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+            .pNext = &supportedPresentModeFifoLatestReadyFeatures,
+        };
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR supportedRayTracingPipelineFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+            .pNext = &supportedRayQueryFeatures,
+        };
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR supportedAccelerationStructureFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+            .pNext = &supportedRayTracingPipelineFeatures,
+        };
+        VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+            .pNext = &supportedAccelerationStructureFeatures,
+        };
         VkPhysicalDeviceVulkan14Features supportedFeatures14{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = &supportedMeshFeatures};
         VkPhysicalDeviceVulkan13Features supportedFeatures13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &supportedFeatures14};
         VkPhysicalDeviceVulkan12Features supportedFeatures12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &supportedFeatures13};
@@ -175,6 +190,24 @@ namespace SFT::Core::Vulkan {
         if (supportedFeatures.features.imageCubeArray) {
             supported_rhi_features.set(RHI::Feature::ImageCubeArray);
         }
+        const bool supports_bindless_descriptor_heap =
+            supportedFeatures12.descriptorIndexing &&
+            supportedFeatures12.runtimeDescriptorArray &&
+            supportedFeatures12.descriptorBindingVariableDescriptorCount &&
+            supportedFeatures12.descriptorBindingPartiallyBound &&
+            supportedFeatures12.descriptorBindingSampledImageUpdateAfterBind &&
+            supportedFeatures12.shaderSampledImageArrayNonUniformIndexing;
+        if (supports_bindless_descriptor_heap) {
+            supported_rhi_features
+                .set(RHI::Feature::BindlessResources)
+                .set(RHI::Feature::DescriptorIndexing)
+                .set(RHI::Feature::RuntimeDescriptorArrays)
+                .set(RHI::Feature::DescriptorBindingVariableCount)
+                .set(RHI::Feature::DescriptorBindingPartiallyBound)
+                .set(RHI::Feature::DescriptorBindingUpdateAfterBind)
+                .set(RHI::Feature::NonUniformResourceIndexing)
+                .set(RHI::Feature::SampledImageArrayNonUniformIndexing);
+        }
         const bool supports_mesh_shader = this->physicalDevice.supports_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
                                           supportedMeshFeatures.meshShader;
         const bool supports_task_shader = supports_mesh_shader && supportedMeshFeatures.taskShader;
@@ -184,13 +217,23 @@ namespace SFT::Core::Vulkan {
         if (supports_task_shader) {
             supported_rhi_features.set(RHI::Feature::TaskShader);
         }
-        if (this->physicalDevice.supports_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)) {
+        const bool supports_acceleration_structures =
+            this->physicalDevice.supports_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+            this->physicalDevice.supports_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+            supportedAccelerationStructureFeatures.accelerationStructure;
+        const bool supports_ray_tracing_pipeline = supports_acceleration_structures &&
+            this->physicalDevice.supports_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+            supportedRayTracingPipelineFeatures.rayTracingPipeline;
+        const bool supports_ray_query = supports_acceleration_structures &&
+            this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+            supportedRayQueryFeatures.rayQuery;
+        if (supports_acceleration_structures) {
             supported_rhi_features.set(RHI::Feature::AccelerationStructures);
         }
-        if (this->physicalDevice.supports_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+        if (supports_ray_tracing_pipeline) {
             supported_rhi_features.set(RHI::Feature::RayTracingPipeline);
         }
-        if (this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+        if (supports_ray_query) {
             supported_rhi_features.set(RHI::Feature::RayQuery);
         }
         if (this->physicalDevice.supports_extension(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME) &&
@@ -250,8 +293,42 @@ namespace SFT::Core::Vulkan {
             optional_rhi_features.set(RHI::Feature::RayTracingPipeline)
                 .set(RHI::Feature::RayQuery)
                 .set(RHI::Feature::AccelerationStructures)
-                .set(RHI::Feature::BufferDeviceAddress);
+                .set(RHI::Feature::BufferDeviceAddress)
+                .set(RHI::Feature::BindlessResources);
         }
+        const auto close_ray_tracing_dependencies = [](RHI::FeatureSet &features) {
+            if (features.has(RHI::Feature::RayQuery) || features.has(RHI::Feature::RayTracingPipeline)) {
+                features.set(RHI::Feature::AccelerationStructures);
+            }
+            if (features.has(RHI::Feature::AccelerationStructures)) {
+                features.set(RHI::Feature::BufferDeviceAddress);
+            }
+        };
+        const auto close_bindless_dependencies = [](RHI::FeatureSet &features) {
+            if (!features.has(RHI::Feature::BindlessResources) &&
+                !features.has(RHI::Feature::DescriptorIndexing) &&
+                !features.has(RHI::Feature::RuntimeDescriptorArrays) &&
+                !features.has(RHI::Feature::DescriptorBindingVariableCount) &&
+                !features.has(RHI::Feature::DescriptorBindingPartiallyBound) &&
+                !features.has(RHI::Feature::DescriptorBindingUpdateAfterBind) &&
+                !features.has(RHI::Feature::NonUniformResourceIndexing) &&
+                !features.has(RHI::Feature::SampledImageArrayNonUniformIndexing)) {
+                return;
+            }
+            features
+                .set(RHI::Feature::BindlessResources)
+                .set(RHI::Feature::DescriptorIndexing)
+                .set(RHI::Feature::RuntimeDescriptorArrays)
+                .set(RHI::Feature::DescriptorBindingVariableCount)
+                .set(RHI::Feature::DescriptorBindingPartiallyBound)
+                .set(RHI::Feature::DescriptorBindingUpdateAfterBind)
+                .set(RHI::Feature::NonUniformResourceIndexing)
+                .set(RHI::Feature::SampledImageArrayNonUniformIndexing);
+        };
+        close_ray_tracing_dependencies(required_rhi_features);
+        close_ray_tracing_dependencies(optional_rhi_features);
+        close_bindless_dependencies(required_rhi_features);
+        close_bindless_dependencies(optional_rhi_features);
         if (supports_async_compute_queue) {
             optional_rhi_features.set(RHI::Feature::AsyncCompute);
         }
@@ -288,10 +365,15 @@ namespace SFT::Core::Vulkan {
         capabilities_.async_compute = enabled_rhi_features.has(RHI::Feature::AsyncCompute);
         capabilities_.raytracing = enabled_rhi_features.has(RHI::Feature::RayTracingPipeline) || enabled_rhi_features.has(RHI::Feature::RayQuery);
         capabilities_.mesh_shaders = enabled_rhi_features.has(RHI::Feature::MeshShader);
+        capabilities_.bindless = enabled_rhi_features.has(RHI::Feature::BindlessResources);
         capabilities_.max_frames_in_flight = sanitize_frames_in_flight(init.features.desired_frames_in_flight);
 
         const bool enable_mesh_shader = enabled_rhi_features.has(RHI::Feature::MeshShader);
         const bool enable_task_shader = enabled_rhi_features.has(RHI::Feature::TaskShader);
+        const bool enable_acceleration_structures = enabled_rhi_features.has(RHI::Feature::AccelerationStructures);
+        const bool enable_ray_tracing_pipeline = enabled_rhi_features.has(RHI::Feature::RayTracingPipeline);
+        const bool enable_ray_query = enabled_rhi_features.has(RHI::Feature::RayQuery);
+        const bool enable_bindless_descriptor_heap = enabled_rhi_features.has(RHI::Feature::BindlessResources);
         const bool enable_present_mode_fifo_latest_ready = enabled_rhi_features.has(RHI::Feature::PresentModeFifoLatestReady);
 
         // Build the enable chain — only request what we verified above.
@@ -300,9 +382,35 @@ namespace SFT::Core::Vulkan {
             .pNext = nullptr,
             .presentModeFifoLatestReady = enable_present_mode_fifo_latest_ready ? VK_TRUE : VK_FALSE,
         };
+        void *feature_chain_tail = enable_present_mode_fifo_latest_ready
+            ? static_cast<void *>(&presentModeFifoLatestReadyFeatures) : nullptr;
+        VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .rayQuery = enable_ray_query ? VK_TRUE : VK_FALSE,
+        };
+        if (enable_ray_query) {
+            feature_chain_tail = &rayQueryFeatures;
+        }
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .rayTracingPipeline = enable_ray_tracing_pipeline ? VK_TRUE : VK_FALSE,
+        };
+        if (enable_ray_tracing_pipeline) {
+            feature_chain_tail = &rayTracingPipelineFeatures;
+        }
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .accelerationStructure = enable_acceleration_structures ? VK_TRUE : VK_FALSE,
+        };
+        if (enable_acceleration_structures) {
+            feature_chain_tail = &accelerationStructureFeatures;
+        }
         VkPhysicalDeviceMeshShaderFeaturesEXT meshFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-            .pNext = enable_present_mode_fifo_latest_ready ? &presentModeFifoLatestReadyFeatures : nullptr,
+            .pNext = feature_chain_tail,
             .taskShader = enable_task_shader ? VK_TRUE : VK_FALSE,
             .meshShader = enable_mesh_shader ? VK_TRUE : VK_FALSE,
         };
@@ -312,7 +420,8 @@ namespace SFT::Core::Vulkan {
         // too whenever mesh shading itself is off.
         VkPhysicalDeviceVulkan14Features features14{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-            .pNext = (enable_mesh_shader || enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
+            .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
+                      enable_ray_query || enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
         };
         VkPhysicalDeviceVulkan13Features features13{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
@@ -323,6 +432,12 @@ namespace SFT::Core::Vulkan {
         VkPhysicalDeviceVulkan12Features features12{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .pNext = &features13,
+            .descriptorIndexing = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
+            .shaderSampledImageArrayNonUniformIndexing = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
+            .descriptorBindingSampledImageUpdateAfterBind = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
+            .descriptorBindingPartiallyBound = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
+            .descriptorBindingVariableDescriptorCount = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
+            .runtimeDescriptorArray = enable_bindless_descriptor_heap ? VK_TRUE : VK_FALSE,
             .timelineSemaphore = VK_TRUE,
             .bufferDeviceAddress = VK_TRUE,
         };
@@ -383,6 +498,16 @@ namespace SFT::Core::Vulkan {
         };
         if (enable_mesh_shader) {
             extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+        }
+        if (enable_acceleration_structures) {
+            extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            extensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        }
+        if (enable_ray_tracing_pipeline) {
+            extensions.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+        }
+        if (enable_ray_query) {
+            extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
         }
         if (enable_present_mode_fifo_latest_ready) {
             extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);

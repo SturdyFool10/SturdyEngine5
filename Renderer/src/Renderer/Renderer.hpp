@@ -17,6 +17,7 @@
 #include "ReflectionBinding.hpp"
 #include "Resources.hpp"
 #include "Material.hpp"
+#include "SpectralPathTracing.hpp"
 #include "Scene.hpp"
 #include "RenderGraph.hpp"
 #include "RendererModule.hpp"

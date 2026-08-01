@@ -11,6 +11,8 @@
 #include "EcsRendering.hpp"
 #include "EcsEvents.hpp"
 #include "EcsUi.hpp"
+#include "FrameTime.hpp"
+#include "TimeScale.hpp"
 #include "WindowState.hpp"
 #include "AssetManager.hpp"
 #include "RenderTarget.hpp"
@@ -122,8 +124,10 @@ namespace SFT::Engine {
         Core::RendererResult render(const PreparedRenderFrame &frame);
 
         // Publishes queued platform events into typed ECS event streams and runs gameplay/application
-        // systems. Application calls this once after pumping all windows and before requesting frames.
-        void update();
+        // systems. Application calls this once per main-loop iteration, after pumping all windows and
+        // before requesting frames, passing a delta independent of any one window's render cadence.
+        // Advances FrameTime (Ecs::ReadResource<FrameTime>) before update_schedule_ runs.
+        void update(f64 delta_seconds);
         void queue_window_event(Platform::Windowing::WindowId window,
                                 const Platform::Windowing::WindowEvent &event);
 
@@ -143,6 +147,17 @@ namespace SFT::Engine {
         // before Application::run()'s per-window render loop — see WindowState.hpp.
         [[nodiscard]] WindowState &window_state() noexcept;
         [[nodiscard]] const WindowState &window_state() const noexcept;
+
+        // Window-independent delta/tick counter (Ecs::ReadResource<FrameTime>), advanced once per
+        // update() call — see FrameTime.hpp for why this is separate from per-window Core::FrameInput.
+        [[nodiscard]] const FrameTime &frame_time() const noexcept;
+
+        // Time dilation applied to FrameTime::delta_seconds() (not unscaled_delta_seconds()) on the
+        // next update() call — see TimeScale.hpp. Also reachable as Ecs::WriteResource<TimeScale> from
+        // any system (e.g. a pause-menu or slow-motion system); this accessor exists for callers
+        // outside the schedule, like a debug UI slider or an editor's own controls.
+        [[nodiscard]] TimeScale &time_scale() noexcept;
+        [[nodiscard]] const TimeScale &time_scale() const noexcept;
 
         // ECS-visible UI resources (Ecs::WriteResource<UiContext>/Ecs::ReadResource<UiPointerState>)
         // — see EcsUi.hpp. ui_pointer_state() is kept current automatically (a built-in system
@@ -167,6 +182,7 @@ namespace SFT::Engine {
         // surface currently reaches.
         [[nodiscard]] Platform::Windowing::Window *primary_window() noexcept;
 
+        [[nodiscard]] const EngineConfig &config() const noexcept;
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;
         [[nodiscard]] const SFT::Renderer::Renderer *renderer() const noexcept;
@@ -202,6 +218,8 @@ namespace SFT::Engine {
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
         WindowState window_state_{};
+        FrameTime frame_time_{};
+        TimeScale time_scale_{};
         UiPointerState ui_pointer_state_{};
         UiContext ui_context_{};
         UiImageCache ui_image_cache_{};

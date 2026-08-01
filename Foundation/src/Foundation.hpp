@@ -11,9 +11,11 @@
 #include <Foundation/src/UString.hpp>
 #include <Foundation/src/Iter.hpp>
 #include <Foundation/src/Embed.hpp>
+#include <Foundation/src/ConsoleDiagnostic.hpp>
 #include <Foundation/src/Log.hpp>
 #include <Foundation/src/Memory.hpp>
 #include <Foundation/src/Utils.hpp>
+#include <Foundation/src/Cli.hpp>
 
 using b8 [[maybe_unused]] = SFT::Foundation::b8;
 using f32 [[maybe_unused]] = SFT::Foundation::f32;

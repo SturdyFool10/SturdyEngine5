@@ -11,4 +11,5 @@
 #include "RenderTarget.hpp"
 #include "RenderGraph.hpp"
 #include "EngineModule.hpp"
+#include "GameLogic.hpp"
 #include "Application.hpp"

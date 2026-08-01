@@ -203,6 +203,9 @@ namespace SFT::Renderer {
 
         vector<byte> uniform_values;               // mirror of the UBO, seeded from parameter defaults
         vector<MaterialTextureBinding> textures;    // one entry per template texture slot
+        // Monotonic visible-state revision. Any parameter, texture binding, or template shader change
+        // increments it so temporal path-tracing history never mixes different material states.
+        u64 content_revision = 1;
 
         vector<MaterialInstanceFrame> frames;       // size == max_frames_in_flight
         bool alive = false;

@@ -29,6 +29,7 @@ namespace SFT::RHI {
         ShaderBindingTable = 1u << 7,      // ray tracing shader binding table records
         AccelerationStructure = 1u << 8,   // backing storage for an acceleration structure
         AccelerationStructureInput = 1u << 9, // geometry/instance input read during AS builds
+        AccelerationStructureScratch = 1u << 10, // writable device-address scratch storage for AS builds
     };
 
     // Where a buffer's memory lives / how the CPU reaches it. The backend picks the concrete heap;

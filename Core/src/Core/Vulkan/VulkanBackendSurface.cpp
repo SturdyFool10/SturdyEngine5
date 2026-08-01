@@ -11,11 +11,6 @@
 #include <format>
 #include <new>
 #include <ranges>
-// SDL3 and GLFW surface helpers — included after volk so VkInstance/VkSurfaceKHR are already
-// defined. GLFW gates glfwCreateWindowSurface behind #if defined(VK_VERSION_1_0) which volk sets;
-// we don't define GLFW_INCLUDE_VULKAN to avoid a double-include of vulkan.h.
-#include <GLFW/glfw3.h>
-#include <SDL3/SDL_vulkan.h>
 #pragma endregion
 
 #include <Foundation/src/Foundation.hpp>
@@ -121,13 +116,6 @@ namespace SFT::Core::Vulkan {
             });
         }
 
-        const auto provider_window = window.native_backend_handle();
-        if (!provider_window) [[unlikely]] {
-            return unexpected(GraphicsBackendError{
-                GraphicsBackendErrorCode::InitializationFailed,
-                format("Failed to query native backend handle for Vulkan surface: {}", provider_window.error().message),
-            });
-        }
 
         const auto framebuffer = window.framebuffer_size();
         if (!framebuffer) [[unlikely]] {
@@ -143,7 +131,6 @@ namespace SFT::Core::Vulkan {
         info.descriptor.system = to_surface_system(native->system);
         info.descriptor.display = native->display;
         info.descriptor.window = native->window;
-        info.descriptor.provider_window = *provider_window;
         info.framebuffer_extent = {framebuffer->x, framebuffer->y};
         info.desired_frames_in_flight = sanitize_frames_in_flight(desired_frames_in_flight);
         return info;
@@ -168,30 +155,19 @@ namespace SFT::Core::Vulkan {
             surfaces_.reserve(1);
         }
 
-        // Create the platform-specific VkSurfaceKHR.
+        // Surface creation belongs to the concrete window provider. This virtual call keeps Core
+        // independent of SDL/GLFW helper symbols while preserving each provider's cross-platform WSI
+        // behavior (including Cocoa/Metal-layer setup that cannot be reconstructed from an NSWindow).
         VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
-        switch (init.descriptor.provider) {
-            case SurfaceProvider::SDL3:
-                {
-                    auto *sdl_window = static_cast<SDL_Window *>(init.descriptor.provider_window);
-                    if (!SDL_Vulkan_CreateSurface(sdl_window, vulkan_instance, nullptr, &vk_surface)) {
-                        return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
-                                                        format("SDL_Vulkan_CreateSurface failed: {}", SDL_GetError())});
-                    }
-                    break;
-                }
-            case SurfaceProvider::GLFW:
-                {
-                    auto *glfw_window = static_cast<GLFWwindow *>(init.descriptor.provider_window);
-                    if (glfwCreateWindowSurface(vulkan_instance, glfw_window, nullptr, &vk_surface) != VK_SUCCESS) {
-                        return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
-                                                        "glfwCreateWindowSurface failed."});
-                    }
-                    break;
-                }
-            default:
-                return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
-                                                "Unsupported surface provider; only SDL3 and GLFW are implemented."});
+        auto created = init.window->create_vulkan_surface(
+            static_cast<void *>(vulkan_instance),
+            nullptr,
+            &vk_surface);
+        if (!created) {
+            return unexpected(GraphicsBackendError{
+                GraphicsBackendErrorCode::InitializationFailed,
+                format("Window provider failed to create a Vulkan surface: {}", created.error().message),
+            });
         }
 
         // VulkanSurface's move constructor is noexcept, so a bad_alloc here can only come from the

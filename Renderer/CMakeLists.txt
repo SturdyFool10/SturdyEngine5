@@ -1,4 +1,7 @@
 sturdy_add_package(Renderer
+    SOURCES
+        src/Renderer/RendererSurface.cpp
+
     EXCLUDE_SOURCE_DIRS
         tests
 

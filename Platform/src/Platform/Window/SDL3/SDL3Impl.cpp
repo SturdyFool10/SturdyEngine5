@@ -887,4 +887,26 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    expected<void, WindowError> SDL3Window::create_vulkan_surface(
+        void *instance,
+        const void *allocation_callbacks,
+        void *surface_out) const noexcept {
+        const lock_guard lock(sdl_window_mutex());
+        if (!window_ || instance == nullptr || surface_out == nullptr) {
+            return unexpected(WindowError{
+                WindowErrorCode::InvalidArgument,
+                "SDL3 Vulkan surface creation requires a live window, instance, and output pointer.",
+            });
+        }
+        if (!SDL_Vulkan_CreateSurface(
+                window_,
+                static_cast<VkInstance>(instance),
+                static_cast<const VkAllocationCallbacks *>(allocation_callbacks),
+                static_cast<VkSurfaceKHR *>(surface_out))) {
+            return unexpected(sdl_error(WindowErrorCode::CreationFailed,
+                                        "SDL_Vulkan_CreateSurface failed."));
+        }
+        return {};
+    }
+
 } // namespace SFT::Platform::Windowing::SDL3

@@ -40,6 +40,18 @@ namespace SFT::Engine {
             return RendererApi::ToneMappingOperator::Agx;
         }
 
+        [[nodiscard]] RendererApi::SpectralRenderMode lower_scene_integrator(SceneIntegrator integrator) noexcept {
+            switch (integrator) {
+                case SceneIntegrator::RasterDeferred: return RendererApi::SpectralRenderMode::RasterDeferred;
+                case SceneIntegrator::ShadowOnly: return RendererApi::SpectralRenderMode::ShadowOnly;
+                case SceneIntegrator::ReflectionOnly: return RendererApi::SpectralRenderMode::ReflectionOnly;
+                case SceneIntegrator::AmbientOcclusionOnly: return RendererApi::SpectralRenderMode::AmbientOcclusionOnly;
+                case SceneIntegrator::ShadowAndTransmission: return RendererApi::SpectralRenderMode::ShadowAndTransmission;
+                case SceneIntegrator::FullPathTracing: return RendererApi::SpectralRenderMode::FullPathTracing;
+            }
+            return RendererApi::SpectralRenderMode::RasterDeferred;
+        }
+
         [[nodiscard]] RendererApi::AgxLook lower_agx_look(AgxLook look) noexcept {
             switch (look) {
                 case AgxLook::None: return RendererApi::AgxLook::None;
@@ -63,6 +75,8 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
         ecs_world_.bind_resource(window_state_);
+        ecs_world_.bind_resource(frame_time_);
+        ecs_world_.bind_resource(time_scale_);
         ecs_world_.bind_resource(ui_pointer_state_);
         ecs_world_.bind_resource(ui_context_);
         ecs_world_.bind_resource(ui_image_cache_);
@@ -589,6 +603,16 @@ namespace SFT::Engine {
         desc.view.deferred_formats = frame.deferred_formats;
         desc.view.render_graph = RendererApi::RenderGraphSettings{
             .render_scene = has_scene && graph.scene.enabled,
+            .spectral_path_tracing = RendererApi::SpectralPathTracingSettings{
+                .mode = lower_scene_integrator(graph.scene.integrator),
+                .samples_per_pixel = graph.scene.path_samples_per_pixel,
+                .max_bounces = graph.scene.path_max_bounces,
+                .russian_roulette_start_bounce = graph.scene.path_russian_roulette_start_bounce,
+                .photon_count = graph.scene.caustic_photon_count,
+                .caustic_gather_radius = graph.scene.caustic_gather_radius,
+                .wavelength_min_nm = graph.scene.wavelength_min_nm,
+                .wavelength_max_nm = graph.scene.wavelength_max_nm,
+            },
             .shadows = has_scene && graph.shadows.enabled,
             .ambient_occlusion = has_scene && graph.ambient_occlusion.enabled,
             .bloom = has_bloom && graph.bloom.enabled,

@@ -27,10 +27,26 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)
 # Off by default: KhronosGroup/glTF-Sample-Assets is a large, ever-growing asset repo, not a build
 # dependency — only needed when exercising the glTF import path (plans/gltf-import.md) against real
-# content. Turn on to let Runtime's glTF demo hook find real sample models via FetchContent's usual
+# content. Turn on to let the external RuntimeDemoGameLogic package find real sample models via
+# FetchContent's usual
 # shared-cache mechanism, same as any other STURDY_FETCH_DEPENDENCIES source.
 option(STURDY_FETCH_SAMPLE_ASSETS "Fetch KhronosGroup/glTF-Sample-Assets for local glTF import testing." OFF)
+option(
+    STURDY_BUILD_RUNTIME_DEMO
+    "Build the external Runtime demo logic and executable packages."
+    ON
+)
+option(
+    STURDY_BUILD_GLFW_WINDOW_PROVIDER
+    "Build the optional GLFW desktop window provider alongside the default SDL3 provider."
+    OFF
+)
 option(STURDY_BUILD_SHARED_LIBS "Build SturdyEngine targets as shared libraries." OFF)
+option(
+    STURDY_ENABLE_STATIC_DEAD_STRIPPING
+    "Compile static Sturdy targets into dead-strippable sections and propagate linker GC."
+    ON
+)
 option(STURDY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for SturdyEngine targets." OFF)
 option(STURDY_USE_COMPILER_LAUNCHER "Use sccache/ccache when available to speed repeated C/C++ builds." ON)
 set(STURDY_COMPILER_LAUNCHER "" CACHE FILEPATH "Explicit compiler launcher executable. Overrides auto-detected sccache/ccache when set.")
@@ -68,6 +84,19 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # run before dependencies and subdirectories so every target inherits them.
 include(SturdyMatrix)
 sturdy_apply_matrix()
+
+if(STURDY_BUILD_GLFW_WINDOW_PROVIDER AND STURDY_OS STREQUAL "Web")
+    message(FATAL_ERROR
+        "STURDY_BUILD_GLFW_WINDOW_PROVIDER is unavailable for Web builds."
+    )
+endif()
+
+if(STURDY_FETCH_SAMPLE_ASSETS AND NOT STURDY_BUILD_RUNTIME_DEMO)
+    message(FATAL_ERROR
+        "STURDY_FETCH_SAMPLE_ASSETS requires STURDY_BUILD_RUNTIME_DEMO."
+    )
+endif()
+
 include(SturdyBuildSpeed)
 
 function(sturdy_configure_compiler_launcher)
@@ -106,4 +135,62 @@ add_subdirectory(Core)
 add_subdirectory(Renderer)
 add_subdirectory(UI)
 add_subdirectory(Engine)
+if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
+    add_subdirectory(GlfwWindowProvider)
+endif()
+# Reusable host infrastructure is always available. Demonstration content and executable composition
+# live in separate top-level packages and are the only targets gated by STURDY_BUILD_RUNTIME_DEMO.
+add_subdirectory(ApplicationHost)
 add_subdirectory(Runtime)
+# Base convenience aggregate (Foundation+Async+Ecs+Core+Renderer+Engine+Runtime+GLM) for a normal
+# graphical/game application — see EngineKit/CMakeLists.txt. Always available for the same reason
+# Runtime itself is: it is reusable infrastructure, not demo content.
+add_subdirectory(EngineKit)
+if(STURDY_BUILD_RUNTIME_DEMO)
+    add_subdirectory(Demos)
+endif()
+
+# Pay-for-use regression coverage for the root-level opt-out options above: each disables a whole
+# dependency/subdirectory, so (unlike Box3D's AssertBaseDependencyBoundary.cmake source-text scan,
+# which works because Box3D must never appear anywhere) the only real proof the option works is a
+# fresh configure with it off, checked against the resulting build graph — see
+# AssertFreshConfigureBoundary.cmake's own header comment. These were previously verified by hand in
+# a throwaway build tree and never turned into a persistent regression test.
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
+    set(
+        _sturdy_fresh_configure_boundary_test
+        "${CMAKE_SOURCE_DIR}/cmake/tests/AssertFreshConfigureBoundary.cmake"
+    )
+
+    add_test(
+        NAME GlfwProviderOffDependencyBoundaryTest
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSTURDY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+            "-DSTURDY_PROBE_LABEL=glfw-off"
+            "-DSTURDY_PROBE_OPTION=STURDY_BUILD_GLFW_WINDOW_PROVIDER=OFF"
+            "-DSTURDY_PROBE_FORBIDDEN_STRING=glfw"
+            "-DSTURDY_PROBE_ARCH=${STURDY_ARCH}"
+            "-DSTURDY_PROBE_OS=${STURDY_OS}"
+            "-DSTURDY_PROBE_COMPILER=${STURDY_COMPILER}"
+            "-DSTURDY_PROBE_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DSTURDY_PROBE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            -P "${_sturdy_fresh_configure_boundary_test}"
+    )
+    set_tests_properties(GlfwProviderOffDependencyBoundaryTest PROPERTIES TIMEOUT 300)
+
+    add_test(
+        NAME RuntimeDemoOffDependencyBoundaryTest
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSTURDY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+            "-DSTURDY_PROBE_LABEL=runtime-demo-off"
+            "-DSTURDY_PROBE_OPTION=STURDY_BUILD_RUNTIME_DEMO=OFF"
+            "-DSTURDY_PROBE_FORBIDDEN_STRING=RuntimeDemo"
+            "-DSTURDY_PROBE_ARCH=${STURDY_ARCH}"
+            "-DSTURDY_PROBE_OS=${STURDY_OS}"
+            "-DSTURDY_PROBE_COMPILER=${STURDY_COMPILER}"
+            "-DSTURDY_PROBE_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DSTURDY_PROBE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            -P "${_sturdy_fresh_configure_boundary_test}"
+    )
+    set_tests_properties(RuntimeDemoOffDependencyBoundaryTest PROPERTIES TIMEOUT 300)
+endif()

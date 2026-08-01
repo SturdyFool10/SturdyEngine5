@@ -25,8 +25,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<MeshHandle> Renderer::create_mesh(span<const GeometryVertex> vertices,
                                                              span<const u32> indices,
-                                                             const char *label,
-                                                             bool retain_cpu_copy) {
+                                                             const char *label) {
         if (vertices.empty()) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a mesh with no vertices."});
@@ -44,33 +43,23 @@ namespace SFT::Renderer {
         mesh.vertex_count = static_cast<u32>(vertices.size());
         mesh.index_count = static_cast<u32>(indices.size());
         mesh.alive = true;
-        mesh.retain_cpu_copy = retain_cpu_copy;
 
         if (Core::RendererResult upload = try_upload_mesh(mesh); !upload.has_value()) {
             return unexpected(upload.error());
         }
 
-        // See MeshResource::retain_cpu_copy's doc comment (Resources.hpp): the CPU-side arrays only
-        // needed to exist long enough to write the GPU arenas above — release their capacity now
-        // rather than keeping a second permanent copy of every mesh's geometry in RAM forever.
-        // clear() alone would just reset size and keep capacity; swap-with-empty actually frees it.
-        if (mesh.gpu_resident && !retain_cpu_copy) {
-            vector<GeometryVertex>{}.swap(mesh.vertices);
-            vector<u32>{}.swap(mesh.indices);
-        }
 
         meshes_.push_back(std::move(mesh));
         return meshes_.back().handle;
     }
 
-    Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh, bool retain_cpu_copy) {
+    Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh) {
         if (mesh.is_gpu_resident()) {
             return mesh.gpu_handle();
         }
 
         Core::RendererExpected<MeshHandle> handle =
-            create_mesh(mesh.vertices(), mesh.indices(), mesh.label().empty() ? nullptr : mesh.label().c_str(),
-                        retain_cpu_copy);
+            create_mesh(mesh.vertices(), mesh.indices(), mesh.label().empty() ? nullptr : mesh.label().c_str());
         if (!handle.has_value()) {
             return unexpected(handle.error());
         }
@@ -83,6 +72,16 @@ namespace SFT::Renderer {
         MeshResource *resource = mesh(handle);
         if (!resource) {
             return;
+        }
+
+        if (resource->bottom_level_acceleration_structure) {
+            // A submitted frame's TLAS may still reference this BLAS. Mesh destruction is uncommon;
+            // use the coarse safe point until BLAS retirement is tracked per frame slot.
+            wait_idle();
+            if (RHI::RhiDevice *device = rhi_device()) {
+                device->destroy_acceleration_structure(resource->bottom_level_acceleration_structure);
+            }
+            resource->bottom_level_acceleration_structure = {};
         }
 
         // The mesh's bytes live in the shared vertex/index arenas (try_upload_mesh), not a dedicated
@@ -250,6 +249,7 @@ namespace SFT::Renderer {
         destroy_bloom_resources();
         destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
+        destroy_spectral_path_tracing_resources();
         destroy_custom_post_process_resources();
         destroy_custom_compute_effect_resources();
         destroy_atmosphere_lut_resources();
@@ -281,13 +281,9 @@ namespace SFT::Renderer {
         }
 
         // Bulk GPU-to-GPU copy of the old buffer's already-written region into the new, bigger one —
-        // arena offsets are append-only/stable across growth, so this is one copy, not per-mesh
-        // replay. Deliberately does NOT read any MeshResource's CPU-side vertices/indices: growth is
-        // a routine, frequent event (any time enough new geometry pushes used_bytes past capacity),
-        // unlike try_upload_mesh's own CPU-replay path (used only for the rare Vulkan device-loss
-        // case) — it must work regardless of whether a mesh's CPU copy was freed after upload (see
-        // MeshResource::retain_cpu_copy). This used to replay from CPU data per mesh here too, which
-        // silently produced uninitialized geometry for any mesh with an already-empty CPU copy.
+        // arena offsets are append-only/stable across growth, so this is one copy, not a replay of
+        // every mesh's retained CPU payload. Growth is a routine asset-loading operation, unlike the
+        // full per-mesh replay used after backend reconstruction.
         if (arena.buffer && arena.used_bytes > 0) {
             auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "geometry arena growth copy"});
             if (!encoder) {
@@ -335,6 +331,14 @@ namespace SFT::Renderer {
         }
 
         if (arena.buffer) {
+            // Every BLAS references the shared arena's device address. Growing either arena changes that
+            // address, so lazily rebuild all mesh BLAS before the next ray-query frame.
+            for (MeshResource &mesh_resource : meshes_) {
+                if (mesh_resource.bottom_level_acceleration_structure) {
+                    device->destroy_acceleration_structure(mesh_resource.bottom_level_acceleration_structure);
+                    mesh_resource.bottom_level_acceleration_structure = {};
+                }
+            }
             device->destroy_buffer(arena.buffer);
         }
         arena.buffer = *new_buffer;
@@ -347,22 +351,21 @@ namespace SFT::Renderer {
         if (!device) {
             return {};
         }
+        vertex_arena_.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::Storage |
+                              RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst;
+        index_arena_.usage = RHI::BufferUsage::Index | RHI::BufferUsage::Storage |
+                             RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst;
+        if (device->is_enabled(RHI::Feature::AccelerationStructures)) {
+            vertex_arena_.usage |= RHI::BufferUsage::AccelerationStructureInput;
+            index_arena_.usage |= RHI::BufferUsage::AccelerationStructureInput;
+        }
 
-        // create_mesh() already rejects empty vertices at creation time, so the only way this
-        // function ever sees an empty mesh.vertices is via restore_gpu_resources_after_recovery()
-        // replaying a mesh whose CPU copy was freed after its initial upload (retain_cpu_copy was
-        // false — see MeshResource's own doc comment). There is nothing to replay: leave
-        // gpu_resident false (already reset by invalidate_gpu_resource_handles_no_destroy) so
-        // record_render_item's existing !gpu_resident check quietly stops drawing this mesh, and
-        // return success rather than an error — restore_gpu_resources_after_recovery aborts recovery
-        // for every other mesh on the first error it sees, which would be a far worse outcome than
-        // one mesh staying undrawn until it's reloaded.
+        // Alive meshes always retain their authoritative replay payload.
+        // Alive meshes always retain their authoritative replay payload. Reaching this branch means
+        // internal state was corrupted rather than a caller-selected residency policy being unavailable.
         if (mesh.vertices.empty()) {
-            Foundation::log_warn("Mesh '{}' has no CPU copy to replay after a GPU device-loss "
-                                 "recovery (retain_cpu_copy was false at creation); it will not be "
-                                 "drawn until reloaded.",
-                                 mesh.label);
-            return {};
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot upload or restore an alive mesh with no CPU replay data.");
         }
 
         const u64 vertex_bytes = static_cast<u64>(mesh.vertices.size() * sizeof(GeometryVertex));

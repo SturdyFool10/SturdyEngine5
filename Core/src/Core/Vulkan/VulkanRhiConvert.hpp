@@ -141,6 +141,8 @@ namespace SFT::Core::Vulkan {
             out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         if (rhi::has_any(usage, rhi::BufferUsage::AccelerationStructureInput))
             out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        if (rhi::has_any(usage, rhi::BufferUsage::AccelerationStructureScratch))
+            out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         return out;
     }
 

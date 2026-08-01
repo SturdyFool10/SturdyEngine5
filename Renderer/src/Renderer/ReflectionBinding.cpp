@@ -1,5 +1,7 @@
 #include "ReflectionBinding.hpp"
 
+#include <limits>
+
 namespace SFT::Renderer {
 
 RHI::ShaderStage to_rhi_shader_stage(slang::ShaderStage stage) noexcept {
@@ -76,7 +78,8 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                     }
                     continue;
                 }
-                const bool is_bindless = range.count == 0;
+                const bool is_bindless = range.count == 0 ||
+                    range.count == std::numeric_limits<u32>::max();
                 generated.entries.push_back(RHI::BindGroupLayoutEntry{
                     .binding = range.binding,
                     .type = *binding_type,

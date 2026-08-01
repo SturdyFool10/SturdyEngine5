@@ -3,6 +3,7 @@
 #pragma region Imports
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <expected>
@@ -59,6 +60,11 @@ namespace SFT::Renderer {
         // wake-up cost, not an application-side resource backlog. Left at the original tolerance;
         // see render_managed_window's adaptive synchronous-repaint fallback for the actual mitigation.
         constexpr usize retired_swapchain_flush_threshold = 6;
+
+        // 2 begin/end timestamp pairs: pre-graph TLAS build, pre-graph photon hash-buffer clear.
+        // See FrameInFlight::pregraph_gpu_timing_query_set's doc comment for why these are recorded
+        // onto a dedicated fixed-size query set instead of riding RenderGraph::execute_parallel's own.
+        constexpr u32 kPregraphGpuTimingQueryCount = 4u;
 
         class ScopedRendererStageTimer {
           public:
@@ -220,111 +226,6 @@ namespace SFT::Renderer {
         return *surface;
     }
 
-    Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::create_window_surface(
-        Platform::Windowing::Window &window,
-        u32 desired_frames_in_flight) {
-        if (!graphics_backend_ || !initialized_) {
-            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        "Renderer must be initialized before adding a window."});
-        }
-
-        auto surface = graphics_backend_->create_window_surface(window, desired_frames_in_flight);
-        if (!surface) {
-            return unexpected(surface.error());
-        }
-
-        {
-            auto guard = window_surfaces_.lock();
-            guard->push_back(std::make_unique<WindowSurfaceRecord>(WindowSurfaceRecord{
-                .window = &window,
-                .surface = *surface,
-                .desired_frames_in_flight = desired_frames_in_flight,
-                .presentation = Core::PresentationSettings{},
-                .primary = false,
-                .frames_in_flight = {},
-            }));
-        }
-        WindowSurfaceRecord *record = window_surface(*surface);
-        if (record == nullptr) {
-            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
-                                                          "Window surface vanished immediately after registration."});
-        }
-        if (Core::RendererResult rhi_resources = ensure_rhi_presentation_resources(*record);
-            !rhi_resources.has_value()) {
-            destroy_window_surface(*surface);
-            return unexpected(rhi_resources.error());
-        }
-        return *surface;
-    }
-
-    void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
-        auto guard = window_surfaces_.lock();
-        for (auto it = guard->begin(); it != guard->end(); ++it) {
-            if ((*it)->surface == surface) {
-                destroy_rhi_presentation_resources(**it);
-                if (graphics_backend_) {
-                    graphics_backend_->destroy_window_surface(surface);
-                }
-                guard->erase(it);
-                break;
-            }
-        }
-    }
-
-    void Renderer::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
-        if (graphics_backend_) {
-            graphics_backend_->on_surface_resize_needed(surface, extent);
-        }
-        if (WindowSurfaceRecord *record = window_surface(surface)) {
-            record->rhi_swapchain_dirty = true;
-        }
-    }
-
-    Core::RendererResult Renderer::set_presentation_settings(Core::RenderSurfaceHandle surface,
-                                                             const Core::PresentationSettings &settings) {
-        WindowSurfaceRecord *record = window_surface(surface);
-        if (record == nullptr) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Renderer surface is not registered.");
-        }
-        record->presentation = settings;
-        record->rhi_swapchain_dirty = true;
-        return {};
-    }
-
-    RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Renderer::query_hdr_capabilities(
-        Core::RenderSurfaceHandle surface) const {
-        const WindowSurfaceRecord *record = window_surface(surface);
-        if (record == nullptr) {
-            return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
-        }
-        const RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr) {
-            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "Renderer RHI device is unavailable.");
-        }
-        if (!record->rhi_surface) {
-            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                  "This window has no RHI surface yet (first frame not rendered).");
-        }
-        return device->query_hdr_capabilities(record->rhi_surface);
-    }
-
-    RHI::RhiResult Renderer::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
-                                                             const RHI::HdrContentLightLevelUpdate &update) {
-        const WindowSurfaceRecord *record = window_surface(surface);
-        if (record == nullptr) {
-            return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
-        }
-        RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr) {
-            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "Renderer RHI device is unavailable.");
-        }
-        if (!record->rhi_swapchain) {
-            return RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
-                                  "This window has no live swapchain yet (first frame not rendered).");
-        }
-        return device->update_hdr_content_light_level(record->rhi_swapchain, update);
-    }
 
     Core::RendererResult Renderer::submit_draw(MeshHandle mesh_handle, MaterialInstanceHandle material_handle) {
         if (mesh(mesh_handle) == nullptr) {
@@ -346,10 +247,14 @@ namespace SFT::Renderer {
         poll_shader_hot_reload();
 
         FrameSubmission submission{};
+        submission.frame_index = desc.frame.frame_index;
         submission.camera = desc.view.camera;
         submission.lighting = desc.view.lighting;
         submission.deferred_formats = desc.view.deferred_formats;
         submission.render_graph = desc.view.render_graph;
+        if (!submission.render_graph.render_scene) {
+            submission.render_graph.spectral_path_tracing.mode = SpectralRenderMode::RasterDeferred;
+        }
         submission.offscreen_target = desc.offscreen_target;
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
         submission.debug_label = desc.view.debug_label;
@@ -444,7 +349,12 @@ namespace SFT::Renderer {
             // prepare_scene_gpu_data's object_buffer packing order exactly — see object_index's own
             // doc comment (RendererModule.hpp).
             for (usize i = 0; i < submission.draws.size(); ++i) {
-                submission.draws[i].object_index = static_cast<u32>(i);
+                RenderItem &item = submission.draws[i];
+                item.object_index = static_cast<u32>(i);
+                const auto previous = item.stable_id != 0 ? previous_world_transforms_.find(item.stable_id)
+                                                          : previous_world_transforms_.end();
+                item.previous_world_transform = previous != previous_world_transforms_.end()
+                                                    ? previous->second : item.world_transform;
             }
         }
 
@@ -466,25 +376,6 @@ namespace SFT::Renderer {
         return render_frame_rhi(*record, frame, submission);
     }
 
-    Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
-        auto guard = window_surfaces_.lock();
-        for (auto &record : *guard) {
-            if (record->surface == surface) {
-                return record.get();
-            }
-        }
-        return nullptr;
-    }
-
-    const Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) const noexcept {
-        auto guard = window_surfaces_.lock();
-        for (auto &record : *guard) {
-            if (record->surface == surface) {
-                return record.get();
-            }
-        }
-        return nullptr;
-    }
 
     Core::RendererResult Renderer::ensure_rhi_presentation_resources(WindowSurfaceRecord &record) {
         if (record.rhi_surface && record.rhi_swapchain) {
@@ -1007,6 +898,18 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer RHI device is unavailable.");
         }
+        if (Core::RendererResult spectral_ready = ensure_spectral_path_tracing_resources(
+                submission.render_graph.spectral_path_tracing.mode);
+            !spectral_ready.has_value()) {
+            return spectral_ready;
+        }
+        if (submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred) {
+            if (Core::RendererResult acceleration_ready =
+                    ensure_spectral_mesh_acceleration_structures(submission.draws);
+                !acceleration_ready.has_value()) {
+                return acceleration_ready;
+            }
+        }
 
         // N-buffered in-flight ring, keyed by frame_index so it tracks the material system's per-frame
         // UBO slot (frame_index % N). (Re)size on the first frame or after a capability change (device-loss
@@ -1019,13 +922,21 @@ namespace SFT::Renderer {
                 destroy_frame_bloom_targets(old_slot);
                 destroy_frame_composite_target(old_slot);
                 destroy_frame_gpu_timing_target(old_slot);
+                destroy_frame_pregraph_gpu_timing_target(old_slot);
                 destroy_frame_shadow_targets(old_slot);
                 destroy_frame_atmosphere_targets(old_slot);
+                destroy_frame_spectral_photon_targets(old_slot);
                 destroy_frame_deferred_targets(old_slot);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
         }
         FrameInFlight &slot = record.frames_in_flight[frame.frame_index % frame_count];
+        if (!slot.submitted && (!slot.transient_buffers.empty() || !slot.transient_bind_groups.empty() ||
+                                !slot.transient_acceleration_structures.empty())) {
+            // A prior recording attempt failed before submission. Those resources were never visible to
+            // the GPU and can be reclaimed immediately before this slot is reused.
+            reclaim_frame_slot(slot, false);
+        }
 
         // Collects this call's own CPU stage costs (wait fence, swapchain recreate/acquire, graph
         // execute, submit, present — whichever of those actually run this frame) so they can be
@@ -1066,41 +977,57 @@ namespace SFT::Renderer {
         vector<std::pair<string, f64>> gpu_pass_timings_ms;
         if (slot.gpu_timing.has_pending_results) {
             const f32 period_ns = device->limits().timestamp_period_ns;
-            if (period_ns > 0.0f && !slot.gpu_timing.pending.empty()) {
-                // Only the slots RenderGraph::execute() actually reset+wrote *this specific prior
-                // frame* (2 per pass it recorded that frame) are valid to read — not the query set's
-                // full allocated capacity, which can exceed that (headroom from ensure_frame_gpu_
-                // timing_target's resize policy, or simply a larger pass count from an earlier frame
-                // that grew capacity but isn't this frame's). Reading an unwritten slot is a real
+            std::unordered_map<string, f64> totals_ms;
+            bool any_read = false;
+            // Accumulates one query set's begin/end pairs into `totals_ms` — shared between the
+            // RenderGraph's own per-pass query set and the fixed-size pre-graph one (TLAS build,
+            // photon hash clear) recorded before the graph exists, so "GPU total" below reflects
+            // both instead of silently under-reporting the pre-graph cost.
+            const auto accumulate_query_set = [&](RHI::QuerySetHandle query_set,
+                                                   const vector<RenderGraph::GpuPassTiming> &timings) {
+                if (!query_set || timings.empty()) {
+                    return;
+                }
+                // Only the slots actually reset+written this specific prior frame are valid to
+                // read — not the query set's full allocated capacity, which can exceed that
+                // (headroom from resize policy, or a larger pass count from an earlier frame that
+                // grew capacity but isn't this frame's). Reading an unwritten slot is a real
                 // "query not reset" validation error, not just wasted work.
                 u32 used_query_count = 0;
-                for (const RenderGraph::GpuPassTiming &timing : slot.gpu_timing.pending) {
+                for (const RenderGraph::GpuPassTiming &timing : timings) {
                     used_query_count = std::max(used_query_count, timing.begin_query_index + 1);
                     used_query_count = std::max(used_query_count, timing.end_query_index + 1);
                 }
                 vector<u64> raw_ticks(used_query_count, 0);
                 auto read = device->get_query_set_results(
-                    slot.gpu_timing.query_set, 0, used_query_count,
+                    query_set, 0, used_query_count,
                     std::as_writable_bytes(span<u64>{raw_ticks.data(), raw_ticks.size()}), sizeof(u64),
                     RHI::QueryResultFlags::Result64Bit | RHI::QueryResultFlags::Wait);
-                if (read.has_value()) {
-                    std::unordered_map<string, f64> totals_ms;
-                    for (const RenderGraph::GpuPassTiming &timing : slot.gpu_timing.pending) {
-                        if (timing.begin_query_index >= raw_ticks.size() || timing.end_query_index >= raw_ticks.size()) {
-                            continue;
-                        }
-                        const u64 begin_ticks = raw_ticks[timing.begin_query_index];
-                        const u64 end_ticks = raw_ticks[timing.end_query_index];
-                        if (end_ticks <= begin_ticks) {
-                            continue;
-                        }
-                        const f64 ms = static_cast<f64>(end_ticks - begin_ticks) * static_cast<f64>(period_ns) / 1.0e6;
-                        totals_ms[render_graph_pass_timing_category(timing.label)] += ms;
-                    }
-                    gpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
-                    std::sort(gpu_pass_timings_ms.begin(), gpu_pass_timings_ms.end(),
-                             [](const auto &a, const auto &b) { return a.second > b.second; });
+                if (!read.has_value()) {
+                    return;
                 }
+                any_read = true;
+                for (const RenderGraph::GpuPassTiming &timing : timings) {
+                    if (timing.begin_query_index >= raw_ticks.size() || timing.end_query_index >= raw_ticks.size()) {
+                        continue;
+                    }
+                    const u64 begin_ticks = raw_ticks[timing.begin_query_index];
+                    const u64 end_ticks = raw_ticks[timing.end_query_index];
+                    if (end_ticks <= begin_ticks) {
+                        continue;
+                    }
+                    const f64 ms = static_cast<f64>(end_ticks - begin_ticks) * static_cast<f64>(period_ns) / 1.0e6;
+                    totals_ms[render_graph_pass_timing_category(timing.label)] += ms;
+                }
+            };
+            if (period_ns > 0.0f) {
+                accumulate_query_set(slot.gpu_timing.query_set, slot.gpu_timing.pending);
+                accumulate_query_set(slot.pregraph_gpu_timing_query_set, slot.pregraph_gpu_timing_pending);
+            }
+            if (any_read) {
+                gpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
+                std::sort(gpu_pass_timings_ms.begin(), gpu_pass_timings_ms.end(),
+                         [](const auto &a, const auto &b) { return a.second > b.second; });
             }
             slot.gpu_timing.has_pending_results = false;
         }
@@ -1244,7 +1171,10 @@ namespace SFT::Renderer {
             gbuffer_draws = gbuffer_individual_draws_storage;
         }
 
-        const u32 requested_msaa = std::min(std::max(submission.render_graph.msaa_samples, 1u), 8u);
+        const bool full_path_tracing = submission.render_graph.spectral_path_tracing.mode ==
+                                       SpectralRenderMode::FullPathTracing;
+        const u32 requested_msaa = full_path_tracing
+            ? 1u : std::min(std::max(submission.render_graph.msaa_samples, 1u), 8u);
         const u32 supported_msaa = device->limits().framebuffer_sample_counts;
         const RHI::SampleCount framebuffer_samples =
             requested_msaa >= 8u && (supported_msaa & 8u) != 0 ? RHI::SampleCount::X8 :
@@ -1255,6 +1185,84 @@ namespace SFT::Renderer {
                 slot, render_extent, submission.deferred_formats, framebuffer_samples);
             !deferred_targets.has_value()) {
             return deferred_targets;
+        }
+
+        u64 spectral_accumulation_signature = 1469598103934665603ull;
+        // Same FNV-1a signature as spectral_accumulation_signature, but deliberately never hashes the
+        // view-projection matrix — the caustic photon map is view-independent (depends only on
+        // geometry + sun + photon settings), so folding the camera transform in here would force a
+        // full photon re-emission (up to 262144 photons, each up to max_bounces ray-traced segments,
+        // plus a 2 MiB hash-head buffer clear) on every camera pan/rotate for no reason. Everything
+        // that genuinely invalidates the cached map (geometry, sun, photon settings) is still hashed
+        // into both signatures identically via hash_u64_both/hash_float_both/hash_matrix_both below.
+        u64 spectral_photon_signature = 1469598103934665603ull;
+        bool spectral_accumulation_reset = false;
+        if (full_path_tracing) {
+            if (Core::RendererResult accumulation_target = ensure_spectral_accumulation_target(record, render_extent);
+                !accumulation_target.has_value()) {
+                return accumulation_target;
+            }
+
+            const auto hash_u64 = [&](u64 value) {
+                spectral_accumulation_signature ^= value;
+                spectral_accumulation_signature *= 1099511628211ull;
+            };
+            const auto hash_u64_both = [&](u64 value) {
+                hash_u64(value);
+                spectral_photon_signature ^= value;
+                spectral_photon_signature *= 1099511628211ull;
+            };
+            const auto hash_float = [&](f32 value) { hash_u64(std::bit_cast<u32>(value)); };
+            const auto hash_float_both = [&](f32 value) { hash_u64_both(std::bit_cast<u32>(value)); };
+            const auto hash_matrix = [&](const glm::mat4 &matrix) {
+                for (u32 column = 0; column < 4u; ++column) {
+                    for (u32 row = 0; row < 4u; ++row) {
+                        hash_float(matrix[column][row]);
+                    }
+                }
+            };
+            const auto hash_matrix_both = [&](const glm::mat4 &matrix) {
+                for (u32 column = 0; column < 4u; ++column) {
+                    for (u32 row = 0; row < 4u; ++row) {
+                        hash_float_both(matrix[column][row]);
+                    }
+                }
+            };
+            // Accumulation is screen-space and the shader reads/writes one history image in place, so
+            // camera motion must invalidate it. The view-independent photon signature intentionally
+            // continues to exclude the camera transform.
+            hash_matrix(submission.view_projection);
+            hash_u64_both(render_extent.width);
+            hash_u64_both(render_extent.height);
+            hash_float_both(submission.lighting.sun.direction.x);
+            hash_float_both(submission.lighting.sun.direction.y);
+            hash_float_both(submission.lighting.sun.direction.z);
+            hash_float_both(submission.lighting.sun.radiance.x);
+            hash_float_both(submission.lighting.sun.radiance.y);
+            hash_float_both(submission.lighting.sun.radiance.z);
+            hash_float(submission.render_graph.background_intensity);
+            const SpectralPathTracingSettings &spectral = submission.render_graph.spectral_path_tracing;
+            hash_u64_both(spectral.samples_per_pixel);
+            hash_u64_both(spectral.max_bounces);
+            hash_u64_both(spectral.russian_roulette_start_bounce);
+            hash_u64_both(spectral.photon_count);
+            hash_float_both(spectral.caustic_gather_radius);
+            hash_float_both(spectral.wavelength_min_nm);
+            hash_float_both(spectral.wavelength_max_nm);
+            hash_u64_both(submission.draws.size());
+            for (const RenderItem &item : submission.draws) {
+                hash_u64_both(item.stable_id);
+                hash_u64_both(item.mesh.value);
+                hash_u64_both(item.material.value);
+                if (const MaterialInstanceResource *material = material_instance(item.material)) {
+                    hash_u64_both(material->content_revision);
+                }
+                hash_matrix_both(item.world_transform);
+            }
+            const SpectralAccumulationTarget &history = record.spectral_accumulation;
+            spectral_accumulation_reset = !history.initialized ||
+                history.state_signature != spectral_accumulation_signature ||
+                history.last_frame_index + 1u != frame.frame_index;
         }
         // Snapshotted here, before ensure_hiz_pyramid can touch has_valid_data (on first build /
         // resize) and well before this frame's own "hiz build mip" passes overwrite the pyramid's
@@ -1281,7 +1289,10 @@ namespace SFT::Renderer {
         }
         PreparedShadowFrame shadow_frame{};
         if (submission.render_graph.render_scene) {
-            const u32 requested_shadow_atlas = submission.render_graph.shadows
+            const SpectralIntegratorPolicy integrator_policy = spectral_integrator_policy(
+                submission.render_graph.spectral_path_tracing.mode);
+            const u32 requested_shadow_atlas = submission.render_graph.shadows &&
+                                                       integrator_policy.raster_shadow_atlas
                                                    ? submission.render_graph.shadow_atlas_size
                                                    : 0u;
             if (Core::RendererResult shadow_targets = ensure_frame_shadow_targets(slot, requested_shadow_atlas);
@@ -1400,6 +1411,60 @@ namespace SFT::Renderer {
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
+        }
+        // Known from submission alone, so computable this early — used below to time the pre-graph
+        // TLAS build/photon hash clear (which happen before the RenderGraph is even declared, let
+        // alone compiled) and reused again once execute_parallel's own per-pass timing is wired up.
+        const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
+        if (gpu_timing_enabled) {
+            if (Core::RendererResult pregraph_timing = ensure_frame_pregraph_gpu_timing_target(slot);
+                !pregraph_timing.has_value()) {
+                return pregraph_timing;
+            }
+            slot.pregraph_gpu_timing_pending.clear();
+            (**encoder).reset_query_set(slot.pregraph_gpu_timing_query_set, 0, kPregraphGpuTimingQueryCount);
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
+        }
+        if (Core::RendererResult spectral_scene = prepare_spectral_scene_acceleration_structure(
+                **encoder, slot, submission);
+            !spectral_scene.has_value()) {
+            return spectral_scene;
+        }
+        if (gpu_timing_enabled) {
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 1);
+            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
+                .label = "pre-graph: TLAS build",
+                .begin_query_index = 0,
+                .end_query_index = 1,
+            });
+        }
+        // Whether the caustic photon map (up to 262144 photons, each up to max_bounces ray-traced
+        // segments) needs re-emitting this frame. Gated on spectral_photon_signature (geometry + sun +
+        // photon settings only, no camera transform — see its own doc comment above), NOT
+        // spectral_accumulation_reset, so a static-geometry camera pan/rotate reuses this slot's
+        // existing photon map instead of paying full re-emission every single frame. Computed here
+        // (before prepare_spectral_photon_mapping can flip `populated` to true) so every later gate in
+        // this function sees the same pre-frame state.
+        const bool spectral_photon_mapping = full_path_tracing &&
+            submission.render_graph.spectral_path_tracing.photon_count > 0u;
+        const bool spectral_photon_emission_needed = spectral_photon_mapping &&
+            (!slot.spectral_photon_targets.populated ||
+             slot.spectral_photon_targets.state_signature != spectral_photon_signature);
+        if (gpu_timing_enabled) {
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
+        }
+        if (Core::RendererResult photon_mapping = prepare_spectral_photon_mapping(
+                **encoder, slot, submission, spectral_photon_emission_needed, spectral_photon_signature);
+            !photon_mapping.has_value()) {
+            return photon_mapping;
+        }
+        if (gpu_timing_enabled) {
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
+            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
+                .label = "pre-graph: photon hash clear",
+                .begin_query_index = 2,
+                .end_query_index = 3,
+            });
         }
 
         vector<TextDrawBatch> text_overlay_batches;
@@ -1561,6 +1626,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.gbuffer_albedo_view,
             .format = submission.deferred_formats.albedo,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1571,6 +1638,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.gbuffer_normal_view,
             .format = submission.deferred_formats.normal,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1581,6 +1650,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.gbuffer_material_view,
             .format = submission.deferred_formats.material,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1592,7 +1663,7 @@ namespace SFT::Renderer {
             .format = submission.deferred_formats.emissive,
             .extent = frame_extent,
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
-                     RHI::TextureUsage::TransferSrc,
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1603,6 +1674,8 @@ namespace SFT::Renderer {
             .default_view = slot.deferred_targets.motion_view,
             .format = submission.deferred_formats.motion,
             .extent = frame_extent,
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1615,7 +1688,7 @@ namespace SFT::Renderer {
             .format = submission.deferred_formats.scene_color,
             .extent = frame_extent,
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
-                     RHI::TextureUsage::TransferSrc,
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc,
             .initial_layout = RHI::TextureLayout::Undefined,
             .initial_stage = RHI::PipelineStage::None,
             .initial_access = RHI::AccessFlags::None,
@@ -1634,6 +1707,72 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::DepthStencilAttachmentWrite,
             .label = "deferred depth",
         });
+        const RenderGraphTextureHandle spectral_effect = graph.create_texture(RenderGraphTextureDesc{
+            .format = RHI::Format::RGBA16Float,
+            .extent = frame_extent,
+            .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::Storage,
+            .label = "spectral hybrid effect",
+        });
+        const RenderGraphTextureHandle spectral_primary_depth = graph.create_texture(RenderGraphTextureDesc{
+            .format = RHI::Format::R32Float,
+            .extent = frame_extent,
+            .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::Storage,
+            .label = "spectral primary depth",
+        });
+        RenderGraphTextureHandle spectral_accumulation{};
+        if (full_path_tracing) {
+            const bool history_initialized = record.spectral_accumulation.initialized;
+            spectral_accumulation = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = record.spectral_accumulation.texture,
+                .default_view = record.spectral_accumulation.view,
+                .format = RHI::Format::RGBA32Float,
+                .extent = frame_extent,
+                .usage = RHI::TextureUsage::Storage,
+                .initial_layout = history_initialized
+                    ? RHI::TextureLayout::General : RHI::TextureLayout::Undefined,
+                .initial_stage = history_initialized
+                    ? RHI::PipelineStage::ComputeShader : RHI::PipelineStage::None,
+                .initial_access = history_initialized
+                    ? RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite : RHI::AccessFlags::None,
+                .final_layout = RHI::TextureLayout::General,
+                .final_stage = RHI::PipelineStage::ComputeShader,
+                .final_access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
+                .label = "spectral temporal accumulation",
+            });
+        }
+        RenderGraphBufferHandle spectral_photons{};
+        RenderGraphBufferHandle spectral_photon_count{};
+        RenderGraphBufferHandle spectral_photon_hash_heads{};
+        if (spectral_photon_mapping) {
+            spectral_photons = graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = slot.spectral_photon_targets.photons,
+                .size = static_cast<u64>(slot.spectral_photon_targets.photon_capacity) * 48u,
+                .label = "spectral caustic photons",
+            });
+            // Transfer/TransferWrite only holds when prepare_spectral_photon_mapping actually issued
+            // this frame's fill_buffer clears (spectral_photon_emission_needed) — on a skipped frame
+            // nothing touches these buffers before the graph runs, same as the photons buffer above,
+            // and the ring-buffered FrameInFlight fence wait already makes last emission's writes
+            // visible without an additional barrier here.
+            spectral_photon_count = graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = slot.spectral_photon_targets.valid_count,
+                .size = sizeof(u32),
+                .initial_stage = spectral_photon_emission_needed
+                    ? RHI::PipelineStage::Transfer : RHI::PipelineStage::None,
+                .initial_access = spectral_photon_emission_needed
+                    ? RHI::AccessFlags::TransferWrite : RHI::AccessFlags::None,
+                .label = "spectral caustic photon count",
+            });
+            spectral_photon_hash_heads = graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = slot.spectral_photon_targets.hash_heads,
+                .size = static_cast<u64>(slot.spectral_photon_targets.hash_capacity) * sizeof(u32),
+                .initial_stage = spectral_photon_emission_needed
+                    ? RHI::PipelineStage::Transfer : RHI::PipelineStage::None,
+                .initial_access = spectral_photon_emission_needed
+                    ? RHI::AccessFlags::TransferWrite : RHI::AccessFlags::None,
+                .label = "spectral caustic photon hash heads",
+            });
+        }
         RHI::TextureHandle hiz_pyramid_gpu_texture{};
         RHI::TextureViewHandle hiz_pyramid_full_view{};
         Core::Extent2D hiz_pyramid_extent{};
@@ -1792,7 +1931,7 @@ namespace SFT::Renderer {
                 });
         }
 
-        if (submission.render_graph.render_scene) {
+        if (submission.render_graph.render_scene && !full_path_tracing) {
             if (shadow_frame.atlas_used) {
                 // Decided once, here, rather than inside the execute_ callback below: Vulkan's
                 // vkCmdBeginRendering must be told up front (VkRenderingInfo's
@@ -2122,7 +2261,180 @@ namespace SFT::Renderer {
             }
         }
 
-        if (submission.render_graph.render_scene) {
+        const SpectralRenderMode spectral_mode = submission.render_graph.spectral_path_tracing.mode;
+        const bool hybrid_spectral = submission.render_graph.render_scene &&
+                                     spectral_mode != SpectralRenderMode::RasterDeferred &&
+                                     spectral_mode != SpectralRenderMode::FullPathTracing;
+        if (hybrid_spectral) {
+            graph.add_compute_pass("hybrid spectral ray query")
+                .add_sampled_texture(gbuffer_albedo)
+                .add_sampled_texture(gbuffer_normal)
+                .add_sampled_texture(gbuffer_material)
+                .add_sampled_texture(gbuffer_emissive)
+                .add_sampled_texture(gbuffer_motion)
+                .add_sampled_texture(depth_texture)
+                .add_sampled_texture(transmittance_lut)
+                .add_sampled_texture(sky_view_lut)
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_effect})
+                .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
+                              gbuffer_material, gbuffer_emissive, gbuffer_motion, depth_texture,
+                              transmittance_lut, sky_view_lut,
+                              spectral_effect](RenderGraphComputeContext &context) -> Core::RendererResult {
+                    const RHI::TextureViewHandle output = context.texture(spectral_effect).default_view;
+                    return record_spectral_integrator(
+                        context.compute_pass(), slot, submission, render_extent,
+                        SpectralIntegratorViews{
+                            .raster_albedo = context.texture(gbuffer_albedo).default_view,
+                            .raster_normal = context.texture(gbuffer_normal).default_view,
+                            .raster_material = context.texture(gbuffer_material).default_view,
+                            .raster_emissive = context.texture(gbuffer_emissive).default_view,
+                            .raster_motion = context.texture(gbuffer_motion).default_view,
+                            .raster_depth = context.texture(depth_texture).default_view,
+                            .effect_output = output,
+                            .scene_color_output = output,
+                            .gbuffer_motion_output = output,
+                            .primary_depth_output = output,
+                            .accumulation_output = output,
+                            .transmittance_lut = context.texture(transmittance_lut).default_view,
+                            .sky_view_lut = context.texture(sky_view_lut).default_view,
+                            .atmosphere_constants = slot.atmosphere_targets.constants_buffer,
+                        }, false);
+                });
+        }
+
+        if (spectral_photon_emission_needed) {
+            graph.add_compute_pass("spectral photon emission")
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = spectral_photons,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderWrite,
+                    .read = false,
+                    .write = true,
+                })
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = spectral_photon_count,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
+                    .read = true,
+                    .write = true,
+                })
+                .set_execute([this, &slot, &submission](
+                                 RenderGraphComputeContext &context) -> Core::RendererResult {
+                    return record_spectral_photon_emission(context.compute_pass(), slot, submission);
+                });
+
+            graph.add_compute_pass("spectral photon spatial hash")
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = spectral_photons,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
+                    .read = true,
+                    .write = true,
+                })
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = spectral_photon_count,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderRead,
+                    .read = true,
+                    .write = false,
+                })
+                .add_buffer(RenderGraphBufferAccessDesc{
+                    .buffer = spectral_photon_hash_heads,
+                    .stages = RHI::PipelineStage::ComputeShader,
+                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
+                    .read = true,
+                    .write = true,
+                })
+                .set_execute([this, &slot, &submission](
+                                 RenderGraphComputeContext &context) -> Core::RendererResult {
+                    return record_spectral_photon_hash(context.compute_pass(), slot, submission);
+                });
+        }
+
+        if (submission.render_graph.render_scene && full_path_tracing) {
+            RenderGraphComputePassBuilder &full_path_pass = graph.add_compute_pass("full spectral path tracing");
+            full_path_pass
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_effect})
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = scene_color})
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = gbuffer_motion})
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_primary_depth})
+                .add_storage_texture(RenderGraphStorageTextureAccessDesc{
+                    .texture = spectral_accumulation,
+                    .read = true,
+                    .write = true,
+                })
+                .add_sampled_texture(transmittance_lut)
+                .add_sampled_texture(sky_view_lut);
+            if (spectral_photon_mapping) {
+                full_path_pass
+                    .add_buffer(RenderGraphBufferAccessDesc{
+                        .buffer = spectral_photons,
+                        .stages = RHI::PipelineStage::ComputeShader,
+                        .access = RHI::AccessFlags::ShaderRead,
+                        .read = true,
+                        .write = false,
+                    })
+                    .add_buffer(RenderGraphBufferAccessDesc{
+                        .buffer = spectral_photon_count,
+                        .stages = RHI::PipelineStage::ComputeShader,
+                        .access = RHI::AccessFlags::ShaderRead,
+                        .read = true,
+                        .write = false,
+                    })
+                    .add_buffer(RenderGraphBufferAccessDesc{
+                        .buffer = spectral_photon_hash_heads,
+                        .stages = RHI::PipelineStage::ComputeShader,
+                        .access = RHI::AccessFlags::ShaderRead,
+                        .read = true,
+                        .write = false,
+                    });
+            }
+            full_path_pass.set_execute([this, &submission, &slot, render_extent, spectral_effect, scene_color,
+                              gbuffer_motion, spectral_primary_depth, spectral_accumulation,
+                              transmittance_lut, sky_view_lut,
+                              spectral_accumulation_reset](
+                                 RenderGraphComputeContext &context) -> Core::RendererResult {
+                    const RHI::TextureViewHandle dummy = context.texture(spectral_effect).default_view;
+                    return record_spectral_integrator(
+                        context.compute_pass(), slot, submission, render_extent,
+                        SpectralIntegratorViews{
+                            .raster_albedo = dummy,
+                            .raster_normal = dummy,
+                            .raster_material = dummy,
+                            .raster_emissive = dummy,
+                            .raster_motion = dummy,
+                            .raster_depth = dummy,
+                            .effect_output = dummy,
+                            .scene_color_output = context.texture(scene_color).default_view,
+                            .gbuffer_motion_output = context.texture(gbuffer_motion).default_view,
+                            .primary_depth_output = context.texture(spectral_primary_depth).default_view,
+                            .accumulation_output = context.texture(spectral_accumulation).default_view,
+                            .transmittance_lut = context.texture(transmittance_lut).default_view,
+                            .sky_view_lut = context.texture(sky_view_lut).default_view,
+                            .atmosphere_constants = slot.atmosphere_targets.constants_buffer,
+                        }, spectral_accumulation_reset);
+                });
+
+            graph.add_render_pass("path traced depth commit")
+                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                    .texture = depth_texture,
+                    .depth_load_op = RHI::LoadOp::DontCare,
+                    .depth_store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = spectral_primary_depth})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
+                                             .width = render_extent.width, .height = render_extent.height})
+                .set_execute([this, &slot, spectral_primary_depth, render_extent](
+                                 RenderGraphContext &context) -> Core::RendererResult {
+                    return record_spectral_depth_commit(
+                        context.render_pass(), slot,
+                        context.texture(spectral_primary_depth).default_view, render_extent);
+                });
+        }
+
+        if (submission.render_graph.render_scene && !full_path_tracing) {
+            const RenderGraphTextureHandle lighting_spectral_effect = hybrid_spectral
+                ? spectral_effect : gbuffer_emissive;
             RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting");
             lighting_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = scene_color,
@@ -2134,6 +2446,7 @@ namespace SFT::Renderer {
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_emissive});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = lighting_spectral_effect});
             if (shadow_frame.atlas_used) {
                 lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
             }
@@ -2143,7 +2456,8 @@ namespace SFT::Renderer {
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
-                              gbuffer_material, gbuffer_emissive, depth_texture, shadow_atlas, &shadow_frame,
+                              gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
+                              shadow_atlas, &shadow_frame,
                               transmittance_lut, multi_scattering_lut, sky_view_lut](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
@@ -2165,6 +2479,7 @@ namespace SFT::Renderer {
                         context.texture(gbuffer_material).default_view,
                         context.texture(gbuffer_emissive).default_view,
                         context.texture(depth_texture).default_view,
+                        context.texture(lighting_spectral_effect).default_view,
                         atlas_view,
                         slot.shadow_targets.lighting_buffer,
                         context.texture(transmittance_lut).default_view,
@@ -2174,7 +2489,7 @@ namespace SFT::Renderer {
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
                 });
-        } else {
+        } else if (!submission.render_graph.render_scene) {
             // Overlay-only views still need a defined HDR source for gizmos and post-processing.
             graph.add_render_pass("scene background")
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
@@ -2343,7 +2658,6 @@ namespace SFT::Renderer {
             const f64 seconds = duration<f64>(steady_clock::now() - declare_graph_start).count();
             current_frame_cpu_stage_timings_ms.emplace_back("declare render graph", seconds * 1000.0);
         }
-        const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
         if (gpu_timing_enabled) {
             // compile() is pure-CPU and cheap (see its own doc comment) — calling it here just to
             // learn the pass count for query-set sizing, then letting execute() below recompile
@@ -2414,10 +2728,24 @@ namespace SFT::Renderer {
         slot.transient_textures = std::move(submission.retired_text_atlas_resources.textures);
         slot.transient_texture_views = std::move(submission.retired_text_atlas_resources.texture_views);
         graph.take_transient_resources(slot.transient_textures, slot.transient_texture_views);
-        slot.transient_bind_groups = std::move(submission.transient_bind_groups);
-        slot.transient_buffers = std::move(submission.transient_buffers);
-        slot.transient_render_bundles = std::move(submission.transient_render_bundles);
+        slot.transient_bind_groups.insert(slot.transient_bind_groups.end(),
+                                          submission.transient_bind_groups.begin(),
+                                          submission.transient_bind_groups.end());
+        slot.transient_buffers.insert(slot.transient_buffers.end(),
+                                      submission.transient_buffers.begin(),
+                                      submission.transient_buffers.end());
+        slot.transient_render_bundles.insert(slot.transient_render_bundles.end(),
+                                             submission.transient_render_bundles.begin(),
+                                             submission.transient_render_bundles.end());
+        submission.transient_bind_groups.clear();
+        submission.transient_buffers.clear();
+        submission.transient_render_bundles.clear();
         slot.submitted = true;
+        if (full_path_tracing) {
+            record.spectral_accumulation.initialized = true;
+            record.spectral_accumulation.state_signature = spectral_accumulation_signature;
+            record.spectral_accumulation.last_frame_index = frame.frame_index;
+        }
 
         if (offscreen_output) {
             mark_offscreen_render_target_initialized(submission.offscreen_target);
@@ -2521,6 +2849,7 @@ namespace SFT::Renderer {
 
         constexpr RHI::TextureUsage color_usage = RHI::TextureUsage::ColorAttachment |
                                                   RHI::TextureUsage::Sampled |
+                                                  RHI::TextureUsage::Storage |
                                                   RHI::TextureUsage::TransferSrc;
         auto albedo = create_target(formats.albedo, color_usage, "persistent deferred gbuffer albedo");
         if (!albedo) return unexpected(albedo.error());
@@ -2894,12 +3223,46 @@ namespace SFT::Renderer {
         slot.gpu_timing = {};
     }
 
+    Core::RendererResult Renderer::ensure_frame_pregraph_gpu_timing_target(FrameInFlight &slot) {
+        if (slot.pregraph_gpu_timing_query_set) {
+            return {};
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Renderer RHI device is unavailable.");
+        }
+        auto query_set = device->create_query_set(RHI::QuerySetDesc{
+            .type = RHI::QueryType::Timestamp,
+            .count = kPregraphGpuTimingQueryCount,
+            .label = "renderer pre-graph gpu pass timing",
+        });
+        if (!query_set) {
+            return unexpected(graphics_error_from_rhi(query_set.error(), "create pre-graph GPU pass timing query set"));
+        }
+        slot.pregraph_gpu_timing_query_set = *query_set;
+        return {};
+    }
+
+    void Renderer::destroy_frame_pregraph_gpu_timing_target(FrameInFlight &slot) noexcept {
+        if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.pregraph_gpu_timing_query_set) {
+            device->destroy_query_set(slot.pregraph_gpu_timing_query_set);
+        }
+        slot.pregraph_gpu_timing_query_set = {};
+        slot.pregraph_gpu_timing_pending.clear();
+    }
+
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             for (RHI::BindGroupHandle group : slot.transient_bind_groups) {
                 if (group) {
                     device->destroy_bind_group(group);
+                }
+            }
+            for (RHI::AccelerationStructureHandle acceleration_structure : slot.transient_acceleration_structures) {
+                if (acceleration_structure) {
+                    device->destroy_acceleration_structure(acceleration_structure);
                 }
             }
             for (RHI::BufferHandle buffer : slot.transient_buffers) {
@@ -2954,6 +3317,7 @@ namespace SFT::Renderer {
             }
         }
         slot.transient_bind_groups.clear();
+        slot.transient_acceleration_structures.clear();
         slot.transient_buffers.clear();
         slot.transient_render_bundles.clear();
         slot.transient_texture_views.clear();
@@ -2964,6 +3328,13 @@ namespace SFT::Renderer {
             slot.retired_swapchains.clear();
         }
         slot.command_buffers.clear();
+        slot.spectral_tlas = {};
+        slot.spectral_scene_instances = {};
+        slot.spectral_materials = {};
+        slot.spectral_material_textures.clear();
+        slot.spectral_frame_constants = {};
+        slot.spectral_photon_constants = {};
+        slot.spectral_scene_bounds = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
     }
 
     void Renderer::drain_frames_in_flight(WindowSurfaceRecord &record) noexcept {
@@ -3025,6 +3396,8 @@ namespace SFT::Renderer {
                 destroy_frame_shadow_targets(slot);
                 destroy_frame_atmosphere_targets(slot);
                 destroy_frame_gpu_timing_target(slot);
+                destroy_frame_pregraph_gpu_timing_target(slot);
+                destroy_frame_spectral_photon_targets(slot);
                 destroy_frame_deferred_targets(slot);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);
@@ -3033,6 +3406,7 @@ namespace SFT::Renderer {
                 slot.submitted = false;
             }
             record.frames_in_flight.clear();
+            destroy_spectral_accumulation_target(record);
             if (record.depth_view) {
                 device->destroy_texture_view(record.depth_view);
             }
