@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Types.hpp>
+
 #include <compare>
 #include <concepts>
 #include <fmt/base.h>

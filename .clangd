@@ -16,6 +16,10 @@ CompileFlags:
   # Compilation database for the active arch/OS/profile view (relative to repo root).
   # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.
   CompilationDatabase: build/x86-64/linux/dist
+  # Keep project-qualified includes resolvable even when clangd infers a header command from an
+  # unrelated third-party source with the same basename (for example Constants.hpp/constants.cpp).
+  Add:
+    - -I/mnt/E/Projects/SturdyEngine5
   # clangd builds and manages its own module BMIs. Strip the build system's BMI
   # wiring so clangd never (a) tries to load CMake's .pcm files, which are not
   # interchangeable with clangd's and make it crash on load, or (b) writes its
@@ -32,6 +36,12 @@ CompileFlags:
     - -fdeps-target=*
     - -fdeps-format=*
     - -fmodule-mapper=*
+
+Diagnostics:
+  # Umbrella headers intentionally re-export package APIs; clangd's include-cleaner cannot
+  # distinguish those from accidental unused includes. Keep compiler/clang-tidy diagnostics,
+  # but disable only the include-cleaner warning layer.
+  UnusedIncludes: None
 
 ---
 # C++23 fallback for C++ sources that have no compile_commands.json entry.

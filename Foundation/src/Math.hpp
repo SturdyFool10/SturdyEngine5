@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Foundation/src/Constants.hpp>
+#include <Foundation/src/NumericConcepts.hpp>
+
 #include <bit>
 #include <cmath>
 #include <concepts>

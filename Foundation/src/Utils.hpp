@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Types.hpp>
+
 #include <chrono>
 #include <cmath>
 #include <filesystem>

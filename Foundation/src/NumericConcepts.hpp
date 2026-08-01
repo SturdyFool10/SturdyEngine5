@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Foundation/src/Concepts.hpp>
+#include <Foundation/src/Wide.hpp>
+
 #include <concepts>
 
 

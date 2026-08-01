@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Concepts.hpp>
+
 #include <algorithm>
 #include <concepts>
 #include <functional>

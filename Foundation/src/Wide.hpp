@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Types.hpp>
+
 #include <cmath>
 #include <compare>
 #include <concepts>

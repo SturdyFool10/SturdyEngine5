@@ -66,8 +66,15 @@ sturdy_preset_name("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY
 sturdy_binary_dir("${STURDY_ARCH}" "${STURDY_OS}" "${STURDY_PROFILE}" "${STURDY_COMPILER}" _compilation_database)
 
 message(STATUS "Configuring ${STURDY_ARCH} ${STURDY_OS} ${STURDY_PROFILE} (${STURDY_COMPILER}) clangd view via preset '${_preset}'")
+# A clangd view should cover every source package available for the selected platform, not only the
+# minimal shipping defaults. Optional targets remain dead-strippable in products, but enabling them
+# here gives their translation units exact compile commands instead of unrelated inferred commands.
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --preset "${_preset}"
+        -DBUILD_TESTING=ON
+        -DSTURDY_BUILD_RUNTIME_DEMO=ON
+        -DSTURDY_BUILD_GLFW_WINDOW_PROVIDER=ON
+        -DSTURDY_FETCH_SAMPLE_ASSETS=OFF
     WORKING_DIRECTORY "${_root_dir}"
     RESULT_VARIABLE _configure_result
 )
@@ -94,6 +101,10 @@ file(APPEND "${_clangd_path}" "CompileFlags:\n")
 file(APPEND "${_clangd_path}" "  # Compilation database for the active arch/OS/profile view (relative to repo root).\n")
 file(APPEND "${_clangd_path}" "  # CompilationDatabase is a CompileFlags sub-key; a top-level key is ignored.\n")
 file(APPEND "${_clangd_path}" "  CompilationDatabase: ${_compilation_database}\n")
+file(APPEND "${_clangd_path}" "  # Keep project-qualified includes resolvable even when clangd infers a header command from an\n")
+file(APPEND "${_clangd_path}" "  # unrelated third-party source with the same basename (for example Constants.hpp/constants.cpp).\n")
+file(APPEND "${_clangd_path}" "  Add:\n")
+file(APPEND "${_clangd_path}" "    - -I${_root_dir}\n")
 file(APPEND "${_clangd_path}" "  # clangd builds and manages its own module BMIs. Strip the build system's BMI\n")
 file(APPEND "${_clangd_path}" "  # wiring so clangd never (a) tries to load CMake's .pcm files, which are not\n")
 file(APPEND "${_clangd_path}" "  # interchangeable with clangd's and make it crash on load, or (b) writes its\n")
@@ -110,6 +121,12 @@ file(APPEND "${_clangd_path}" "    - -fdeps-file=*\n")
 file(APPEND "${_clangd_path}" "    - -fdeps-target=*\n")
 file(APPEND "${_clangd_path}" "    - -fdeps-format=*\n")
 file(APPEND "${_clangd_path}" "    - -fmodule-mapper=*\n")
+file(APPEND "${_clangd_path}" "\n")
+file(APPEND "${_clangd_path}" "Diagnostics:\n")
+file(APPEND "${_clangd_path}" "  # Umbrella headers intentionally re-export package APIs; clangd's include-cleaner cannot\n")
+file(APPEND "${_clangd_path}" "  # distinguish those from accidental unused includes. Keep compiler/clang-tidy diagnostics,\n")
+file(APPEND "${_clangd_path}" "  # but disable only the include-cleaner warning layer.\n")
+file(APPEND "${_clangd_path}" "  UnusedIncludes: None\n")
 file(APPEND "${_clangd_path}" "\n")
 file(APPEND "${_clangd_path}" "---\n")
 file(APPEND "${_clangd_path}" "# C++23 fallback for C++ sources that have no compile_commands.json entry.\n")

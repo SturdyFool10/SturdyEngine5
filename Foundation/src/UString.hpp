@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Foundation/src/Concepts.hpp>
+#include <Foundation/src/Types.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cassert>

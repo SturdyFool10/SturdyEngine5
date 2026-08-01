@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Wide.hpp>
+
 #include <concepts>
 
 

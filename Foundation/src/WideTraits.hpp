@@ -2,6 +2,8 @@
 
 #define _SILENCE_CXX23_DENORM_DEPRECATION_WARNING
 
+#include <Foundation/src/Wide.hpp>
+
 #include <cmath>
 #include <format>
 #include <functional>
