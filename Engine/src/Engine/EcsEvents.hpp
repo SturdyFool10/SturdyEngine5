@@ -8,6 +8,8 @@
 
 namespace SFT::Engine {
 
+    using KeyboardKey = Platform::Windowing::KeyboardKey;
+
     enum class ButtonAction : u8 {
         Pressed,
         Released,
@@ -25,6 +27,7 @@ namespace SFT::Engine {
         i32 key = 0;
         i32 scancode = 0;
         u32 modifiers = 0;
+        KeyboardKey key_code = KeyboardKey::Unknown;
         ButtonAction action = ButtonAction::Pressed;
         bool repeat = false;
 

@@ -103,6 +103,7 @@ namespace SFT::Engine {
                                 .key = event.keyboard.key,
                                 .scancode = event.keyboard.scancode,
                                 .modifiers = event.keyboard.modifiers,
+                                .key_code = event.keyboard.key_code,
                                 .action = event.kind == Platform::Windowing::WindowEventKind::KeyPressed
                                               ? ButtonAction::Pressed
                                               : ButtonAction::Released,

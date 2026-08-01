@@ -41,6 +41,45 @@ namespace SFT::Platform::Windowing::GLFW {
 
     namespace {
 
+        [[nodiscard]] KeyboardKey keyboard_key(int key) noexcept {
+            const KeyboardKey ascii_key = keyboard_key_from_ascii(key);
+            if (ascii_key != KeyboardKey::Unknown) {
+                return ascii_key;
+            }
+
+            switch (key) {
+                case GLFW_KEY_ESCAPE: return KeyboardKey::Escape;
+                case GLFW_KEY_ENTER: return KeyboardKey::Enter;
+                case GLFW_KEY_TAB: return KeyboardKey::Tab;
+                case GLFW_KEY_BACKSPACE: return KeyboardKey::Backspace;
+                case GLFW_KEY_INSERT: return KeyboardKey::Insert;
+                case GLFW_KEY_DELETE: return KeyboardKey::Delete;
+                case GLFW_KEY_RIGHT: return KeyboardKey::Right;
+                case GLFW_KEY_LEFT: return KeyboardKey::Left;
+                case GLFW_KEY_DOWN: return KeyboardKey::Down;
+                case GLFW_KEY_UP: return KeyboardKey::Up;
+                case GLFW_KEY_PAGE_UP: return KeyboardKey::PageUp;
+                case GLFW_KEY_PAGE_DOWN: return KeyboardKey::PageDown;
+                case GLFW_KEY_HOME: return KeyboardKey::Home;
+                case GLFW_KEY_END: return KeyboardKey::End;
+                case GLFW_KEY_CAPS_LOCK: return KeyboardKey::CapsLock;
+                case GLFW_KEY_SCROLL_LOCK: return KeyboardKey::ScrollLock;
+                case GLFW_KEY_NUM_LOCK: return KeyboardKey::NumLock;
+                case GLFW_KEY_PRINT_SCREEN: return KeyboardKey::PrintScreen;
+                case GLFW_KEY_PAUSE: return KeyboardKey::Pause;
+                case GLFW_KEY_LEFT_SHIFT: return KeyboardKey::LeftShift;
+                case GLFW_KEY_LEFT_CONTROL: return KeyboardKey::LeftControl;
+                case GLFW_KEY_LEFT_ALT: return KeyboardKey::LeftAlt;
+                case GLFW_KEY_LEFT_SUPER: return KeyboardKey::LeftSuper;
+                case GLFW_KEY_RIGHT_SHIFT: return KeyboardKey::RightShift;
+                case GLFW_KEY_RIGHT_CONTROL: return KeyboardKey::RightControl;
+                case GLFW_KEY_RIGHT_ALT: return KeyboardKey::RightAlt;
+                case GLFW_KEY_RIGHT_SUPER: return KeyboardKey::RightSuper;
+                case GLFW_KEY_MENU: return KeyboardKey::Menu;
+                default: return KeyboardKey::Unknown;
+            }
+        }
+
         WindowError glfw_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *description = nullptr;
             glfwGetError(&description);
@@ -223,10 +262,11 @@ namespace SFT::Platform::Windowing::GLFW {
             WindowEvent event{action == GLFW_RELEASE ? WindowEventKind::KeyReleased
                                                      : WindowEventKind::KeyPressed};
             event.keyboard = WindowKeyboardEvent{
-                key,
-                scancode,
-                static_cast<u32>(mods),
-                action == GLFW_REPEAT,
+                .key = key,
+                .scancode = scancode,
+                .modifiers = static_cast<u32>(mods),
+                .repeat = action == GLFW_REPEAT,
+                .key_code = keyboard_key(key),
             };
             target->events_.push_back(event);
         }

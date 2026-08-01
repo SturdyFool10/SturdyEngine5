@@ -11,42 +11,38 @@ namespace SFT::KeyboardTester {
 
     namespace {
 
-        // Raw keycodes here are SDL's — the same "lowercase ASCII for a letter's unshifted
-        // identity" convention RuntimeDemoGameLogic's own keyboard systems rely on (event.key ==
-        // '['), which is why this table can stay platform-header-free. -1 marks a purely decorative
-        // slot (Caps Lock, Shift): SDL's modifier keycodes live outside the ASCII range this table
-        // otherwise uses, so those keys are drawn but can never match a real KeyboardEvent.
+        // KeyboardKey is normalized by every window provider, so the same layout handles ordinary
+        // and modifier keys without depending on SDL/GLFW constants.
         struct KeyLayoutSlot {
-            i32 key;
+            Engine::KeyboardKey key;
             f32 width_units;
             u32 row;
         };
 
-        constexpr i32 kBackspace = 8;
-        constexpr i32 kTab = 9;
-        constexpr i32 kEnter = 13;
-        constexpr i32 kSpace = 32;
-        constexpr i32 kDecorative = -1;
+        using enum Engine::KeyboardKey;
 
-        constexpr std::array<KeyLayoutSlot, 54> kLayout{{
+        constexpr std::array<KeyLayoutSlot, 61> kLayout{{
             // Row 0: number row.
-            {'`', 1.0f, 0}, {'1', 1.0f, 0}, {'2', 1.0f, 0}, {'3', 1.0f, 0}, {'4', 1.0f, 0},
-            {'5', 1.0f, 0}, {'6', 1.0f, 0}, {'7', 1.0f, 0}, {'8', 1.0f, 0}, {'9', 1.0f, 0},
-            {'0', 1.0f, 0}, {'-', 1.0f, 0}, {'=', 1.0f, 0}, {kBackspace, 2.0f, 0},
+            {GraveAccent, 1.0f, 0}, {Digit1, 1.0f, 0}, {Digit2, 1.0f, 0}, {Digit3, 1.0f, 0},
+            {Digit4, 1.0f, 0}, {Digit5, 1.0f, 0}, {Digit6, 1.0f, 0}, {Digit7, 1.0f, 0},
+            {Digit8, 1.0f, 0}, {Digit9, 1.0f, 0}, {Digit0, 1.0f, 0}, {Minus, 1.0f, 0},
+            {Equal, 1.0f, 0}, {Backspace, 2.0f, 0},
             // Row 1: qwerty row.
-            {kTab, 1.5f, 1}, {'q', 1.0f, 1}, {'w', 1.0f, 1}, {'e', 1.0f, 1}, {'r', 1.0f, 1},
-            {'t', 1.0f, 1}, {'y', 1.0f, 1}, {'u', 1.0f, 1}, {'i', 1.0f, 1}, {'o', 1.0f, 1},
-            {'p', 1.0f, 1}, {'[', 1.0f, 1}, {']', 1.0f, 1}, {'\\', 1.5f, 1},
+            {Tab, 1.5f, 1}, {Q, 1.0f, 1}, {W, 1.0f, 1}, {E, 1.0f, 1}, {R, 1.0f, 1},
+            {T, 1.0f, 1}, {Y, 1.0f, 1}, {U, 1.0f, 1}, {I, 1.0f, 1}, {O, 1.0f, 1},
+            {P, 1.0f, 1}, {LeftBracket, 1.0f, 1}, {RightBracket, 1.0f, 1}, {Backslash, 1.5f, 1},
             // Row 2: home row.
-            {kDecorative, 1.75f, 2}, {'a', 1.0f, 2}, {'s', 1.0f, 2}, {'d', 1.0f, 2}, {'f', 1.0f, 2},
-            {'g', 1.0f, 2}, {'h', 1.0f, 2}, {'j', 1.0f, 2}, {'k', 1.0f, 2}, {'l', 1.0f, 2},
-            {';', 1.0f, 2}, {'\'', 1.0f, 2}, {kEnter, 2.25f, 2},
+            {CapsLock, 1.75f, 2}, {A, 1.0f, 2}, {S, 1.0f, 2}, {D, 1.0f, 2}, {F, 1.0f, 2},
+            {G, 1.0f, 2}, {H, 1.0f, 2}, {J, 1.0f, 2}, {K, 1.0f, 2}, {L, 1.0f, 2},
+            {Semicolon, 1.0f, 2}, {Apostrophe, 1.0f, 2}, {Enter, 2.25f, 2},
             // Row 3: bottom letter row.
-            {kDecorative, 2.25f, 3}, {'z', 1.0f, 3}, {'x', 1.0f, 3}, {'c', 1.0f, 3}, {'v', 1.0f, 3},
-            {'b', 1.0f, 3}, {'n', 1.0f, 3}, {'m', 1.0f, 3}, {',', 1.0f, 3}, {'.', 1.0f, 3},
-            {'/', 1.0f, 3}, {kDecorative, 2.25f, 3},
-            // Row 4: space row.
-            {kSpace, 6.25f, 4},
+            {LeftShift, 2.25f, 3}, {Z, 1.0f, 3}, {X, 1.0f, 3}, {C, 1.0f, 3}, {V, 1.0f, 3},
+            {B, 1.0f, 3}, {N, 1.0f, 3}, {M, 1.0f, 3}, {Comma, 1.0f, 3}, {Period, 1.0f, 3},
+            {Slash, 1.0f, 3}, {RightShift, 2.25f, 3},
+            // Row 4: modifier and space row.
+            {LeftControl, 1.25f, 4}, {LeftSuper, 1.25f, 4}, {LeftAlt, 1.25f, 4},
+            {Space, 6.25f, 4}, {RightAlt, 1.25f, 4}, {RightSuper, 1.25f, 4},
+            {Menu, 1.25f, 4}, {RightControl, 1.25f, 4},
         }};
 
         constexpr f32 kUnitSize = 0.9f;
@@ -191,7 +187,7 @@ namespace SFT::KeyboardTester {
                Ecs::EventReader<Engine::KeyboardEvent> keyboard) noexcept {
                 for (const Engine::KeyboardEvent &event : keyboard.read()) {
                     for (usize i = 0; i < kLayout.size(); ++i) {
-                        if (kLayout[i].key == event.key && kLayout[i].key != kDecorative) {
+                        if (kLayout[i].key == event.key_code) {
                             state->pressed[i] = event.pressed();
                         }
                     }

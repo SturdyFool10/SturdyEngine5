@@ -37,6 +37,44 @@ using std::vector;
 namespace SFT::Platform::Windowing::SDL3 {
     namespace {
 
+        [[nodiscard]] KeyboardKey keyboard_key(SDL_Keycode key) noexcept {
+            const KeyboardKey ascii_key = keyboard_key_from_ascii(static_cast<i32>(key));
+            if (ascii_key != KeyboardKey::Unknown) {
+                return ascii_key;
+            }
+
+            switch (key) {
+                case SDLK_ESCAPE: return KeyboardKey::Escape;
+                case SDLK_INSERT: return KeyboardKey::Insert;
+                case SDLK_DELETE: return KeyboardKey::Delete;
+                case SDLK_RIGHT: return KeyboardKey::Right;
+                case SDLK_LEFT: return KeyboardKey::Left;
+                case SDLK_DOWN: return KeyboardKey::Down;
+                case SDLK_UP: return KeyboardKey::Up;
+                case SDLK_PAGEUP: return KeyboardKey::PageUp;
+                case SDLK_PAGEDOWN: return KeyboardKey::PageDown;
+                case SDLK_HOME: return KeyboardKey::Home;
+                case SDLK_END: return KeyboardKey::End;
+                case SDLK_CAPSLOCK: return KeyboardKey::CapsLock;
+                case SDLK_SCROLLLOCK: return KeyboardKey::ScrollLock;
+                case SDLK_NUMLOCKCLEAR: return KeyboardKey::NumLock;
+                case SDLK_PRINTSCREEN: return KeyboardKey::PrintScreen;
+                case SDLK_PAUSE: return KeyboardKey::Pause;
+                case SDLK_LSHIFT: return KeyboardKey::LeftShift;
+                case SDLK_LCTRL: return KeyboardKey::LeftControl;
+                case SDLK_LALT: return KeyboardKey::LeftAlt;
+                case SDLK_LGUI: return KeyboardKey::LeftSuper;
+                case SDLK_RSHIFT: return KeyboardKey::RightShift;
+                case SDLK_RCTRL: return KeyboardKey::RightControl;
+                case SDLK_RALT: return KeyboardKey::RightAlt;
+                case SDLK_RGUI: return KeyboardKey::RightSuper;
+                case SDLK_MENU:
+                case SDLK_APPLICATION:
+                    return KeyboardKey::Menu;
+                default: return KeyboardKey::Unknown;
+            }
+        }
+
         WindowError sdl_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *message = SDL_GetError();
             return WindowError{code, message && message[0] != '\0' ? message : fallback};
@@ -445,10 +483,11 @@ namespace SFT::Platform::Windowing::SDL3 {
                 if (auto found = sdl_window_registry().find(event.key.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{event.type == SDL_EVENT_KEY_DOWN ? WindowEventKind::KeyPressed : WindowEventKind::KeyReleased};
                     window_event.keyboard = WindowKeyboardEvent{
-                        static_cast<i32>(event.key.key),
-                        static_cast<i32>(event.key.scancode),
-                        static_cast<u32>(event.key.mod),
-                        event.key.repeat,
+                        .key = static_cast<i32>(event.key.key),
+                        .scancode = static_cast<i32>(event.key.scancode),
+                        .modifiers = static_cast<u32>(event.key.mod),
+                        .repeat = event.key.repeat,
+                        .key_code = keyboard_key(event.key.key),
                     };
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;

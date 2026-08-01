@@ -2,6 +2,7 @@
 
 #include <Foundation/src/Foundation.hpp>
 
+#include <Platform/Window/Keyboard.hpp>
 #include <Platform/Window/WindowGeometry.hpp>
 
 namespace SFT::Platform::Windowing {
@@ -34,10 +35,15 @@ namespace SFT::Platform::Windowing {
     };
 
     struct WindowKeyboardEvent {
+        // Lossless provider-native values remain available for backend-specific integrations.
         i32 key = 0;
         i32 scancode = 0;
         u32 modifiers = 0;
         bool repeat = false;
+
+        // Stable identity shared by every window provider. Unlike modifiers, this identifies the
+        // modifier key that generated an event, including its left/right side.
+        KeyboardKey key_code = KeyboardKey::Unknown;
     };
 
     struct WindowTextInputEvent {
