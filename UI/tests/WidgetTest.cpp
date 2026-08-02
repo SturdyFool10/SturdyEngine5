@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <utility>
 
 namespace {
@@ -231,6 +232,136 @@ namespace {
         assert(after->position.y < before->position.y - 1.0f);
     }
 
+    // Regression test for a real bug: FloatingConfig had no way to express Clay's own
+    // Clay_FloatingClipToElement (clay.h) at all — ContextImpl.cpp hardcoded CLAY_CLIP_TO_NONE, so
+    // every floating element (a dropdown's arrow, a slider's thumb, a color picker's cursor, ...)
+    // silently ignored any ancestor scroll container's clip rect and painted over content that
+    // should have hidden it. FloatingClipTo::AttachedParent (Style.hpp) now threads through to
+    // Clay's own attached-parent clipping — this proves the plumbing actually reaches a real
+    // scissor rect on the resulting draw command, not just that it compiles.
+    void floating_attached_parent_clips_to_ancestor() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        const UString clip_box_id{"clip-box"};
+        const UString floater_id{"floater"};
+
+        context.begin_layout({200.0f, 200.0f});
+        {
+            // A 50x50 clip container at the layout origin (the first, only element declared this
+            // frame) — its committed bounding box is therefore exactly {0, 0, 50, 50}.
+            auto box = context.element(ElementDecl{
+                .sizing = {SizingAxis::fixed(50.0f), SizingAxis::fixed(50.0f)},
+                .clip = {.vertical = true},
+                .id = clip_box_id,
+            });
+            (void)box;
+            // Offset it far outside the 50x50 box (and even the 200x200 viewport) — with clipping
+            // respected, none of that geometry should survive into the emitted scissor rect.
+            auto floater = context.element(ElementDecl{
+                .sizing = {SizingAxis::fixed(20.0f), SizingAxis::fixed(20.0f)},
+                .background_color = Color{1.0, 1.0, 1.0, 1.0},
+                .floating = FloatingConfig{
+                    .attach_to = FloatingAttachTo::Parent,
+                    .element_attach_point = FloatingAttachPoint::LeftTop,
+                    .parent_attach_point = FloatingAttachPoint::LeftTop,
+                    .offset = {0.0f, 300.0f},
+                    .clip_to = FloatingClipTo::AttachedParent,
+                },
+                .id = floater_id,
+            });
+            (void)floater;
+        }
+        FrameSnapshot snapshot = context.finish_frame();
+
+        const QuadDraw *floater_quad = nullptr;
+        for (const QuadDraw &quad : snapshot.quads()) {
+            // The clip box itself never emits a RECTANGLE command (fully transparent background,
+            // per Clay's own "backgroundColor.a > 0" gate) — the floater's 20x20 white quad is the
+            // only draw command this scene produces, so size alone identifies it unambiguously.
+            if (near(quad.instance.size.x, 20.0) && near(quad.instance.size.y, 20.0)) {
+                floater_quad = &quad;
+            }
+        }
+        assert(floater_quad != nullptr);
+        // The floater's own bounding box sits far outside {0, 0, 50, 50}, so a correctly clipped
+        // scissor rect must equal the clip box's bounds exactly, not the full 200x200 viewport.
+        assert(floater_quad->scissor.x == 0);
+        assert(floater_quad->scissor.y == 0);
+        assert(floater_quad->scissor.width == 50);
+        assert(floater_quad->scissor.height == 50);
+    }
+
+    // Regression test for a real bug: Context::clicked() reimplemented its own raw AABB-vs-point
+    // test against element_bounds() (Clay's *unclipped* layout box) instead of reusing hovered()'s
+    // Clay_PointerOver(), so it ignored both scissor clipping and layer/z ordering entirely — a
+    // press landing inside an element's *layout* box registered as a click even when that element
+    // was actually clipped away by an ancestor scroll container at that exact point. Confirms two
+    // things in one scene: a press inside a clip box's visible window still clicks a floater sitting
+    // there (no false negative from the fix), and a press inside a *different* floater's raw bounds,
+    // but outside the clip box entirely, does not (the bug this test guards against).
+    void clicked_respects_ancestor_clip() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        const UString clip_box_id{"click-clip-box"};
+        const UString visible_floater_id{"click-floater-visible"};
+        const UString hidden_floater_id{"click-floater-hidden"};
+
+        const auto build = [&](const PointerState &pointer) {
+            context.begin_layout({200.0f, 200.0f}, pointer);
+            {
+                // A 50x50 clip container at the layout origin — its committed bounding box is
+                // exactly {0, 0, 50, 50}.
+                auto box = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(50.0f), SizingAxis::fixed(50.0f)},
+                    .clip = {.vertical = true},
+                    .id = clip_box_id,
+                });
+                (void)box;
+                // Inside the clip box's visible window: {10, 10}-{30, 30}.
+                auto visible = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(20.0f), SizingAxis::fixed(20.0f)},
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Parent,
+                        .element_attach_point = FloatingAttachPoint::LeftTop,
+                        .parent_attach_point = FloatingAttachPoint::LeftTop,
+                        .offset = {10.0f, 10.0f},
+                        .clip_to = FloatingClipTo::AttachedParent,
+                    },
+                    .id = visible_floater_id,
+                });
+                (void)visible;
+                // Far below the clip box's own bounds, but still a perfectly valid layout box in
+                // its own right (and still inside the 200x200 viewport) — only the clip should be
+                // what excludes it.
+                auto hidden = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(20.0f), SizingAxis::fixed(20.0f)},
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Parent,
+                        .element_attach_point = FloatingAttachPoint::LeftTop,
+                        .parent_attach_point = FloatingAttachPoint::LeftTop,
+                        .offset = {0.0f, 100.0f},
+                        .clip_to = FloatingClipTo::AttachedParent,
+                    },
+                    .id = hidden_floater_id,
+                });
+                (void)hidden;
+            }
+            (void)context.finish_frame();
+        };
+
+        build(PointerState{});
+
+        const glm::vec2 visible_press{20.0f, 20.0f};
+        build(PointerState{.position = visible_press, .pressed = true, .press_position = visible_press});
+        assert(context.clicked(visible_floater_id));
+
+        build(PointerState{});
+
+        const glm::vec2 hidden_press{10.0f, 110.0f};
+        build(PointerState{.position = hidden_press, .pressed = true, .press_position = hidden_press});
+        assert(!context.clicked(hidden_floater_id));
+    }
+
 } // namespace
 
 int main() {
@@ -238,5 +369,12 @@ int main() {
     color_picker_preserves_achromatic_hue();
     color_picker_selects_foundation_color_space();
     scroll_container_moves_child_offset();
+    floating_attached_parent_clips_to_ancestor();
+    clicked_respects_ancestor_clip();
+    // Every check above is a bare assert() — a failure never reaches this line (libc's assert
+    // aborts with its own file:line diagnostic first). Printing on the success path is the only
+    // way a "Run" task (.zed/tasks.json) shows any visible sign it did something, rather than
+    // exiting 0 with a blank terminal that looks indistinguishable from not having run at all.
+    std::printf("UIWidgetTest: all checks passed.\n");
     return 0;
 }

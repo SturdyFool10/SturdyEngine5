@@ -276,6 +276,9 @@ namespace SFT::UI {
                                   ? glm::vec2{thumb_size * 0.5f + static_cast<f32>(screen_fraction) * travel, 0.0f}
                                   : glm::vec2{0.0f, thumb_size * 0.5f + static_cast<f32>(screen_fraction) * travel},
                     .capture_pointer = false,
+                    // A tick mark is part of the track's own body, not a popover — clip it with
+                    // whatever ancestor (e.g. a scrollable panel) clips the track itself.
+                    .clip_to = FloatingClipTo::AttachedParent,
                 },
             };
             auto scope = ctx.element(mark);
@@ -525,6 +528,10 @@ namespace SFT::UI {
                                 .parent_attach_point = FloatingAttachPoint::LeftCenter,
                                 .offset = {-8.0f, 0.0f},
                                 .capture_pointer = false,
+                                // Unlike Tooltip below, this is a persistent value readout glued to
+                                // the slider's own body, not a transient popover — clip it with
+                                // whatever ancestor clips the slider itself.
+                                .clip_to = FloatingClipTo::AttachedParent,
                             },
                         },
                         label_context);
@@ -584,6 +591,9 @@ namespace SFT::UI {
                                               ? glm::vec2{config.reversed ? -thumb_size * 0.5f : thumb_size * 0.5f, 0.0f}
                                               : glm::vec2{0.0f, config.reversed ? thumb_size * 0.5f : -thumb_size * 0.5f},
                                 .capture_pointer = false,
+                                // The filled portion is part of the track's own body — clip it with
+                                // whatever ancestor clips the track.
+                                .clip_to = FloatingClipTo::AttachedParent,
                             },
                         },
                         fill_context);
@@ -626,6 +636,9 @@ namespace SFT::UI {
                                 .parent_attach_point = horizontal ? FloatingAttachPoint::LeftCenter : FloatingAttachPoint::CenterTop,
                                 .offset = offset,
                                 .capture_pointer = false,
+                                // Part of the track's own body — clip with whatever ancestor clips
+                                // the track.
+                                .clip_to = FloatingClipTo::AttachedParent,
                             },
                         },
                         marker_context);
@@ -655,6 +668,9 @@ namespace SFT::UI {
                                     .parent_attach_point = horizontal ? FloatingAttachPoint::LeftCenter : FloatingAttachPoint::CenterTop,
                                     .offset = label_offset,
                                     .capture_pointer = false,
+                                    // A tick's own annotation — part of the track's body, not a
+                                    // popover — clip with whatever ancestor clips the track.
+                                    .clip_to = FloatingClipTo::AttachedParent,
                                 },
                             },
                             label_context);
@@ -700,6 +716,10 @@ namespace SFT::UI {
                                 .offset = horizontal
                                               ? glm::vec2{thumb_size * 0.5f + static_cast<f32>(screen_fraction) * travel, 0.0f}
                                               : glm::vec2{0.0f, thumb_size * 0.5f + static_cast<f32>(screen_fraction) * travel},
+                                // The thumb is the slider's own body, not a popover — if an ancestor
+                                // (e.g. a scrollable panel) clips the track, the thumb must clip right
+                                // along with it instead of painting on top of the clipped-away region.
+                                .clip_to = FloatingClipTo::AttachedParent,
                             },
                         },
                         thumb_context);
@@ -730,6 +750,9 @@ namespace SFT::UI {
                                 .offset = {0.0f, -4.0f},
                                 .z_index = 100,
                                 .capture_pointer = false,
+                                // Deliberately unclipped (Dropdown.hpp's tooltip carries the same
+                                // reasoning): a tooltip cut off by its own slider's scroll-container
+                                // ancestor would defeat the point of a tooltip.
                             },
                         },
                         tooltip_context);

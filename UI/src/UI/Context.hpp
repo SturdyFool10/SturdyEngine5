@@ -7,6 +7,7 @@
 #include <deque>
 #include <glm/vec2.hpp>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -139,6 +140,12 @@ namespace SFT::UI {
                 .height = full_viewport_scissor_.height,
             };
         }
+
+        // Read-only access to this frame's resolved draw list — lets a test assert on scissor/
+        // position/paint-order behavior (e.g. that a floating element attached inside a clipped
+        // ancestor actually got that ancestor's scissor rect, not the full viewport) without any GPU
+        // involved. UiRenderer still reaches quads_ directly via friendship for the real upload path.
+        [[nodiscard]] std::span<const QuadDraw> quads() const noexcept { return quads_; }
 
       private:
         friend class Context;

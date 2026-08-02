@@ -563,5 +563,11 @@ int main() {
     passed &= active_tab_drag_snapshot_is_local_and_remove_cancels_it();
     passed &= nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates();
     passed &= dragging_a_tab_outside_the_workspace_requests_tear_off();
+    // check() already prints "FAILED: ..." per failing case; this is the success-path counterpart
+    // — see WidgetTest.cpp's own main() for why a silent-on-success test main is worth avoiding
+    // (a .zed/tasks.json "Run" task would otherwise look like it didn't do anything).
+    if (passed) {
+        std::cout << "UIDockWorkspaceTest: all checks passed.\n";
+    }
     return passed ? 0 : 1;
 }

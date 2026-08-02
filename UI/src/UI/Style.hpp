@@ -160,6 +160,12 @@ namespace SFT::UI {
         // min(1, smoothing_rate * delta_seconds)`. Higher settles faster/snappier; lower feels
         // heavier/more "inertial." Ignored when smooth_scrolling is false.
         f32 smoothing_rate = 18.0f;
+        // Scales PointerState::scroll_delta before it ever reaches Clay (which then applies its own
+        // fixed `scrollPosition += scrollDelta * 10`, clay.h) — the one knob for "wheel scrolling
+        // feels too slow/fast," independent of smooth_scrolling's easing curve. 3x reflects a
+        // regular (non-high-res) mouse wheel's typical ±1.0-per-notch report feeling sluggish
+        // against Clay's own fixed multiplier at default sizes.
+        f32 wheel_multiplier = 3.0f;
     };
 
     // Which of a floating element's own corners, and which of its attachment target's corners, get
@@ -181,6 +187,18 @@ namespace SFT::UI {
     // Clay_FloatingElementConfig field-for-field; see clay.h's own doc comments on each field for
     // the full behavior (this wrapper doesn't curate a subset — same "unrestrictive" policy as the
     // rest of Style.hpp).
+    // Whether a floating element is clipped by the same ClipConfig-enabled ancestor (scroll
+    // container) its attach point sits inside, or paints unclipped over everything — mirrors
+    // Clay_FloatingClipToElement exactly (clay.h). None is Clay's own default, kept as the default
+    // here too for source compatibility, but it is usually the *wrong* choice for a floating
+    // element that's positionally glued to a normal (non-popover) sibling — e.g. a dropdown's own
+    // arrow glyph, or a slider/color-picker's drag cursor: those should scroll and clip exactly as
+    // if they were an ordinary non-floating child, since visually they *are* part of that control's
+    // body, not an overlay escaping it. Popover-style content — an open dropdown's option list, a
+    // tooltip — usually wants None instead, so it stays fully visible even when its trigger sits
+    // inside a small scrollable panel; set this per call site accordingly.
+    enum class FloatingClipTo : u8 { None, AttachedParent };
+
     struct FloatingConfig {
         FloatingAttachTo attach_to = FloatingAttachTo::None;
         // Only consulted when attach_to == ElementWithId — must equal the *other* element's own
@@ -196,6 +214,8 @@ namespace SFT::UI {
         // element instead of being captured by it — rarely what you want for an interactive
         // dropdown/popover, so true (Clay's own default) is the default here too.
         bool capture_pointer = true;
+        // See FloatingClipTo's own doc comment.
+        FloatingClipTo clip_to = FloatingClipTo::None;
     };
 
     // Full layout + visual config for one element — mirrors Clay_LayoutConfig plus the top-level

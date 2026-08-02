@@ -181,7 +181,9 @@ namespace SFT::UI {
                     .pointerCaptureMode = decl.floating.capture_pointer ? CLAY_POINTER_CAPTURE_MODE_CAPTURE
                                                                         : CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
                     .attachTo = attach_to,
-                    .clipTo = CLAY_CLIP_TO_NONE,
+                    .clipTo = decl.floating.clip_to == FloatingClipTo::AttachedParent
+                                 ? CLAY_CLIP_TO_ATTACHED_PARENT
+                                 : CLAY_CLIP_TO_NONE,
                 };
             }
             result.userData = reinterpret_cast<void *>(static_cast<intptr_t>(z));
@@ -415,7 +417,7 @@ namespace SFT::UI {
         // for subsequent frames. Disabling smooth_scrolling (or a zero/negative delta_seconds, e.g. a
         // caller that hasn't wired up frame timing) just forwards the whole pending amount, matching
         // the previous always-instant behavior exactly.
-        pending_scroll_delta_ += pointer.scroll_delta;
+        pending_scroll_delta_ += pointer.scroll_delta * scroll_settings_.wheel_multiplier;
         glm::vec2 applied_scroll_delta = pending_scroll_delta_;
         if (scroll_settings_.smooth_scrolling && delta_seconds > 0.0f) {
             const f32 factor = std::clamp(scroll_settings_.smoothing_rate * delta_seconds, 0.0f, 1.0f);
@@ -538,6 +540,23 @@ namespace SFT::UI {
         if (!pointer_pressed_this_frame_) {
             return false;
         }
+        // hovered()'s Clay_PointerOver() is already both scissor-aware (an element whose layout box
+        // extends outside an ancestor ClipConfig's rect is excluded — clay.h's own hit-test DFS
+        // checks the clip element's boundingBox too, not just the target's own) and layer-aware
+        // (Clay hit-tests floating roots highest-z-first and stops at the first one whose
+        // FloatingConfig::capture_pointer is true, so an overlay correctly blocks clicks reaching
+        // whatever sits behind it) — see clay.h's Clay_SetPointerState. Reuse it directly whenever
+        // the press happened at the position Clay already hit-tested this frame, which is the
+        // overwhelming common case: every PointerState producer in this codebase sets press_position
+        // equal to position at the moment of the press (see PointerState::press_position's own doc
+        // comment, Context.hpp). They can only diverge for a *latched* edge — a press event and this
+        // frame's begin_layout() poll separated by pointer movement — for which Clay has no hit-test
+        // result to reuse (it only ever hit-tests the position it was last given), so this falls back
+        // to a raw bounds check that does *not* account for layers/scissors; no backend in this
+        // codebase actually produces that divergence today.
+        if (pointer_press_position_ == pointer_position_) {
+            return hovered(id);
+        }
         const std::optional<ElementBounds> bounds = element_bounds(id);
         return bounds.has_value() && pointer_press_position_.x >= bounds->position.x &&
                pointer_press_position_.y >= bounds->position.y &&
@@ -594,11 +613,15 @@ namespace SFT::UI {
     }
 
     bool Context::pointer_over_any() const noexcept {
+        // See clicked()'s own comment: raw bounding-box containment ignores both scissor clipping
+        // and layer ordering, so this used to report true for a point sitting over a *named*
+        // element's layout box even when that box was entirely clipped away by an ancestor, or
+        // hidden behind an occluding floating overlay. hovered() (Clay_PointerOver()) is already
+        // correct on both counts and is evaluated at the current pointer_position_ — exactly what
+        // this query wants (unlike clicked(), there's no separate press position involved here).
         for (const auto &[id, bounds] : last_frame_bounds_) {
-            (void)id;
-            if (pointer_position_.x >= bounds.position.x && pointer_position_.y >= bounds.position.y &&
-                pointer_position_.x <= bounds.position.x + bounds.size.x &&
-                pointer_position_.y <= bounds.position.y + bounds.size.y) {
+            (void)bounds;
+            if (hovered(UString{id})) {
                 return true;
             }
         }

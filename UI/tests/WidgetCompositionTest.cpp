@@ -390,5 +390,8 @@ int main() {
     color_picker_parts_can_be_replaced_hidden_and_labeled();
     dropdown_composition_reports_states_and_blocks_disabled_options();
     dropdown_empty_slot_builds();
+    // See WidgetTest.cpp's own main() for why this line exists: a silent-on-success test main
+    // makes a .zed/tasks.json "Run" task look like it didn't do anything.
+    std::printf("UIWidgetCompositionTest: all checks passed.\n");
     return 0;
 }

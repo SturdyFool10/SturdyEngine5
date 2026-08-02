@@ -991,6 +991,10 @@ namespace SFT::UI {
                         .parent_attach_point = FloatingAttachPoint::LeftTop,
                         .offset = {static_cast<f32>(saturation) * style.plane_size.x, static_cast<f32>(1.0 - brightness) * style.plane_size.y},
                         .capture_pointer = false,
+                        // The cursor ring is part of the plane's own body, not a popover — if an
+                        // ancestor (e.g. a scrollable panel) clips the plane, the cursor must clip
+                        // right along with it rather than painting on top of the clipped-away region.
+                        .clip_to = FloatingClipTo::AttachedParent,
                     },
                 };
                 if (!composition.saturation_value_marker.render_default)
@@ -1073,6 +1077,8 @@ namespace SFT::UI {
                         .parent_attach_point = FloatingAttachPoint::LeftCenter,
                         .offset = {static_cast<f32>(normalized) * style.plane_size.x, 0.0f},
                         .capture_pointer = false,
+                        // See the saturation/value marker's own comment above — same reasoning.
+                        .clip_to = FloatingClipTo::AttachedParent,
                     },
                 };
                 if (!marker_slot.render_default)
@@ -1167,6 +1173,9 @@ namespace SFT::UI {
                     .offset = {0.0f, -4.0f},
                     .z_index = 100,
                     .capture_pointer = false,
+                    // Deliberately unclipped (Dropdown.hpp's tooltip carries the same reasoning): a
+                    // tooltip cut off by its own trigger's scroll-container ancestor would defeat the
+                    // point of a tooltip.
                 },
             };
             if (!composition.tooltip.render_default)

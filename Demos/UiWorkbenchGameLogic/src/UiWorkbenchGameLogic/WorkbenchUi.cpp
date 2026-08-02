@@ -446,11 +446,20 @@ namespace SFT::UiWorkbench {
         surface.pointer.scroll_delta = glm::vec2{0.0f};
 
         {
+            // Full-viewport so it fills the margins around the dock workspace below (kWorkspaceOrigin
+            // insets the workspace by 18px/58px/14px on the left/top/right+bottom — DockWorkspaceStyle
+            // ::content_background paints the workspace's own interior with this same `canvas` color,
+            // but not those outer margins). Its own header content (brand/title/status pill) must stay
+            // pinned to a thin strip at the *top* — AlignY::Top, not Center — since Center would
+            // vertically center that content across the *entire* window height instead of a header-
+            // sized band, drifting it down into (and behind/in front of, depending on paint order) the
+            // workspace's own panels below y ~= 58, which is what made the status pill appear to
+            // "clip in and out" as whatever panel content sat underneath it changed.
             auto background = surface.context.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fixed(viewport.x), UI::SizingAxis::fixed(viewport.y)},
                 .padding = UI::Padding::symmetric(18, 12),
                 .child_gap = 10,
-                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Top},
                 .background_color = canvas,
             });
             {

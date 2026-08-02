@@ -278,6 +278,11 @@ namespace SFT::UI {
                         .parent_attach_point = style.arrow_attach_point,
                         .offset = style.arrow_offset,
                         .capture_pointer = false,
+                        // The arrow is visually part of the trigger's own body, not a popover — if
+                        // an ancestor (e.g. a scrollable panel) clips the trigger, the arrow must be
+                        // clipped right along with it instead of painting on top of the clipped-away
+                        // region.
+                        .clip_to = FloatingClipTo::AttachedParent,
                     },
                 };
                 if (!composition.indicator.render_default)
@@ -312,6 +317,10 @@ namespace SFT::UI {
                     .parent_attach_point = FloatingAttachPoint::LeftBottom,
                     .offset = {0.0f, 4.0f},
                     .z_index = static_cast<i16>(style.list_z_index),
+                    // Deliberately left unclipped (FloatingClipTo::None, the default): this is
+                    // popover content, not part of the trigger's own body — a dropdown living inside
+                    // a small scrollable panel should still show its full option list rather than
+                    // having it cut off at the panel's edge.
                 },
             };
             if (!composition.list.render_default)
@@ -421,6 +430,9 @@ namespace SFT::UI {
                     .offset = {0.0f, -4.0f},
                     .z_index = static_cast<i16>(style.list_z_index + 1),
                     .capture_pointer = false,
+                    // Deliberately unclipped (see the option list's own comment above) — a tooltip
+                    // cut off by its own trigger's scroll-container ancestor would defeat the point
+                    // of a tooltip.
                 },
             };
             if (!composition.tooltip.render_default)
