@@ -568,7 +568,9 @@ namespace SFT::UiWorkbench {
             .thumb_size = 22.0f,
             .tick_thickness = 1.0f,
             .tick_length = 10.0f,
-            .focused_border = UI::BorderStyle{.color = accent, .width = UI::BorderWidth::all(1)},
+            // No focus-ring rectangle around the whole track — the demo's click-and-drag bars stay
+            // outline-free at every state, including focused.
+            .focused_border = UI::BorderStyle{},
         };
         UI::SliderComposition composition{};
         composition.track.enabled = slider_enabled_;
@@ -593,10 +595,7 @@ namespace SFT::UiWorkbench {
             // alignment and pins itself into the thumb's top-left corner instead of its middle.
             decl.child_alignment = {.x = UI::AlignX::Center, .y = UI::AlignY::Center};
             decl.background_color = part.visual.active ? accent_hot : text_primary;
-            decl.border = UI::BorderStyle{
-                .color = UI::Color{accent.r, accent.g, accent.b, part.visual.focused ? 1.0 : 0.45},
-                .width = UI::BorderWidth::all(part.visual.focused ? 2 : 1),
-            };
+            // No ring around the thumb — keep it a plain filled circle with its accent core dot.
         };
         composition.thumb.build = [this](UI::Context &part_ctx,
                                          const UI::SliderPartContext &) {
@@ -930,7 +929,7 @@ namespace SFT::UiWorkbench {
         }
     }
 
-    void WorkbenchUi::build_docking_panel(Surface &surface, UI::Context &ctx, f32) {
+    void WorkbenchUi::build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
@@ -995,6 +994,86 @@ namespace SFT::UiWorkbench {
                       text_style(font_id_, accent, 10));
             draw_text(ctx, status_message_, text_style(font_id_, text_primary, 11));
         }
+
+        section_label(ctx, font_id_, "SCROLLING");
+
+        const auto scroll_toggle_row = [&](usize index, const char *label, const char *description,
+                                           bool &value) {
+            auto row = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(12),
+                .child_gap = 12,
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .background_color = panel,
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+            {
+                auto copy = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                    .child_gap = 3,
+                    .direction = UI::LayoutDirection::TopToBottom,
+                });
+                draw_text(ctx, label, text_style(font_id_, text_primary, 13));
+                draw_text(ctx, description, text_style(font_id_, text_secondary, 10));
+            }
+            const UI::ToggleResult result = UI::switch_toggle(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                    .id = UString{"workbench-scroll-toggle-" + std::to_string(index)},
+                },
+                toggle_style(), toggle_states_[index], delta_seconds, value);
+            if (result.clicked) {
+                value = !value;
+            }
+        };
+
+        scroll_toggle_row(6, "Click-and-drag scroll",
+                          "Off by default — dragging this body's content no longer competes with widget drags.",
+                          scroll_click_drag_);
+        scroll_toggle_row(7, "Smooth wheel scrolling",
+                          "Eases wheel deltas across frames instead of snapping the offset instantly.",
+                          scroll_smooth_);
+
+        {
+            auto row = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(12),
+                .child_gap = 10,
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .background_color = panel,
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+            draw_text(ctx, "Smoothing rate", text_style(font_id_, text_primary, 13));
+            const UI::SliderConfig rate_config{.min = 2.0, .max = 60.0, .step = 1.0};
+            UI::SliderStyle rate_style{
+                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
+                .fill = accent,
+                .thumb = text_primary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = accent_hot,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+                .focused_border = UI::BorderStyle{},
+            };
+            const UI::SliderResult rate_result = UI::slider(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
+                    .id = UString{"workbench-scroll-smoothing-rate"},
+                },
+                rate_config, rate_style, scroll_smoothing_rate_state_, scroll_smoothing_rate_,
+                UI::SliderInput{}, scroll_smooth_);
+            scroll_smoothing_rate_ = rate_result.value;
+        }
+
+        ctx.set_scroll_settings(UI::ScrollSettings{
+            .click_and_drag_scroll = scroll_click_drag_,
+            .smooth_scrolling = scroll_smooth_,
+            .smoothing_rate = static_cast<f32>(scroll_smoothing_rate_),
+        });
     }
 
     void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface,

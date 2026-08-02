@@ -3,7 +3,6 @@
 #include <array>
 #include <cassert>
 #include <cmath>
-#include <cstdio>
 #include <utility>
 
 namespace {
@@ -220,14 +219,12 @@ namespace {
         // Scroll while the pointer hovers the box's own bounds (Clay only advances whichever
         // scroll container the pointer currently sits over) — feed the same delta across a few
         // frames so a one-frame settle/momentum quirk, if any, can't hide a real regression.
-        const PointerState hovering_and_scrolling{.position = {50.0f, 50.0f}, .scroll_delta = {0.0f, 60.0f}};
+        const PointerState hovering_and_scrolling{.position = {50.0f, 50.0f}, .scroll_delta = {0.0f, -60.0f}};
         build(hovering_and_scrolling);
         build(hovering_and_scrolling);
         build(hovering_and_scrolling);
         const std::optional<ElementBounds> after = context.element_bounds(child_b_id);
         assert(after.has_value());
-
-        std::fprintf(stderr, "DEBUG before.y=%f after.y=%f\n", before->position.y, after->position.y);
 
         // Scrolling down (positive Y delta, Clay's own convention) must move overflowing content
         // up relative to the clipped box — child-b's committed Y position must have decreased.

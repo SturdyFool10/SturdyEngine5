@@ -208,6 +208,14 @@ namespace SFT::UI {
         // momentum easing, not layout itself, so a rough estimate is fine.
         void begin_layout(glm::vec2 viewport_size, const PointerState &pointer = {}, f32 delta_seconds = 0.0f);
 
+        // Governs drag-to-scroll and wheel smoothing for every scroll container in this Context —
+        // see ScrollSettings' own doc comment (Style.hpp). Takes effect on the very next
+        // begin_layout() call; there is no separate "apply" step. Defaults match ScrollSettings{}
+        // (drag-scroll off, wheel smoothing on), so a Context that never calls this already behaves
+        // as if it had.
+        void set_scroll_settings(const ScrollSettings &settings) noexcept { scroll_settings_ = settings; }
+        [[nodiscard]] const ScrollSettings &scroll_settings() const noexcept { return scroll_settings_; }
+
         [[nodiscard]] ElementScope element(const ElementDecl &decl);
         void text(const ustr &content, const TextStyle &style);
         void image(const ElementDecl &decl, Renderer::TextureHandle texture);
@@ -343,6 +351,27 @@ namespace SFT::UI {
         // geometry, so interactive widgets must only read this cache through element_bounds().
         vector<string> current_frame_ids_;
         unordered_map<string, ElementBounds> last_frame_bounds_;
+
+        // IDs of this frame's clip-enabled (scroll-container) elements, and each one's scroll
+        // position as of the immediately previous completed frame — same one-frame-stale contract
+        // as last_frame_bounds_/hovered()/clicked(), and for the same underlying reason: querying
+        // Clay_GetScrollContainerData() for `decl.id` *while that same element is still being
+        // opened* (between Clay__OpenElement() and Clay__ConfigureOpenElement() — exactly where
+        // element()'s clip handling would otherwise want to read it) finds a clip config that either
+        // doesn't exist yet this frame or is still the previous frame's, and Clay's own
+        // Clay__FindElementConfigWithType() lookup inside that call fails as a result, silently
+        // reporting `found = false` — so an element() call can never safely query its *own*
+        // just-opened self this way. Querying once, safely, right after Clay_EndLayout() (see
+        // finish_frame()) and feeding the result forward to next frame's element() call sidesteps it
+        // entirely, the same trick hovered()/clicked() already rely on.
+        vector<string> current_frame_clip_ids_;
+        unordered_map<string, glm::vec2> last_frame_scroll_offsets_;
+
+        // See set_scroll_settings()'s doc comment. pending_scroll_delta_ is begin_layout()'s
+        // smoothing accumulator: wheel input not yet handed to Clay because ScrollSettings::
+        // smooth_scrolling is spreading it across frames — see begin_layout()'s implementation.
+        ScrollSettings scroll_settings_{};
+        glm::vec2 pending_scroll_delta_{0.0f};
 
         // The z (ElementDecl::z, Style.hpp) every element()/text()/image()/svg()/custom_element()
         // call currently inherits — always non-empty, back() is "whichever nonzero z was most

@@ -8,6 +8,7 @@
 #define CLAY_IMPLEMENTATION
 #include <clay.h>
 #include <cmath>
+#include <glm/geometric.hpp>
 #include <string_view>
 #include <utility>
 #pragma endregion
@@ -278,6 +279,10 @@ namespace SFT::UI {
           focused_id_(std::move(other.focused_id_)),
           current_frame_ids_(std::move(other.current_frame_ids_)),
           last_frame_bounds_(std::move(other.last_frame_bounds_)),
+          current_frame_clip_ids_(std::move(other.current_frame_clip_ids_)),
+          last_frame_scroll_offsets_(std::move(other.last_frame_scroll_offsets_)),
+          scroll_settings_(other.scroll_settings_),
+          pending_scroll_delta_(other.pending_scroll_delta_),
           z_stack_(std::move(other.z_stack_)) {
         // Clay_Initialize() stamped `&other.text_bridge_` into its measure-text userData; that
         // address is now stale (text_bridge_ just moved to a new home), so re-install it.
@@ -308,6 +313,10 @@ namespace SFT::UI {
             focused_id_ = std::move(other.focused_id_);
             current_frame_ids_ = std::move(other.current_frame_ids_);
             last_frame_bounds_ = std::move(other.last_frame_bounds_);
+            current_frame_clip_ids_ = std::move(other.current_frame_clip_ids_);
+            last_frame_scroll_offsets_ = std::move(other.last_frame_scroll_offsets_);
+            scroll_settings_ = other.scroll_settings_;
+            pending_scroll_delta_ = other.pending_scroll_delta_;
             z_stack_ = std::move(other.z_stack_);
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
@@ -370,6 +379,7 @@ namespace SFT::UI {
         image_storage_.clear();
         custom_storage_.clear();
         current_frame_ids_.clear();
+        current_frame_clip_ids_.clear();
         // Every element()/custom_element() ElementScope pops what it pushed, so this is already
         // back to {0} by the end of a well-formed frame — reset explicitly anyway so a leaked scope
         // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
@@ -397,7 +407,28 @@ namespace SFT::UI {
         // Also needs last frame's committed scroll-container list (same reason it runs before
         // Clay_BeginLayout()); updates whichever container the pointer above is currently over, read
         // back by element() below via Clay's scroll-container query APIs.
-        Clay_UpdateScrollContainers(true, Clay_Vector2{.x = pointer.scroll_delta.x, .y = pointer.scroll_delta.y},
+        //
+        // Clay applies whatever delta it's given this frame immediately (clay.h: `scrollPosition +=
+        // scrollDelta * 10`) — there's no smoothing concept on its side. To ease a wheel tick across
+        // several frames instead of snapping in one, accumulate incoming deltas into
+        // pending_scroll_delta_ and only hand Clay a fraction of it each frame, keeping the remainder
+        // for subsequent frames. Disabling smooth_scrolling (or a zero/negative delta_seconds, e.g. a
+        // caller that hasn't wired up frame timing) just forwards the whole pending amount, matching
+        // the previous always-instant behavior exactly.
+        pending_scroll_delta_ += pointer.scroll_delta;
+        glm::vec2 applied_scroll_delta = pending_scroll_delta_;
+        if (scroll_settings_.smooth_scrolling && delta_seconds > 0.0f) {
+            const f32 factor = std::clamp(scroll_settings_.smoothing_rate * delta_seconds, 0.0f, 1.0f);
+            applied_scroll_delta = pending_scroll_delta_ * factor;
+            pending_scroll_delta_ -= applied_scroll_delta;
+            if (glm::length(pending_scroll_delta_) < 0.001f) {
+                pending_scroll_delta_ = glm::vec2{0.0f};
+            }
+        } else {
+            pending_scroll_delta_ = glm::vec2{0.0f};
+        }
+        Clay_UpdateScrollContainers(scroll_settings_.click_and_drag_scroll,
+                                    Clay_Vector2{.x = applied_scroll_delta.x, .y = applied_scroll_delta.y},
                                     delta_seconds);
         Clay_BeginLayout();
     }
@@ -415,17 +446,20 @@ namespace SFT::UI {
         Clay__OpenElement();
         Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
         if (decl.clip.horizontal || decl.clip.vertical) {
-            if (declaration.id.id != 0) {
-                // Query by the caller's stable ID before configuration. Calling Clay_GetScrollOffset()
-                // here would generate an anonymous ID because Clay has not attached declaration.id to
-                // the open element yet; sibling floating clip roots can then receive the same generated
-                // identity and report duplicate-ID errors.
-                const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(declaration.id);
-                if (scroll.found && scroll.scrollPosition != nullptr) {
-                    declaration.clip.childOffset = *scroll.scrollPosition;
+            // Read back last frame's committed scroll position rather than querying Clay directly
+            // here — see current_frame_clip_ids_/last_frame_scroll_offsets_'s own doc comment
+            // (Context.hpp) for why querying *this* element's own scroll state mid-open, before
+            // Clay__ConfigureOpenElement() below has (re)attached its clip config for this frame,
+            // silently comes back empty every single frame rather than merely on the first one.
+            if (!decl.id.empty()) {
+                current_frame_clip_ids_.push_back(decl.id.cpp_string());
+                const auto cached = last_frame_scroll_offsets_.find(decl.id.cpp_string());
+                if (cached != last_frame_scroll_offsets_.end()) {
+                    declaration.clip.childOffset = Clay_Vector2{.x = cached->second.x, .y = cached->second.y};
                 }
             } else {
-                // Anonymous non-floating containers retain Clay's ordinary current-element behavior.
+                // Anonymous non-floating containers retain Clay's ordinary current-element behavior
+                // (matched by the currently-open element pointer, not by id, so no staleness here).
                 declaration.clip.childOffset = Clay_GetScrollOffset();
             }
         }
@@ -741,6 +775,25 @@ namespace SFT::UI {
                 });
             }
         }
+
+        // Safe now that Clay_EndLayout() has run: this frame's clip elements have their clip config
+        // fully (re)attached, so Clay_GetScrollContainerData() can actually find it — see
+        // current_frame_clip_ids_'s own doc comment (Context.hpp) for why the same query from
+        // inside element() itself, earlier in this same frame, cannot.
+        unordered_map<string, glm::vec2> completed_scroll_offsets;
+        completed_scroll_offsets.reserve(current_frame_clip_ids_.size());
+        for (const string &id : current_frame_clip_ids_) {
+            const Clay_ElementId element_id = Clay_GetElementId(Clay_String{
+                .isStaticallyAllocated = false,
+                .length = static_cast<i32>(id.size()),
+                .chars = id.data(),
+            });
+            const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(element_id);
+            if (scroll.found && scroll.scrollPosition != nullptr) {
+                completed_scroll_offsets.insert_or_assign(id, glm::vec2{scroll.scrollPosition->x, scroll.scrollPosition->y});
+            }
+        }
+        last_frame_scroll_offsets_ = std::move(completed_scroll_offsets);
         last_frame_bounds_ = std::move(completed_bounds);
         if (!focused_id_.empty() && !last_frame_bounds_.contains(focused_id_)) {
             focused_id_.clear();
@@ -898,6 +951,8 @@ namespace SFT::UI {
         focused_id_.clear();
         current_frame_ids_.clear();
         last_frame_bounds_.clear();
+        current_frame_clip_ids_.clear();
+        last_frame_scroll_offsets_.clear();
     }
 
 } // namespace SFT::UI

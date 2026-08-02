@@ -78,8 +78,16 @@ namespace SFT::UiWorkbench {
         bool picker_enabled_ = true;
         bool show_alpha_ = true;
         bool show_preview_ = true;
-        std::array<UI::ToggleState, 6> toggle_states_{};
+        std::array<UI::ToggleState, 8> toggle_states_{};
         UI::ButtonState reset_button_state_{};
+
+        // Applied to each Surface's UI::Context every frame (Context::set_scroll_settings()) —
+        // demonstrates the scroll system's own defaults (drag-scroll off, wheel smoothing on) plus
+        // lets a user experiment with them live against the docking body's real scroll container.
+        bool scroll_click_drag_ = false;
+        bool scroll_smooth_ = true;
+        f64 scroll_smoothing_rate_ = 18.0;
+        UI::SliderState scroll_smoothing_rate_state_{};
 
         std::string status_message_ = "Ready — drag any tab beyond a window edge to tear it off.";
     };

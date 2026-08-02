@@ -3,6 +3,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <functional>
 #include <optional>
 #include <span>
@@ -42,17 +43,36 @@ namespace SFT::UI {
         u16 option_padding = 8;
         u16 list_z_index = 100;
 
-        // A "▾" glyph flush against the trigger's right edge (a growing spacer pushes it there
-        // regardless of trigger_decl's own width) — on by default, since a dropdown with no visual
-        // affordance that it's a dropdown is a usability trap. Set false to omit it entirely, e.g.
-        // if a caller wants to build their own indicator into the selected option's own build()
-        // callback instead. `arrow_font_id` must already be registered (Context::register_font())
-        // with a font that has U+25BE — this engine's bundled Maple Mono NF does, as do many common
-        // UI fonts.
+        // A "▾" glyph, floating-anchored to the trigger (see arrow_attach_point/arrow_offset below)
+        // rather than laid out in the trigger's own flex flow — on by default, since a dropdown with
+        // no visual affordance that it's a dropdown is a usability trap. Set false to omit it
+        // entirely, e.g. if a caller wants to build their own indicator into the selected option's
+        // own build() callback instead. `arrow_font_id` must already be registered
+        // (Context::register_font()) with a font that has U+25BE — this engine's bundled Maple Mono
+        // NF does, as do many common UI fonts.
         bool show_arrow_indicator = true;
         Color arrow_color{1.0, 1.0, 1.0, 1.0};
         FontId arrow_font_id = 0;
         u16 arrow_font_size = 14;
+
+        // Where the built-in arrow indicator attaches on the trigger, and its pixel offset from
+        // that anchor point — independently overridable (composition.indicator.alter_decl can
+        // still override the resulting FloatingConfig outright, e.g. to move it to the trigger's
+        // left edge or swap it for an SVG glyph entirely via composition.indicator.build). Floating
+        // rather than flex-flow positioning means this placement is correct regardless of
+        // trigger_decl's own direction/child_alignment/content — unlike a spacer-based push, which
+        // silently breaks if the trigger isn't a plain left-to-right row.
+        FloatingAttachPoint arrow_attach_point = FloatingAttachPoint::RightCenter;
+        glm::vec2 arrow_offset{-10.0f, 0.0f};
+        // Extra padding reserved on the trigger's edge the arrow attaches to, so trigger content
+        // doesn't render underneath the floating indicator. Only applied while the indicator is
+        // actually shown (show_arrow_indicator, or a caller-supplied composition.indicator.build).
+        f32 arrow_reserved_space = 22.0f;
+        // Forces the trigger row to vertically center its content by default, independent of
+        // whatever trigger_decl.child_alignment the caller passed — so "dropdown()" looks right out
+        // of the box without every caller having to remember AlignY::Center themselves.
+        // composition.trigger.alter_decl still runs afterward and can override it.
+        bool center_trigger_content_vertically = true;
     };
 
     enum class DropdownVisualPart : u8 {
@@ -197,11 +217,33 @@ namespace SFT::UI {
                 selected_index < options.size() ? std::optional<usize>{selected_index} : std::nullopt,
                 selected_index < options.size() ? &options[selected_index] : nullptr);
 
+            const bool show_indicator = composition.indicator.visible &&
+                                        (style.show_arrow_indicator || static_cast<bool>(composition.indicator.build));
+
             state.trigger_state.update(trigger_hovered, trigger_pressed, trigger_enabled, style.trigger, delta_seconds);
             ElementDecl trigger = trigger_decl;
             trigger.background_color = state.trigger_state.current_color();
             trigger.corner_radius = style.trigger.corner_radius;
             trigger.border = style.trigger.border;
+            if (style.center_trigger_content_vertically)
+                trigger.child_alignment.y = AlignY::Center;
+            if (show_indicator) {
+                // Reserve space on whichever edge the floating indicator attaches to so ordinary
+                // trigger content (the selected option's own build(), composition.trigger.build())
+                // doesn't render underneath it — the indicator itself is floating (see below) and so
+                // otherwise wouldn't participate in the trigger's own layout at all.
+                const bool attaches_right = style.arrow_attach_point == FloatingAttachPoint::RightTop ||
+                                            style.arrow_attach_point == FloatingAttachPoint::RightCenter ||
+                                            style.arrow_attach_point == FloatingAttachPoint::RightBottom;
+                const bool attaches_left = style.arrow_attach_point == FloatingAttachPoint::LeftTop ||
+                                           style.arrow_attach_point == FloatingAttachPoint::LeftCenter ||
+                                           style.arrow_attach_point == FloatingAttachPoint::LeftBottom;
+                const auto reserved = static_cast<u16>(style.arrow_reserved_space);
+                if (attaches_right)
+                    trigger.padding.right = std::max<u16>(trigger.padding.right, reserved);
+                else if (attaches_left)
+                    trigger.padding.left = std::max<u16>(trigger.padding.left, reserved);
+            }
             if (!composition.trigger.render_default)
                 clear_element_visual(trigger);
             apply_part_visual(trigger, composition.trigger.visual, trigger_visual);
@@ -218,19 +260,26 @@ namespace SFT::UI {
             if (composition.trigger.build)
                 composition.trigger.build(ctx, trigger_context);
 
-            const bool show_indicator = composition.indicator.visible &&
-                                        (style.show_arrow_indicator || static_cast<bool>(composition.indicator.build));
             if (show_indicator) {
-                auto spacer = ctx.element(ElementDecl{.sizing = {SizingAxis::grow(), SizingAxis::fixed(1.0f)}});
-                (void)spacer;
-
                 const UString indicator_id = dropdown_part_id(id, DropdownVisualPart::Indicator);
                 PartVisualState indicator_visual{.enabled = trigger_enabled, .active = state.open};
                 DropdownPartContext indicator_context = make_context(
                     DropdownVisualPart::Indicator,
                     indicator_id,
                     indicator_visual);
-                ElementDecl indicator_decl{.sizing = {SizingAxis::fit(), SizingAxis::fit()}};
+                // Floating (not flex-flow) positioning: correct regardless of the trigger's own
+                // direction/child_alignment/content, unlike a "grow spacer then indicator" push,
+                // which only works while the trigger stays a plain left-to-right row.
+                ElementDecl indicator_decl{
+                    .sizing = {SizingAxis::fit(), SizingAxis::fit()},
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Parent,
+                        .element_attach_point = style.arrow_attach_point,
+                        .parent_attach_point = style.arrow_attach_point,
+                        .offset = style.arrow_offset,
+                        .capture_pointer = false,
+                    },
+                };
                 if (!composition.indicator.render_default)
                     clear_element_visual(indicator_decl);
                 apply_part_visual(indicator_decl, composition.indicator.visual, indicator_visual);

@@ -140,6 +140,28 @@ namespace SFT::UI {
         bool vertical = false;
     };
 
+    // Per-Context scroll behavior (Context::set_scroll_settings()/scroll_settings()) — applies to
+    // every ClipConfig-enabled element in that Context, not configurable per-element (Clay itself
+    // has no notion of per-container drag/smoothing policy either).
+    struct ScrollSettings {
+        // Clay's own "touch drag" scroll: holding the pointer down inside a scroll container and
+        // dragging pans its content directly, with momentum after release (see
+        // Clay_UpdateScrollContainers's own doc comment in clay.h). Off by default — it silently
+        // steals ordinary click/drag gestures (e.g. dragging a slider or selecting text) the instant
+        // they happen inside a scrollable panel, which is surprising for a desktop-style app where
+        // wheel/scrollbar input is what users expect. Turn on for touch-first UIs.
+        bool click_and_drag_scroll = false;
+        // Eases incoming wheel_delta toward its target over several frames instead of jumping the
+        // scroll offset there in one frame (Clay's own wheel handling — clay.h's
+        // `scrollPosition += scrollDelta * 10` — is otherwise instantaneous).
+        bool smooth_scrolling = true;
+        // Exponential convergence rate in 1/seconds: each frame, this fraction (clamped to 1) of the
+        // remaining not-yet-applied wheel delta is applied — `applied = remaining *
+        // min(1, smoothing_rate * delta_seconds)`. Higher settles faster/snappier; lower feels
+        // heavier/more "inertial." Ignored when smooth_scrolling is false.
+        f32 smoothing_rate = 18.0f;
+    };
+
     // Which of a floating element's own corners, and which of its attachment target's corners, get
     // pinned together — mirrors Clay_FloatingAttachPointType exactly (see FloatingConfig's own doc
     // comment for the common case: a dropdown's open list wants ElementAttachPoint::LeftTop pinned
