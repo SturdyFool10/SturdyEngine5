@@ -329,10 +329,11 @@ namespace SFT::Platform::Windowing::GLFW {
                                   ? WindowEventKind::MouseButtonPressed
                                   : WindowEventKind::MouseButtonReleased};
             event.mouse_button = WindowMouseButtonEvent{
-                static_cast<u8>(button),
-                1,
-                static_cast<f32>(x),
-                static_cast<f32>(y),
+                .button = static_cast<u8>(button),
+                .clicks = 1,
+                .x = static_cast<f32>(x),
+                .y = static_cast<f32>(y),
+                .button_code = Detail::normalize_mouse_button(button),
             };
             target->events_.push_back(event);
         }
@@ -787,6 +788,33 @@ namespace SFT::Platform::Windowing::GLFW {
                              position.y);
         glfwSetWindowPos(window_, position.x, position.y);
         return glfw_success();
+    }
+
+    expected<WindowPosition, WindowError> GLFWWindow::global_cursor_position() const noexcept {
+        const lock_guard lock(glfw_window_mutex());
+        if (auto live = require_live_window(window_, "global_cursor_position"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+#if defined(GLFW_PLATFORM_WAYLAND)
+        if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+            return unexpected(WindowError{
+                WindowErrorCode::Unsupported,
+                "GLFW global cursor position is unavailable on Wayland.",
+            });
+        }
+#endif
+
+        // GLFW has no native global-desktop cursor query (unlike SDL3's SDL_GetGlobalMouseState),
+        // so supported desktop backends derive it from the window position plus the window-relative
+        // cursor position. During a held drag, native mouse capture keeps that relative position
+        // updating after the cursor leaves the client area on Win32 and X11.
+        f64 x = 0.0;
+        f64 y = 0.0;
+        glfwGetCursorPos(window_, &x, &y);
+        int window_x = 0;
+        int window_y = 0;
+        glfwGetWindowPos(window_, &window_x, &window_y);
+        return WindowPosition{window_x + static_cast<i32>(x), window_y + static_cast<i32>(y)};
     }
 
     expected<WindowExtent, WindowError> GLFWWindow::size() const noexcept {

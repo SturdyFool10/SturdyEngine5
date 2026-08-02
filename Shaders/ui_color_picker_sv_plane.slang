@@ -1,0 +1,60 @@
+// Per-pixel saturation/value gradient plane for UI::color_picker() (UI/ColorPicker.hpp) — replaces
+// what used to be an N×N grid of flat-colored Clay elements (one per gradient cell, capped at
+// 32×32) with a single custom_element() draw call that computes the exact HSV->RGB color at every
+// pixel analytically. Smooth at any size, and one draw call instead of up to 1024.
+//
+// UI::Context::custom_element()'s contract (CustomElement.hpp): the push-constant struct must
+// start with UiElementConstants' three fields exactly, then whatever this shader needs. Slang packs
+// push-constant structs HLSL-cbuffer-style — a float4 field is pushed to the next 16-byte boundary,
+// which lands 8 bytes after UiElementConstants' 24-byte prefix, not immediately after it (see
+// CustomElement.hpp's own doc comment). Two trailing float4s here: `params` (x = hue in degrees,
+// y = opacity, z/w unused) and `cornerRadius` (topLeft, topRight, bottomLeft, bottomRight, matching
+// Style.hpp's CornerRadius field order) — the surrounding element's own border can be rounded
+// (UI::ColorPickerComposition::saturation_value.alter_decl), and a plain custom_element() draw is
+// otherwise always sharp-cornered regardless of that (see roundedBoxSDF's own doc comment in
+// sturdy_common.slang for why), so this shader masks itself to match.
+
+import sturdy_common;
+
+struct SvPlaneConstants {
+    float2 position;
+    float2 size;
+    float2 viewportSize;
+    float4 params;
+    float4 cornerRadius;
+};
+
+[[push_constant]] ConstantBuffer<SvPlaneConstants> constants;
+
+struct VertexOutput {
+    float4 position : SV_Position;
+    float2 localPixelPos : TEXCOORD0;
+};
+
+[shader("vertex")]
+VertexOutput vertexMain(uint vertexId : SV_VertexID) {
+    VertexOutput output;
+    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize);
+    output.localPixelPos = uiQuadCorner(vertexId) * constants.size;
+    return output;
+}
+
+[shader("fragment")]
+float4 fragmentMain(VertexOutput input) : SV_Target {
+    float2 uv = clamp01(constants.size.x > 0.0 && constants.size.y > 0.0 ? input.localPixelPos / constants.size : float2(0.0, 0.0));
+    float hue = constants.params.x;
+    float opacity = clamp01(constants.params.y);
+    // Matches ColorPicker's own convention: x = saturation (0 left -> 1 right), y = 1 - value
+    // (0 top -> 1 bottom, i.e. value/brightness increases upward) — see the saturation_value
+    // marker's own offset calculation in ColorPicker.hpp for the same mapping.
+    float saturation = uv.x;
+    float value = 1.0 - uv.y;
+
+    float2 halfSize = constants.size * 0.5;
+    float2 centerPos = input.localPixelPos - halfSize;
+    float dist = roundedBoxSDF(centerPos, halfSize, constants.cornerRadius);
+    float edgeSoftness = max(fwidth(dist), SFT_EPSILON);
+    float mask = clamp01(0.5 - dist / edgeSoftness);
+
+    return float4(hsvToRgb(hue, saturation, value), opacity * mask);
+}

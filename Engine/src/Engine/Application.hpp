@@ -32,6 +32,11 @@ namespace SFT::Engine {
         EngineConfig engine;
         // No periodic title mutation unless the consumer explicitly enables it.
         optional<f64> primary_window_title_update_interval_seconds;
+        // Runtime OS-window creation must keep Platform window calls and graphics surface creation
+        // on one owner thread until Renderer exposes a split prepare/import surface API. Enabling
+        // this opts out of Application's dedicated render thread so deferred WindowRequests can be
+        // executed safely for docking tear-off and editor windows.
+        bool enable_runtime_window_management = false;
     };
 
     struct ApplicationFrameStats {
@@ -67,6 +72,26 @@ namespace SFT::Engine {
 
         bool initialize();
         void run();
+
+        // Spawns an additional OS window at runtime (after initialize() has already run), backed by
+        // its own render surface via Engine::add_window() — the same non-primary path
+        // spawn_managed_window() below already takes for every window after the first, just exposed
+        // here for the first time. A null `factory` inherits ApplicationConfig::primary_window_factory
+        // (and therefore the built-in SDL3 path when the primary also uses it). Available only when
+        // enable_runtime_window_management is true; returns nullopt otherwise or if creation fails.
+        // On success, the
+        // returned handle is what a caller passes to request_close_window() (via its window_id) and
+        // to Engine/GameLogic APIs that take a Core::RenderSurfaceHandle for this window.
+        [[nodiscard]] optional<Core::RenderSurfaceHandle> spawn_secondary_window(
+            const Platform::Windowing::WindowConfig &config,
+            Platform::Windowing::WindowFactory factory = nullptr);
+
+        // Marks a managed window for teardown on run()'s own next tick, reusing the exact
+        // close/drain/remove_window/destroy_window sequence run() already applies when the OS itself
+        // reports a close request (events.close_requested) — just triggered programmatically instead
+        // of from an OS event, e.g. a docking workspace's last panel in a torn-off window closing.
+        // A no-op if `id` isn't currently a managed window (already closing, or never was one).
+        void request_close_window(Platform::Windowing::WindowId id) noexcept;
 
       private:
         // Per-window render bookkeeping — everything render_managed_window() needs that isn't shared
@@ -109,6 +134,7 @@ namespace SFT::Engine {
         void shutdown_client() noexcept;
 
         [[nodiscard]] ManagedWindow *find_managed_window(Platform::Windowing::WindowId id) noexcept;
+        void process_window_requests();
 
         // Spawns one window through an explicitly supplied optional provider factory, or SDL3 when
         // factory is null, then registers it with the engine's render-surface set and repaint path.

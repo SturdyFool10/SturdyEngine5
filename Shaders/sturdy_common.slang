@@ -144,12 +144,52 @@ float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, floa
     return float4(ndc, 0.0, 1.0);
 }
 
+// Signed distance to a per-corner rounded box, `centerPos` relative to the box center (Y down,
+// matching this engine's pixel-space convention) and `halfSize` the box's half-extent, `cornerRadius`
+// = (topLeft, topRight, bottomLeft, bottomRight). Negative inside the shape, positive outside, zero
+// on the boundary — feed the result through fwidth()-based antialiasing (see Shaders/ui_quad.slang's
+// own fragmentMain) for a smooth edge. Shared by ui_quad.slang's own rect/border rendering and any
+// Sturdy.UI::Context::custom_element() shader that wants its fill to respect the same corner radius
+// as the plain-quad element it's replacing (e.g. Shaders/ui_color_picker_sv_plane.slang) — a raw
+// custom_element() draw is otherwise always sharp-cornered regardless of the surrounding
+// ElementDecl::corner_radius, since Clay routes a CUSTOM render command around the ordinary
+// rect/border pipeline entirely (see CustomElement.hpp's own doc comment).
+float roundedBoxSDF(float2 centerPos, float2 halfSize, float4 cornerRadius) {
+    bool left = centerPos.x <= 0.0;
+    bool top = centerPos.y <= 0.0;
+    float radius = left ? (top ? cornerRadius.x : cornerRadius.z) : (top ? cornerRadius.y : cornerRadius.w);
+    radius = min(radius, min(halfSize.x, halfSize.y));
+    float2 q = abs(centerPos) - halfSize + radius;
+    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+}
+
 // -------------------------------------------------------------------------------------------------
 // Color and tonemapping
 // -------------------------------------------------------------------------------------------------
 
 float luminance(float3 linearRgb) {
     return dot(linearRgb, float3(0.2126, 0.7152, 0.0722));
+}
+
+// Hue in degrees (wrapped to any range), saturation/value in 0..1 — matches
+// UI::ColorPicker::Detail::picker_hsv_to_srgb() exactly (ColorPicker.hpp), so a per-pixel gradient
+// shader driven by this reproduces the identical mapping the picker's own numeric state uses.
+float3 hsvToRgb(float hue, float saturation, float value) {
+    hue = fmod(hue, 360.0);
+    if (hue < 0.0) hue += 360.0;
+    saturation = clamp01(saturation);
+    value = clamp01(value);
+    float chroma = value * saturation;
+    float sector = hue / 60.0;
+    float x = chroma * (1.0 - abs(fmod(sector, 2.0) - 1.0));
+    float3 rgb;
+    if (sector < 1.0) rgb = float3(chroma, x, 0.0);
+    else if (sector < 2.0) rgb = float3(x, chroma, 0.0);
+    else if (sector < 3.0) rgb = float3(0.0, chroma, x);
+    else if (sector < 4.0) rgb = float3(0.0, x, chroma);
+    else if (sector < 5.0) rgb = float3(x, 0.0, chroma);
+    else rgb = float3(chroma, 0.0, x);
+    return rgb + (value - chroma);
 }
 
 float3 reinhardTonemap(float3 hdr) {

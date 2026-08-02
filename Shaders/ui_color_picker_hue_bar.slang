@@ -1,0 +1,45 @@
+// Per-pixel hue spectrum gradient for UI::color_picker() (UI/ColorPicker.hpp) — replaces a strip of
+// up to 64 flat-colored Clay elements approximating the rainbow with a single custom_element() draw
+// that computes hsvToRgb(hue, 1, 1) analytically at every pixel. See ui_color_picker_sv_plane.slang
+// for the push-constant layout/packing rationale and the rounded-corner masking rationale (this
+// shader's own container can be rounded via UI::ColorPickerComposition::hue.alter_decl, and a plain
+// custom_element() draw is otherwise always sharp-cornered regardless of that).
+
+import sturdy_common;
+
+struct HueBarConstants {
+    float2 position;
+    float2 size;
+    float2 viewportSize;
+    float4 params; // x = opacity (0..1), yzw unused.
+    float4 cornerRadius; // topLeft, topRight, bottomLeft, bottomRight.
+};
+
+[[push_constant]] ConstantBuffer<HueBarConstants> constants;
+
+struct VertexOutput {
+    float4 position : SV_Position;
+    float2 localPixelPos : TEXCOORD0;
+};
+
+[shader("vertex")]
+VertexOutput vertexMain(uint vertexId : SV_VertexID) {
+    VertexOutput output;
+    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize);
+    output.localPixelPos = uiQuadCorner(vertexId) * constants.size;
+    return output;
+}
+
+[shader("fragment")]
+float4 fragmentMain(VertexOutput input) : SV_Target {
+    float u = constants.size.x > 0.0 ? clamp01(input.localPixelPos.x / constants.size.x) : 0.0;
+    float opacity = clamp01(constants.params.x);
+
+    float2 halfSize = constants.size * 0.5;
+    float2 centerPos = input.localPixelPos - halfSize;
+    float dist = roundedBoxSDF(centerPos, halfSize, constants.cornerRadius);
+    float edgeSoftness = max(fwidth(dist), SFT_EPSILON);
+    float mask = clamp01(0.5 - dist / edgeSoftness);
+
+    return float4(hsvToRgb(u * 360.0, 1.0, 1.0), opacity * mask);
+}

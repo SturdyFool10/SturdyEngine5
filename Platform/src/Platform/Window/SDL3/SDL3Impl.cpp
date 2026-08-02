@@ -385,7 +385,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(destroyed_window_error());
         }
 
-        auto handle = Detail::native_window_handle_from_sdl(window_);
+        auto handle = ::SFT::Platform::Windowing::Detail::native_window_handle_from_sdl(window_);
         if (!handle) [[unlikely]] {
             return unexpected(handle.error());
         }
@@ -518,7 +518,13 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
                 if (auto found = sdl_window_registry().find(event.button.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? WindowEventKind::MouseButtonPressed : WindowEventKind::MouseButtonReleased};
-                    window_event.mouse_button = WindowMouseButtonEvent{event.button.button, event.button.clicks, event.button.x, event.button.y};
+                    window_event.mouse_button = WindowMouseButtonEvent{
+                        .button = event.button.button,
+                        .clicks = event.button.clicks,
+                        .x = event.button.x,
+                        .y = event.button.y,
+                        .button_code = Detail::normalize_mouse_button(event.button.button),
+                    };
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
                 }
@@ -680,6 +686,28 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
         Foundation::log_debug("SDL3 set position: wrapper={} native_ptr={} id={} x={} y={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), position.x, position.y);
         return sdl_bool_result(SDL_SetWindowPosition(window_, position.x, position.y), WindowErrorCode::OperationFailed, "SDL3 set position failed.");
+    }
+
+    expected<WindowPosition, WindowError> SDL3Window::global_cursor_position() const noexcept {
+        const lock_guard lock(sdl_window_mutex());
+        if (auto live = require_live_window(window_, "global_cursor_position"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+        const char *video_driver = SDL_GetCurrentVideoDriver();
+        const string_view driver = video_driver != nullptr ? string_view{video_driver} : string_view{};
+        if (driver == "wayland" || driver == "emscripten") {
+            return unexpected(WindowError{
+                WindowErrorCode::Unsupported,
+                "SDL3 global cursor position is unavailable on this video driver.",
+            });
+        }
+
+        // A genuine OS-level global query (not keyed to `window_` at all) on SDL drivers that
+        // support desktop-global pointer coordinates.
+        f32 x = 0.0f;
+        f32 y = 0.0f;
+        SDL_GetGlobalMouseState(&x, &y);
+        return WindowPosition{static_cast<i32>(x), static_cast<i32>(y)};
     }
 
     expected<WindowExtent, WindowError> SDL3Window::size() const noexcept {

@@ -35,6 +35,18 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME EngineGameLogicContractTest COMMAND EngineGameLogicContractTest)
     set_tests_properties(EngineGameLogicContractTest PROPERTIES TIMEOUT 10)
 
+    add_executable(EngineWindowRequestTest tests/WindowRequestTest.cpp)
+    target_link_libraries(EngineWindowRequestTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineWindowRequestTest)
+    add_test(NAME EngineWindowRequestTest COMMAND EngineWindowRequestTest)
+    set_tests_properties(EngineWindowRequestTest PROPERTIES TIMEOUT 10)
+
+    add_executable(EngineDockWindowCoordinatorTest tests/DockWindowCoordinatorTest.cpp)
+    target_link_libraries(EngineDockWindowCoordinatorTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineDockWindowCoordinatorTest)
+    add_test(NAME EngineDockWindowCoordinatorTest COMMAND EngineDockWindowCoordinatorTest)
+    set_tests_properties(EngineDockWindowCoordinatorTest PROPERTIES TIMEOUT 10)
+
     if(NOT STURDY_BUILD_SHARED_LIBS)
         add_executable(
             EngineStaticAggregateUnusedProbe

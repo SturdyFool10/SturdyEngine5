@@ -46,6 +46,8 @@ namespace SFT::Engine {
 
     [[nodiscard]] const WindowState &Engine::window_state() const noexcept { return window_state_; }
 
+    [[nodiscard]] WindowRequests &Engine::window_requests() noexcept { return window_requests_; }
+
     [[nodiscard]] UiContext &Engine::ui_context() noexcept { return ui_context_; }
 
     [[nodiscard]] UiPointerState &Engine::ui_pointer_state() noexcept { return ui_pointer_state_; }

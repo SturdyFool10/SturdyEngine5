@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <deque>
 #include <glm/vec2.hpp>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -48,16 +49,32 @@ namespace SFT::UI {
     // caller (game loop, ECS system, editor tooling) owns sourcing this from whatever input system
     // it already has; UI itself stays input-backend-agnostic (see UI.hpp's own doc comment on why
     // it doesn't depend on Sturdy.Ecs). `down` is the raw current-frame state of the primary
-    // pointer button (left mouse / touch), not an edge trigger — Context derives press/click edges
-    // from consecutive frames' `down` values itself.
+    // pointer button (left mouse / touch). `pressed`/`released`/`cancelled` are one-frame-latched
+    // transitions: backends should set them when an edge occurred since the previous UI frame,
+    // even if a complete press+release happened between frames. Context still derives missing edges
+    // from consecutive `down` values, so existing callers that only populate `down` keep working.
     struct PointerState {
         glm::vec2 position{0.0f};
         bool down = false;
+        bool pressed = false;
+        // Exact press location for a latched edge. Omit only when `pressed` is false; Context falls
+        // back to `position` for compatibility with manually constructed PointerState values.
+        std::optional<glm::vec2> press_position;
+        bool released = false;
+        bool cancelled = false;
         // This frame's accumulated mouse-wheel delta (Clay's own convention: positive scrolls
         // content down/right). One-shot like a drained event, not sticky state — the caller's own
         // accumulator (e.g. Engine::UiPointerState) should reset it after begin_layout() consumes
         // it, the same way MouseWheelEvent itself is a delta, not a position.
         glm::vec2 scroll_delta{0.0f};
+    };
+
+    // A named element's unclipped layout box in root-viewport pixel coordinates. Context caches
+    // these from the immediately previous completed frame rather than exposing Clay's persistent
+    // element table directly (which can retain entries older than one frame).
+    struct ElementBounds {
+        glm::vec2 position{0.0f};
+        glm::vec2 size{0.0f};
     };
 
     // RAII scope for one open Clay element: opens on construction, closes on destruction — the
@@ -223,11 +240,38 @@ namespace SFT::UI {
         // True while the pointer button is currently held down and hovered(id) is true.
         [[nodiscard]] bool pointer_down(const UString &id) const noexcept;
 
-        // True if this frame's pointer position falls within *any* element's bounding box from
-        // last frame's committed layout, regardless of whether that element declared an id — the
-        // generic version of hovered(id), meant for "should a click here be treated as UI input at
-        // all" precedence decisions (e.g. Engine::UiContext::begin_layout()'s consumed flag) rather
-        // than answering for one specific widget.
+        [[nodiscard]] glm::vec2 pointer_position() const noexcept { return pointer_position_; }
+        [[nodiscard]] bool pointer_is_down() const noexcept { return pointer_down_; }
+        [[nodiscard]] bool pointer_pressed_this_frame() const noexcept { return pointer_pressed_this_frame_; }
+        [[nodiscard]] bool pointer_released_this_frame() const noexcept { return pointer_released_this_frame_; }
+        [[nodiscard]] bool pointer_cancelled_this_frame() const noexcept { return pointer_cancelled_this_frame_; }
+
+        // The named element's box from the immediately previous completed frame. std::nullopt means
+        // that id was not declared in that frame. Geometry is deliberately floating-point so range
+        // controls do not lose sub-pixel precision while mapping pointer positions to values.
+        [[nodiscard]] std::optional<ElementBounds> element_bounds(const UString &id) const noexcept;
+
+        // Exclusive primary-pointer capture shared by every widget in this Context. Capture lets a
+        // drag continue after leaving its hit box while preventing overlapping controls from both
+        // starting the same gesture. The owner should release on pointer-up; finish_frame() also
+        // drops orphaned capture automatically when the pointer is no longer down.
+        [[nodiscard]] bool try_capture_pointer(const UString &id) noexcept;
+        [[nodiscard]] bool has_pointer_capture(const UString &id) const noexcept;
+        [[nodiscard]] bool pointer_captured() const noexcept { return !pointer_capture_id_.empty(); }
+        void release_pointer(const UString &id) noexcept;
+
+        // One keyboard-focus owner per Context. Widgets acquire focus on pointer interaction or via
+        // focus(); callers can therefore route backend-neutral key intents without multiple controls
+        // responding at once.
+        void focus(const UString &id);
+        [[nodiscard]] bool has_focus(const UString &id) const noexcept;
+        [[nodiscard]] bool focused() const noexcept { return !focused_id_.empty(); }
+        void clear_focus(const UString &id) noexcept;
+
+        // True if this frame's pointer position falls within any *named* element's bounding box
+        // from the last committed layout. Named elements are the interaction surface of this API;
+        // restricting this query to them also excludes Clay's generated full-viewport root, which
+        // would otherwise make Engine input appear consumed everywhere.
         [[nodiscard]] bool pointer_over_any() const noexcept;
 
         // True on exactly the one frame the pointer transitions from up to down while *not*
@@ -284,12 +328,21 @@ namespace SFT::UI {
         unordered_map<u64, Text::GlyphOutline> outline_cache_;
         Core::Extent2D layout_extent_{.width = 1, .height = 1};
 
-        // This/last frame's raw pointer-button state, set by begin_layout() — clicked()'s edge
-        // trigger is derived from the transition between these two, not from Clay's own internal
-        // pointer state machine (which begin_layout() also drives via Clay_SetPointerState(), but
-        // doesn't expose a public getter for).
+        // Current pointer sample plus latched transitions, set by begin_layout().
+        glm::vec2 pointer_position_{0.0f};
+        glm::vec2 pointer_press_position_{0.0f};
         bool pointer_down_ = false;
         bool pointer_pressed_this_frame_ = false;
+        bool pointer_released_this_frame_ = false;
+        bool pointer_cancelled_this_frame_ = false;
+        string pointer_capture_id_;
+        string focused_id_;
+
+        // IDs declared during the frame being built and unclipped bounds copied from the immediately
+        // previous completed frame. Clay's own element table is persistent and can answer with older
+        // geometry, so interactive widgets must only read this cache through element_bounds().
+        vector<string> current_frame_ids_;
+        unordered_map<string, ElementBounds> last_frame_bounds_;
 
         // The z (ElementDecl::z, Style.hpp) every element()/text()/image()/svg()/custom_element()
         // call currently inherits — always non-empty, back() is "whichever nonzero z was most

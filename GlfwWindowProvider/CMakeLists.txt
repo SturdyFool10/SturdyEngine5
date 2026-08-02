@@ -34,6 +34,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME GlfwWindowProviderFactoryAccessTest COMMAND GlfwWindowProviderFactoryAccessTest)
     set_tests_properties(GlfwWindowProviderFactoryAccessTest PROPERTIES TIMEOUT 10)
 
+    add_executable(GlfwWindowEventAndManagerTest tests/WindowEventAndManagerTest.cpp)
+    target_link_libraries(GlfwWindowEventAndManagerTest PRIVATE Sturdy::GlfwWindowProvider)
+    sturdy_enable_warnings(GlfwWindowEventAndManagerTest)
+    add_test(NAME GlfwWindowEventAndManagerTest COMMAND GlfwWindowEventAndManagerTest)
+    set_tests_properties(GlfwWindowEventAndManagerTest PROPERTIES TIMEOUT 10)
+
     if(NOT STURDY_BUILD_SHARED_LIBS)
         add_executable(
             GlfwWindowProviderUnusedProbe

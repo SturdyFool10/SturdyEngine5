@@ -58,11 +58,31 @@ namespace SFT::Platform::Windowing {
         u32 buttons = 0;
     };
 
+    // Stable mouse-button identity shared by every provider. Provider-native numbering is not
+    // consistent (SDL uses 1 for left while GLFW uses 0), so consumers should prefer this over the
+    // raw WindowMouseButtonEvent::button value whenever they do not need backend-specific details.
+    enum class MouseButton : u8 {
+        Unknown,
+        Left,
+        Middle,
+        Right,
+        Extra1,
+        Extra2,
+        Extra3,
+        Extra4,
+        Extra5,
+    };
+
     struct WindowMouseButtonEvent {
+        // Lossless provider-native value retained for backend-specific integrations and source
+        // compatibility with the original event contract.
         u8 button = 0;
         u8 clicks = 1;
         f32 x = 0.0F;
         f32 y = 0.0F;
+
+        // Appended so existing four-field aggregate initialization remains source-compatible.
+        MouseButton button_code = MouseButton::Unknown;
     };
 
     struct WindowMouseWheelEvent {

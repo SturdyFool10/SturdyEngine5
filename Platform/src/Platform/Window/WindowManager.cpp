@@ -34,7 +34,9 @@ void WindowManager::destroy_window(WindowId id) noexcept {
             });
         }
 
-[[nodiscard]] optional<WindowId> WindowManager::primary_window_id() const noexcept { return primary_window_id_; }
+[[nodiscard]] optional<WindowId> WindowManager::primary_window_id() const noexcept {
+            return dispatch([this]() { return primary_window_id_; });
+        }
 
 [[nodiscard]] usize WindowManager::window_count() noexcept {
             return dispatch([this]() { return windows_.size(); });
@@ -47,69 +49,41 @@ void WindowManager::destroy_window(WindowId id) noexcept {
                     return {};
                 }
 
-                struct PollResult {
-                    expected<ManagedWindowEvents, WindowError> events;
-                };
-
-                vector<Async::TaskHandle<PollResult>> pollers;
-                pollers.reserve(windows_.size());
-
                 for (unique_ptr<Window> &window : windows_) {
                     if (auto pumped = window->pump_events(); !pumped) {
                         return unexpected(pumped.error());
                     }
                 }
 
+                out_events.reserve(windows_.size());
                 for (unique_ptr<Window> &window : windows_) {
-                    Window *window_ptr = window.get();
-                    const WindowId window_id = window->id();
-                    pollers.push_back(Async::Scheduler::spawn([window_ptr, window_id]() -> PollResult {
-                        ManagedWindowEvents collected{.window_id = window_id, .events = {}, .framebuffer_size = {}};
+                    ManagedWindowEvents collected{
+                        .window_id = window->id(),
+                        .events = {},
+                        .framebuffer_size = {},
+                    };
 
-                        while (auto event = window_ptr->poll_event()) {
-                            if (event->kind == WindowEventKind::CloseRequested) {
-                                collected.close_requested = true;
-                            } else if (event->kind == WindowEventKind::Resized || event->kind == WindowEventKind::FramebufferResized) {
-                                collected.resized = true;
-                            }
-                            collected.events.push_back(*event);
+                    // Window event/state queries obey the same affinity contract as pump_events().
+                    // Keep queue draining here on the dispatch owner rather than handing live Window*
+                    // to Scheduler workers, even though current providers protect their queues with
+                    // locks internally.
+                    while (auto event = window->poll_event()) {
+                        if (event->kind == WindowEventKind::CloseRequested) {
+                            collected.close_requested = true;
+                        } else if (event->kind == WindowEventKind::Resized ||
+                                   event->kind == WindowEventKind::FramebufferResized) {
+                            collected.resized = true;
                         }
-
-                        return PollResult{std::move(collected)};
-                    }));
-                }
-
-                out_events.reserve(pollers.size());
-                for (Async::TaskHandle<PollResult> &poller : pollers) {
-                    PollResult result = poller.wait();
-                    if (!result.events) {
-                        return unexpected(result.events.error());
+                        collected.events.push_back(*event);
                     }
-                    out_events.push_back(std::move(*result.events));
-                }
 
-                // Sample owner-thread window state after the poller tasks have drained translated queues.
-                // Backend framebuffer queries and close latches stay on the window-owner path; the worker
-                // tasks only pop already-translated events from each window's protected queue.
-                for (unique_ptr<Window> &window : windows_) {
-                    const WindowId id = window->id();
-                    ManagedWindowEvents *packet = nullptr;
-                    for (ManagedWindowEvents &events : out_events) {
-                        if (events.window_id == id) {
-                            packet = &events;
-                            break;
-                        }
-                    }
-                    if (packet == nullptr) {
-                        out_events.push_back(ManagedWindowEvents{.window_id = id, .events = {}, .framebuffer_size = {}});
-                        packet = &out_events.back();
-                    }
                     if (window->close_requested()) {
-                        packet->close_requested = true;
+                        collected.close_requested = true;
                     }
                     if (auto size = window->framebuffer_size()) {
-                        packet->framebuffer_size = *size;
+                        collected.framebuffer_size = *size;
                     }
+                    out_events.push_back(std::move(collected));
                 }
 
                 return {};

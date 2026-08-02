@@ -161,9 +161,9 @@ namespace SFT::Platform::Windowing {
             return dispatch([this, &fn]() { return fn(windows_); });
         }
 
-        // Coordinator pump: first drain backend/OS events on the window-owner path, then spawn one short
-        // poller task per window to empty that window's translated event queue into a ManagedWindowEvents
-        // packet. If the snapshot is empty, the caller gets an empty event list and can conclude execution.
+        // Coordinator pump: drain backend/OS events, each translated per-window queue, and current
+        // window state entirely on the window-owner path. If the managed set is empty, the caller gets
+        // an empty event list and can conclude execution.
         [[nodiscard]] expected<void, WindowError> pump(vector<ManagedWindowEvents> &out_events) noexcept;
 
       private:
@@ -172,6 +172,15 @@ namespace SFT::Platform::Windowing {
         // above goes through this — it is the only place windows_ is ever accessed.
         template <typename F>
         auto dispatch(F &&fn) -> std::invoke_result_t<F &> {
+            if (event_thread_) {
+                auto handle = event_thread_->run(std::forward<F>(fn));
+                return handle.wait();
+            }
+            return fn();
+        }
+
+        template <typename F>
+        auto dispatch(F &&fn) const -> std::invoke_result_t<F &> {
             if (event_thread_) {
                 auto handle = event_thread_->run(std::forward<F>(fn));
                 return handle.wait();

@@ -22,6 +22,24 @@ using std::vector;
 
 namespace SFT::Platform::Windowing::GLFW {
 
+    namespace Detail {
+
+        [[nodiscard]] constexpr MouseButton normalize_mouse_button(int button) noexcept {
+            switch (button) {
+                case GLFW_MOUSE_BUTTON_LEFT: return MouseButton::Left;
+                case GLFW_MOUSE_BUTTON_MIDDLE: return MouseButton::Middle;
+                case GLFW_MOUSE_BUTTON_RIGHT: return MouseButton::Right;
+                case GLFW_MOUSE_BUTTON_4: return MouseButton::Extra1;
+                case GLFW_MOUSE_BUTTON_5: return MouseButton::Extra2;
+                case GLFW_MOUSE_BUTTON_6: return MouseButton::Extra3;
+                case GLFW_MOUSE_BUTTON_7: return MouseButton::Extra4;
+                case GLFW_MOUSE_BUTTON_8: return MouseButton::Extra5;
+                default: return MouseButton::Unknown;
+            }
+        }
+
+    } // namespace Detail
+
     void glfw_close_callback(GLFWwindow *window);
     void glfw_window_pos_callback(GLFWwindow *window, int x, int y);
     void glfw_window_size_callback(GLFWwindow *window, int width, int height);
@@ -63,6 +81,7 @@ namespace SFT::Platform::Windowing::GLFW {
         expected<void, WindowError> set_title(const char *title) noexcept override;
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override;
         expected<void, WindowError> set_position(WindowPosition position) noexcept override;
+        [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override;
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override;
         expected<void, WindowError> set_size(WindowExtent extent) noexcept override;
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override;

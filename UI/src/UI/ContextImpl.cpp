@@ -268,8 +268,16 @@ namespace SFT::UI {
           custom_storage_(std::move(other.custom_storage_)),
           outline_cache_(std::move(other.outline_cache_)),
           layout_extent_(other.layout_extent_),
+          pointer_position_(other.pointer_position_),
+          pointer_press_position_(other.pointer_press_position_),
           pointer_down_(other.pointer_down_),
           pointer_pressed_this_frame_(other.pointer_pressed_this_frame_),
+          pointer_released_this_frame_(other.pointer_released_this_frame_),
+          pointer_cancelled_this_frame_(other.pointer_cancelled_this_frame_),
+          pointer_capture_id_(std::move(other.pointer_capture_id_)),
+          focused_id_(std::move(other.focused_id_)),
+          current_frame_ids_(std::move(other.current_frame_ids_)),
+          last_frame_bounds_(std::move(other.last_frame_bounds_)),
           z_stack_(std::move(other.z_stack_)) {
         // Clay_Initialize() stamped `&other.text_bridge_` into its measure-text userData; that
         // address is now stale (text_bridge_ just moved to a new home), so re-install it.
@@ -290,8 +298,16 @@ namespace SFT::UI {
             custom_storage_ = std::move(other.custom_storage_);
             outline_cache_ = std::move(other.outline_cache_);
             layout_extent_ = other.layout_extent_;
+            pointer_position_ = other.pointer_position_;
+            pointer_press_position_ = other.pointer_press_position_;
             pointer_down_ = other.pointer_down_;
             pointer_pressed_this_frame_ = other.pointer_pressed_this_frame_;
+            pointer_released_this_frame_ = other.pointer_released_this_frame_;
+            pointer_cancelled_this_frame_ = other.pointer_cancelled_this_frame_;
+            pointer_capture_id_ = std::move(other.pointer_capture_id_);
+            focused_id_ = std::move(other.focused_id_);
+            current_frame_ids_ = std::move(other.current_frame_ids_);
+            last_frame_bounds_ = std::move(other.last_frame_bounds_);
             z_stack_ = std::move(other.z_stack_);
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
@@ -353,6 +369,7 @@ namespace SFT::UI {
         text_storage_.clear();
         image_storage_.clear();
         custom_storage_.clear();
+        current_frame_ids_.clear();
         // Every element()/custom_element() ElementScope pops what it pushed, so this is already
         // back to {0} by the end of a well-formed frame — reset explicitly anyway so a leaked scope
         // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
@@ -364,13 +381,22 @@ namespace SFT::UI {
         });
         // Must run before Clay_BeginLayout(): it hit-tests against last frame's still-committed
         // layout tree, which is exactly what makes hovered(id)/clicked(id) answerable before this
-        // frame has declared anything (see their doc comments in Context.hpp).
-        pointer_pressed_this_frame_ = pointer.down && !pointer_down_;
+        // frame has declared anything (see their doc comments in Context.hpp). Explicitly latched
+        // edges preserve a complete click between UI frames; sampled-state derivation remains as a
+        // compatibility fallback for callers that only populate PointerState::down.
+        const bool was_down = pointer_down_;
+        pointer_position_ = pointer.position;
+        pointer_pressed_this_frame_ = pointer.pressed || (pointer.down && !was_down);
+        if (pointer_pressed_this_frame_) {
+            pointer_press_position_ = pointer.press_position.value_or(pointer.position);
+        }
+        pointer_released_this_frame_ = pointer.released || (!pointer.down && was_down);
+        pointer_cancelled_this_frame_ = pointer.cancelled;
         pointer_down_ = pointer.down;
         Clay_SetPointerState(Clay_Vector2{.x = pointer.position.x, .y = pointer.position.y}, pointer.down);
         // Also needs last frame's committed scroll-container list (same reason it runs before
         // Clay_BeginLayout()); updates whichever container the pointer above is currently over, read
-        // back by element() below via Clay_GetScrollOffse4t().
+        // back by element() below via Clay's scroll-container query APIs.
         Clay_UpdateScrollContainers(true, Clay_Vector2{.x = pointer.scroll_delta.x, .y = pointer.scroll_delta.y},
                                     delta_seconds);
         Clay_BeginLayout();
@@ -378,6 +404,9 @@ namespace SFT::UI {
 
     ElementScope Context::element(const ElementDecl &decl) {
         set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
         // 0 means "inherit" (see ElementDecl::z's own doc comment, Style.hpp) — every element
         // pushes its own *effective* z so text()/image()/svg()/nested element() calls made while
         // this one is open (i.e. before its ElementScope is destroyed) inherit it in turn.
@@ -386,11 +415,19 @@ namespace SFT::UI {
         Clay__OpenElement();
         Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
         if (decl.clip.horizontal || decl.clip.vertical) {
-            // Clay__OpenElement() above already pushed this element, which is what
-            // Clay_GetScrollOffset() keys off of (it reads whatever's currently open) — mirrors how
-            // Clay's own examples wire wheel-driven scrolling (`.childOffset = Clay_GetScrollOffset()`
-            // inside the CLAY() declaration macro).
-            declaration.clip.childOffset = Clay_GetScrollOffset();
+            if (declaration.id.id != 0) {
+                // Query by the caller's stable ID before configuration. Calling Clay_GetScrollOffset()
+                // here would generate an anonymous ID because Clay has not attached declaration.id to
+                // the open element yet; sibling floating clip roots can then receive the same generated
+                // identity and report duplicate-ID errors.
+                const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(declaration.id);
+                if (scroll.found && scroll.scrollPosition != nullptr) {
+                    declaration.clip.childOffset = *scroll.scrollPosition;
+                }
+            } else {
+                // Anonymous non-floating containers retain Clay's ordinary current-element behavior.
+                declaration.clip.childOffset = Clay_GetScrollOffset();
+            }
         }
         Clay__ConfigureOpenElement(declaration);
         return ElementScope{context_, &z_stack_};
@@ -418,6 +455,9 @@ namespace SFT::UI {
 
     void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture) {
         set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
         image_storage_.push_back(ImageRef{.texture = texture});
         ImageRef *stored = &image_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
@@ -432,6 +472,9 @@ namespace SFT::UI {
 
     ElementScope Context::custom_element(const ElementDecl &decl, const CustomShaderRef &shader) {
         set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
         custom_storage_.push_back(shader);
         CustomShaderRef *stored = &custom_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
@@ -457,20 +500,79 @@ namespace SFT::UI {
         return Clay_PointerOver(element_id);
     }
 
-    bool Context::clicked(const UString &id) const noexcept { return pointer_pressed_this_frame_ && hovered(id); }
+    bool Context::clicked(const UString &id) const noexcept {
+        if (!pointer_pressed_this_frame_) {
+            return false;
+        }
+        const std::optional<ElementBounds> bounds = element_bounds(id);
+        return bounds.has_value() && pointer_press_position_.x >= bounds->position.x &&
+               pointer_press_position_.y >= bounds->position.y &&
+               pointer_press_position_.x <= bounds->position.x + bounds->size.x &&
+               pointer_press_position_.y <= bounds->position.y + bounds->size.y;
+    }
 
     bool Context::pointer_down(const UString &id) const noexcept { return pointer_down_ && hovered(id); }
 
-    bool Context::pointer_over_any() const noexcept {
-        if (context_ == nullptr) {
+    std::optional<ElementBounds> Context::element_bounds(const UString &id) const noexcept {
+        if (id.empty()) {
+            return std::nullopt;
+        }
+        const auto found = last_frame_bounds_.find(id.cpp_string());
+        return found != last_frame_bounds_.end() ? std::optional<ElementBounds>{found->second} : std::nullopt;
+    }
+
+    bool Context::try_capture_pointer(const UString &id) noexcept {
+        if (id.empty()) {
             return false;
         }
-        set_current();
-        return Clay_GetPointerOverIds().length > 0;
+        const string_view requested = id.cpp_string_view();
+        if (!pointer_capture_id_.empty() && pointer_capture_id_ != requested) {
+            return false;
+        }
+        pointer_capture_id_.assign(requested);
+        return true;
+    }
+
+    bool Context::has_pointer_capture(const UString &id) const noexcept {
+        return !id.empty() && pointer_capture_id_ == id.cpp_string_view();
+    }
+
+    void Context::release_pointer(const UString &id) noexcept {
+        if (has_pointer_capture(id)) {
+            pointer_capture_id_.clear();
+        }
+    }
+
+    void Context::focus(const UString &id) {
+        if (!id.empty()) {
+            focused_id_ = id.cpp_string();
+        }
+    }
+
+    bool Context::has_focus(const UString &id) const noexcept {
+        return !id.empty() && focused_id_ == id.cpp_string_view();
+    }
+
+    void Context::clear_focus(const UString &id) noexcept {
+        if (has_focus(id)) {
+            focused_id_.clear();
+        }
+    }
+
+    bool Context::pointer_over_any() const noexcept {
+        for (const auto &[id, bounds] : last_frame_bounds_) {
+            (void)id;
+            if (pointer_position_.x >= bounds.position.x && pointer_position_.y >= bounds.position.y &&
+                pointer_position_.x <= bounds.position.x + bounds.size.x &&
+                pointer_position_.y <= bounds.position.y + bounds.size.y) {
+                return true;
+            }
+        }
+        return false;
     }
 
     bool Context::clicked_outside(const UString &id) const noexcept {
-        return pointer_pressed_this_frame_ && !hovered(id);
+        return pointer_pressed_this_frame_ && !clicked(id);
     }
 
     namespace {
@@ -622,6 +724,31 @@ namespace SFT::UI {
         };
 
         Clay_RenderCommandArray commands = Clay_EndLayout();
+
+        unordered_map<string, ElementBounds> completed_bounds;
+        completed_bounds.reserve(current_frame_ids_.size());
+        for (const string &id : current_frame_ids_) {
+            const Clay_ElementId element_id = Clay_GetElementId(Clay_String{
+                .isStaticallyAllocated = false,
+                .length = static_cast<i32>(id.size()),
+                .chars = id.data(),
+            });
+            const Clay_ElementData data = Clay_GetElementData(element_id);
+            if (data.found) {
+                completed_bounds.insert_or_assign(id, ElementBounds{
+                    .position = {data.boundingBox.x, data.boundingBox.y},
+                    .size = {data.boundingBox.width, data.boundingBox.height},
+                });
+            }
+        }
+        last_frame_bounds_ = std::move(completed_bounds);
+        if (!focused_id_.empty() && !last_frame_bounds_.contains(focused_id_)) {
+            focused_id_.clear();
+        }
+        if (!pointer_capture_id_.empty() && !last_frame_bounds_.contains(pointer_capture_id_)) {
+            pointer_capture_id_.clear();
+        }
+
         vector<RHI::Rect2D> scissor_stack{snapshot.full_viewport_scissor_};
 
         for (i32 i = 0; i < commands.length; ++i) {
@@ -743,10 +870,23 @@ namespace SFT::UI {
         snapshot.custom_storage_ = std::move(custom_storage_);
         custom_storage_.clear();
         text_storage_.clear();
+        if (!pointer_down_) {
+            pointer_capture_id_.clear();
+        }
         return snapshot;
     }
 
     void Context::destroy() noexcept {
+        // Clay_Initialize() allocates its Clay_Context struct out of arena_memory_ itself, and
+        // Clay's global Clay__currentContext (Clay_GetCurrentContext()/Clay_SetCurrentContext())
+        // keeps pointing at it even after arena_memory_ below is freed — a dangling global that the
+        // *next* Context::create() on this thread would otherwise inherit and immediately
+        // dereference via Clay_SetMaxElementCount(). Only clear it if it's still pointing at this
+        // Context specifically, so destroying one Context can't stomp on a different, still-live
+        // one that happens to be current.
+        if (context_ != nullptr && Clay_GetCurrentContext() == context_) {
+            Clay_SetCurrentContext(nullptr);
+        }
         context_ = nullptr;
         arena_memory_.clear();
         arena_memory_.shrink_to_fit();
@@ -754,6 +894,10 @@ namespace SFT::UI {
         image_storage_.clear();
         custom_storage_.clear();
         outline_cache_.clear();
+        pointer_capture_id_.clear();
+        focused_id_.clear();
+        current_frame_ids_.clear();
+        last_frame_bounds_.clear();
     }
 
 } // namespace SFT::UI

@@ -34,7 +34,26 @@ namespace SFT::Engine {
     class UiPointerState {
       public:
         void set_position(glm::vec2 position) noexcept { state_.position = position; }
-        void set_down(bool down) noexcept { state_.down = down; }
+        void set_down(bool down) noexcept {
+            if (down != state_.down) {
+                state_.pressed = state_.pressed || down;
+                state_.released = state_.released || !down;
+                if (down) {
+                    state_.press_position = state_.position;
+                }
+            }
+            state_.down = down;
+        }
+        void cancel() noexcept {
+            state_.cancelled = true;
+            state_.down = false;
+        }
+        void clear_transitions() noexcept {
+            state_.pressed = false;
+            state_.press_position.reset();
+            state_.released = false;
+            state_.cancelled = false;
+        }
         // MouseWheelEvent is a delta, not a position, so this accumulates (multiple wheel events can
         // land in one frame) rather than overwriting — cleared by UiContext::begin_layout() below
         // once it's been folded into Clay's scroll tracking, the same one-shot lifetime as an
@@ -122,8 +141,9 @@ namespace SFT::Engine {
         // `pointer_state` came from Engine's own UiPointerState resource.
         void begin_layout(glm::vec2 viewport_size, UiPointerState &pointer_state, f32 delta_seconds) {
             context_.begin_layout(viewport_size, pointer_state.state(), delta_seconds);
-            pointer_state.set_consumed(context_.pointer_over_any());
+            pointer_state.set_consumed(context_.pointer_over_any() || context_.pointer_captured());
             pointer_state.clear_scroll_delta();
+            pointer_state.clear_transitions();
         }
 
         // Packages an already-finished FrameSnapshot (UI::Context::finish_frame()'s result) into

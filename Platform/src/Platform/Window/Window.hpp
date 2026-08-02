@@ -281,6 +281,19 @@ namespace SFT::Platform::Windowing {
         // Move the window so its top-left is at `position`, in **logical/screen** coordinates.
         virtual expected<void, WindowError> set_position(WindowPosition position) noexcept = 0;
 
+        // The OS cursor's position in **global desktop coordinates** — unlike every other position
+        // in this interface, *not* relative to this window's own client area, since this exists
+        // specifically for tracking a pointer that may have left this window's bounds entirely (a
+        // drag that crosses from one OS window into another — see UI docking's tear-off/redock use
+        // case). Ordinary per-window pointer input (button/move events) is unaffected and stays
+        // window-relative as always.
+        [[nodiscard]] virtual expected<WindowPosition, WindowError> global_cursor_position() const noexcept {
+            return unexpected(WindowError{
+                WindowErrorCode::Unsupported,
+                "Global cursor position is unavailable for this window provider.",
+            });
+        }
+
         // The window's client-area size in **logical/screen** coordinates.
         //
         // @note On HiDPI / fractional-scaling displays this differs from `framebuffer_size()` — use

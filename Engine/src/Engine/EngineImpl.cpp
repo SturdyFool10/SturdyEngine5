@@ -75,6 +75,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
         ecs_world_.bind_resource(window_state_);
+        ecs_world_.bind_resource(window_requests_);
         ecs_world_.bind_resource(frame_time_);
         ecs_world_.bind_resource(time_scale_);
         ecs_world_.bind_resource(ui_pointer_state_);
@@ -152,9 +153,9 @@ namespace SFT::Engine {
                 for (const MouseMoveEvent &event : mouse_move.read()) {
                     pointer->set_position({event.mouse.x, event.mouse.y});
                 }
-                constexpr u8 left_mouse_button = 1; // SDL_BUTTON_LEFT
                 for (const MouseButtonEvent &event : mouse_button.read()) {
-                    if (event.mouse.button == left_mouse_button) {
+                    if (event.mouse.button_code == Platform::Windowing::MouseButton::Left) {
+                        pointer->set_position({event.mouse.x, event.mouse.y});
                         pointer->set_down(event.action == ButtonAction::Pressed);
                     }
                 }

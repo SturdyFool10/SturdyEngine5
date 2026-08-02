@@ -25,6 +25,24 @@ using std::vector;
 
 namespace SFT::Platform::Windowing::SDL3 {
 
+    namespace Detail {
+
+        [[nodiscard]] constexpr MouseButton normalize_mouse_button(u8 button) noexcept {
+            switch (button) {
+                case SDL_BUTTON_LEFT: return MouseButton::Left;
+                case SDL_BUTTON_MIDDLE: return MouseButton::Middle;
+                case SDL_BUTTON_RIGHT: return MouseButton::Right;
+                case SDL_BUTTON_X1: return MouseButton::Extra1;
+                case SDL_BUTTON_X2: return MouseButton::Extra2;
+                case 6: return MouseButton::Extra3;
+                case 7: return MouseButton::Extra4;
+                case 8: return MouseButton::Extra5;
+                default: return MouseButton::Unknown;
+            }
+        }
+
+    } // namespace Detail
+
     class SDL3Window final : public Window {
       public:
         ~SDL3Window() noexcept override;
@@ -54,6 +72,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         expected<void, WindowError> set_title(const char *title) noexcept override;
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override;
         expected<void, WindowError> set_position(WindowPosition position) noexcept override;
+        [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override;
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override;
         expected<void, WindowError> set_size(WindowExtent extent) noexcept override;
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override;

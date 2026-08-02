@@ -77,18 +77,8 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     return output;
 }
 
-// Signed distance to a per-corner rounded box, `centerPos` relative to the box center (Y down,
-// matching this engine's pixel-space convention) and `halfSize` the box's half-extent. Negative
-// inside the shape, positive outside, zero on the boundary — msdfgen-style reference reconstruction
-// wants exactly this convention for antialiasing via fwidth() below.
-float roundedBoxSDF(float2 centerPos, float2 halfSize, float4 cornerRadius) {
-    bool left = centerPos.x <= 0.0;
-    bool top = centerPos.y <= 0.0;
-    float radius = left ? (top ? cornerRadius.x : cornerRadius.z) : (top ? cornerRadius.y : cornerRadius.w);
-    radius = min(radius, min(halfSize.x, halfSize.y));
-    float2 q = abs(centerPos) - halfSize + radius;
-    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
-}
+// roundedBoxSDF() now lives in sturdy_common.slang (shared with UI::Context::custom_element()
+// shaders that need the same rounded-corner mask — see its own doc comment there).
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {

@@ -178,6 +178,64 @@ namespace SFT::Engine {
         return true;
     }
 
+    optional<Core::RenderSurfaceHandle> Application::spawn_secondary_window(
+        const Platform::Windowing::WindowConfig &config,
+        Platform::Windowing::WindowFactory factory) {
+        if (!engine_ || !client_->application_config().enable_runtime_window_management) {
+            return std::nullopt;
+        }
+        const Platform::Windowing::WindowFactory effective_factory =
+            factory != nullptr ? factory : client_->application_config().primary_window_factory;
+        if (!spawn_managed_window(config, effective_factory, /*is_primary=*/false)) {
+            return std::nullopt;
+        }
+        // spawn_managed_window() always appends the newly registered window as the last entry of
+        // windows_ (see its own body) — windows_.back() is exactly the one just spawned, since the
+        // only other mutator of windows_ (run()'s own loop) is single-threaded and this call is
+        // always made from that same thread.
+        return windows_.back()->surface;
+    }
+
+    void Application::request_close_window(Platform::Windowing::WindowId id) noexcept {
+        if (ManagedWindow *managed = find_managed_window(id)) {
+            managed->closing = true;
+        }
+    }
+
+    void Application::process_window_requests() {
+        if (!engine_) {
+            return;
+        }
+        for (WindowRequest &request : engine_->window_requests().drain()) {
+            if (auto *spawn = std::get_if<SpawnWindowRequest>(&request)) {
+                const Platform::Windowing::WindowConfig config = spawn->window.view();
+                const optional<Core::RenderSurfaceHandle> surface = spawn_secondary_window(config, spawn->factory);
+                engine_->window_requests().complete(WindowRequestCompletion{
+                    .id = spawn->id,
+                    .kind = WindowRequestKind::Spawn,
+                    .accepted = surface.has_value(),
+                    .surface = surface,
+                    .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
+                    .message = surface ? std::string{} : std::string{"Runtime window management is disabled or window creation failed."},
+                });
+                continue;
+            }
+
+            const CloseWindowRequest &close = std::get<CloseWindowRequest>(request);
+            const bool found = find_managed_window(close.window) != nullptr;
+            if (found) {
+                request_close_window(close.window);
+            }
+            engine_->window_requests().complete(WindowRequestCompletion{
+                .id = close.id,
+                .kind = WindowRequestKind::Close,
+                .accepted = found,
+                .window = close.window,
+                .message = found ? std::string{} : std::string{"Managed window was not found."},
+            });
+        }
+    }
+
     void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion) {
         if (resized) {
             managed.resize_pending.store(true, std::memory_order_release);
@@ -377,7 +435,8 @@ namespace SFT::Engine {
         if (Core::EngineBackend *backend = engine_->graphics_backend()) {
             threading_caps = backend->render_threading_capabilities();
         }
-        if (RHI::choose_render_threading_mode(threading_caps) != RHI::RenderThreadingMode::SingleThreaded) {
+        if (!client_->application_config().enable_runtime_window_management &&
+            RHI::choose_render_threading_mode(threading_caps) != RHI::RenderThreadingMode::SingleThreaded) {
             render_thread_ = make_unique<Async::DedicatedThread>("RenderThread");
         }
         max_frames_in_flight_ = std::max<u32>(1, engine_->capabilities().max_frames_in_flight);
@@ -430,6 +489,7 @@ namespace SFT::Engine {
             const f64 tick_delta_seconds = duration<f64>(tick_now - last_tick_time).count();
             last_tick_time = tick_now;
             engine_->update(tick_delta_seconds);
+            process_window_requests();
 
             for (const ManagedWindowEvents &events : window_events) {
 
