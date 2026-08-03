@@ -26,19 +26,20 @@ namespace SFT::Renderer {
         }
     } // namespace
 
-    Core::RendererResult Renderer::prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission) {
+    Core::RendererResult Renderer::prepare_scene_gpu_data(
+        WindowSurfaceRecord &record, u64 frame_index, const FrameSubmission &submission) {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
         }
 
         const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
-        if (scene_frame_resources_.size() != frame_count) {
-            destroy_scene_gpu_resources();
-            scene_frame_resources_.assign(frame_count, SceneFrameGpuResources{});
+        if (record.scene_frame_resources.size() != frame_count) {
+            destroy_scene_gpu_resources(record.scene_frame_resources);
+            record.scene_frame_resources.assign(frame_count, SceneFrameGpuResources{});
         }
 
-        SceneFrameGpuResources &resources = scene_frame_resources_[frame_index % frame_count];
+        SceneFrameGpuResources &resources = record.scene_frame_resources[frame_index % frame_count];
         if (!resources.view_buffer) {
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = sizeof(SceneViewGpuData),
@@ -163,19 +164,19 @@ namespace SFT::Renderer {
         return {};
     }
 
-    void Renderer::destroy_scene_gpu_resources() noexcept {
+    void Renderer::destroy_scene_gpu_resources(vector<SceneFrameGpuResources> &resources) noexcept {
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
-            for (SceneFrameGpuResources &resources : scene_frame_resources_) {
-                if (resources.object_buffer) {
-                    device->destroy_buffer(resources.object_buffer);
+            for (SceneFrameGpuResources &frame_resources : resources) {
+                if (frame_resources.object_buffer) {
+                    device->destroy_buffer(frame_resources.object_buffer);
                 }
-                if (resources.view_buffer) {
-                    device->destroy_buffer(resources.view_buffer);
+                if (frame_resources.view_buffer) {
+                    device->destroy_buffer(frame_resources.view_buffer);
                 }
             }
         }
-        scene_frame_resources_.clear();
+        resources.clear();
     }
 
 } // namespace SFT::Renderer

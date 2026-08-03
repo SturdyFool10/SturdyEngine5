@@ -161,9 +161,9 @@ namespace SFT::Renderer {
             for (auto &record : *guard) {
                 record->frames_in_flight.clear();
                 record->spectral_accumulation = {};
+                record->scene_frame_resources.clear();
             }
         }
-        scene_frame_resources_.clear();
 
         // Every handle cached below belonged to the destroyed device. Reset without calling ordinary
         // destroy functions: replacement-device pools restart their numeric IDs, so destroying an old

@@ -467,6 +467,10 @@ namespace SFT::Renderer {
     usize Renderer::poll_shader_hot_reload() {
         using namespace std::chrono_literals;
 
+        // See shader_hot_reload_lock_'s own doc comment (RendererModule.hpp) — both render_frame()
+        // overloads call this unconditionally every frame, for every window's own render thread.
+        auto guard = shader_hot_reload_lock_.lock();
+
         usize reloaded = 0;
         if (shader_hot_reload_poll_ && shader_hot_reload_poll_->is_done()) {
             ShaderHotReloadPollResult poll_result = shader_hot_reload_poll_->wait();

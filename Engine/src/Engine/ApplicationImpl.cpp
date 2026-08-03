@@ -28,7 +28,14 @@ namespace SFT::Engine {
 
     Application::~Application() {
         shutdown_client();
-        render_thread_.reset();
+        // shutdown_client()'s drain_render_thread() already waited out every window's in-flight frames,
+        // so every render thread is idle here. Explicitly join+destroy them before engine_.reset() below
+        // — windows_ is declared before engine_ in Application.hpp, so relying on automatic member
+        // teardown order would destroy engine_ first while a (harmlessly idle, but still live) render
+        // thread object for each window still existed.
+        for (auto &managed : windows_) {
+            managed->render_thread.reset();
+        }
         engine_.reset();
         Async::Scheduler::shutdown();
     }
@@ -109,7 +116,8 @@ namespace SFT::Engine {
         auto register_result = window_manager_.with_window(*id, [this, is_primary](Window &window) -> Core::RendererExpected<Core::RenderSurfaceHandle> {
             // Window-backed surface creation queries native/window-library handles and framebuffer
             // state from `window`, so keep registration on the window-owning caller path. Steady-state
-            // rendering still moves onto render_thread_ below when that backend policy is selected.
+            // rendering still moves onto this window's own render_thread below when that backend policy
+            // is selected.
             if (is_primary) {
                 return engine_->initialize(window, client_->application_config().engine);
             }
@@ -148,6 +156,13 @@ namespace SFT::Engine {
         managed->surface = **register_result;
         managed->primary = is_primary;
         managed->last_frame_time = std::chrono::high_resolution_clock::now();
+        // use_render_threading_ is false here for the very first (primary) call — the backend doesn't
+        // exist yet to query render_threading_capabilities() from, see initialize()'s own comment,
+        // which sets up the primary window's render_thread itself right after this returns. Every
+        // later call (secondary/tear-off windows) picks it up immediately.
+        if (use_render_threading_) {
+            managed->render_thread = make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(*id)));
+        }
         ManagedWindow *managed_ptr = managed.get();
         windows_.push_back(std::move(managed));
 
@@ -326,7 +341,7 @@ namespace SFT::Engine {
             return engine_->render(prepared_frame);
         };
 
-        if (render_thread_) {
+        if (managed.render_thread) {
             // Bounded backpressure: never let this window's CPU submission get more than
             // max_frames_in_flight_ frames ahead of the render thread, mirroring the fence-based
             // backpressure already inside render_frame_rhi() for GPU-side frames-in-flight. Each window
@@ -335,7 +350,7 @@ namespace SFT::Engine {
                 report_frame_result(managed.in_flight_frames.front().wait());
                 managed.in_flight_frames.pop_front();
             }
-            managed.in_flight_frames.push_back(render_thread_->run(std::move(render_task)));
+            managed.in_flight_frames.push_back(managed.render_thread->run(std::move(render_task)));
 
             if (effective_wait_for_completion) {
                 const auto wait_start = high_resolution_clock::now();
@@ -438,17 +453,23 @@ namespace SFT::Engine {
         }
         client_initialized_ = true;
 
-        // Stand up the Primary Render Thread only when the backend/platform combination actually
-        // recommends it (see RHI::choose_render_threading_mode) - Web and STURDY_RHI_FORCE_SINGLE_THREADED
-        // builds keep render_thread_ null and fall back to the exact inline single-threaded behavior this
-        // engine had before render threading existed.
+        // Decide once whether windows get a real render thread each, only when the backend/platform
+        // combination actually recommends it (see RHI::choose_render_threading_mode) - Web and
+        // STURDY_RHI_FORCE_SINGLE_THREADED builds keep this false and every window falls back to the
+        // exact inline single-threaded behavior this engine had before render threading existed. This
+        // can only be decided after engine_->graphics_backend() exists, i.e. after the primary window's
+        // spawn_managed_window() call above already ran (chicken-and-egg: the backend doesn't exist
+        // until the primary surface is created) — every *later* spawn_managed_window() call reads
+        // use_render_threading_ directly, but the primary window's own render_thread has to be set up
+        // here explicitly since it missed that assignment.
         RHI::RenderThreadingCapabilities threading_caps{};
         if (Core::EngineBackend *backend = engine_->graphics_backend()) {
             threading_caps = backend->render_threading_capabilities();
         }
-        if (!client_->application_config().enable_runtime_window_management &&
-            RHI::choose_render_threading_mode(threading_caps) != RHI::RenderThreadingMode::SingleThreaded) {
-            render_thread_ = make_unique<Async::DedicatedThread>("RenderThread");
+        use_render_threading_ = RHI::choose_render_threading_mode(threading_caps) != RHI::RenderThreadingMode::SingleThreaded;
+        if (use_render_threading_ && !windows_.empty()) {
+            windows_.front()->render_thread =
+                make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(windows_.front()->window_id)));
         }
         max_frames_in_flight_ = std::max<u32>(1, engine_->capabilities().max_frames_in_flight);
 
@@ -560,8 +581,8 @@ namespace SFT::Engine {
                     }
                     const Core::RenderSurfaceHandle surface = *managed.surface;
                     managed.surface.reset();
-                    if (render_thread_) {
-                        managed.remove_surface_task = render_thread_->run([this, surface]() { engine_->remove_window(surface); });
+                    if (managed.render_thread) {
+                        managed.remove_surface_task = managed.render_thread->run([this, surface]() { engine_->remove_window(surface); });
                         ++it;
                         continue;
                     }

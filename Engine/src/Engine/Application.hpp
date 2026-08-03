@@ -32,10 +32,11 @@ namespace SFT::Engine {
         EngineConfig engine;
         // No periodic title mutation unless the consumer explicitly enables it.
         optional<f64> primary_window_title_update_interval_seconds;
-        // Runtime OS-window creation must keep Platform window calls and graphics surface creation
-        // on one owner thread until Renderer exposes a split prepare/import surface API. Enabling
-        // this opts out of Application's dedicated render thread so deferred WindowRequests can be
-        // executed safely for docking tear-off and editor windows.
+        // Gates spawn_secondary_window()/WindowRequests-driven spawning (docking tear-off, editor
+        // windows) — window/surface *creation* always runs on the caller/main thread regardless (see
+        // spawn_managed_window()), never on a render thread, so this has no effect on render
+        // threading (each ManagedWindow gets its own render thread independent of this flag — see
+        // Application::use_render_threading_'s doc comment).
         bool enable_runtime_window_management = false;
     };
 
@@ -109,6 +110,13 @@ namespace SFT::Engine {
             std::atomic<bool> resize_pending{false};
             std::deque<Async::TaskHandle<Core::RendererResult>> in_flight_frames;
             optional<Async::TaskHandle<void>> remove_surface_task;
+            // Each window gets its own dedicated render thread (rather than every window sharing one
+            // Application-wide thread) so recording/submitting/presenting for separate OS windows —
+            // most commonly several torn-off docking panels — actually runs concurrently instead of
+            // serializing on a single CPU thread. Null under the same conditions the old shared
+            // render_thread_ was null (see use_render_threading_'s doc comment): the inline
+            // single-threaded fallback in render_managed_window() applies per window exactly as before.
+            unique_ptr<Async::DedicatedThread> render_thread;
             u64 frame_index = 0;
             std::chrono::high_resolution_clock::time_point last_frame_time{};
             f64 last_delta_seconds = 0.0;
@@ -125,9 +133,9 @@ namespace SFT::Engine {
         };
 
         // Waits on every still-in-flight render-thread frame (every window) and empties each ring. Must
-        // run before engine_/render_thread_ start tearing down — Async::DedicatedThread's destructor
-        // joins its worker but does not drain queued tasks first (see AffinityImpl.cpp), so any frame
-        // still queued at that point would simply be abandoned.
+        // run before engine_/each window's render_thread start tearing down — Async::DedicatedThread's
+        // destructor joins its worker but does not drain queued tasks first (see AffinityImpl.cpp), so
+        // any frame still queued at that point would simply be abandoned.
         void drain_render_thread() noexcept;
         // Runs GameLogic shutdown at most once after successful initialization, after all CPU
         // submissions and GPU work are complete but before Engine/device destruction.
@@ -146,7 +154,7 @@ namespace SFT::Engine {
 
         // Core per-window render dispatch: given this tick's already-known framebuffer extent and
         // whether a resize was just observed, builds FrameInput and either runs it inline or dispatches
-        // it onto render_thread_. Deliberately touches only `managed` and `engine_` — never
+        // it onto managed.render_thread. Deliberately touches only `managed` and `engine_` — never
         // window_manager_ — since it also runs from inside a Window's repaint callback, which itself
         // fires from inside WindowManager's own dispatch(); re-entering dispatch() from there would
         // deadlock a single-worker DedicatedThread waiting on itself.
@@ -200,11 +208,17 @@ namespace SFT::Engine {
         bool client_initialized_ = false;
         bool client_shutdown_ = false;
 
-        // Primary Render Thread: null means the single-threaded fallback is in effect (Web, or the
-        // backend/platform declining RHI::RenderThreadingMode above SingleThreaded via
-        // render_threading_capabilities()) and render calls happen inline on the caller thread. Non-null
-        // means every RHI/Vulkan call after initialize() happens on this dedicated thread instead.
-        unique_ptr<Async::DedicatedThread> render_thread_;
+        // Decided once in initialize() from RHI::choose_render_threading_mode() and reused every time a
+        // window is spawned to decide whether that window's ManagedWindow::render_thread gets a real
+        // Async::DedicatedThread or stays null (Web, or the backend/platform declining
+        // RHI::RenderThreadingMode above SingleThreaded via render_threading_capabilities()) — null means
+        // the inline single-threaded fallback in render_managed_window() applies for that window.
+        // Deliberately independent of ApplicationConfig::enable_runtime_window_management: the Renderer/
+        // RHI-Vulkan layers are already hardened for two windows rendering concurrently (every lazily-
+        // built cache and resource pool in Renderer::Renderer/VulkanRhiDeviceBridge is Async::Mutex- or
+        // pool-guarded specifically for this), so docking tear-off windows get real per-window threads
+        // like any other window rather than falling back to fully inline rendering.
+        bool use_render_threading_ = false;
         u32 max_frames_in_flight_ = 2;
         u32 consecutive_render_errors_ = 0;
     };

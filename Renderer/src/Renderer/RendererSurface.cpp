@@ -53,6 +53,11 @@ namespace SFT::Renderer {
         for (auto it = guard->begin(); it != guard->end(); ++it) {
             if ((*it)->surface == surface) {
                 destroy_rhi_presentation_resources(**it);
+                // WindowSurfaceRecord::scene_frame_resources holds raw RHI::BufferHandle values, not
+                // RAII-owning ones — erasing the record below without this would leak its view/object
+                // (and instanced-batch) GPU buffers, same reasoning as destroy_rhi_presentation_resources
+                // just above for the swapchain/depth resources.
+                destroy_scene_gpu_resources((*it)->scene_frame_resources);
                 if (graphics_backend_) {
                     graphics_backend_->destroy_window_surface(surface);
                 }

@@ -1113,7 +1113,7 @@ namespace SFT::Renderer {
         };
         {
             ScopedRendererStageTimer timer{"prepare scene GPU data", &current_frame_cpu_stage_timings_ms};
-            if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(frame.frame_index, submission); !scene_gpu_data.has_value()) {
+            if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(record, frame.frame_index, submission); !scene_gpu_data.has_value()) {
                 return scene_gpu_data;
             }
         }
@@ -1130,7 +1130,7 @@ namespace SFT::Renderer {
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
         const u32 scene_frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
-        SceneFrameGpuResources &instance_cull_resources = scene_frame_resources_[frame.frame_index % scene_frame_count];
+        SceneFrameGpuResources &instance_cull_resources = record.scene_frame_resources[frame.frame_index % scene_frame_count];
         // One bind group for every with-object-history draw this frame (RenderItem::object_index
         // indexes the same object_buffer/view_buffer prepare_scene_gpu_data already populated above,
         // for both instanced and non-instanced draws) — built once here rather than per-draw.

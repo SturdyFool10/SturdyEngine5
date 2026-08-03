@@ -556,6 +556,21 @@ namespace SFT::Renderer {
             bool initialized = false;
         };
 
+        struct SceneFrameGpuResources {
+            RHI::BufferHandle view_buffer{};
+            RHI::BufferHandle object_buffer{};
+            usize object_capacity = 0;
+            // GPU-driven instanced-batch draw path (Renderer::record_instanced_batches,
+            // RendererGpuCulling.cpp) — one GpuDrawIndexedIndirectCommand per detected batch, and a
+            // shared compacted-instance-index buffer every batch writes its own region of. Both
+            // resized (never shrunk within a frame) to this frame's batch count / total candidate
+            // instance count; see ensure_instance_cull_frame_resources.
+            RHI::BufferHandle indirect_commands_buffer{};
+            usize indirect_commands_capacity = 0;
+            RHI::BufferHandle compacted_indices_buffer{};
+            usize compacted_indices_capacity = 0;
+        };
+
         struct WindowSurfaceRecord {
             Platform::Windowing::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
@@ -575,6 +590,15 @@ namespace SFT::Renderer {
             // and therefore its own frame-in-flight lifetime, so this can never be a Renderer-wide
             // member if two windows are to render concurrently without racing on each other's fences.
             vector<FrameInFlight> frames_in_flight;
+            // Same per-window rationale as frames_in_flight immediately above: keyed by
+            // frame_index % frame_count, and each window keeps its own independent frame_index, so a
+            // Renderer-wide vector here would alias two windows onto the same slot's view_buffer/
+            // object_buffer — real cross-window content corruption (not just a race) once more than one
+            // window renders real scene content, since a shared slot's buffers could be mid-use by one
+            // window's still-recording command buffer while another window's frame overwrites them.
+            // Real bug found and fixed alongside giving every window its own render thread — see
+            // memory project_multi_window_render_threading.
+            vector<SceneFrameGpuResources> scene_frame_resources;
             // Reused frame-to-frame instead of a fresh stack-local RenderGraph per render_frame_rhi()
             // call. reset() retains the outer pass/resource container capacities; pass-builder-local
             // labels, attachment vectors, and callbacks are still reconstructed. One per window for
@@ -1035,21 +1059,6 @@ namespace SFT::Renderer {
             u32 push_constant_size = 0;
         };
 
-        struct SceneFrameGpuResources {
-            RHI::BufferHandle view_buffer{};
-            RHI::BufferHandle object_buffer{};
-            usize object_capacity = 0;
-            // GPU-driven instanced-batch draw path (Renderer::record_instanced_batches,
-            // RendererGpuCulling.cpp) — one GpuDrawIndexedIndirectCommand per detected batch, and a
-            // shared compacted-instance-index buffer every batch writes its own region of. Both
-            // resized (never shrunk within a frame) to this frame's batch count / total candidate
-            // instance count; see ensure_instance_cull_frame_resources.
-            RHI::BufferHandle indirect_commands_buffer{};
-            usize indirect_commands_capacity = 0;
-            RHI::BufferHandle compacted_indices_buffer{};
-            usize compacted_indices_capacity = 0;
-        };
-
         // Lazily-built resources for the debug HUD text overlay (scene label, camera, FPS, ...)
         // rendered each frame in render_frame_rhi(). Same lazy-build-once-and-cache pattern as
         // the other fullscreen resources above.
@@ -1204,8 +1213,9 @@ namespace SFT::Renderer {
         // runs long enough to never hit a non-resizing frame.
         void maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
-        [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(u64 frame_index, const FrameSubmission &submission);
-        void destroy_scene_gpu_resources() noexcept;
+        [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(
+            WindowSurfaceRecord &record, u64 frame_index, const FrameSubmission &submission);
+        void destroy_scene_gpu_resources(vector<SceneFrameGpuResources> &resources) noexcept;
         // `depth_only`: skip the material's color pipeline/attachments entirely and draw with its
         // depth-only variant instead (see depth_only_pipeline_for's doc comment) — used by the Z
         // prepass that runs before "deferred gbuffer geometry" to eliminate occluded-fragment shading
@@ -1735,13 +1745,20 @@ namespace SFT::Renderer {
         // call-local FrameSubmission instead). An empty accumulator now intentionally renders no
         // geometry; content is always supplied by an API consumer.
         vector<RenderItem> frame_draws_;
-        vector<SceneFrameGpuResources> scene_frame_resources_;
         // Lazily created by the first async poll over the `Shaders/` tree; primed so the first poll
         // reports only edits made after the engine started. Polling is throttled and runs on Async workers
         // because the watcher recursively stats the shader tree and project roots can live on slow filesystems.
         std::shared_ptr<Core::Slang::ShaderWatcher> shader_watcher_;
         optional<Async::TaskHandle<ShaderHotReloadPollResult>> shader_hot_reload_poll_;
         steady_clock::time_point next_shader_hot_reload_poll_{};
+        // Guards poll_shader_hot_reload()'s whole check-then-poll-then-reload body — same "hold the
+        // lock for the whole function" discipline as material_frame_prepare_lock_/
+        // transient_bind_groups_lock_ above. Both render_frame() overloads call this unconditionally
+        // at the top of every frame, so with one render thread per window it would otherwise run
+        // concurrently for every open window: two threads racing shader_hot_reload_poll_'s optional/
+        // shared_ptr reset-and-reassign, or one thread's reload_material_template() mutating
+        // material_templates_/material_instances_ while another window's frame is mid-poll here.
+        Async::Mutex<u8> shader_hot_reload_lock_;
         // Each lazy-build-once-and-cache resource gets its own Async::Mutex, same rationale as
         // window_surfaces_ above — ensure_*()/​*_pipeline_for() hold the guard for their whole
         // check-then-build body, so concurrent first-use from two windows' render calls can't double-build

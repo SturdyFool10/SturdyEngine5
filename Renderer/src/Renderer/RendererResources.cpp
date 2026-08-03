@@ -157,7 +157,16 @@ namespace SFT::Renderer {
         shader_watcher_.reset();
 
         frame_draws_.clear();
-        destroy_scene_gpu_resources();
+        // Normally a no-op by this point: every window already ran destroy_window_surface() (which
+        // cleans up its own record's scene_frame_resources) before ~Renderer() gets here. Kept as a
+        // defensive sweep over whatever window_surfaces_ still holds, rather than assuming that's
+        // always true.
+        {
+            auto guard = window_surfaces_.lock();
+            for (auto &record : *guard) {
+                destroy_scene_gpu_resources(record->scene_frame_resources);
+            }
+        }
 
         for (MaterialInstanceResource &resource : material_instances_) {
             if (resource.alive) {
