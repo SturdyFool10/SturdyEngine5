@@ -15,7 +15,8 @@ struct AlphaBarConstants {
     float4 foregroundAndOpacity; // rgb = the picker's current color at full alpha, a = opacity.
     float4 checkerLight;
     float4 checkerDark;
-    float4 cornerRadius; // topLeft, topRight, bottomLeft, bottomRight.
+    float4 cornerRadius;  // topLeft, topRight, bottomLeft, bottomRight.
+    float4 checkerParams; // x = checker cell edge in pixels, yzw unused.
 };
 
 [[push_constant]] ConstantBuffer<AlphaBarConstants> constants;
@@ -38,13 +39,18 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float alpha = constants.size.x > 0.0 ? clamp01(input.localPixelPos.x / constants.size.x) : 0.0;
     float opacity = clamp01(constants.foregroundAndOpacity.a);
 
-    // A checker cell edge equal to the bar's own height gives square cells regardless of the bar's
-    // length, the same "checker scale follows the strip thickness" convention most color pickers use.
-    float cellSize = max(constants.size.y, 1.0);
+    // Fixed small cells (ColorPickerStyle::checker_cell_size) — scaling cells to the bar's own
+    // height made them chunky stripes at typical bar sizes instead of reading as the familiar
+    // fine-grained transparency checker.
+    float cellSize = max(constants.checkerParams.x, 1.0);
     float2 cell = floor(input.localPixelPos / cellSize);
     bool isLight = fmod(cell.x + cell.y, 2.0) < 1.0;
     float3 checker = isLight ? constants.checkerLight.rgb : constants.checkerDark.rgb;
 
+    // The lerp happens in sRGB space deliberately (matching how CSS/most pickers composite an
+    // alpha swatch over its checker), then the result is linearized for the *Srgb render target —
+    // see ui_color_picker_sv_plane.slang's own comment on why returning sRGB raw double-encodes
+    // against the Clay quad path.
     float3 composited = lerp(checker, constants.foregroundAndOpacity.rgb, alpha);
 
     float2 halfSize = constants.size * 0.5;
@@ -53,5 +59,5 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float edgeSoftness = max(fwidth(dist), SFT_EPSILON);
     float mask = clamp01(0.5 - dist / edgeSoftness);
 
-    return float4(composited, opacity * mask);
+    return float4(srgbToLinear(composited), opacity * mask);
 }

@@ -492,6 +492,9 @@ namespace SFT::UI {
         apply_part_visual(root, composition.root.visual, root_visual);
         if (composition.root.alter_decl)
             composition.root.alter_decl(root, root_context);
+        if (root.cursor == CursorIcon::Auto) {
+            root.cursor = slider_enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+        }
         root.id = decl.id;
         auto root_scope = ctx.element(root);
         (void)root_scope;
@@ -721,6 +724,9 @@ namespace SFT::UI {
                                 // along with it instead of painting on top of the clipped-away region.
                                 .clip_to = FloatingClipTo::AttachedParent,
                             },
+                            // More specific than the root's own Pointer default (Grab, not just
+                            // Pointer) — this *is* the drag handle, not just "somewhere clickable."
+                            .cursor = thumb_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed,
                         },
                         thumb_context);
         }

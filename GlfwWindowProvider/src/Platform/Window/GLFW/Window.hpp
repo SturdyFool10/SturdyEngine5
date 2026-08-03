@@ -95,6 +95,7 @@ namespace SFT::Platform::Windowing::GLFW {
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override;
 
         expected<void, WindowError> set_cursor_visible(bool visible) noexcept override;
+        expected<void, WindowError> set_cursor_icon(CursorIcon icon) noexcept override;
         expected<void, WindowError> set_cursor_grabbed(bool grabbed) noexcept override;
         expected<void, WindowError> set_relative_mouse_mode(bool enabled) noexcept override;
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override;
@@ -139,6 +140,8 @@ namespace SFT::Platform::Windowing::GLFW {
         f64 last_mouse_y_ = 0.0;
         bool has_last_mouse_position_ = false;
         bool mouse_locked_ = false;
+        GLFWcursor *current_cursor_ = nullptr;
+        optional<CursorIcon> current_cursor_icon_;
     };
 
 } // namespace SFT::Platform::Windowing::GLFW

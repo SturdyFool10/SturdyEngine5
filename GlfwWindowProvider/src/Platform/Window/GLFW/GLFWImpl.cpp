@@ -158,6 +158,24 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(destroyed_window_error());
         }
 
+        [[nodiscard]] int to_glfw_standard_cursor(CursorIcon icon) noexcept {
+            switch (icon) {
+                case CursorIcon::Default: return GLFW_ARROW_CURSOR;
+                // GLFW has no open/closed-hand standard cursor — see CursorIcon's own doc comment
+                // (Window.hpp) for why both fall back to POINTING_HAND instead of doing nothing.
+                case CursorIcon::Pointer:
+                case CursorIcon::Grab:
+                case CursorIcon::Grabbing: return GLFW_POINTING_HAND_CURSOR;
+                case CursorIcon::Text: return GLFW_IBEAM_CURSOR;
+                case CursorIcon::ResizeHorizontal: return GLFW_RESIZE_EW_CURSOR;
+                case CursorIcon::ResizeVertical: return GLFW_RESIZE_NS_CURSOR;
+                case CursorIcon::ResizeNwse: return GLFW_RESIZE_NWSE_CURSOR;
+                case CursorIcon::ResizeNesw: return GLFW_RESIZE_NESW_CURSOR;
+                case CursorIcon::NotAllowed: return GLFW_NOT_ALLOWED_CURSOR;
+            }
+            return GLFW_ARROW_CURSOR;
+        }
+
         GLFWWindow *window_from_glfw(GLFWwindow *window) noexcept {
             return window ? static_cast<GLFWWindow *>(glfwGetWindowUserPointer(window))
                           : nullptr;
@@ -373,6 +391,11 @@ namespace SFT::Platform::Windowing::GLFW {
 
     GLFWWindow::~GLFWWindow() noexcept {
         const lock_guard lock(glfw_window_mutex());
+
+        if (current_cursor_ != nullptr) {
+            glfwDestroyCursor(current_cursor_);
+            current_cursor_ = nullptr;
+        }
 
         if (!window_) [[unlikely]] {
             Foundation::log_trace(
@@ -1066,6 +1089,36 @@ namespace SFT::Platform::Windowing::GLFW {
             static_cast<void *>(window_),
             visible);
         glfwSetInputMode(window_, GLFW_CURSOR, visible ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_cursor_icon(CursorIcon icon) noexcept {
+        const lock_guard lock(glfw_window_mutex());
+        if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
+            return live;
+        }
+        // Skip the churn entirely on the overwhelmingly common case (nothing changed since last
+        // call) — a caller driving this off per-frame hover state, as UI::Context::desired_cursor()
+        // is meant to be, would otherwise recreate a native cursor object every single frame.
+        if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
+            return glfw_success();
+        }
+        GLFWcursor *cursor = glfwCreateStandardCursor(to_glfw_standard_cursor(icon));
+        if (cursor == nullptr) [[unlikely]] {
+            Foundation::log_error(
+                "GLFW create standard cursor failed: wrapper={} native_ptr={} icon={}",
+                static_cast<void *>(this), static_cast<void *>(window_), static_cast<i32>(icon));
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW create standard cursor failed."});
+        }
+        glfwSetCursor(window_, cursor);
+        if (current_cursor_ != nullptr) {
+            glfwDestroyCursor(current_cursor_);
+        }
+        current_cursor_ = cursor;
+        current_cursor_icon_ = icon;
+        Foundation::log_trace(
+            "GLFW set cursor icon: wrapper={} native_ptr={} icon={}",
+            static_cast<void *>(this), static_cast<void *>(window_), static_cast<i32>(icon));
         return glfw_success();
     }
 

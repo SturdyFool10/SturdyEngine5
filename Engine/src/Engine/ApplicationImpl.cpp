@@ -221,6 +221,17 @@ namespace SFT::Engine {
                 continue;
             }
 
+            if (auto *cursor = std::get_if<SetCursorIconRequest>(&request)) {
+                // with_window()'s return type is std::optional<std::invoke_result_t<F&, Window&>> —
+                // a lambda returning plain void would instantiate the ill-formed std::optional<void>,
+                // so this returns set_cursor_icon()'s own expected<void, WindowError> unchanged
+                // (discarded by (void) below) rather than swallowing it inside the lambda itself.
+                (void)window_manager_.with_window(cursor->window, [icon = cursor->icon](Platform::Windowing::Window &w) {
+                    return w.set_cursor_icon(icon);
+                });
+                continue;
+            }
+
             const CloseWindowRequest &close = std::get<CloseWindowRequest>(request);
             const bool found = find_managed_window(close.window) != nullptr;
             if (found) {

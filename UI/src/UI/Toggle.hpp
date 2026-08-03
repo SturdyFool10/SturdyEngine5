@@ -118,6 +118,9 @@ namespace SFT::UI {
         ElementDecl styled = decl;
         styled.background_color = state.current_color();
         styled.child_alignment = {AlignX::Center, AlignY::Center};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+        }
         auto scope = ctx.element(styled);
         (void)scope;
         if (checked) {
@@ -143,6 +146,9 @@ namespace SFT::UI {
         styled.corner_radius = CornerRadius::all(size * 0.5f);
         styled.border = BorderStyle{.color = state.current_color(), .width = BorderWidth::all(2)};
         styled.child_alignment = {AlignX::Center, AlignY::Center};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+        }
         auto scope = ctx.element(styled);
         (void)scope;
         const f32 dot_size = size * 0.5f * state.progress();
@@ -180,6 +186,9 @@ namespace SFT::UI {
         styled.corner_radius = CornerRadius::all(track_height * 0.5f);
         styled.padding = Padding::all(static_cast<u16>(kInset));
         styled.child_alignment = {AlignX::Left, AlignY::Center};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+        }
         auto track = ctx.element(styled);
         (void)track;
         {

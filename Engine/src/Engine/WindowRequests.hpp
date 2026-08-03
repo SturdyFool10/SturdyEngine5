@@ -51,7 +51,16 @@ namespace SFT::Engine {
         Platform::Windowing::WindowId window{};
     };
 
-    using WindowRequest = std::variant<SpawnWindowRequest, CloseWindowRequest>;
+    // Fire-and-forget, unlike Spawn/Close above — a caller driving this off per-frame hover state
+    // (UI::Context::desired_cursor(), translated to Platform::Windowing::CursorIcon) has no use for
+    // a WindowRequestId/completion round-trip for something that's already stale a frame later
+    // anyway. Application::process_window_requests() applies it directly and moves on.
+    struct SetCursorIconRequest {
+        Platform::Windowing::WindowId window{};
+        Platform::Windowing::CursorIcon icon = Platform::Windowing::CursorIcon::Default;
+    };
+
+    using WindowRequest = std::variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close };
 
@@ -83,6 +92,12 @@ namespace SFT::Engine {
             const WindowRequestId id{next_id_++};
             pending_.emplace_back(CloseWindowRequest{id, window});
             return id;
+        }
+
+        // See SetCursorIconRequest's own doc comment for why this has no id/completion.
+        void set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon) {
+            const std::lock_guard lock{mutex_};
+            pending_.emplace_back(SetCursorIconRequest{window, icon});
         }
 
         [[nodiscard]] std::vector<WindowRequest> drain() {

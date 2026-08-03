@@ -43,6 +43,7 @@ namespace SFT::UiWorkbench {
         void build_controls_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_composition_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        void build_text_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void handle_dock_events(Engine::Engine &engine, Surface &surface,
                                 UI::Docking::DockWorkspaceEvents events);
@@ -72,6 +73,13 @@ namespace SFT::UiWorkbench {
         UI::DropdownState preset_dropdown_state_{};
         usize selected_preset_ = 0;
 
+        // Text Lab: plain single-line, masked (password) single-line, and a multiline Markdown
+        // editor whose content renders live in a preview card below it. Buffers live here (like
+        // every other widget's persistent state), seeded once in initialize().
+        UI::TextEditState line_input_state_{};
+        UI::TextEditState password_input_state_{};
+        UI::TextEditState markdown_input_state_{};
+
         bool slider_enabled_ = true;
         bool show_slider_markers_ = true;
         bool use_custom_thumb_ = true;
@@ -88,6 +96,13 @@ namespace SFT::UiWorkbench {
         bool scroll_smooth_ = true;
         f64 scroll_smoothing_rate_ = 18.0;
         UI::SliderState scroll_smoothing_rate_state_{};
+
+        // Egui-defaults-flavored: thin, invisible track, translucent thumb that only appears while
+        // the pointer is in a scrollable panel (or actively dragging/scrolling it) and fades back
+        // out shortly after — see ScrollbarStyle's own doc comment (ScrollArea.hpp) for the exact
+        // timings. Shared by every panel; per-panel feel (fade/drag progress) lives on each Surface
+        // instead (Surface::controls_scroll etc.).
+        UI::ScrollbarStyle scrollbar_style_{};
 
         std::string status_message_ = "Ready — drag any tab beyond a window edge to tear it off.";
     };

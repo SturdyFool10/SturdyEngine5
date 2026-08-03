@@ -16,6 +16,7 @@
 #include "Dropdown.hpp"
 #include "Easing.hpp"
 #include "Masonry.hpp"
+#include "ScrollArea.hpp"
 #include "Slider.hpp"
 #include "Style.hpp"
 #include "Svg/SvgIcon.hpp"

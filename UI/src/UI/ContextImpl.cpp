@@ -285,6 +285,8 @@ namespace SFT::UI {
           last_frame_scroll_offsets_(std::move(other.last_frame_scroll_offsets_)),
           scroll_settings_(other.scroll_settings_),
           pending_scroll_delta_(other.pending_scroll_delta_),
+          cursor_management_enabled_(other.cursor_management_enabled_),
+          desired_cursor_(other.desired_cursor_),
           z_stack_(std::move(other.z_stack_)) {
         // Clay_Initialize() stamped `&other.text_bridge_` into its measure-text userData; that
         // address is now stale (text_bridge_ just moved to a new home), so re-install it.
@@ -319,6 +321,8 @@ namespace SFT::UI {
             last_frame_scroll_offsets_ = std::move(other.last_frame_scroll_offsets_);
             scroll_settings_ = other.scroll_settings_;
             pending_scroll_delta_ = other.pending_scroll_delta_;
+            cursor_management_enabled_ = other.cursor_management_enabled_;
+            desired_cursor_ = other.desired_cursor_;
             z_stack_ = std::move(other.z_stack_);
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
@@ -382,6 +386,9 @@ namespace SFT::UI {
         custom_storage_.clear();
         current_frame_ids_.clear();
         current_frame_clip_ids_.clear();
+        // Rebuilt fresh by element() below as this frame's elements get hover-tested — see
+        // desired_cursor_'s own doc comment (Context.hpp).
+        desired_cursor_ = CursorIcon::Default;
         // Every element()/custom_element() ElementScope pops what it pushed, so this is already
         // back to {0} by the end of a well-formed frame — reset explicitly anyway so a leaked scope
         // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
@@ -435,11 +442,25 @@ namespace SFT::UI {
         Clay_BeginLayout();
     }
 
+    void Context::update_desired_cursor(const ElementDecl &decl) noexcept {
+        if (!cursor_management_enabled_ || decl.cursor == CursorIcon::Auto || decl.id.empty()) {
+            return;
+        }
+        // Later declarations win over earlier ones for the same point — see desired_cursor_'s own
+        // doc comment (Context.hpp) for why that gives "more specific (a child) wins over less
+        // specific (its ancestor)" for the common nested case, without needing z/paint-order
+        // bookkeeping the way the actual visual stacking (QuadDraw::scissor, PaintKey) does.
+        if (hovered(decl.id)) {
+            desired_cursor_ = decl.cursor;
+        }
+    }
+
     ElementScope Context::element(const ElementDecl &decl) {
         set_current();
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
         }
+        update_desired_cursor(decl);
         // 0 means "inherit" (see ElementDecl::z's own doc comment, Style.hpp) — every element
         // pushes its own *effective* z so text()/image()/svg()/nested element() calls made while
         // this one is open (i.e. before its ElementScope is destroyed) inherit it in turn.
@@ -494,6 +515,7 @@ namespace SFT::UI {
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
         }
+        update_desired_cursor(decl);
         image_storage_.push_back(ImageRef{.texture = texture});
         ImageRef *stored = &image_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
@@ -511,6 +533,7 @@ namespace SFT::UI {
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
         }
+        update_desired_cursor(decl);
         custom_storage_.push_back(shader);
         CustomShaderRef *stored = &custom_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
@@ -681,6 +704,55 @@ namespace SFT::UI {
                       container.boundingBox.y, container.boundingBox.y + container.boundingBox.height,
                       scroll.contentDimensions.height, scroll.scrollContainerDimensions.height);
         }
+        return true;
+    }
+
+    Context::ScrollMetrics Context::scroll_metrics(const UString &container_id) const noexcept {
+        if (context_ == nullptr || container_id.size() == 0) {
+            return ScrollMetrics{};
+        }
+        set_current();
+        const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(to_clay_element_id(container_id));
+        if (!scroll.found) {
+            return ScrollMetrics{};
+        }
+        return ScrollMetrics{
+            .found = true,
+            .offset = scroll.scrollPosition != nullptr ? glm::vec2{scroll.scrollPosition->x, scroll.scrollPosition->y}
+                                                        : glm::vec2{0.0f},
+            .content_size = {scroll.contentDimensions.width, scroll.contentDimensions.height},
+            .container_size = {scroll.scrollContainerDimensions.width, scroll.scrollContainerDimensions.height},
+            .horizontal = scroll.config.horizontal,
+            .vertical = scroll.config.vertical,
+        };
+    }
+
+    bool Context::set_scroll_offset(const UString &container_id, glm::vec2 offset) noexcept {
+        if (context_ == nullptr || container_id.size() == 0) {
+            return false;
+        }
+        set_current();
+        const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(to_clay_element_id(container_id));
+        if (!scroll.found || scroll.scrollPosition == nullptr) {
+            return false;
+        }
+        if (scroll.config.horizontal) {
+            const f32 min_x = std::min(0.0f, scroll.scrollContainerDimensions.width - scroll.contentDimensions.width);
+            scroll.scrollPosition->x = std::clamp(offset.x, min_x, 0.0f);
+        }
+        if (scroll.config.vertical) {
+            const f32 min_y = std::min(0.0f, scroll.scrollContainerDimensions.height - scroll.contentDimensions.height);
+            scroll.scrollPosition->y = std::clamp(offset.y, min_y, 0.0f);
+        }
+        // Mutating Clay's live scrollPosition alone isn't enough: element()'s clip-handling never
+        // re-reads it directly (see current_frame_clip_ids_'s own doc comment, Context.hpp, for why
+        // querying an element's own clip config mid-configure is unsafe) — it only ever reads
+        // last_frame_scroll_offsets_, populated once per frame from finish_frame(). Without this,
+        // a caller that sets the offset *between* frames (or mid-frame, before this container's own
+        // finish_frame() cache refresh runs) would see it silently reverted on the very next
+        // begin_layout(), since element() would still hand Clay back the stale cached childOffset.
+        last_frame_scroll_offsets_.insert_or_assign(
+            container_id.cpp_string(), glm::vec2{scroll.scrollPosition->x, scroll.scrollPosition->y});
         return true;
     }
 

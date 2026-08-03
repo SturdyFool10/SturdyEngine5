@@ -56,5 +56,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float edgeSoftness = max(fwidth(dist), SFT_EPSILON);
     float mask = clamp01(0.5 - dist / edgeSoftness);
 
-    return float4(hsvToRgb(hue, saturation, value), opacity * mask);
+    // hsvToRgb() produces sRGB-encoded channels (HSV is defined over the sRGB cube), but this
+    // fragment writes into the same *Srgb render target every UI quad does — a target that encodes
+    // linear -> sRGB on write. The generic quad path already accounts for that (ContextImpl.cpp's
+    // clay_color_to_linear() linearizes every Clay color CPU-side before the GPU sees it), so
+    // returning the sRGB value raw here double-encodes it, rendering the gradient visibly lighter
+    // than the very color the picker then reports — the preview swatch (drawn as a Clay quad from
+    // the same HSV) would not match the plane pixel under the cursor. Linearize to match.
+    return float4(srgbToLinear(hsvToRgb(hue, saturation, value)), opacity * mask);
 }

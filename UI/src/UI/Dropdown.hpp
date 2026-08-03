@@ -249,6 +249,9 @@ namespace SFT::UI {
             apply_part_visual(trigger, composition.trigger.visual, trigger_visual);
             if (composition.trigger.alter_decl)
                 composition.trigger.alter_decl(trigger, trigger_context);
+            if (trigger.cursor == CursorIcon::Auto) {
+                trigger.cursor = trigger_enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+            }
             trigger.id = id;
             auto trigger_scope = ctx.element(trigger);
             (void)trigger_scope;
@@ -395,6 +398,9 @@ namespace SFT::UI {
                     apply_part_visual(row_decl, composition.option.visual, option_visual);
                     if (composition.option.alter_decl)
                         composition.option.alter_decl(row_decl, option_context);
+                    if (row_decl.cursor == CursorIcon::Auto) {
+                        row_decl.cursor = option_enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+                    }
                     row_decl.id = option_id;
                     auto row = ctx.element(row_decl);
                     (void)row;

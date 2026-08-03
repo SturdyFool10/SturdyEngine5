@@ -179,6 +179,128 @@ namespace {
         (void)context.finish_frame();
     }
 
+    // With the color-space dropdown enabled, the fixed hue bar gives way to per-channel sliders of
+    // the selected space (sRGB by default: R/G/B) — the dropdown must actually change the picker's
+    // controls, not just a text readout. Confirms the hue bar is genuinely absent, exactly three
+    // component sliders exist, and dragging one (R to its track's right edge) drives the picked
+    // color itself, round-tripped through the picker's internal HSV state.
+    void color_picker_component_sliders_follow_selected_space() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        ColorPickerState state;
+        ColorPickerStyle style{};
+        style.plane_size = {100.0f, 80.0f};
+        const ColorPickerConfig config{.show_color_space_dropdown = true, .show_alpha = false, .show_preview = false};
+        const UString id{"test-picker-components"};
+
+        context.begin_layout({300.0f, 600.0f});
+        ColorPickerResult result = color_picker(context, id, ElementDecl{}, config, style, state,
+                                                Color{0.2, 0.4, 0.8, 1.0});
+        (void)context.finish_frame();
+
+        assert(!context.element_bounds(UString{"test-picker-components#hue"}).has_value());
+        const std::optional<ElementBounds> r_bounds =
+            context.element_bounds(UString{"test-picker-components#component:0"});
+        assert(r_bounds.has_value());
+        assert(context.element_bounds(UString{"test-picker-components#component:2"}).has_value());
+        assert(!context.element_bounds(UString{"test-picker-components#component:3"}).has_value());
+
+        const glm::vec2 press{r_bounds->position.x + r_bounds->size.x - 1.0f,
+                              r_bounds->position.y + r_bounds->size.y * 0.5f};
+        context.begin_layout({300.0f, 600.0f}, PointerState{
+                                                   .position = press,
+                                                   .down = true,
+                                                   .pressed = true,
+                                                   .press_position = press,
+                                               });
+        result = color_picker(context, id, ElementDecl{}, config, style, state, result.color);
+        assert(result.changed);
+        assert(result.color.r > 0.95);
+        // Editing one channel must not disturb the others — the HSV round-trip is lossless in-gamut.
+        assert(near(result.color.g, 0.4, 1.0e-6));
+        assert(near(result.color.b, 0.8, 1.0e-6));
+        (void)context.finish_frame();
+    }
+
+    // The caret is the editor's own indicator, not a physical glyph — it must occupy zero
+    // horizontal space in the committed layout so text and placeholder never shift or wrap around
+    // it (the visible 2px bar is a floating overlay centered on this zero-width anchor — see
+    // Detail::render_line's emit_caret comment).
+    void text_caret_has_no_layout_footprint() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        TextEditState state;
+        const TextEditStyle style{};
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(200.0f), SizingAxis::fixed(30.0f)},
+            .id = UString{"caret-input"},
+        };
+
+        context.begin_layout({300.0f, 100.0f});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+
+        const glm::vec2 press{100.0f, 15.0f};
+        context.begin_layout({300.0f, 100.0f}, PointerState{
+                                                   .position = press,
+                                                   .down = true,
+                                                   .pressed = true,
+                                                   .press_position = press,
+                                               });
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+        assert(state.focused());
+
+        context.begin_layout({300.0f, 100.0f}, PointerState{.position = press});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+
+        const std::optional<ElementBounds> caret_anchor = context.element_bounds(UString{"caret-input#caret"});
+        assert(caret_anchor.has_value());
+        assert(caret_anchor->size.x == 0.0f);
+    }
+
+    // Vertical counterpart of text_caret_has_no_layout_footprint(): an empty paragraph must be a
+    // real, visible line whether or not the caret sits on it. Before the row strut, a blank line
+    // rendered zero-height until the caret's anchor arrived and gave it height — a "line that
+    // didn't exist" popping in and pushing everything below it down.
+    void text_area_line_heights_ignore_caret() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        TextEditState state;
+        state.set_text(UString{"ab\n\ncd"});
+        const TextEditStyle style{};
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(200.0f), SizingAxis::fixed(120.0f)},
+            .id = UString{"area-strut"},
+        };
+
+        const auto build = [&](const PointerState &pointer, std::span<const EditKey> pressed = {}) {
+            TextEditInput input{};
+            input.keys.assign(pressed.begin(), pressed.end());
+            context.begin_layout({300.0f, 200.0f}, pointer, 0.016f);
+            (void)text_area(context, decl, style, state, input, 0.016f);
+            (void)context.finish_frame();
+            return context.scroll_metrics(decl.id).content_size.y;
+        };
+
+        const f32 unfocused_height = build(PointerState{});
+        assert(unfocused_height > 0.0f);
+
+        const glm::vec2 press{100.0f, 60.0f};
+        (void)build(PointerState{.position = press, .down = true, .pressed = true, .press_position = press});
+        assert(state.focused());
+        // Caret lands at the buffer's end (click-to-focus contract); walk it up through the empty
+        // middle paragraph and onto the first one — the content height must never move.
+        const std::array up{EditKey::Up};
+        const f32 on_last = build(PointerState{});
+        const f32 on_empty = build(PointerState{}, up);
+        const f32 on_first = build(PointerState{}, up);
+        assert(near(on_last, unfocused_height, 0.01));
+        assert(near(on_empty, unfocused_height, 0.01));
+        assert(near(on_first, unfocused_height, 0.01));
+    }
+
     void scroll_container_moves_child_offset() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -362,15 +484,281 @@ namespace {
         assert(!context.clicked(hidden_floater_id));
     }
 
+    // Context::scroll_metrics()/set_scroll_offset() are ScrollArea.hpp's foundation — they wrap
+    // Clay_GetScrollContainerData's own documented "external functionality that modifies scroll
+    // position, such as scroll bars" use case (clay.h). Verifies both the read side (reports the
+    // real content/container sizes and current offset) and the write side (clamps to the
+    // container's valid range, same as wheel-driven scrolling would, and the new value is actually
+    // picked up by the next frame's layout).
+    void scroll_metrics_and_set_scroll_offset_work() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        const UString box_id{"metrics-box"};
+        const UString child_b_id{"metrics-child-b"};
+
+        const auto build = [&]() {
+            context.begin_layout({200.0f, 200.0f});
+            {
+                auto box = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)},
+                    .direction = LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                    .id = box_id,
+                });
+                (void)box;
+                { auto a = context.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = UString{"metrics-child-a"}}); (void)a; }
+                { auto b = context.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = child_b_id}); (void)b; }
+            }
+            (void)context.finish_frame();
+        };
+
+        build();
+        const Context::ScrollMetrics before = context.scroll_metrics(box_id);
+        assert(before.found);
+        assert(before.vertical);
+        assert(!before.horizontal);
+        assert(near(before.content_size.y, 160.0));
+        assert(near(before.container_size.y, 100.0));
+        assert(near(before.offset.y, 0.0));
+
+        // Ask for far more than the container can scroll — must clamp to -(content - container),
+        // exactly what Clay's own wheel-driven clamping would produce (Clay_UpdateScrollContainers,
+        // clay.h), not silently accept an out-of-range value.
+        assert(context.set_scroll_offset(box_id, glm::vec2{0.0f, -1000.0f}));
+        const Context::ScrollMetrics clamped = context.scroll_metrics(box_id);
+        assert(near(clamped.offset.y, -60.0));
+
+        // An id nothing declared with clip enabled is a no-op, not a crash.
+        assert(!context.set_scroll_offset(UString{"does-not-exist"}, glm::vec2{0.0f, -10.0f}));
+
+        build();
+        const std::optional<ElementBounds> child_b_bounds = context.element_bounds(child_b_id);
+        assert(child_b_bounds.has_value());
+        assert(near(child_b_bounds->position.y, 20.0));
+    }
+
+    // Regression/behavior test for ScrollArea.hpp's core promise: the scrollbar stays invisible
+    // (not even declared, let alone drawn) until the pointer actually enters a scrollable area, and
+    // fades in shortly after — never a permanent fixture. Also confirms it does not appear at all
+    // when there is nothing to scroll.
+    void scroll_area_shows_thumb_only_when_hovering_overflowing_content() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        ScrollAreaState overflowing_state;
+        ScrollAreaState fitting_state;
+        const UString overflowing_id{"scroll-area-overflow"};
+        const UString fitting_id{"scroll-area-fit"};
+        const UString overflow_thumb_id = scroll_area_part_id(overflowing_id, ScrollAreaVisualPart::VerticalThumb);
+        const UString fit_thumb_id = scroll_area_part_id(fitting_id, ScrollAreaVisualPart::VerticalThumb);
+
+        const auto build = [&](const PointerState &pointer, f32 dt) {
+            context.begin_layout({200.0f, 200.0f}, pointer, dt);
+            (void)scroll_area(
+                context, overflowing_id,
+                ElementDecl{
+                    .sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)},
+                    .direction = LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                },
+                ScrollbarStyle{}, overflowing_state, dt, [](Context &ctx) {
+                    // Braced so each scope closes immediately — an unbraced `auto x =
+                    // ctx.element(...); (void)x;` stays open until the end of this lambda, which
+                    // would make the second child a child of the first instead of its sibling (the
+                    // same ElementScope-lifetime pitfall documented on WorkbenchUi.cpp's own
+                    // dropdown_option()).
+                    { auto a = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = UString{"sa-overflow-a"}}); (void)a; }
+                    { auto b = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = UString{"sa-overflow-b"}}); (void)b; }
+                });
+            // A second scroll area, positioned well away from the first, whose content fits
+            // entirely within its container — must never show a thumb regardless of hover.
+            (void)scroll_area(
+                context, fitting_id,
+                ElementDecl{
+                    .sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)},
+                    .direction = LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                    .floating = FloatingConfig{.attach_to = FloatingAttachTo::Root, .offset = {150.0f, 0.0f}},
+                },
+                ScrollbarStyle{}, fitting_state, dt, [](Context &ctx) {
+                    auto a = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(40.0f), SizingAxis::fixed(40.0f)}, .id = UString{"sa-fit-a"}});
+                    (void)a;
+                });
+            (void)context.finish_frame();
+        };
+
+        // Pointer parked well outside both areas — neither thumb should exist in the committed tree.
+        build(PointerState{.position = {500.0f, 500.0f}}, 0.016f);
+        assert(!context.element_bounds(overflow_thumb_id).has_value());
+        assert(!context.element_bounds(fit_thumb_id).has_value());
+
+        // Hover the overflowing area for long enough that fade_in_seconds (default 0.1s) completes.
+        const PointerState hovering_overflow{.position = {50.0f, 50.0f}};
+        for (int i = 0; i < 10; ++i) {
+            build(hovering_overflow, 0.05f);
+        }
+        assert(context.element_bounds(overflow_thumb_id).has_value());
+
+        // Hovering the *fitting* area (nothing to scroll) must still never produce a thumb, even
+        // after the same dwell time.
+        const PointerState hovering_fit{.position = {200.0f, 50.0f}};
+        for (int i = 0; i < 10; ++i) {
+            build(hovering_fit, 0.05f);
+        }
+        assert(!context.element_bounds(fit_thumb_id).has_value());
+
+        // Move away and give it long enough to fade back out (default fade_out_seconds=0.4s,
+        // idle_delay_seconds=0.4s) — it must not linger forever once the pointer leaves.
+        for (int i = 0; i < 20; ++i) {
+            build(PointerState{.position = {500.0f, 500.0f}}, 0.05f);
+        }
+        assert(!context.element_bounds(overflow_thumb_id).has_value());
+    }
+
+    // Confirms the thumb is actually draggable end-to-end: pressing it and moving the pointer must
+    // scroll the underlying content via Context::set_scroll_offset(), not just animate the thumb's
+    // own decorative position.
+    void scroll_area_thumb_drag_scrolls_content() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        ScrollAreaState state;
+        const UString area_id{"scroll-area-drag"};
+        const UString thumb_id = scroll_area_part_id(area_id, ScrollAreaVisualPart::VerticalThumb);
+        const UString child_b_id{"sa-drag-b"};
+
+        const auto build = [&](const PointerState &pointer, f32 dt) {
+            context.begin_layout({200.0f, 200.0f}, pointer, dt);
+            (void)scroll_area(
+                context, area_id,
+                ElementDecl{
+                    .sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)},
+                    .direction = LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                },
+                ScrollbarStyle{}, state, dt, [&](Context &ctx) {
+                    { auto a = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = UString{"sa-drag-a"}}); (void)a; }
+                    { auto b = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = child_b_id}); (void)b; }
+                });
+            (void)context.finish_frame();
+        };
+
+        // Warm the thumb into existence (hover long enough to fully fade in) before trying to press
+        // it — it isn't declared at all while invisible, so a press before this would hit nothing.
+        const PointerState hovering{.position = {50.0f, 50.0f}};
+        for (int i = 0; i < 10; ++i) {
+            build(hovering, 0.05f);
+        }
+        const std::optional<ElementBounds> thumb_before = context.element_bounds(thumb_id);
+        assert(thumb_before.has_value());
+        const glm::vec2 thumb_center = thumb_before->position + thumb_before->size * 0.5f;
+
+        // Press on the thumb, then drag it to the bottom of its track — content must scroll to
+        // fully reveal child-b, the same end state the wheel-scroll test (further up this file)
+        // reaches by an entirely different input path. `.down` stays true across every frame from
+        // the press onward so only the *first* of these frames is seen as a new press edge
+        // (pointer_down_ transitioning false->true) — otherwise each subsequent frame would look
+        // like a fresh click too and keep recapturing/re-grabbing the thumb instead of dragging it.
+        build(PointerState{.position = thumb_center, .down = true, .pressed = true, .press_position = thumb_center}, 0.05f);
+        const glm::vec2 drag_to{thumb_center.x, 95.0f};
+        for (int i = 0; i < 5; ++i) {
+            build(PointerState{.position = drag_to, .down = true}, 0.05f);
+        }
+        const std::optional<ElementBounds> child_b_bounds = context.element_bounds(child_b_id);
+        assert(child_b_bounds.has_value());
+        assert(near(child_b_bounds->position.y, 20.0));
+    }
+
+    // Context::desired_cursor() — the whole feature's actual output — resolves to CursorIcon::
+    // Default with nothing hovered, to a hovered element's own ElementDecl::cursor when one is set,
+    // to the more specific of two nested hovered elements' cursors (the child, declared after its
+    // parent, wins — see update_desired_cursor()'s own doc comment in ContextImpl.cpp for why
+    // declaration order alone is enough to get that right), and back to Default for everything the
+    // instant cursor management is disabled, "similar to how the web works" per the request this
+    // feature backs (an app can still declare `cursor` everywhere; the app just stops acting on it).
+    void desired_cursor_resolves_hover_and_specificity() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        const UString parent_id{"cursor-parent"};
+        const UString child_id{"cursor-child"};
+        const UString plain_id{"cursor-plain"};
+
+        const auto build = [&](const PointerState &pointer) {
+            context.begin_layout({200.0f, 200.0f}, pointer);
+            {
+                // A resize-cursor region (e.g. a dock divider) containing a pointer-cursor control
+                // (e.g. a button) — the button, being more specific, must win while it's hovered.
+                auto parent = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)},
+                    .cursor = CursorIcon::ResizeHorizontal,
+                    .id = parent_id,
+                });
+                (void)parent;
+                {
+                    auto child = context.element(ElementDecl{
+                        .sizing = {SizingAxis::fixed(30.0f), SizingAxis::fixed(30.0f)},
+                        .cursor = CursorIcon::Pointer,
+                        .id = child_id,
+                    });
+                    (void)child;
+                }
+            }
+            {
+                auto plain = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(20.0f), SizingAxis::fixed(20.0f)},
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Root,
+                        .element_attach_point = FloatingAttachPoint::LeftTop,
+                        .parent_attach_point = FloatingAttachPoint::LeftTop,
+                        .offset = {150.0f, 0.0f},
+                    },
+                    .cursor = CursorIcon::Text,
+                    .id = plain_id,
+                });
+                (void)plain;
+            }
+            (void)context.finish_frame();
+        };
+
+        build(PointerState{});
+        // Nothing hovered yet (this very first frame's pointer position was never tested against
+        // anything, one-frame-stale like every other hover query here) — Default.
+        assert(context.desired_cursor() == CursorIcon::Default);
+
+        // Hover the parent, outside the child's own 30x30 box — the parent's own cursor applies.
+        build(PointerState{.position = {70.0f, 70.0f}});
+        assert(context.desired_cursor() == CursorIcon::ResizeHorizontal);
+
+        // Hover squarely inside the child — more specific, wins over its ancestor.
+        build(PointerState{.position = {10.0f, 10.0f}});
+        assert(context.desired_cursor() == CursorIcon::Pointer);
+
+        // Hover the unrelated plain element — its own cursor, uncontaminated by the other subtree.
+        build(PointerState{.position = {160.0f, 10.0f}});
+        assert(context.desired_cursor() == CursorIcon::Text);
+
+        // Disabling cursor management must force Default even while still hovering a
+        // cursor-declaring element — the global kill switch actually switches everything off.
+        context.set_cursor_management_enabled(false);
+        assert(!context.cursor_management_enabled());
+        build(PointerState{.position = {10.0f, 10.0f}});
+        assert(context.desired_cursor() == CursorIcon::Default);
+    }
+
 } // namespace
 
 int main() {
     slider_drag_and_keyboard();
     color_picker_preserves_achromatic_hue();
     color_picker_selects_foundation_color_space();
+    color_picker_component_sliders_follow_selected_space();
+    text_caret_has_no_layout_footprint();
+    text_area_line_heights_ignore_caret();
     scroll_container_moves_child_offset();
     floating_attached_parent_clips_to_ancestor();
     clicked_respects_ancestor_clip();
+    scroll_metrics_and_set_scroll_offset_work();
+    scroll_area_shows_thumb_only_when_hovering_overflowing_content();
+    scroll_area_thumb_drag_scrolls_content();
+    desired_cursor_resolves_hover_and_specificity();
     // Every check above is a bare assert() — a failure never reaches this line (libc's assert
     // aborts with its own file:line diagnostic first). Printing on the success path is the only
     // way a "Run" task (.zed/tasks.json) shows any visible sign it did something, rather than

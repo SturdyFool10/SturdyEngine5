@@ -22,6 +22,31 @@ namespace SFT::UiWorkbench {
         constexpr UI::Color success{0.270, 0.820, 0.620, 1.0};
         constexpr UI::Color warning{1.0, 0.670, 0.260, 1.0};
 
+        // UI stays Platform-agnostic (see UI.hpp's own doc comment), so nothing below Engine ever
+        // translates UI::CursorIcon to Platform::Windowing::CursorIcon on its own — this is exactly
+        // that Engine-level glue, applied once per surface per frame further down in render().
+        // CursorIcon::Auto never actually reaches here (UI::Context::desired_cursor() always
+        // resolves to a concrete value, defaulting to Default — see its own doc comment,
+        // Context.hpp) but is still handled explicitly rather than left to fall through a switch's
+        // default, so a future CursorIcon addition on either side fails to compile here instead of
+        // silently mapping to the wrong glyph.
+        [[nodiscard]] Platform::Windowing::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
+            switch (icon) {
+                case UI::CursorIcon::Auto:
+                case UI::CursorIcon::Default: return Platform::Windowing::CursorIcon::Default;
+                case UI::CursorIcon::Pointer: return Platform::Windowing::CursorIcon::Pointer;
+                case UI::CursorIcon::Text: return Platform::Windowing::CursorIcon::Text;
+                case UI::CursorIcon::Grab: return Platform::Windowing::CursorIcon::Grab;
+                case UI::CursorIcon::Grabbing: return Platform::Windowing::CursorIcon::Grabbing;
+                case UI::CursorIcon::ResizeHorizontal: return Platform::Windowing::CursorIcon::ResizeHorizontal;
+                case UI::CursorIcon::ResizeVertical: return Platform::Windowing::CursorIcon::ResizeVertical;
+                case UI::CursorIcon::ResizeNwse: return Platform::Windowing::CursorIcon::ResizeNwse;
+                case UI::CursorIcon::ResizeNesw: return Platform::Windowing::CursorIcon::ResizeNesw;
+                case UI::CursorIcon::NotAllowed: return Platform::Windowing::CursorIcon::NotAllowed;
+            }
+            return Platform::Windowing::CursorIcon::Default;
+        }
+
         // Top-left of the dock workspace within its own window's client area (below the brand/title
         // bar built by hand at the top of build_frame(), inset from the side margins) — a fixed
         // offset, not viewport-dependent (only the workspace's *size* scales with the window).
@@ -201,6 +226,22 @@ namespace SFT::UiWorkbench {
         bool primary = false;
         std::vector<UI::SliderKey> slider_keys;
         std::vector<UI::ColorPickerKey> color_keys;
+        // Per-frame text-editing input for the Text Lab widgets, accumulated by route_input()'s
+        // system and drained after each build_frame() the same way slider_keys/color_keys are.
+        // shift/ctrl are held-state (tracked across frames from press/release), not per-frame edges.
+        std::vector<UI::EditKey> edit_keys;
+        std::string typed_text;
+        bool shift_down = false;
+        bool ctrl_down = false;
+        // One fade/drag state per panel content region — panel_content_region()'s own id is stable
+        // per panel regardless of which tab/split it's currently docked into, so these persist a
+        // panel's scrollbar feel (mid-fade, mid-drag) across reordering/resizing, only resetting if
+        // the panel tears off into a different Surface entirely.
+        UI::ScrollAreaState controls_scroll{};
+        UI::ScrollAreaState color_scroll{};
+        UI::ScrollAreaState composition_scroll{};
+        UI::ScrollAreaState text_scroll{};
+        UI::ScrollAreaState docking_scroll{};
     };
 
     WorkbenchUi::WorkbenchUi() {
@@ -224,6 +265,15 @@ namespace SFT::UiWorkbench {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
         font_ = std::move(*loaded);
+        markdown_input_state_.set_text(UString{"# Text Lab\n"
+                                               "Edit this buffer and watch the preview follow.\n"
+                                               "\n"
+                                               "## Supported markdown\n"
+                                               "- Headings with # and ##\n"
+                                               "- **Bold** inline spans\n"
+                                               "- `code` inline spans\n"
+                                               "\n"
+                                               "Plain paragraphs render as body text."});
         route_input(engine);
         return {};
     }
@@ -282,6 +332,8 @@ namespace SFT::UiWorkbench {
                     .id = UString{"docking"}, .title = UString{"Docking Guide"}, .closable = false},
                 UI::Docking::DockPlacement{
                     .target_node = color_leaf, .zone = UI::Docking::DockDropZone::Bottom});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"text"}, .title = UString{"Text Lab"}, .closable = true});
         }
         return result;
     }
@@ -292,7 +344,13 @@ namespace SFT::UiWorkbench {
                    Ecs::EventReader<Engine::MouseButtonEvent> buttons,
                    Ecs::EventReader<Engine::MouseWheelEvent> wheels,
                    Ecs::EventReader<Engine::KeyboardEvent> keys,
+                   Ecs::EventReader<Engine::TextInputEvent> text_events,
                    Ecs::EventReader<Engine::WindowStateEvent> window_events) noexcept {
+                for (const Engine::TextInputEvent &event : text_events.read()) {
+                    if (Surface *surface = find_surface(event.window)) {
+                        surface->typed_text += event.text.utf8;
+                    }
+                }
                 for (const Engine::MouseMoveEvent &event : moves.read()) {
                     if (Surface *surface = find_surface(event.window)) {
                         surface->pointer.position = {event.mouse.x, event.mouse.y};
@@ -330,12 +388,49 @@ namespace SFT::UiWorkbench {
                     }
                 }
                 for (const Engine::KeyboardEvent &event : keys.read()) {
-                    if (!event.pressed()) {
-                        continue;
-                    }
                     Surface *surface = find_surface(event.window);
                     if (surface == nullptr) {
                         continue;
+                    }
+                    // Held-state modifiers need both press AND release, unlike everything below —
+                    // handled before the pressed()-only gate.
+                    if (event.key_code == Engine::KeyboardKey::LeftShift ||
+                        event.key_code == Engine::KeyboardKey::RightShift) {
+                        surface->shift_down = event.pressed();
+                        continue;
+                    }
+                    if (event.key_code == Engine::KeyboardKey::LeftControl ||
+                        event.key_code == Engine::KeyboardKey::RightControl) {
+                        surface->ctrl_down = event.pressed();
+                        continue;
+                    }
+                    if (!event.pressed()) {
+                        continue;
+                    }
+                    // Text-editing intents for the Text Lab widgets (TextEditInput's contract:
+                    // Ctrl+A/C/X/V arrive pre-resolved as SelectAll/Copy/Cut/Paste, not as letters
+                    // plus a modifier the widget would have to interpret).
+                    if (surface->ctrl_down) {
+                        switch (event.key_code) {
+                            case Engine::KeyboardKey::A: surface->edit_keys.push_back(UI::EditKey::SelectAll); break;
+                            case Engine::KeyboardKey::C: surface->edit_keys.push_back(UI::EditKey::Copy); break;
+                            case Engine::KeyboardKey::X: surface->edit_keys.push_back(UI::EditKey::Cut); break;
+                            case Engine::KeyboardKey::V: surface->edit_keys.push_back(UI::EditKey::Paste); break;
+                            default: break;
+                        }
+                    }
+                    switch (event.key_code) {
+                        case Engine::KeyboardKey::Left: surface->edit_keys.push_back(UI::EditKey::Left); break;
+                        case Engine::KeyboardKey::Right: surface->edit_keys.push_back(UI::EditKey::Right); break;
+                        case Engine::KeyboardKey::Up: surface->edit_keys.push_back(UI::EditKey::Up); break;
+                        case Engine::KeyboardKey::Down: surface->edit_keys.push_back(UI::EditKey::Down); break;
+                        case Engine::KeyboardKey::Home: surface->edit_keys.push_back(UI::EditKey::Home); break;
+                        case Engine::KeyboardKey::End: surface->edit_keys.push_back(UI::EditKey::End); break;
+                        case Engine::KeyboardKey::Backspace: surface->edit_keys.push_back(UI::EditKey::Backspace); break;
+                        case Engine::KeyboardKey::Delete: surface->edit_keys.push_back(UI::EditKey::Delete); break;
+                        case Engine::KeyboardKey::Enter: surface->edit_keys.push_back(UI::EditKey::Enter); break;
+                        case Engine::KeyboardKey::Escape: surface->edit_keys.push_back(UI::EditKey::Escape); break;
+                        default: break;
                     }
                     switch (event.key_code) {
                         case Engine::KeyboardKey::Left:
@@ -425,6 +520,12 @@ namespace SFT::UiWorkbench {
         UI::Docking::DockWorkspaceEvents dock_events =
             build_frame(*surface, viewport, static_cast<f32>(frame.delta_seconds));
         handle_dock_events(engine, *surface, std::move(dock_events));
+        // Fire-and-forget through the same deferred WindowRequests queue spawn/close already use —
+        // GameLogic never holds a live Platform::Windowing::Window* (see WindowRequests.hpp's own
+        // doc comment). One frame of latency between a hover changing and the OS cursor actually
+        // updating is imperceptible, unlike the round-trip a spawn/close request needs.
+        engine.window_requests().set_cursor_icon(surface->handle.window_id,
+                                                 to_platform_cursor_icon(surface->context.desired_cursor()));
         auto snapshot = std::make_shared<UI::FrameSnapshot>(surface->context.finish_frame());
         Renderer::UiOverlayHooks overlay = build_overlay_hooks(engine, *surface, snapshot);
         return Engine::RenderFrameParameters{
@@ -500,26 +601,45 @@ namespace SFT::UiWorkbench {
             UI::Docking::DockRect{.origin = kWorkspaceOrigin, .size = workspace_size},
             delta_seconds);
 
+        // scroll_area() (ScrollArea.hpp) opens the panel's own clip container itself — decl already
+        // carries a stable id and .clip.vertical=true from panel_content_region(), so it's passed
+        // straight through rather than opened as a plain ctx.element() first.
         if (auto decl = surface.workspace.panel_content_region(UString{"controls"})) {
-            auto scope = surface.context.element(*decl);
-            build_controls_panel(surface, surface.context, delta_seconds);
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.controls_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_controls_panel(surface, ctx, delta_seconds);
+                                  });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"color"})) {
-            auto scope = surface.context.element(*decl);
-            build_color_panel(surface, surface.context, delta_seconds);
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.color_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_color_panel(surface, ctx, delta_seconds);
+                                  });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"composition"})) {
-            auto scope = surface.context.element(*decl);
-            build_composition_panel(surface, surface.context, delta_seconds);
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.composition_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_composition_panel(surface, ctx, delta_seconds);
+                                  });
+        }
+        if (auto decl = surface.workspace.panel_content_region(UString{"text"})) {
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.text_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_text_panel(surface, ctx, delta_seconds);
+                                  });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"docking"})) {
-            auto scope = surface.context.element(*decl);
-            build_docking_panel(surface, surface.context, delta_seconds);
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.docking_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_docking_panel(surface, ctx, delta_seconds);
+                                  });
         }
 
         UI::Docking::DockWorkspaceEvents events = surface.workspace.end_frame(surface.context);
         surface.slider_keys.clear();
         surface.color_keys.clear();
+        surface.edit_keys.clear();
+        surface.typed_text.clear();
         return events;
     }
 
@@ -789,13 +909,20 @@ namespace SFT::UiWorkbench {
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
             draw_text(ctx, "Typed Foundation value", text_style(font_id_, accent, 11));
-            draw_text(ctx, rgba_text(selected_color_), text_style(font_id_, text_primary, 12));
-            const UI::Color round_trip = std::visit(
-                [](const auto &typed_color) {
-                    return Foundation::Color::convert_to<UI::Color>(typed_color);
-                },
-                selected_color_value_);
-            draw_text(ctx, rgba_text(round_trip), text_style(font_id_, text_secondary, 10));
+            // Exactly one line, in the *selected* space's own terms — this used to print two
+            // near-identical hardcoded-"sRGB" readouts (the raw color and its round-trip) no matter
+            // which space the dropdown had picked.
+            const std::span<const UI::ColorPickerComponent> components =
+                UI::color_picker_components(selected_color_space_);
+            const std::array<f64, 4> values = UI::color_picker_component_values(selected_color_value_);
+            std::array<char, 160> typed_line{};
+            std::snprintf(typed_line.data(), typed_line.size(), "%s   %s %.3f   %s %.3f   %s %.3f   alpha %.3f",
+                          UI::color_picker_space_name(selected_color_space_),
+                          components[0].label, values[0],
+                          components[1].label, values[1],
+                          components[2].label, values[2],
+                          values[3]);
+            draw_text(ctx, typed_line.data(), text_style(font_id_, text_primary, 12));
         }
     }
 
@@ -935,6 +1062,198 @@ namespace SFT::UiWorkbench {
             picker_enabled_ = true;
             show_alpha_ = true;
             show_preview_ = true;
+        }
+    }
+
+    void WorkbenchUi::build_text_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
+        auto body = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .padding = UI::Padding::all(22),
+            .child_gap = 13,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-text-body"},
+        });
+        panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab",
+                      "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
+
+        const UI::TextEditInput edit_input{
+            .typed_text = surface.typed_text,
+            .keys = {surface.edit_keys.begin(), surface.edit_keys.end()},
+            .shift_held = surface.shift_down,
+            .word_modifier_held = surface.ctrl_down,
+        };
+
+        UI::TextEditStyle edit_style{};
+        edit_style.idle = panel;
+        edit_style.hovered = panel_raised;
+        edit_style.focused = UI::Color{0.050, 0.058, 0.088, 1.0};
+        edit_style.border_idle = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
+        edit_style.border_focused = UI::BorderStyle{.color = accent, .width = UI::BorderWidth::all(1)};
+        edit_style.text_color = text_primary;
+        edit_style.placeholder_color = text_secondary;
+        edit_style.corner_radius = UI::CornerRadius::all(9.0f);
+        edit_style.font_id = font_id_;
+        edit_style.font_size = 13;
+
+        section_label(ctx, font_id_, "SINGLE LINE");
+        (void)UI::text_input(ctx,
+                             UI::ElementDecl{
+                                 .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
+                                 .padding = UI::Padding::symmetric(11, 8),
+                                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                                 .id = UString{"workbench-text-single"},
+                             },
+                             edit_style, line_input_state_, edit_input, delta_seconds,
+                             UString{"Type something..."});
+
+        section_label(ctx, font_id_, "PASSWORD");
+        UI::TextEditStyle password_style = edit_style;
+        password_style.mask_characters = true;
+        (void)UI::text_input(ctx,
+                             UI::ElementDecl{
+                                 .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
+                                 .padding = UI::Padding::symmetric(11, 8),
+                                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                                 .id = UString{"workbench-text-password"},
+                             },
+                             password_style, password_input_state_, edit_input, delta_seconds,
+                             UString{"Password"});
+
+        section_label(ctx, font_id_, "MARKDOWN + LIVE PREVIEW");
+        UI::TextEditStyle markdown_style = edit_style;
+        // In-editor markdown coloring via the TextEdit engine's own Highlighter hook (cached —
+        // reruns only when the buffer changes). Scalar-indexed on purpose; UString::substr is
+        // scalar-based, so multi-byte characters can't skew the span ranges.
+        markdown_style.highlighter = [](const UString &text) {
+            std::vector<UI::RichTextSpan> spans;
+            const usize n = text.size();
+            const auto scalar_at = [&](usize i) { return text.substr(i, 1).cpp_string(); };
+            usize line_start = 0;
+            usize code_start = 0;
+            usize bold_start = 0;
+            bool in_code = false;
+            bool in_bold = false;
+            for (usize i = 0; i <= n; ++i) {
+                const std::string s = i < n ? scalar_at(i) : std::string{"\n"};
+                if (s == "\n") {
+                    if (line_start < i && scalar_at(line_start) == "#") {
+                        spans.push_back({.scalar_start = line_start, .scalar_length = i - line_start, .color = accent});
+                    } else if (i >= line_start + 2 && scalar_at(line_start) == "-" && scalar_at(line_start + 1) == " ") {
+                        spans.push_back({.scalar_start = line_start, .scalar_length = 1, .color = warning});
+                    }
+                    line_start = i + 1;
+                    in_code = false;
+                    in_bold = false;
+                    continue;
+                }
+                if (s == "`") {
+                    if (!in_code) {
+                        in_code = true;
+                        code_start = i;
+                    } else {
+                        spans.push_back({.scalar_start = code_start, .scalar_length = i - code_start + 1, .color = success});
+                        in_code = false;
+                    }
+                    continue;
+                }
+                if (s == "*" && i + 1 < n && scalar_at(i + 1) == "*") {
+                    if (!in_bold) {
+                        in_bold = true;
+                        bold_start = i;
+                    } else {
+                        spans.push_back({.scalar_start = bold_start, .scalar_length = i + 2 - bold_start, .color = accent_hot});
+                        in_bold = false;
+                    }
+                    ++i;
+                }
+            }
+            return spans;
+        };
+        (void)UI::text_area(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(150.0f)},
+                                .padding = UI::Padding::all(10),
+                                .id = UString{"workbench-text-markdown"},
+                            },
+                            markdown_style, markdown_input_state_, edit_input, delta_seconds,
+                            UString{"# Write some markdown..."});
+
+        {
+            auto preview_card = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(13),
+                .child_gap = 5,
+                .direction = UI::LayoutDirection::TopToBottom,
+                .background_color = panel_raised,
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+
+            // Line-based renderer: headings, bullets, and inline **bold** / `code` runs. Bold has
+            // no second font face registered, so it renders as an emphasis color instead — same
+            // tradeoff RichTextSpan itself documents for the editor side.
+            const auto render_inline = [&](const std::string &line, u16 font_size) {
+                auto row = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
+                });
+                (void)row;
+                std::string segment;
+                UI::Color segment_color = text_primary;
+                bool bold = false;
+                bool code = false;
+                const auto flush = [&]() {
+                    if (!segment.empty()) {
+                        draw_text(ctx, segment, text_style(font_id_, segment_color, font_size));
+                        segment.clear();
+                    }
+                };
+                for (usize i = 0; i < line.size(); ++i) {
+                    if (!code && i + 1 < line.size() && line[i] == '*' && line[i + 1] == '*') {
+                        flush();
+                        bold = !bold;
+                        segment_color = bold ? accent_hot : text_primary;
+                        ++i;
+                        continue;
+                    }
+                    if (line[i] == '`') {
+                        flush();
+                        code = !code;
+                        segment_color = code ? success : (bold ? accent_hot : text_primary);
+                        continue;
+                    }
+                    segment += line[i];
+                }
+                flush();
+            };
+
+            const std::string markdown = markdown_input_state_.text().cpp_string();
+            usize start = 0;
+            while (start <= markdown.size()) {
+                const usize end = std::min(markdown.find('\n', start), markdown.size());
+                const std::string line = markdown.substr(start, end - start);
+                if (line.rfind("## ", 0) == 0) {
+                    draw_text(ctx, line.substr(3), text_style(font_id_, text_primary, 16));
+                } else if (line.rfind("# ", 0) == 0) {
+                    draw_text(ctx, line.substr(2), text_style(font_id_, text_primary, 20));
+                } else if (line.rfind("- ", 0) == 0) {
+                    auto bullet_row = ctx.element(UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
+                        .child_gap = 6,
+                    });
+                    draw_text(ctx, "•", text_style(font_id_, warning, 12));
+                    render_inline(line.substr(2), 12);
+                } else if (line.empty()) {
+                    auto spacer = ctx.element(UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(1.0f), UI::SizingAxis::fixed(4.0f)}});
+                    (void)spacer;
+                } else {
+                    render_inline(line, 12);
+                }
+                if (end == markdown.size()) {
+                    break;
+                }
+                start = end + 1;
+            }
         }
     }
 

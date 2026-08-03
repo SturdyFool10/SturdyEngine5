@@ -59,6 +59,25 @@ namespace SFT::Platform::Windowing {
     // process.
     inline constexpr WindowId invalid_window_id = static_cast<WindowId>(static_cast<usize>(~usize{0}));
 
+    // Cross-platform cursor *shape* — deliberately the common subset both backends' native cursor
+    // sets actually support (SDL3's `SDL_SystemCursor` / GLFW's `GLFW_*_CURSOR`), not a superset
+    // either would have to fake. `Grab`/`Grabbing` have no native glyph on either backend today (no
+    // open/closed-hand system cursor exists in SDL3 or GLFW) — both fall back to `Pointer` at the
+    // implementation level rather than silently doing nothing, so a caller that asks for one still
+    // gets *a* visibly different cursor instead of none.
+    enum class CursorIcon : u8 {
+        Default,
+        Pointer,          // clickable — SDL3 POINTER / GLFW POINTING_HAND
+        Text,             // I-beam — text input
+        Grab,             // falls back to Pointer (see above)
+        Grabbing,         // falls back to Pointer (see above)
+        ResizeHorizontal, // <-> — SDL3 EW_RESIZE / GLFW RESIZE_EW
+        ResizeVertical,   // ^v — SDL3 NS_RESIZE / GLFW RESIZE_NS
+        ResizeNwse,       // \ diagonal — SDL3 NWSE_RESIZE / GLFW RESIZE_NWSE
+        ResizeNesw,       // / diagonal — SDL3 NESW_RESIZE / GLFW RESIZE_NESW
+        NotAllowed,
+    };
+
     namespace Detail {
 
         // Hands out the next process-unique `WindowId`. **Monotonic** and never reused, even after a
@@ -333,6 +352,12 @@ namespace SFT::Platform::Windowing {
 
         // Show or hide the mouse cursor while it is over this window.
         virtual expected<void, WindowError> set_cursor_visible(bool visible) noexcept = 0;
+
+        // Sets the cursor's *shape* while it is over this window (a resize handle, a text field, a
+        // clickable control, ...) — orthogonal to set_cursor_visible() above. Implementations own
+        // caching/creating the underlying native cursor object; callers can call this every frame a
+        // hover state might have changed without worrying about per-call allocation cost.
+        virtual expected<void, WindowError> set_cursor_icon(CursorIcon icon) noexcept = 0;
 
         // Confine the cursor to the window's bounds (it stays visible and can move within them).
         virtual expected<void, WindowError> set_cursor_grabbed(bool grabbed) noexcept = 0;

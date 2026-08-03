@@ -15,6 +15,7 @@
 
 #include "Context.hpp"
 #include "Dropdown.hpp"
+#include "Slider.hpp"
 #include "Style.hpp"
 #include "WidgetComposition.hpp"
 
@@ -63,6 +64,104 @@ namespace SFT::UI {
 
     static_assert(std::variant_size_v<ColorPickerValue> == static_cast<usize>(ColorPickerColorSpace::Count));
 
+    // One editable channel of a color space: its display label and slider range. Ranges are the
+    // conventional presentation ranges for each space (hue in degrees, CIELAB L in 0..100, Oklab
+    // a/b in roughly ±0.4, ...), not hard mathematical bounds — a value driven out of the sRGB
+    // gamut simply clamps when converted back, same as every browser picker.
+    struct ColorPickerComponent {
+        const char *label = "";
+        f64 minimum = 0.0;
+        f64 maximum = 1.0;
+    };
+
+    // The three non-alpha channels of `color_space`, in the same order as the corresponding
+    // Foundation struct's own fields (alpha always exists and is handled by the picker's alpha bar,
+    // so it is deliberately not in this list).
+    [[nodiscard]] inline std::span<const ColorPickerComponent> color_picker_components(ColorPickerColorSpace color_space) noexcept {
+        static constexpr std::array<ColorPickerComponent, 3> rgb{{{"R", 0.0, 1.0}, {"G", 0.0, 1.0}, {"B", 0.0, 1.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> xyz{{{"X", 0.0, 1.1}, {"Y", 0.0, 1.0}, {"Z", 0.0, 1.1}}};
+        static constexpr std::array<ColorPickerComponent, 3> hsl{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"L", 0.0, 1.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> hsv{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"V", 0.0, 1.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> hwb{{{"H", 0.0, 360.0}, {"W", 0.0, 1.0}, {"B", 0.0, 1.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> lab{{{"L", 0.0, 100.0}, {"a", -128.0, 128.0}, {"b", -128.0, 128.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> lch{{{"L", 0.0, 100.0}, {"C", 0.0, 150.0}, {"H", 0.0, 360.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> luv{{{"L", 0.0, 100.0}, {"u", -220.0, 220.0}, {"v", -220.0, 220.0}}};
+        static constexpr std::array<ColorPickerComponent, 3> oklab{{{"L", 0.0, 1.0}, {"a", -0.4, 0.4}, {"b", -0.4, 0.4}}};
+        static constexpr std::array<ColorPickerComponent, 3> oklch{{{"L", 0.0, 1.0}, {"C", 0.0, 0.4}, {"H", 0.0, 360.0}}};
+        switch (color_space) {
+            case ColorPickerColorSpace::Xyz: return xyz;
+            case ColorPickerColorSpace::Hsl: return hsl;
+            case ColorPickerColorSpace::Hsv: return hsv;
+            case ColorPickerColorSpace::Hwb: return hwb;
+            case ColorPickerColorSpace::Lab: return lab;
+            case ColorPickerColorSpace::Lch: return lch;
+            case ColorPickerColorSpace::Luv: return luv;
+            case ColorPickerColorSpace::Oklab: return oklab;
+            case ColorPickerColorSpace::Oklch: return oklch;
+            case ColorPickerColorSpace::Srgb:
+            case ColorPickerColorSpace::Linear:
+            case ColorPickerColorSpace::AdobeRgb:
+            case ColorPickerColorSpace::DisplayP3:
+            case ColorPickerColorSpace::Rec2020:
+            case ColorPickerColorSpace::Count:
+                break;
+        }
+        return rgb;
+    }
+
+    [[nodiscard]] inline const char *color_picker_space_name(ColorPickerColorSpace color_space) noexcept {
+        switch (color_space) {
+            case ColorPickerColorSpace::Srgb: return "sRGB";
+            case ColorPickerColorSpace::Linear: return "Linear RGB";
+            case ColorPickerColorSpace::Xyz: return "CIE XYZ";
+            case ColorPickerColorSpace::AdobeRgb: return "Adobe RGB";
+            case ColorPickerColorSpace::DisplayP3: return "Display P3";
+            case ColorPickerColorSpace::Rec2020: return "Rec. 2020";
+            case ColorPickerColorSpace::Hsl: return "HSL";
+            case ColorPickerColorSpace::Hsv: return "HSV";
+            case ColorPickerColorSpace::Hwb: return "HWB";
+            case ColorPickerColorSpace::Lab: return "CIELAB";
+            case ColorPickerColorSpace::Lch: return "CIELCh";
+            case ColorPickerColorSpace::Luv: return "CIELUV";
+            case ColorPickerColorSpace::Oklab: return "Oklab";
+            case ColorPickerColorSpace::Oklch: return "Oklch";
+            case ColorPickerColorSpace::Count: break;
+        }
+        return "sRGB";
+    }
+
+    // The typed value's channels flattened to {component0, component1, component2, alpha}, in the
+    // same order color_picker_components() describes them.
+    [[nodiscard]] inline std::array<f64, 4> color_picker_component_values(const ColorPickerValue &value) noexcept {
+        using namespace Foundation::Color;
+        return std::visit(
+            [](const auto &typed) -> std::array<f64, 4> {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, Srgb> || std::is_same_v<T, Linear> || std::is_same_v<T, AdobeRgb> ||
+                              std::is_same_v<T, DisplayP3> || std::is_same_v<T, Rec2020>) {
+                    return {typed.r, typed.g, typed.b, typed.a};
+                } else if constexpr (std::is_same_v<T, Xyz>) {
+                    return {typed.x, typed.y, typed.z, typed.alpha};
+                } else if constexpr (std::is_same_v<T, Hsl>) {
+                    return {typed.h, typed.s, typed.l, typed.a};
+                } else if constexpr (std::is_same_v<T, Hsv>) {
+                    return {typed.h, typed.s, typed.v, typed.a};
+                } else if constexpr (std::is_same_v<T, Hwb>) {
+                    return {typed.h, typed.w, typed.b, typed.a};
+                } else if constexpr (std::is_same_v<T, Lab> || std::is_same_v<T, Oklab>) {
+                    return {typed.l, typed.a, typed.b, typed.alpha};
+                } else if constexpr (std::is_same_v<T, Lch>) {
+                    return {typed.l, typed.c, typed.h, typed.a};
+                } else if constexpr (std::is_same_v<T, Luv>) {
+                    return {typed.l, typed.u, typed.v, typed.alpha};
+                } else {
+                    static_assert(std::is_same_v<T, Oklch>);
+                    return {typed.l, typed.c, typed.h, typed.alpha};
+                }
+            },
+            value);
+    }
+
     enum class ColorPickerPart : u8 { None,
                                       SaturationValue,
                                       Hue,
@@ -109,11 +208,33 @@ namespace SFT::UI {
         f32 bar_cursor_width = 4.0f;
         Color cursor_color{1.0, 1.0, 1.0, 1.0};
         Color cursor_shadow{0.0, 0.0, 0.0, 0.85};
-        Color checker_light{0.72, 0.72, 0.72, 1.0};
-        Color checker_dark{0.42, 0.42, 0.42, 1.0};
+        // The transparency checkerboard behind the alpha bar and the preview swatch: white and
+        // grey, the near-universal convention every image editor and browser picker shares — a
+        // transparent color should read as "over the checker", not as some flat composite.
+        Color checker_light{1.0, 1.0, 1.0, 1.0};
+        Color checker_dark{0.78, 0.78, 0.78, 1.0};
+        // Checker cell edge in pixels — a fixed fine grain, deliberately not scaled to the bar or
+        // preview's own height (which made big chunky stripes at typical control sizes).
+        f32 checker_cell_size = 6.0f;
         BorderStyle border{.color = Color{0.08, 0.08, 0.10, 1.0}, .width = BorderWidth::all(1)};
         BorderStyle focused_border{.color = Color{0.55, 0.72, 1.0, 1.0}, .width = BorderWidth::all(2)};
         f64 disabled_opacity = 0.5;
+        // The per-channel component sliders shown when the color-space dropdown is enabled (they
+        // replace the fixed hue bar — see color_picker()'s own doc comment). Deliberately compact
+        // defaults so three of them stack into roughly the vertical space the hue bar occupied.
+        SliderStyle component_slider{
+            .track{0.16, 0.17, 0.21, 1.0},
+            .fill{0.35, 0.55, 0.85, 1.0},
+            .track_thickness = 6.0f,
+            // Matches bar_cursor_width-ish: thumb_size drives the slider's end-inset travel math,
+            // and the gradient track spans the full width — a small thumb keeps the cursor line's
+            // position and the gradient's value-at-that-pixel in agreement to within ~2px.
+            .thumb_size = 5.0f,
+            .focused_border = BorderStyle{},
+        };
+        // Fixed label column ("R"/"G"/"B", "L"/"C"/"H", ...) to the left of each component slider,
+        // so the sliders themselves stay vertically aligned regardless of glyph width.
+        f32 component_label_width = 18.0f;
     };
 
     enum class ColorPickerVisualPart : u8 {
@@ -201,6 +322,20 @@ namespace SFT::UI {
         bool changed_during_gesture_ = false;
         ColorPickerColorSpace color_space_ = ColorPickerColorSpace::Srgb;
         DropdownState color_space_dropdown_{};
+        // One per component slider (see ColorPickerStyle::component_slider) — indices match
+        // color_picker_components()' order for whichever space is currently selected.
+        std::array<SliderState, 3> component_sliders_{};
+        // The user's authoritative typed-component values, kept alongside the sRGB color they
+        // produced. Re-deriving slider positions from the round-tripped color every frame snaps
+        // them around badly in spaces the sRGB round trip is lossy over: hue resets to 0 the moment
+        // chroma hits zero (Oklch/LCh/HSL/...), and a chroma dragged past the sRGB gamut clamps and
+        // yanks the slider back on release. As long as the picker's color still equals what these
+        // components produced (component_cache_source_), the sliders display these values verbatim;
+        // any outside change (plane drag, external color, space switch) invalidates the cache and
+        // re-derives. Space initialized to Count = "no cache yet".
+        std::array<f64, 3> component_cache_{};
+        Color component_cache_source_{};
+        ColorPickerColorSpace component_cache_space_ = ColorPickerColorSpace::Count;
     };
 
     struct ColorPickerResult {
@@ -230,6 +365,10 @@ namespace SFT::UI {
         static bool &gesture_changed(ColorPickerState &s) noexcept { return s.changed_during_gesture_; }
         static ColorPickerColorSpace &color_space(ColorPickerState &s) noexcept { return s.color_space_; }
         static DropdownState &color_space_dropdown(ColorPickerState &s) noexcept { return s.color_space_dropdown_; }
+        static std::array<SliderState, 3> &component_sliders(ColorPickerState &s) noexcept { return s.component_sliders_; }
+        static std::array<f64, 3> &component_cache(ColorPickerState &s) noexcept { return s.component_cache_; }
+        static Color &component_cache_source(ColorPickerState &s) noexcept { return s.component_cache_source_; }
+        static ColorPickerColorSpace &component_cache_space(ColorPickerState &s) noexcept { return s.component_cache_space_; }
     };
 
     namespace Detail {
@@ -378,13 +517,57 @@ namespace SFT::UI {
         // replaces the old flat-segment-over-checker-cell approximation with one real shader draw.
         [[nodiscard]] inline CustomShaderRef alpha_bar_shader(const Color &foreground, f64 opacity,
                                                                const Color &checker_light, const Color &checker_dark,
-                                                               const CornerRadius &corner_radius) {
+                                                               f32 checker_cell_size, const CornerRadius &corner_radius) {
             return CustomShaderRef{
                 .shader_path = "Shaders/ui_color_picker_alpha_bar.slang",
                 .module_name = "ui_color_picker_alpha_bar",
                 .push_constants = pack_gradient_shader_params({
                     glm::vec4{static_cast<f32>(foreground.r), static_cast<f32>(foreground.g), static_cast<f32>(foreground.b),
                               static_cast<f32>(opacity)},
+                    glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g),
+                              static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
+                    glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b),
+                              static_cast<f32>(checker_dark.a)},
+                    corner_radius_vec4(corner_radius),
+                    glm::vec4{checker_cell_size, 0.0f, 0.0f, 0.0f},
+                }),
+            };
+        }
+
+        // One component slider's gradient track (Shaders/ui_color_picker_component_bar.slang):
+        // sweeps `component_index` across [minimum, maximum] with the other two channels held at
+        // `values` — the exact "this slider is the independent variable" preview, converted
+        // per-pixel through sturdy_common's GPU mirror of Foundation::Color.
+        [[nodiscard]] inline CustomShaderRef component_bar_shader(ColorPickerColorSpace color_space, usize component_index,
+                                                                  const ColorPickerComponent &component,
+                                                                  const std::array<f64, 3> &values, f64 opacity,
+                                                                  const CornerRadius &corner_radius) {
+            return CustomShaderRef{
+                .shader_path = "Shaders/ui_color_picker_component_bar.slang",
+                .module_name = "ui_color_picker_component_bar",
+                .push_constants = pack_gradient_shader_params({
+                    glm::vec4{static_cast<f32>(color_space), static_cast<f32>(component_index),
+                              static_cast<f32>(component.minimum), static_cast<f32>(component.maximum)},
+                    glm::vec4{static_cast<f32>(values[0]), static_cast<f32>(values[1]), static_cast<f32>(values[2]),
+                              static_cast<f32>(opacity)},
+                    corner_radius_vec4(corner_radius),
+                }),
+            };
+        }
+
+        // The preview swatch: the picked color at its *actual* alpha over a checkerboard
+        // (Shaders/ui_color_picker_preview.slang) — replaces the old flat composite_opaque()
+        // against a single checker color, which erased the transparency cue entirely.
+        [[nodiscard]] inline CustomShaderRef preview_shader(const Color &color, f64 opacity, const Color &checker_light,
+                                                            const Color &checker_dark, f32 checker_cell_size,
+                                                            const CornerRadius &corner_radius) {
+            return CustomShaderRef{
+                .shader_path = "Shaders/ui_color_picker_preview.slang",
+                .module_name = "ui_color_picker_preview",
+                .push_constants = pack_gradient_shader_params({
+                    glm::vec4{static_cast<f32>(color.r), static_cast<f32>(color.g), static_cast<f32>(color.b),
+                              static_cast<f32>(color.a)},
+                    glm::vec4{static_cast<f32>(opacity), checker_cell_size, 0.0f, 0.0f},
                     glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g),
                               static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
                     glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b),
@@ -431,53 +614,37 @@ namespace SFT::UI {
             return color;
         }
 
+        // The dropdown row's display text — the same names color_picker_space_name() reports, so
+        // the trigger, the option list, and any app-side readout can never drift apart.
         inline void render_color_space_label(Context &ctx, ColorPickerColorSpace color_space, const TextStyle &style) {
+            const ustr name{std::string_view{color_picker_space_name(color_space)}};
+            ctx.text(name, style);
+        }
+
+        // Rebuilds an sRGB Color from the three color_picker_components() channels of `color_space`
+        // plus `alpha` — the write-side inverse of color_picker_component_values(). Out-of-gamut
+        // combinations clamp on conversion, same as any CSS color() rule would.
+        [[nodiscard]] inline Color color_from_components(ColorPickerColorSpace color_space, f64 c0, f64 c1, f64 c2,
+                                                         f64 alpha) noexcept {
+            using namespace Foundation::Color;
             switch (color_space) {
-                case ColorPickerColorSpace::Srgb:
-                    ctx.text(u8"sRGB"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Linear:
-                    ctx.text(u8"Linear RGB"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Xyz:
-                    ctx.text(u8"CIE XYZ"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::AdobeRgb:
-                    ctx.text(u8"Adobe RGB"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::DisplayP3:
-                    ctx.text(u8"Display P3"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Rec2020:
-                    ctx.text(u8"Rec. 2020"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Hsl:
-                    ctx.text(u8"HSL"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Hsv:
-                    ctx.text(u8"HSV"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Hwb:
-                    ctx.text(u8"HWB"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Lab:
-                    ctx.text(u8"CIELAB"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Lch:
-                    ctx.text(u8"CIELCh"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Luv:
-                    ctx.text(u8"CIELUV"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Oklab:
-                    ctx.text(u8"Oklab"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Oklch:
-                    ctx.text(u8"Oklch"_ustr, style);
-                    break;
-                case ColorPickerColorSpace::Count:
-                    break;
+                case ColorPickerColorSpace::Srgb: return Color{c0, c1, c2, alpha};
+                case ColorPickerColorSpace::Linear: return convert_to<Color>(Linear{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Xyz: return convert_to<Color>(Xyz{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::AdobeRgb: return convert_to<Color>(AdobeRgb{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::DisplayP3: return convert_to<Color>(DisplayP3{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Rec2020: return convert_to<Color>(Rec2020{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hsl: return convert_to<Color>(Hsl{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hsv: return convert_to<Color>(Hsv{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hwb: return convert_to<Color>(Hwb{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Lab: return convert_to<Color>(Lab{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Lch: return convert_to<Color>(Lch{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Luv: return convert_to<Color>(Luv{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Oklab: return convert_to<Color>(Oklab{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Oklch: return convert_to<Color>(Oklch{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Count: break;
             }
+            return Color{c0, c1, c2, alpha};
         }
 
         [[nodiscard]] inline UString picker_part_id(const UString &id, ColorPickerPart part) {
@@ -541,9 +708,13 @@ namespace SFT::UI {
         const bool root_visible = composition.root.visible;
         const bool picker_enabled = enabled && root_visible && composition.root.enabled;
         const bool show_sv = composition.saturation_value.visible;
-        const bool show_hue = composition.hue.visible;
-        const bool show_alpha = config.show_alpha && composition.alpha.visible;
         const bool show_dropdown = config.show_color_space_dropdown && composition.dropdown.visible;
+        // With the color-space dropdown active, the fixed hue bar gives way to per-channel sliders
+        // of whichever space is selected (see the component-slider block below) — the chosen type's
+        // own variables, not a hardcoded HSV control. Hue-family spaces get their hue back as one of
+        // those channels; without the dropdown the classic hue bar remains, keyboard contract intact.
+        const bool show_hue = composition.hue.visible && !show_dropdown;
+        const bool show_alpha = config.show_alpha && composition.alpha.visible;
         const bool show_preview = config.show_preview && composition.preview.visible;
         const bool sv_enabled = picker_enabled && show_sv && composition.saturation_value.enabled;
         const bool hue_enabled = picker_enabled && show_hue && composition.hue.enabled;
@@ -953,6 +1124,9 @@ namespace SFT::UI {
             apply_part_visual(plane_decl, composition.saturation_value.visual, plane_visual);
             if (composition.saturation_value.alter_decl)
                 composition.saturation_value.alter_decl(plane_decl, plane_context);
+            if (plane_decl.cursor == CursorIcon::Auto) {
+                plane_decl.cursor = sv_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed;
+            }
             plane_decl.id = sv_id;
             auto plane = ctx.element(plane_decl);
             (void)plane;
@@ -1036,6 +1210,9 @@ namespace SFT::UI {
             apply_part_visual(bar_decl, part_slot.visual, visual);
             if (part_slot.alter_decl)
                 part_slot.alter_decl(bar_decl, part_context);
+            if (bar_decl.cursor == CursorIcon::Auto) {
+                bar_decl.cursor = part_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed;
+            }
             bar_decl.id = part_id;
             auto bar = ctx.element(bar_decl);
             (void)bar;
@@ -1047,7 +1224,8 @@ namespace SFT::UI {
                 const f64 opacity = part_opacity(part_enabled);
                 const CustomShaderRef shader =
                     alpha_bar ? Detail::alpha_bar_shader(Detail::picker_hsv_to_srgb(hue, saturation, brightness), opacity,
-                                                         style.checker_light, style.checker_dark, bar_decl.corner_radius)
+                                                         style.checker_light, style.checker_dark,
+                                                         style.checker_cell_size, bar_decl.corner_radius)
                               : Detail::hue_bar_shader(opacity, bar_decl.corner_radius);
                 auto gradient = ctx.custom_element(
                     ElementDecl{.sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.bar_height)}}, shader);
@@ -1094,6 +1272,120 @@ namespace SFT::UI {
             }
         };
 
+        // With a color space chosen from the dropdown, the channel controls between the gradient
+        // plane and the preview are that space's own variables (R/G/B, L/C/H, ...) — editing one
+        // rebuilds the color through Foundation's typed conversion and re-syncs the picker's
+        // internal HSV state exactly the way an externally-passed color does (achromatic edits
+        // preserve the last meaningful hue). See show_hue's declaration for the classic-mode fallback.
+        if (show_dropdown) {
+            const std::span<const ColorPickerComponent> components = color_picker_components(color_space);
+            std::array<SliderState, 3> &component_states = DetailColorPickerAccess::component_sliders(state);
+            std::array<f64, 3> &component_values = DetailColorPickerAccess::component_cache(state);
+            Color &cache_source = DetailColorPickerAccess::component_cache_source(state);
+            ColorPickerColorSpace &cache_space = DetailColorPickerAccess::component_cache_space(state);
+            // Only rebuild the displayed values from the round-tripped color when something *other*
+            // than these sliders changed it — see component_cache_'s own doc comment for the
+            // snapping this prevents. Alpha is excluded from the comparison on purpose: an alpha-bar
+            // drag doesn't move any of these three channels, so it must not reset e.g. a cached hue
+            // on an achromatic color.
+            const bool cache_stale = cache_space != color_space ||
+                                     cache_source.r != result.color.r ||
+                                     cache_source.g != result.color.g ||
+                                     cache_source.b != result.color.b;
+            if (cache_stale) {
+                const std::array<f64, 4> derived = color_picker_component_values(result.value);
+                component_values = {derived[0], derived[1], derived[2]};
+                cache_space = color_space;
+                cache_source = result.color;
+            }
+            for (usize i = 0; i < components.size(); ++i) {
+                const ColorPickerComponent &component = components[i];
+                const UString slider_id{id.cpp_string() + "#component:" + std::to_string(i)};
+                auto row = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fit()},
+                    .child_gap = 6,
+                    .child_alignment = {AlignX::Left, AlignY::Center},
+                });
+                (void)row;
+                {
+                    // Braced so the label closes before the slider opens — the slider must be the
+                    // row's second child, not the label's own (the ElementScope-lifetime rule).
+                    auto label_box = ctx.element(ElementDecl{
+                        .sizing = {SizingAxis::fixed(style.component_label_width), SizingAxis::fit()},
+                    });
+                    (void)label_box;
+                    const ustr label_text{std::string_view{component.label}};
+                    ctx.text(label_text, style.color_space_text);
+                }
+                // Reskin the slider into a gradient bar matching the classic hue/alpha bars: the
+                // default track/fill visuals give way to a full-height custom-shader gradient (the
+                // "sweep only this channel" preview), and the thumb becomes the same thin cursor
+                // line the other bars use. Interaction (drag capture, track clicks, keyboard, the
+                // component cache) is untouched — this is purely the track's wardrobe.
+                SliderComposition bar_composition{};
+                bar_composition.fill.visible = false;
+                bar_composition.track.render_default = false;
+                bar_composition.track.alter_decl = [&](ElementDecl &track_decl, const SliderPartContext &) {
+                    track_decl.sizing.height = SizingAxis::fixed(style.bar_height);
+                    track_decl.border = style.border;
+                };
+                bar_composition.track.build = [&, i](Context &bar_ctx, const SliderPartContext &) {
+                    auto gradient = bar_ctx.custom_element(
+                        ElementDecl{.sizing = {SizingAxis::grow(), SizingAxis::grow()}},
+                        Detail::component_bar_shader(color_space, i, component, component_values,
+                                                     picker_enabled ? 1.0 : style.disabled_opacity, CornerRadius{}));
+                    (void)gradient;
+                };
+                bar_composition.thumb.alter_decl = [&](ElementDecl &thumb_decl, const SliderPartContext &) {
+                    thumb_decl.sizing = {SizingAxis::fixed(style.bar_cursor_width),
+                                         SizingAxis::fixed(style.bar_height + 4.0f)};
+                    thumb_decl.background_color = style.cursor_color;
+                    thumb_decl.corner_radius = CornerRadius::all(1.0f);
+                    thumb_decl.border = BorderStyle{.color = style.cursor_shadow, .width = BorderWidth::all(1)};
+                };
+                const SliderResult slider_result = slider(
+                    ctx,
+                    ElementDecl{
+                        .sizing = {SizingAxis::grow(), SizingAxis::fixed(style.bar_height)},
+                        .id = slider_id,
+                    },
+                    SliderConfig{
+                        .min = component.minimum,
+                        .max = component.maximum,
+                        .step = std::nullopt,
+                        .keyboard_step = (component.maximum - component.minimum) * 0.01,
+                    },
+                    style.component_slider, component_states[i], component_values[i], SliderInput{}, picker_enabled,
+                    bar_composition);
+                if (slider_result.hovered || slider_result.dragging) {
+                    result.hovered = true;
+                }
+                if (slider_result.changed) {
+                    component_values[i] = slider_result.value;
+                    const Color edited = Detail::color_from_components(color_space, component_values[0],
+                                                                       component_values[1], component_values[2], alpha);
+                    const Detail::SrgbHsv edited_hsv = Detail::srgb_to_picker_hsv(edited);
+                    // Same achromatic-hue preservation as the external-color sync at the top of
+                    // this function: dragging L to 0 in Oklch (or R/G/B all equal) must not snap
+                    // the plane back to red.
+                    if (edited_hsv.s > 1.0e-8 && edited_hsv.v > 1.0e-8) {
+                        hue = edited_hsv.h;
+                    }
+                    saturation = edited_hsv.s;
+                    brightness = edited_hsv.v;
+                    result.color = Detail::picker_hsv_to_srgb(hue, saturation, brightness, alpha);
+                    last_output = result.color;
+                    result.value = Detail::color_picker_value(result.color, color_space);
+                    result.changed = true;
+                    result.committed = result.committed || slider_result.committed;
+                    // Bind the cache to the (possibly gamut-clamped) color this edit produced so
+                    // next frame's staleness check sees "still my own edit" and keeps displaying
+                    // the user's authored values rather than the clamped round trip.
+                    cache_source = result.color;
+                }
+            }
+        }
+
         render_bar(ColorPickerVisualPart::Hue, ColorPickerVisualPart::HueMarker, hue_id, composition.hue, composition.hue_marker, show_hue, hue_enabled, ColorPickerPart::Hue, hue / 360.0, false);
         render_bar(ColorPickerVisualPart::Alpha, ColorPickerVisualPart::AlphaMarker, alpha_id, composition.alpha, composition.alpha_marker, show_alpha, alpha_enabled, ColorPickerPart::Alpha, alpha, true);
 
@@ -1108,9 +1400,6 @@ namespace SFT::UI {
                 preview_visual);
             ElementDecl preview_decl{
                 .sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.preview_height)},
-                .background_color = Detail::with_opacity(
-                    Detail::composite_opaque(result.color, style.checker_dark),
-                    part_opacity(preview_enabled)),
                 .border = style.border,
             };
             if (!composition.preview.render_default)
@@ -1121,6 +1410,17 @@ namespace SFT::UI {
             preview_decl.id = preview_id;
             auto preview = ctx.element(preview_decl);
             (void)preview;
+            if (composition.preview.render_default) {
+                // The picked color at its actual alpha over a white/grey checkerboard
+                // (Shaders/ui_color_picker_preview.slang) — see Detail::preview_shader() for why
+                // this replaced the old flat composite. Same container-plus-custom-child pattern as
+                // the plane and bars, so the app-resolved corner_radius masks the swatch too.
+                auto swatch = ctx.custom_element(
+                    ElementDecl{.sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.preview_height)}},
+                    Detail::preview_shader(result.color, part_opacity(preview_enabled), style.checker_light,
+                                           style.checker_dark, style.checker_cell_size, preview_decl.corner_radius));
+                (void)swatch;
+            }
             if (composition.preview.build)
                 composition.preview.build(ctx, preview_context);
         }

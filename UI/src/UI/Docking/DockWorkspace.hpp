@@ -674,7 +674,7 @@ namespace SFT::UI::Docking {
             }
         }
 
-        void draw_divider(Context &ctx, const DockNodeLayout &nl) {
+        void draw_divider(Context &ctx, const DockNodeLayout &nl, DockSplitAxis axis) {
             ButtonResult result = button(
                 ctx,
                 ElementDecl{
@@ -682,6 +682,10 @@ namespace SFT::UI::Docking {
                     .floating = {.attach_to = FloatingAttachTo::Root, .element_attach_point = FloatingAttachPoint::LeftTop,
                                  .parent_attach_point = FloatingAttachPoint::LeftTop,
                                  .offset = to_context_root(nl.divider_rect.origin)},
+                    // A resize handle, not just "something clickable" — overrides button()'s own
+                    // Pointer default (see DockSplitAxis's own doc comment, DockTypes.hpp, for which
+                    // way each axis actually drags).
+                    .cursor = axis == DockSplitAxis::Horizontal ? CursorIcon::ResizeHorizontal : CursorIcon::ResizeVertical,
                     .debug_label = UString{"DockDivider"},
                     .id = divider_id_for(nl.node),
                 },
@@ -698,7 +702,7 @@ namespace SFT::UI::Docking {
                 if (n->kind == DockNode::Kind::Leaf) {
                     draw_leaf_chrome(ctx, nl, *n);
                 } else {
-                    draw_divider(ctx, nl);
+                    draw_divider(ctx, nl, n->split_axis);
                 }
             }
         }

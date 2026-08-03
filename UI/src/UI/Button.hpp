@@ -174,6 +174,13 @@ namespace SFT::UI {
         styled.background_color = state.current_color();
         styled.corner_radius = style.corner_radius;
         styled.border = style.border;
+        // Web-like default: an interactive control shows the pointer/hand cursor unless the caller
+        // already asked for something specific (CursorIcon::Auto is the only value this overrides —
+        // see ElementDecl::cursor's own doc comment, Style.hpp); a disabled one shows "not allowed"
+        // instead, since clicking it is a no-op.
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+        }
 
         return ButtonResult{
             .hovered = is_hovered,

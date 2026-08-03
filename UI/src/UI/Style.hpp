@@ -218,6 +218,29 @@ namespace SFT::UI {
         FloatingClipTo clip_to = FloatingClipTo::None;
     };
 
+    // Cursor shape a hovered element wants — CSS's `cursor` property, translated: `Auto` (the
+    // default) means "no opinion, defer to whatever this element is nested inside," exactly like
+    // CSS's own `cursor: auto` falls through to an ancestor's declared cursor rather than forcing
+    // the plain arrow. Every other value is an explicit override. UI stays Platform-agnostic (see
+    // UI.hpp's own doc comment on why it doesn't depend on Sturdy.Platform), so this is a separate
+    // enum from Platform::Windowing::CursorIcon — an Engine-level glue layer is expected to
+    // translate Context::desired_cursor()'s result into an actual `Window::set_cursor_icon()` call;
+    // the two enums are kept value-for-value identical (see ElementDecl::cursor's own doc comment)
+    // to make that translation a trivial switch.
+    enum class CursorIcon : u8 {
+        Auto,
+        Default,
+        Pointer,
+        Text,
+        Grab,
+        Grabbing,
+        ResizeHorizontal,
+        ResizeVertical,
+        ResizeNwse,
+        ResizeNesw,
+        NotAllowed,
+    };
+
     // Full layout + visual config for one element — mirrors Clay_LayoutConfig plus the top-level
     // visual fields of Clay_ElementDeclaration.
     struct ElementDecl {
@@ -246,6 +269,12 @@ namespace SFT::UI {
         // everything nested inside them) relative to *other* elements, never a single element's own
         // sublayers relative to each other.
         i32 z = 0;
+
+        // See CursorIcon's own doc comment. Only takes effect while this element is actually
+        // hovered() (Context.hpp) *and* `id` below is non-empty — an id-less element can't be
+        // hover-tested at all, so a non-Auto cursor on one is silently inert, the same way
+        // ElementDecl::id's own doc comment already describes for hovered()/clicked().
+        CursorIcon cursor = CursorIcon::Auto;
 
         // Debug/tooling label only — never shown, never hashed into layout.
         UString debug_label;

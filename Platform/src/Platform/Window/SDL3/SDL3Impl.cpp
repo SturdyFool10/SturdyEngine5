@@ -128,6 +128,24 @@ namespace SFT::Platform::Windowing::SDL3 {
             return flags;
         }
 
+        [[nodiscard]] SDL_SystemCursor to_sdl_system_cursor(CursorIcon icon) noexcept {
+            switch (icon) {
+                case CursorIcon::Default: return SDL_SYSTEM_CURSOR_DEFAULT;
+                // SDL3 has no open/closed-hand system cursor — see CursorIcon's own doc comment
+                // (Window.hpp) for why both fall back to POINTER instead of doing nothing.
+                case CursorIcon::Pointer:
+                case CursorIcon::Grab:
+                case CursorIcon::Grabbing: return SDL_SYSTEM_CURSOR_POINTER;
+                case CursorIcon::Text: return SDL_SYSTEM_CURSOR_TEXT;
+                case CursorIcon::ResizeHorizontal: return SDL_SYSTEM_CURSOR_EW_RESIZE;
+                case CursorIcon::ResizeVertical: return SDL_SYSTEM_CURSOR_NS_RESIZE;
+                case CursorIcon::ResizeNwse: return SDL_SYSTEM_CURSOR_NWSE_RESIZE;
+                case CursorIcon::ResizeNesw: return SDL_SYSTEM_CURSOR_NESW_RESIZE;
+                case CursorIcon::NotAllowed: return SDL_SYSTEM_CURSOR_NOT_ALLOWED;
+            }
+            return SDL_SYSTEM_CURSOR_DEFAULT;
+        }
+
         expected<void, WindowError> sdl_bool_result(bool result, WindowErrorCode code, const char *fallback) noexcept {
             if (result) [[likely]] {
                 return {};
@@ -220,6 +238,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
         const lock_guard lock(sdl_window_mutex());
+
+        if (current_cursor_ != nullptr) {
+            SDL_DestroyCursor(current_cursor_);
+            current_cursor_ = nullptr;
+        }
 
         if (window_) [[likely]] {
             const SDL_WindowID id = SDL_GetWindowID(window_);
@@ -860,6 +883,38 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
         Foundation::log_debug("SDL3 set cursor visible: wrapper={} native_ptr={} id={} visible={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), visible);
         return sdl_bool_result(visible ? SDL_ShowCursor() : SDL_HideCursor(), WindowErrorCode::OperationFailed, "SDL3 set cursor visibility failed.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_cursor_icon(CursorIcon icon) noexcept {
+        const lock_guard lock(sdl_window_mutex());
+        if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
+            return live;
+        }
+        // Skip the churn entirely on the overwhelmingly common case (nothing changed since last
+        // call) — a caller driving this off per-frame hover state, as UI::Context::desired_cursor()
+        // is meant to be, would otherwise recreate a native cursor object every single frame.
+        if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
+            return {};
+        }
+        SDL_Cursor *cursor = SDL_CreateSystemCursor(to_sdl_system_cursor(icon));
+        if (cursor == nullptr) [[unlikely]] {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 create system cursor failed.");
+            Foundation::log_error("SDL3 set cursor icon failed: wrapper={} native_ptr={} id={} icon={} message='{}'", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(icon), error.message);
+            return unexpected(error);
+        }
+        if (!SDL_SetCursor(cursor)) [[unlikely]] {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 set cursor failed.");
+            Foundation::log_error("SDL3 set cursor icon failed: wrapper={} native_ptr={} id={} icon={} message='{}'", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(icon), error.message);
+            SDL_DestroyCursor(cursor);
+            return unexpected(error);
+        }
+        if (current_cursor_ != nullptr) {
+            SDL_DestroyCursor(current_cursor_);
+        }
+        current_cursor_ = cursor;
+        current_cursor_icon_ = icon;
+        Foundation::log_trace("SDL3 set cursor icon: wrapper={} native_ptr={} id={} icon={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(icon));
+        return {};
     }
 
     expected<void, WindowError> SDL3Window::set_cursor_grabbed(bool grabbed) noexcept {

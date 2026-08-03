@@ -41,5 +41,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float edgeSoftness = max(fwidth(dist), SFT_EPSILON);
     float mask = clamp01(0.5 - dist / edgeSoftness);
 
-    return float4(hsvToRgb(u * 360.0, 1.0, 1.0), opacity * mask);
+    // Linearized for the *Srgb render target — see ui_color_picker_sv_plane.slang's own comment on
+    // this exact line for why returning hsvToRgb() raw double-encodes against the Clay quad path.
+    return float4(srgbToLinear(hsvToRgb(u * 360.0, 1.0, 1.0)), opacity * mask);
 }

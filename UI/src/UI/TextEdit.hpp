@@ -117,6 +117,13 @@ namespace SFT::UI {
         f32 transition_seconds = 0.25f;
         ColorBlendSpace color_space = ColorBlendSpace::Oklab;
         EasingFn easing = Easing::cubic_in_out;
+        // Password mode: every character *renders* as `mask_glyph` while the buffer itself keeps
+        // the real text (TextEditState::text() is unaffected — that's what the app submits).
+        // Masking happens per scalar, so caret/selection positions stay exact. The placeholder is
+        // never masked. `mask_glyph` must be a single UTF-8 code point the style's font actually
+        // has — the bundled Maple Mono NF has U+2022 (•).
+        bool mask_characters = false;
+        const char *mask_glyph = "•";
         // See Highlighter's own doc comment.
         Highlighter highlighter = nullptr;
         // false (default): lines never word-wrap — a line wider than the box scrolls
@@ -564,13 +571,43 @@ namespace SFT::UI {
                 cuts.insert(static_cast<usize>(caret_local));
             }
             const f32 caret_height = static_cast<f32>(style.font_size) * 1.2f;
-            // The caret element itself is always created (reserving its 2px) whenever it's on this
-            // line — only its *color* toggles between caret_color and transparent for the blink,
-            // never its presence. Toggling presence instead would add/remove 2px from the row's
-            // total Fit width every blink cycle, visibly nudging every run/placeholder after it by
-            // that same 2px each time — a real, previously-shipped jitter bug, not a hypothetical.
+            // Blink toggles the caret's *color* between caret_color and transparent, never its
+            // presence — one less structural difference between blink phases.
             const Color caret_render_color =
                 state.caret_blink_on(style.caret_blink_seconds) ? style.caret_color : Color{0.0, 0.0, 0.0, 0.0};
+
+            // The caret must have zero layout footprint: it's the editor's own indicator, not a
+            // physical glyph the text should wrap around or be nudged aside by. A zero-*width*
+            // anchor holds the insertion point's place in the flow (splitting the surrounding runs
+            // positions it pixel-correctly through ordinary layout, no glyph measurement needed),
+            // and the visible 2px bar is a floating element centered on that anchor — floating
+            // elements never affect layout, so text and placeholder render byte-for-byte
+            // identically whether a caret is present or not. (An earlier version spliced the 2px
+            // bar directly into the flow, which shifted everything after the caret by 2px and made
+            // the placeholder dodge it — the exact "caret as a physical object" bug this replaces.)
+            // The anchor still carries caret_height so an empty line's row keeps its text height,
+            // and it owns caret_element_id so scroll_into_view() keeps targeting in-flow geometry.
+            const auto emit_caret = [&]() {
+                auto anchor = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(0.0f), SizingAxis::fixed(caret_height)},
+                    .id = caret_element_id(widget_id),
+                });
+                auto caret_bar = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(2.0f), SizingAxis::fixed(caret_height)},
+                    .background_color = caret_render_color,
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Parent,
+                        .element_attach_point = FloatingAttachPoint::CenterCenter,
+                        .parent_attach_point = FloatingAttachPoint::CenterCenter,
+                        .capture_pointer = false,
+                        // Clips with the input box's own scroll container instead of painting over
+                        // whatever sits past its edge — see FloatingClipTo's own doc comment.
+                        .clip_to = FloatingClipTo::AttachedParent,
+                    },
+                });
+                (void)caret_bar;
+                (void)anchor;
+            };
 
             const vector<usize> sorted_cuts(cuts.begin(), cuts.end());
             // Exactly {0, line_len} — no highlight/selection/caret cut fell inside this line, the
@@ -585,16 +622,24 @@ namespace SFT::UI {
             });
             (void)row;
 
+            // Typographic strut, CSS-line-box style: every row — including a completely empty
+            // line — keeps at least the caret's height. Without it an empty paragraph rendered as
+            // a zero-height row, invisible until the caret moved onto it and its anchor suddenly
+            // gave the line height — a "line that didn't exist" popping in and shifting everything
+            // below. The vertical cousin of the zero-width caret anchor: the caret must never
+            // change the geometry of the text around it, in either axis.
+            {
+                auto strut = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(0.0f), SizingAxis::fixed(caret_height)},
+                });
+                (void)strut;
+            }
+
             for (usize i = 0; i + 1 < sorted_cuts.size(); ++i) {
                 const usize run_start = sorted_cuts[i];
                 const usize run_end = sorted_cuts[i + 1];
                 if (caret_on_this_line && run_start == static_cast<usize>(caret_local)) {
-                    auto caret_bar = ctx.element(ElementDecl{
-                        .sizing = {SizingAxis::fixed(2.0f), SizingAxis::fixed(caret_height)},
-                        .background_color = caret_render_color,
-                        .id = caret_element_id(widget_id),
-                    });
-                    (void)caret_bar;
+                    emit_caret();
                 }
                 if (run_end == run_start) {
                     continue;
@@ -605,17 +650,21 @@ namespace SFT::UI {
                     .background_color = run_selected ? style.selection_color : Color{0.0, 0.0, 0.0, 0.0},
                 });
                 (void)run_scope;
-                const UString run_text = line_text.substr(run_start, run_end - run_start);
+                // Password mode substitutes one mask glyph per scalar — run boundaries, selection,
+                // and the caret all stay index-exact because the substitution is 1:1 per character.
+                UString run_text = line_text.substr(run_start, run_end - run_start);
+                if (style.mask_characters) {
+                    std::string masked;
+                    for (usize j = run_start; j < run_end; ++j) {
+                        masked += style.mask_glyph;
+                    }
+                    run_text = UString{masked};
+                }
                 ctx.text(run_text.as_ustr(), TextStyle{.color = run_color, .font_id = style.font_id,
                                                        .font_size = style.font_size, .wrap_mode = run_wrap_mode});
             }
             if (caret_on_this_line && static_cast<usize>(caret_local) == line_len) {
-                auto caret_bar = ctx.element(ElementDecl{
-                    .sizing = {SizingAxis::fixed(2.0f), SizingAxis::fixed(caret_height)},
-                    .background_color = caret_render_color,
-                    .id = caret_element_id(widget_id),
-                });
-                (void)caret_bar;
+                emit_caret();
             }
             if (line_len == 0 && !placeholder.empty()) {
                 ctx.text(placeholder.as_ustr(), TextStyle{.color = style.placeholder_color, .font_id = style.font_id,

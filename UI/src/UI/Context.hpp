@@ -223,6 +223,28 @@ namespace SFT::UI {
         void set_scroll_settings(const ScrollSettings &settings) noexcept { scroll_settings_ = settings; }
         [[nodiscard]] const ScrollSettings &scroll_settings() const noexcept { return scroll_settings_; }
 
+        // Global kill switch for the whole cursor-icon system below — "similar to how the web
+        // works" per the feature request this backs: every element() call still *carries* its own
+        // ElementDecl::cursor exactly like a DOM node carries a CSS `cursor` style whether or not
+        // the page ever reads it, but nothing here ever calls into Platform on the caller's behalf
+        // either way (see desired_cursor()'s own doc comment) — this only controls whether
+        // desired_cursor() bothers computing anything beyond CursorIcon::Default, for an app that
+        // wants to manage the OS cursor itself (e.g. a game's own custom crosshair) without UI
+        // fighting it every frame. On by default.
+        void set_cursor_management_enabled(bool enabled) noexcept { cursor_management_enabled_ = enabled; }
+        [[nodiscard]] bool cursor_management_enabled() const noexcept { return cursor_management_enabled_; }
+
+        // This frame's resolved cursor shape: whichever hovered element's ElementDecl::cursor was
+        // most recently declared (later declarations win over earlier ones for the same point,
+        // which is how a child naturally overrides its own ancestor's cursor — same "more specific
+        // wins" feel as CSS's own cursor cascade), or CursorIcon::Default if nothing hovered set
+        // one. Always CursorIcon::Default when cursor_management_enabled() is false. Purely a query
+        // — Context itself never touches the OS cursor; a caller applies this to the actual window
+        // (Platform::Windowing::Window::set_cursor_icon(), translating UI::CursorIcon to
+        // Platform::Windowing::CursorIcon — the two are kept value-for-value identical for exactly
+        // this translation) once per frame, after finish_frame().
+        [[nodiscard]] CursorIcon desired_cursor() const noexcept { return desired_cursor_; }
+
         [[nodiscard]] ElementScope element(const ElementDecl &decl);
         void text(const ustr &content, const TextStyle &style);
         void image(const ElementDecl &decl, Renderer::TextureHandle texture);
@@ -309,6 +331,32 @@ namespace SFT::UI {
         // can use it.
         bool scroll_into_view(const UString &container_id, const UString &target_id) noexcept;
 
+        // Read-only geometry of a scroll container (ElementDecl::clip::horizontal/vertical), for
+        // building an external scrollbar against it — mirrors Clay_ScrollContainerData, whose own
+        // doc comment (clay.h) calls this exact use case out by name ("external functionality that
+        // modifies scroll position, such as scroll bars"). `found` is false for an id nothing
+        // declared with clip enabled, same one-frame-stale caveat as element_bounds().
+        struct ScrollMetrics {
+            bool found = false;
+            // Clay's own convention: always <= 0: 0 is scrolled fully to the start, more negative is
+            // further toward the end.
+            glm::vec2 offset{0.0f};
+            glm::vec2 content_size{0.0f};
+            glm::vec2 container_size{0.0f};
+            bool horizontal = false;
+            bool vertical = false;
+        };
+        [[nodiscard]] ScrollMetrics scroll_metrics(const UString &container_id) const noexcept;
+
+        // Directly sets a scroll container's offset (clamped to its own valid range per axis, and
+        // only on the axes it actually scrolls) — the write counterpart to scroll_metrics(), for a
+        // scrollbar thumb drag or track-click page-jump to apply immediately rather than only ever
+        // nudging by a relative delta (scroll_into_view()'s shape). Same safe-to-call-mid-frame
+        // mechanism as scroll_into_view() (Clay_GetScrollContainerData's returned scrollPosition is a
+        // pointer straight at Clay's own live state, not a snapshot — see its own doc comment). A
+        // no-op (returns false) for an id nothing declared with clip enabled this frame.
+        bool set_scroll_offset(const UString &container_id, glm::vec2 offset) noexcept;
+
         // Finishes the layout tree (Clay_EndLayout()), walks the resulting render commands, shapes
         // any new text via TextBridge, and returns everything UiRenderer needs as an owned,
         // Context-independent FrameSnapshot. The snapshot records begin_layout()'s actual baked
@@ -324,6 +372,8 @@ namespace SFT::UI {
 
       private:
         void set_current() const noexcept;
+        // Shared by element()/image()/custom_element() — see desired_cursor_'s own doc comment.
+        void update_desired_cursor(const ElementDecl &decl) noexcept;
 
         Clay_Context *context_ = nullptr;
         vector<std::byte> arena_memory_;
@@ -379,6 +429,15 @@ namespace SFT::UI {
         // smooth_scrolling is spreading it across frames — see begin_layout()'s implementation.
         ScrollSettings scroll_settings_{};
         glm::vec2 pending_scroll_delta_{0.0f};
+
+        // See set_cursor_management_enabled()/desired_cursor()'s own doc comments. desired_cursor_
+        // is rebuilt fresh every begin_layout() (reset to Default) and updated in element() as this
+        // frame's elements get declared and hover-tested — already resolved and correct for this
+        // exact frame's pointer position by the time the caller reads it, no extra frame of latency
+        // (unlike hovered()/clicked(), the *underlying* hit-test is one-frame-stale, but there's no
+        // second stage here that adds another frame on top of that).
+        bool cursor_management_enabled_ = true;
+        CursorIcon desired_cursor_ = CursorIcon::Default;
 
         // The z (ElementDecl::z, Style.hpp) every element()/text()/image()/svg()/custom_element()
         // call currently inherits — always non-empty, back() is "whichever nonzero z was most

@@ -86,6 +86,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override;
 
         expected<void, WindowError> set_cursor_visible(bool visible) noexcept override;
+        expected<void, WindowError> set_cursor_icon(CursorIcon icon) noexcept override;
         expected<void, WindowError> set_cursor_grabbed(bool grabbed) noexcept override;
         expected<void, WindowError> set_relative_mouse_mode(bool enabled) noexcept override;
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override;
@@ -120,6 +121,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
         std::function<void()> repaint_callback_;
+        SDL_Cursor *current_cursor_ = nullptr;
+        optional<CursorIcon> current_cursor_icon_;
 
         static bool SDLCALL sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept;
     };
