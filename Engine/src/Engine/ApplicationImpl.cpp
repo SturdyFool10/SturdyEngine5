@@ -248,17 +248,34 @@ namespace SFT::Engine {
             }
 
             const CloseWindowRequest &close = std::get<CloseWindowRequest>(request);
-            const bool found = find_managed_window(close.window) != nullptr;
-            if (found) {
+            ManagedWindow *target = find_managed_window(close.window);
+            if (target != nullptr && !target->pending_close_completion) {
                 request_close_window(close.window);
+                // Completion is posted once this window is actually fully torn down (run()'s closing
+                // loop), not here — see pending_close_completion's own doc comment (Application.hpp)
+                // for why firing it this early raced a still-in-flight render thread.
+                target->pending_close_completion = close.id;
+            } else if (target != nullptr) {
+                // Already closing from an earlier request (e.g. DockWindowCoordinator's own
+                // close_requests_ bookkeeping should prevent this, but stay correct regardless of the
+                // caller) — the window's fate is already sealed, so satisfy this request immediately
+                // rather than orphaning its id (only one pending_close_completion slot exists per window).
+                engine_->window_requests().complete(WindowRequestCompletion{
+                    .id = close.id,
+                    .kind = WindowRequestKind::Close,
+                    .accepted = true,
+                    .window = close.window,
+                    .message = {},
+                });
+            } else {
+                engine_->window_requests().complete(WindowRequestCompletion{
+                    .id = close.id,
+                    .kind = WindowRequestKind::Close,
+                    .accepted = false,
+                    .window = close.window,
+                    .message = "Managed window was not found.",
+                });
             }
-            engine_->window_requests().complete(WindowRequestCompletion{
-                .id = close.id,
-                .kind = WindowRequestKind::Close,
-                .accepted = found,
-                .window = close.window,
-                .message = found ? std::string{} : std::string{"Managed window was not found."},
-            });
         }
     }
 
@@ -590,6 +607,19 @@ namespace SFT::Engine {
                 }
 
                 window_manager_.destroy_window(managed.window_id);
+                // Posted only now — surface removal (including this window's render thread's own
+                // remove_surface_task, confirmed done above) is fully complete, so a completion
+                // handler is safe to destroy any GPU resources tied to this window. See
+                // pending_close_completion's own doc comment (Application.hpp).
+                if (managed.pending_close_completion) {
+                    engine_->window_requests().complete(WindowRequestCompletion{
+                        .id = *managed.pending_close_completion,
+                        .kind = WindowRequestKind::Close,
+                        .accepted = true,
+                        .window = managed.window_id,
+                        .message = {},
+                    });
+                }
                 it = windows_.erase(it);
             }
 

@@ -110,6 +110,17 @@ namespace SFT::Engine {
             std::atomic<bool> resize_pending{false};
             std::deque<Async::TaskHandle<Core::RendererResult>> in_flight_frames;
             optional<Async::TaskHandle<void>> remove_surface_task;
+            // Set only when this window is closing because of a WindowRequests::close() call (not an
+            // OS-level close, e.g. the titlebar X or Alt+F4 — see events.close_requested's own path,
+            // which never touches this). The completion is posted once this window is actually fully
+            // torn down (in-flight frames drained, surface removed — see run()'s closing loop), not
+            // when the request is merely accepted: a GameLogic's WindowRequestKind::Close handler (e.g.
+            // WorkbenchUi::process_window_completions destroying that window's UI renderer resources)
+            // needs the guarantee that this window's render thread is truly done with everything by the
+            // time it observes the completion, or it can destroy GPU resources the render thread is
+            // still mid-frame with — see memory project_multi_window_render_threading for the
+            // free(): invalid pointer this caused when completion used to fire immediately on accept.
+            optional<WindowRequestId> pending_close_completion;
             // Each window gets its own dedicated render thread (rather than every window sharing one
             // Application-wide thread) so recording/submitting/presenting for separate OS windows —
             // most commonly several torn-off docking panels — actually runs concurrently instead of
