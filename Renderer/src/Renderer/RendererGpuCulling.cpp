@@ -417,7 +417,13 @@ namespace SFT::Renderer {
             return unexpected(instance_cull_error("Cannot record instance culling without a Hi-Z pyramid view."));
         }
 
-        auto guard = instance_cull_.lock();
+        RHI::BindGroupLayoutHandle cull_bind_group_layout{};
+        RHI::ComputePipelineHandle cull_pipeline{};
+        {
+            auto guard = instance_cull_.lock();
+            cull_bind_group_layout = guard->cull_bind_group_layout;
+            cull_pipeline = guard->cull_pipeline;
+        }
         const array<RHI::BindGroupEntry, 4> entries{
             RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer},
             RHI::BindGroupEntry{.binding = 1, .buffer = resources.compacted_indices_buffer},
@@ -425,7 +431,7 @@ namespace SFT::Renderer {
             RHI::BindGroupEntry{.binding = 3, .texture_view = hiz.pyramid_view},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = guard->cull_bind_group_layout,
+            .layout = cull_bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "instance cull bind group",
         });
@@ -438,7 +444,7 @@ namespace SFT::Renderer {
         // run concurrently with another pass's push_back into the same shared vector.
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
-        pass.set_pipeline(guard->cull_pipeline);
+        pass.set_pipeline(cull_pipeline);
         pass.set_bind_group(0, *bind_group);
 
         const u64 alignment = std::max<u64>(device->limits().min_storage_buffer_offset_alignment, sizeof(u32));

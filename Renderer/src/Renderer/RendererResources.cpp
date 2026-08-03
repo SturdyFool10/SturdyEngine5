@@ -157,16 +157,6 @@ namespace SFT::Renderer {
         shader_watcher_.reset();
 
         frame_draws_.clear();
-        // Normally a no-op by this point: every window already ran destroy_window_surface() (which
-        // cleans up its own record's scene_frame_resources) before ~Renderer() gets here. Kept as a
-        // defensive sweep over whatever window_surfaces_ still holds, rather than assuming that's
-        // always true.
-        {
-            auto guard = window_surfaces_.lock();
-            for (auto &record : *guard) {
-                destroy_scene_gpu_resources(record->scene_frame_resources);
-            }
-        }
 
         for (MaterialInstanceResource &resource : material_instances_) {
             if (resource.alive) {
@@ -233,7 +223,10 @@ namespace SFT::Renderer {
 
         // Reclaim every window's in-flight frame slots and destroy each slot's (reusable) fence, then the
         // window's presentation resources. Safe: teardown runs after the destructor's wait_idle(), so no
-        // slot's GPU work is still pending.
+        // slot's GPU work is still pending. Also normally a no-op for scene_frame_resources/hiz_pyramid
+        // by this point — every window already ran destroy_window_surface() (which cleans up its own
+        // record's copies) before ~Renderer() gets here — but kept as a defensive sweep over whatever
+        // window_surfaces_ still holds, rather than assuming that's always true.
         auto window_surfaces_guard = window_surfaces_.lock();
         for (auto &record : *window_surfaces_guard) {
             if (RHI::RhiDevice *device = rhi_device()) {
@@ -251,6 +244,8 @@ namespace SFT::Renderer {
                 }
             }
             record->frames_in_flight.clear();
+            destroy_scene_gpu_resources(record->scene_frame_resources);
+            destroy_hiz_pyramid(record->hiz_pyramid);
             destroy_rhi_presentation_resources(*record);
         }
         // Frame-slot bloom bind groups reference bloom_'s cached layout and sampler, so they must be
@@ -262,13 +257,6 @@ namespace SFT::Renderer {
         destroy_custom_post_process_resources();
         destroy_custom_compute_effect_resources();
         destroy_atmosphere_lut_resources();
-
-        // Not per-window-surface/per-FrameInFlight-slot like the targets destroyed above — see
-        // HiZPyramidTargets's own doc comment for why it's a single Renderer-owned resource instead.
-        {
-            auto pyramid_guard = hiz_pyramid_.lock();
-            destroy_hiz_pyramid(*pyramid_guard);
-        }
         destroy_hiz_build_resources();
     }
 

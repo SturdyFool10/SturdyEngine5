@@ -114,6 +114,12 @@ namespace SFT::Engine {
         [[nodiscard]] RHI::RhiResult update_hdr_content_light_level(
             Core::RenderSurfaceHandle surface, const RHI::HdrContentLightLevelUpdate &update);
 
+        // See Renderer::presentation_resolution's own doc comment (RendererModule.hpp) — the
+        // requested-vs-effective present mode this surface's swapchain actually resolved to, for a
+        // caller (Application's per-window adaptive frame pacing) to tell vsync-paced windows from
+        // uncapped ones.
+        [[nodiscard]] RHI::PresentationResolution presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept;
+
         Core::RendererResult render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         // Runs the ECS render-extraction schedule on the coordinating caller thread and returns an

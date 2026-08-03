@@ -194,13 +194,16 @@ namespace SFT::Renderer {
                                                        f32 threshold, f32 soft_knee, f32 scatter,
                                                        glm::vec2 filter_scale, bool prefilter, bool upsample,
                                                        RHI::BindGroupHandle bind_group) {
-        auto guard = bloom_.lock();
-        BloomResources &resources = *guard;
-        if (!source_view || !bind_group || !resources.ready) return unexpected(bloom_error("Cannot record bloom without ready resources, a source texture, and a cached bind group."));
-
-        const RHI::RenderPipelineHandle pipeline = upsample
-            ? resources.upsample_pipeline
-            : (prefilter ? resources.prefilter_pipeline : resources.downsample_pipeline);
+        RHI::RenderPipelineHandle pipeline{};
+        u32 sampled_set = 0;
+        {
+            auto guard = bloom_.lock();
+            if (!source_view || !bind_group || !guard->ready) return unexpected(bloom_error("Cannot record bloom without ready resources, a source texture, and a cached bind group."));
+            pipeline = upsample
+                ? guard->upsample_pipeline
+                : (prefilter ? guard->prefilter_pipeline : guard->downsample_pipeline);
+            sampled_set = guard->sampled_set;
+        }
         const BloomConstants constants{
             .source_texel_size = source_texel_size,
             .threshold = threshold,
@@ -213,7 +216,7 @@ namespace SFT::Renderer {
             pass.set_blend_constant(RHI::ClearColor{
                 normalized_scatter, normalized_scatter, normalized_scatter, normalized_scatter});
         }
-        pass.set_bind_group(resources.sampled_set, bind_group);
+        pass.set_bind_group(sampled_set, bind_group);
         pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const BloomConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};
@@ -441,14 +444,28 @@ namespace SFT::Renderer {
             return unexpected(bloom_error("Cannot record the bloom composite pass without a device, scene texture, and bloom texture."));
         }
 
-        auto guard = bloom_composite_.lock();
+        RHI::BindGroupLayoutHandle bind_group_layout{};
+        u32 bind_group_layout_set = 0;
+        u32 scene_binding = 0;
+        u32 bloom_binding = 0;
+        u32 sampler_binding = 0;
+        RHI::SamplerHandle sampler{};
+        {
+            auto guard = bloom_composite_.lock();
+            bind_group_layout = guard->bind_group_layouts.front();
+            bind_group_layout_set = guard->bind_group_layout_sets.front();
+            scene_binding = guard->scene_binding;
+            bloom_binding = guard->bloom_binding;
+            sampler_binding = guard->sampler_binding;
+            sampler = guard->sampler;
+        }
         const array<RHI::BindGroupEntry, 3> entries{
-            RHI::BindGroupEntry{.binding = guard->scene_binding, .texture_view = scene_view},
-            RHI::BindGroupEntry{.binding = guard->bloom_binding, .texture_view = bloom_view},
-            RHI::BindGroupEntry{.binding = guard->sampler_binding, .sampler = guard->sampler},
+            RHI::BindGroupEntry{.binding = scene_binding, .texture_view = scene_view},
+            RHI::BindGroupEntry{.binding = bloom_binding, .texture_view = bloom_view},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = guard->bind_group_layouts.front(),
+            .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "bloom composite bind group",
         });
@@ -458,7 +475,7 @@ namespace SFT::Renderer {
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(*pipeline);
-        pass.set_bind_group(guard->bind_group_layout_sets.front(), *bind_group);
+        pass.set_bind_group(bind_group_layout_set, *bind_group);
         const BloomCompositeConstants constants{
             .bloom_intensity = bloom_intensity,
             .threshold_enabled = threshold_enabled ? 1u : 0u,

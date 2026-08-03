@@ -193,25 +193,37 @@ namespace SFT::Renderer {
                                                                const CustomPostProcessEffect &effect,
                                                                vector<RHI::BindGroupHandle> &transient_bind_groups) {
         if (Core::RendererResult ready = ensure_custom_post_process(effect, color_format); !ready) return ready;
-        auto resources = custom_post_process_resources_.lock();
-        CustomPostProcessResources *resource = nullptr;
-        for (CustomPostProcessResources &candidate : *resources) {
-            if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
-                candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format) {
-                resource = &candidate;
-                break;
+        RHI::BindGroupLayoutHandle bind_group_layout{};
+        RHI::SamplerHandle sampler{};
+        RHI::RenderPipelineHandle pipeline{};
+        u32 image_binding = 0;
+        u32 sampler_binding = 0;
+        {
+            auto resources = custom_post_process_resources_.lock();
+            const CustomPostProcessResources *resource = nullptr;
+            for (const CustomPostProcessResources &candidate : *resources) {
+                if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
+                    candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format) {
+                    resource = &candidate;
+                    break;
+                }
             }
+            if (resource == nullptr) return unexpected(custom_effect_error("Custom post-process cache lookup failed."));
+            bind_group_layout = resource->bind_group_layout;
+            sampler = resource->sampler;
+            pipeline = resource->pipeline;
+            image_binding = resource->image_binding;
+            sampler_binding = resource->sampler_binding;
         }
-        if (resource == nullptr) return unexpected(custom_effect_error("Custom post-process cache lookup failed."));
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !source_view) return unexpected(custom_effect_error("Cannot record custom post-process without device/source view."));
 
         const array<RHI::BindGroupEntry, 2> entries{
-            RHI::BindGroupEntry{.binding = resource->image_binding, .texture_view = source_view},
-            RHI::BindGroupEntry{.binding = resource->sampler_binding, .sampler = resource->sampler},
+            RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
         };
         auto group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = resource->bind_group_layout,
+            .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "custom post-process bind group",
         });
@@ -220,7 +232,7 @@ namespace SFT::Renderer {
         // run concurrently with another pass's push_back into the same shared vector.
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*group); }
 
-        pass.set_pipeline(resource->pipeline);
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, *group);
         if (!effect.push_constants.empty()) {
             pass.set_push_constants(RHI::ShaderStage::Fragment, 0,

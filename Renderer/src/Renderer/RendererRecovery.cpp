@@ -162,6 +162,7 @@ namespace SFT::Renderer {
                 record->frames_in_flight.clear();
                 record->spectral_accumulation = {};
                 record->scene_frame_resources.clear();
+                record->hiz_pyramid = {};
             }
         }
 
@@ -182,7 +183,6 @@ namespace SFT::Renderer {
         *object_history_.lock() = {};
         object_history_pipeline_variants_.lock()->clear();
         *hiz_build_.lock() = {};
-        *hiz_pyramid_.lock() = {};
         *atmosphere_lut_.lock() = {};
 
         frame_draws_.clear();

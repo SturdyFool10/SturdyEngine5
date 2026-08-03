@@ -340,8 +340,15 @@ namespace SFT::Renderer {
                 if (device == nullptr) {
                     return unexpected(atmosphere_error("Cannot record atmosphere LUT bakes without an RHI device."));
                 }
-                auto guard = atmosphere_lut_.lock();
-                const vector<ReflectedResource> resources = collect_resource_bindings(guard->transmittance.shader.reflection());
+                vector<ReflectedResource> resources;
+                RHI::BindGroupLayoutHandle bind_group_layout{};
+                RHI::ComputePipelineHandle pipeline{};
+                {
+                    auto guard = atmosphere_lut_.lock();
+                    resources = collect_resource_bindings(guard->transmittance.shader.reflection());
+                    bind_group_layout = guard->transmittance.bind_group_layout;
+                    pipeline = guard->transmittance.pipeline;
+                }
                 vector<RHI::BindGroupEntry> entries;
                 entries.reserve(resources.size());
                 for (const ReflectedResource &resource : resources) {
@@ -357,7 +364,7 @@ namespace SFT::Renderer {
                     entries.push_back(entry);
                 }
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-                    .layout = guard->transmittance.bind_group_layout,
+                    .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
                     .label = "sky transmittance lut bind group",
                 });
@@ -367,7 +374,7 @@ namespace SFT::Renderer {
                 { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                 RHI::ComputePassEncoder &pass = context.compute_pass();
-                pass.set_pipeline(guard->transmittance.pipeline);
+                pass.set_pipeline(pipeline);
                 pass.set_bind_group(0, *bind_group);
                 pass.dispatch((kTransmittanceLutExtent.width + 7) / 8, (kTransmittanceLutExtent.height + 7) / 8, 1);
                 return {};
@@ -382,8 +389,17 @@ namespace SFT::Renderer {
                 if (device == nullptr) {
                     return unexpected(atmosphere_error("Cannot record atmosphere LUT bakes without an RHI device."));
                 }
-                auto guard = atmosphere_lut_.lock();
-                const vector<ReflectedResource> resources = collect_resource_bindings(guard->multi_scattering.shader.reflection());
+                vector<ReflectedResource> resources;
+                RHI::BindGroupLayoutHandle bind_group_layout{};
+                RHI::ComputePipelineHandle pipeline{};
+                RHI::SamplerHandle lut_sampler{};
+                {
+                    auto guard = atmosphere_lut_.lock();
+                    resources = collect_resource_bindings(guard->multi_scattering.shader.reflection());
+                    bind_group_layout = guard->multi_scattering.bind_group_layout;
+                    pipeline = guard->multi_scattering.pipeline;
+                    lut_sampler = guard->lut_sampler;
+                }
                 vector<RHI::BindGroupEntry> entries;
                 entries.reserve(resources.size());
                 for (const ReflectedResource &resource : resources) {
@@ -394,7 +410,7 @@ namespace SFT::Renderer {
                     } else if (resource.name == "transmittanceLut") {
                         entry.texture_view = context.texture(transmittance_lut).default_view;
                     } else if (resource.name == "atmosphereSampler") {
-                        entry.sampler = guard->lut_sampler;
+                        entry.sampler = lut_sampler;
                     } else if (resource.name == "outputLut") {
                         entry.texture_view = context.texture(multi_scattering_lut).default_view;
                     } else {
@@ -403,7 +419,7 @@ namespace SFT::Renderer {
                     entries.push_back(entry);
                 }
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-                    .layout = guard->multi_scattering.bind_group_layout,
+                    .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
                     .label = "sky multi-scattering lut bind group",
                 });
@@ -413,7 +429,7 @@ namespace SFT::Renderer {
                 { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                 RHI::ComputePassEncoder &pass = context.compute_pass();
-                pass.set_pipeline(guard->multi_scattering.pipeline);
+                pass.set_pipeline(pipeline);
                 pass.set_bind_group(0, *bind_group);
                 pass.dispatch((kMultiScatteringLutExtent.width + 7) / 8, (kMultiScatteringLutExtent.height + 7) / 8, 1);
                 return {};
@@ -429,8 +445,17 @@ namespace SFT::Renderer {
                 if (device == nullptr) {
                     return unexpected(atmosphere_error("Cannot record atmosphere LUT bakes without an RHI device."));
                 }
-                auto guard = atmosphere_lut_.lock();
-                const vector<ReflectedResource> resources = collect_resource_bindings(guard->sky_view.shader.reflection());
+                vector<ReflectedResource> resources;
+                RHI::BindGroupLayoutHandle bind_group_layout{};
+                RHI::ComputePipelineHandle pipeline{};
+                RHI::SamplerHandle lut_sampler{};
+                {
+                    auto guard = atmosphere_lut_.lock();
+                    resources = collect_resource_bindings(guard->sky_view.shader.reflection());
+                    bind_group_layout = guard->sky_view.bind_group_layout;
+                    pipeline = guard->sky_view.pipeline;
+                    lut_sampler = guard->lut_sampler;
+                }
                 vector<RHI::BindGroupEntry> entries;
                 entries.reserve(resources.size());
                 for (const ReflectedResource &resource : resources) {
@@ -443,7 +468,7 @@ namespace SFT::Renderer {
                     } else if (resource.name == "multiScatteringLut") {
                         entry.texture_view = context.texture(multi_scattering_lut).default_view;
                     } else if (resource.name == "atmosphereSampler") {
-                        entry.sampler = guard->lut_sampler;
+                        entry.sampler = lut_sampler;
                     } else if (resource.name == "outputLut") {
                         entry.texture_view = context.texture(sky_view_lut).default_view;
                     } else {
@@ -452,7 +477,7 @@ namespace SFT::Renderer {
                     entries.push_back(entry);
                 }
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-                    .layout = guard->sky_view.bind_group_layout,
+                    .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
                     .label = "sky view lut bind group",
                 });
@@ -462,7 +487,7 @@ namespace SFT::Renderer {
                 { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                 RHI::ComputePassEncoder &pass = context.compute_pass();
-                pass.set_pipeline(guard->sky_view.pipeline);
+                pass.set_pipeline(pipeline);
                 pass.set_bind_group(0, *bind_group);
                 pass.dispatch((kSkyViewLutExtent.width + 7) / 8, (kSkyViewLutExtent.height + 7) / 8, 1);
                 return {};

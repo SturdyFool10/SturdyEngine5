@@ -816,8 +816,21 @@ namespace SFT::Renderer {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
 
-        auto guard = shadow_lighting_.lock();
-        const vector<ReflectedResource> resources = collect_resource_bindings(guard->shader.reflection());
+        vector<ReflectedResource> resources;
+        RHI::SamplerHandle gbuffer_sampler{};
+        RHI::SamplerHandle shadow_sampler{};
+        RHI::SamplerHandle atmosphere_sampler{};
+        vector<u32> bind_group_layout_sets;
+        vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+        {
+            auto guard = shadow_lighting_.lock();
+            resources = collect_resource_bindings(guard->shader.reflection());
+            gbuffer_sampler = guard->gbuffer_sampler;
+            shadow_sampler = guard->shadow_sampler;
+            atmosphere_sampler = guard->atmosphere_sampler;
+            bind_group_layout_sets = guard->bind_group_layout_sets;
+            bind_group_layouts = guard->bind_group_layouts;
+        }
         if (resources.empty()) {
             return unexpected(shadow_error("Shadow lighting reflection produced no resource bindings."));
         }
@@ -856,22 +869,22 @@ namespace SFT::Renderer {
             } else if (resource.name == "skyViewLut") {
                 entry.texture_view = sky_view_lut_view;
             } else if (resource.name == "gbufferSampler") {
-                entry.sampler = guard->gbuffer_sampler;
+                entry.sampler = gbuffer_sampler;
             } else if (resource.name == "shadowSampler") {
-                entry.sampler = guard->shadow_sampler;
+                entry.sampler = shadow_sampler;
             } else if (resource.name == "atmosphereSampler") {
-                entry.sampler = guard->atmosphere_sampler;
+                entry.sampler = atmosphere_sampler;
             } else {
                 return unexpected(shadow_error("Shadow lighting reflection contains an unknown resource: " + resource.name));
             }
             entries.push_back(entry);
         }
-        const usize layout_index = bind_group_layout_index_for_set(guard->bind_group_layout_sets, set);
-        if (layout_index >= guard->bind_group_layouts.size()) {
+        const usize layout_index = bind_group_layout_index_for_set(bind_group_layout_sets, set);
+        if (layout_index >= bind_group_layouts.size()) {
             return unexpected(shadow_error("Shadow lighting bind group has no matching generated layout."));
         }
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = guard->bind_group_layouts[layout_index],
+            .layout = bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "deferred shadow lighting bind group",
         });

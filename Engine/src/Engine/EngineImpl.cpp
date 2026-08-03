@@ -294,6 +294,10 @@ namespace SFT::Engine {
         return renderer_.update_hdr_content_light_level(surface, update);
     }
 
+    RHI::PresentationResolution Engine::presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept {
+        return renderer_.presentation_resolution(surface);
+    }
+
     Core::RendererExpected<Core::RuntimeSettingsChangeResult>
     Engine::apply_runtime_settings(Core::RenderSurfaceHandle primary_surface,
                                    const EngineConfig &settings) {

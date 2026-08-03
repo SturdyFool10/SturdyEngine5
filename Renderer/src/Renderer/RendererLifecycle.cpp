@@ -1274,17 +1274,16 @@ namespace SFT::Renderer {
             return hiz_build_ready;
         }
         {
-            auto pyramid_guard = hiz_pyramid_.lock();
-            if (Core::RendererResult pyramid_ready = ensure_hiz_pyramid(*pyramid_guard, render_extent);
+            if (Core::RendererResult pyramid_ready = ensure_hiz_pyramid(record.hiz_pyramid, render_extent);
                 !pyramid_ready.has_value()) {
                 return pyramid_ready;
             }
             hiz_cull_input = HiZCullInput{
-                .pyramid_view = pyramid_guard->full_view,
-                .extent_width = pyramid_guard->extent.width,
-                .extent_height = pyramid_guard->extent.height,
-                .mip_count = pyramid_guard->mip_levels,
-                .valid = pyramid_guard->has_valid_data,
+                .pyramid_view = record.hiz_pyramid.full_view,
+                .extent_width = record.hiz_pyramid.extent.width,
+                .extent_height = record.hiz_pyramid.extent.height,
+                .mip_count = record.hiz_pyramid.mip_levels,
+                .valid = record.hiz_pyramid.has_valid_data,
             };
         }
         PreparedShadowFrame shadow_frame{};
@@ -1773,17 +1772,10 @@ namespace SFT::Renderer {
                 .label = "spectral caustic photon hash heads",
             });
         }
-        RHI::TextureHandle hiz_pyramid_gpu_texture{};
-        RHI::TextureViewHandle hiz_pyramid_full_view{};
-        Core::Extent2D hiz_pyramid_extent{};
-        u32 hiz_pyramid_mip_levels = 0;
-        {
-            auto pyramid_guard = hiz_pyramid_.lock();
-            hiz_pyramid_gpu_texture = pyramid_guard->texture;
-            hiz_pyramid_full_view = pyramid_guard->full_view;
-            hiz_pyramid_extent = pyramid_guard->extent;
-            hiz_pyramid_mip_levels = pyramid_guard->mip_levels;
-        }
+        const RHI::TextureHandle hiz_pyramid_gpu_texture = record.hiz_pyramid.texture;
+        const RHI::TextureViewHandle hiz_pyramid_full_view = record.hiz_pyramid.full_view;
+        const Core::Extent2D hiz_pyramid_extent = record.hiz_pyramid.extent;
+        const u32 hiz_pyramid_mip_levels = record.hiz_pyramid.mip_levels;
         // hiz_cull_input.valid (captured earlier, before this frame's own "hiz build" passes below
         // run) is exactly "was this texture left ShaderReadOnly by last frame's build pass" —
         // ShaderReadOnly preserves contents across the transition this import performs; Undefined is
@@ -2250,14 +2242,11 @@ namespace SFT::Renderer {
             // writing, for *next* frame's "gpu instance cull" pass to occlusion-test against — see
             // HiZPyramidTargets's and record_hiz_build's own doc comments for why it can't be this
             // same frame's cull pass instead.
-            {
-                auto pyramid_guard = hiz_pyramid_.lock();
-                if (Core::RendererResult hiz_built = record_hiz_build(
-                        graph, depth_texture, slot.deferred_targets.depth_view, render_extent,
-                        hiz_pyramid_texture, *pyramid_guard, submission.transient_bind_groups);
-                    !hiz_built.has_value()) {
-                    return hiz_built;
-                }
+            if (Core::RendererResult hiz_built = record_hiz_build(
+                    graph, depth_texture, slot.deferred_targets.depth_view, render_extent,
+                    hiz_pyramid_texture, record.hiz_pyramid, submission.transient_bind_groups);
+                !hiz_built.has_value()) {
+                return hiz_built;
             }
         }
 
@@ -3072,19 +3061,29 @@ namespace SFT::Renderer {
             slot.bloom_targets.views.push_back(*view);
         }
 
-        auto bloom_guard = bloom_.lock();
-        if (!bloom_guard->ready || !bloom_guard->sampled_layout) {
-            destroy_frame_bloom_targets(slot);
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Bloom pipeline resources are not ready for persistent target binding.");
+        u32 image_binding = 0;
+        u32 sampler_binding = 0;
+        RHI::SamplerHandle sampler{};
+        RHI::BindGroupLayoutHandle sampled_layout{};
+        {
+            auto bloom_guard = bloom_.lock();
+            if (!bloom_guard->ready || !bloom_guard->sampled_layout) {
+                destroy_frame_bloom_targets(slot);
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Bloom pipeline resources are not ready for persistent target binding.");
+            }
+            image_binding = bloom_guard->image_binding;
+            sampler_binding = bloom_guard->sampler_binding;
+            sampler = bloom_guard->sampler;
+            sampled_layout = bloom_guard->sampled_layout;
         }
         auto create_group = [&](RHI::TextureViewHandle source_view) -> Core::RendererExpected<RHI::BindGroupHandle> {
             const array<RHI::BindGroupEntry, 2> entries{
-                RHI::BindGroupEntry{.binding = bloom_guard->image_binding, .texture_view = source_view},
-                RHI::BindGroupEntry{.binding = bloom_guard->sampler_binding, .sampler = bloom_guard->sampler},
+                RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
+                RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
             };
             auto group = device->create_bind_group(RHI::BindGroupDesc{
-                .layout = bloom_guard->sampled_layout,
+                .layout = sampled_layout,
                 .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
                 .label = "persistent bloom source bind group",
             });

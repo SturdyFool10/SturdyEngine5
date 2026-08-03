@@ -242,17 +242,31 @@ namespace SFT::Renderer {
                 "Cannot record a custom compute effect without valid source/output views and extent."));
         }
 
-        auto resources = custom_compute_effect_resources_.lock();
-        CustomComputeEffectResources *resource = nullptr;
-        for (CustomComputeEffectResources &candidate : *resources) {
-            if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
-                candidate.compute_entry_point == effect.compute_entry_point) {
-                resource = &candidate;
-                break;
+        RHI::BindGroupLayoutHandle bind_group_layout{};
+        RHI::SamplerHandle sampler{};
+        RHI::ComputePipelineHandle pipeline{};
+        u32 source_binding = 0;
+        u32 sampler_binding = 0;
+        u32 output_binding = 0;
+        {
+            auto resources = custom_compute_effect_resources_.lock();
+            const CustomComputeEffectResources *resource = nullptr;
+            for (const CustomComputeEffectResources &candidate : *resources) {
+                if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
+                    candidate.compute_entry_point == effect.compute_entry_point) {
+                    resource = &candidate;
+                    break;
+                }
             }
-        }
-        if (resource == nullptr) {
-            return unexpected(custom_compute_error("Custom compute effect cache lookup failed."));
+            if (resource == nullptr) {
+                return unexpected(custom_compute_error("Custom compute effect cache lookup failed."));
+            }
+            bind_group_layout = resource->bind_group_layout;
+            sampler = resource->sampler;
+            pipeline = resource->pipeline;
+            source_binding = resource->source_binding;
+            sampler_binding = resource->sampler_binding;
+            output_binding = resource->output_binding;
         }
 
         RHI::RhiDevice *device = rhi_device();
@@ -260,12 +274,12 @@ namespace SFT::Renderer {
             return unexpected(custom_compute_error("Cannot record a custom compute effect without an RHI device."));
         }
         const array<RHI::BindGroupEntry, 3> entries{
-            RHI::BindGroupEntry{.binding = resource->source_binding, .texture_view = source_view},
-            RHI::BindGroupEntry{.binding = resource->sampler_binding, .sampler = resource->sampler},
-            RHI::BindGroupEntry{.binding = resource->output_binding, .texture_view = output_view},
+            RHI::BindGroupEntry{.binding = source_binding, .texture_view = source_view},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
+            RHI::BindGroupEntry{.binding = output_binding, .texture_view = output_view},
         };
         auto group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = resource->bind_group_layout,
+            .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "custom compute effect bind group",
         });
@@ -277,7 +291,7 @@ namespace SFT::Renderer {
             transient_bind_groups.push_back(*group);
         }
 
-        pass.set_pipeline(resource->pipeline);
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, *group);
         if (!effect.push_constants.empty()) {
             pass.set_push_constants(

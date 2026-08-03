@@ -248,9 +248,18 @@ namespace SFT::Renderer {
             return unexpected(tonemap_error("Cannot record the tonemap pass without a device and scene texture."));
         }
 
-        auto guard = tonemap_.lock();
-        const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(guard->shader.reflection(),
-                                                                                       reflected_stage_mask(guard->shader.reflection()));
+        vector<GeneratedBindGroupLayout> generated;
+        RHI::SamplerHandle sampler{};
+        vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
+        vector<u32> bind_group_layout_sets;
+        {
+            auto guard = tonemap_.lock();
+            generated = generate_bind_group_layouts(guard->shader.reflection(),
+                                                    reflected_stage_mask(guard->shader.reflection()));
+            sampler = guard->sampler;
+            bind_group_layouts = guard->bind_group_layouts;
+            bind_group_layout_sets = guard->bind_group_layout_sets;
+        }
         if (generated.empty()) {
             return unexpected(tonemap_error("tonemap shader reflection produced no bind-group layout."));
         }
@@ -271,16 +280,16 @@ namespace SFT::Renderer {
         if (!has_image_binding || !has_sampler_binding) {
             return unexpected(tonemap_error("tonemap shader reflection did not produce one sampled texture and one sampler."));
         }
-        const usize layout_index = bind_group_layout_index_for_set(guard->bind_group_layout_sets, layout.set);
-        if (layout_index >= guard->bind_group_layouts.size()) {
+        const usize layout_index = bind_group_layout_index_for_set(bind_group_layout_sets, layout.set);
+        if (layout_index >= bind_group_layouts.size()) {
             return unexpected(tonemap_error("tonemap shader reflection set has no generated bind-group layout."));
         }
         const array<RHI::BindGroupEntry, 2> entries{
             RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
-            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = guard->sampler},
+            RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = guard->bind_group_layouts[layout_index],
+            .layout = bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "tonemap scene bind group",
         });

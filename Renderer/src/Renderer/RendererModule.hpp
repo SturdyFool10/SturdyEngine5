@@ -84,6 +84,13 @@ namespace SFT::Renderer {
         [[nodiscard]] RHI::RhiResult update_hdr_content_light_level(
             Core::RenderSurfaceHandle surface, const RHI::HdrContentLightLevelUpdate &update);
 
+        // Requested-vs-effective presentation state for this surface's live swapchain — lets a caller
+        // (e.g. Application's adaptive frame pacing) tell a vsync-paced window (Fifo/FifoRelaxed/
+        // FifoLatestReady) from an uncapped one (Mailbox/Immediate) without reaching into RHI directly.
+        // Default-constructed (TearFreeOrdered/Fifo) when this surface has no swapchain yet (first
+        // frame not rendered) — the conservative "assume vsync-paced" answer.
+        [[nodiscard]] RHI::PresentationResolution presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept;
+
         [[nodiscard]] Core::RendererResult render_frame(Core::RenderSurfaceHandle surface,
                                                         const Core::FrameInput &frame);
 
@@ -609,6 +616,17 @@ namespace SFT::Renderer {
             // Semantic resources published and consumed by reusable graph modules. Retained with the
             // graph so reset() preserves capacity and steady-state frame lowering does not allocate.
             RenderGraphBlackboard graph_resources;
+            // Same per-window rationale as frames_in_flight/scene_frame_resources above, plus a sharper
+            // failure mode: HiZPyramidTargets is deliberately a single persistent "last completed
+            // frame's" history buffer, not a ring (see its own doc comment) — a Renderer-wide instance
+            // meant two windows would resize/rebuild the *same* pyramid out from under each other every
+            // time their extents differ (near-guaranteed for a primary window + smaller torn-off
+            // panels), and since its texture/view handles are captured unlocked and read later in the
+            // same frame's render graph (RendererLifecycle.cpp), a resize mid-frame could destroy a
+            // texture the other window's graph still references — a real GPU handle lifetime hazard,
+            // not just wasted rebuild work. Real bug found during the same session's lock-contention
+            // audit — see memory project_multi_window_render_threading.
+            HiZPyramidTargets hiz_pyramid;
         };
 
         struct RenderItem {
@@ -720,9 +738,10 @@ namespace SFT::Renderer {
             u32 instance_count = 0;
         };
 
-        // What record_instance_cull needs from last frame's Hi-Z pyramid (HiZPyramidTargets) to run
-        // this frame's occlusion test — a plain data snapshot rather than the guarded struct itself,
-        // so record_instance_cull doesn't need to hold hiz_pyramid_'s lock for the whole dispatch loop.
+        // What record_instance_cull needs from last frame's Hi-Z pyramid (WindowSurfaceRecord::
+        // hiz_pyramid) to run this frame's occlusion test — a plain data snapshot rather than a
+        // reference to the record field itself, so callers further down the dispatch loop don't need
+        // to keep threading a WindowSurfaceRecord& through just for this.
         struct HiZCullInput {
             RHI::TextureViewHandle pyramid_view{};
             u32 extent_width = 0;
@@ -1836,8 +1855,6 @@ namespace SFT::Renderer {
         // then overwrites it serially with this frame's transforms once packing joins.
         std::unordered_map<u64, glm::mat4> previous_world_transforms_;
         Async::Mutex<HiZBuildResources> hiz_build_;
-        // Not per-FrameInFlight-ring-slot — see HiZPyramidTargets's own doc comment for why.
-        Async::Mutex<HiZPyramidTargets> hiz_pyramid_;
         Async::Mutex<AtmosphereLutResources> atmosphere_lut_;
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;

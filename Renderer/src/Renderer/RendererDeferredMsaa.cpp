@@ -245,14 +245,26 @@ namespace SFT::Renderer {
                 "Cannot record deferred MSAA reconstruction without all three source textures."));
         }
 
-        auto guard = deferred_msaa_.lock();
+        u32 color_binding = 0;
+        u32 depth_binding = 0;
+        u32 geometry_depth_binding = 0;
+        RHI::BindGroupLayoutHandle sampled_layout{};
+        u32 sampled_set = 0;
+        {
+            auto guard = deferred_msaa_.lock();
+            color_binding = guard->color_binding;
+            depth_binding = guard->depth_binding;
+            geometry_depth_binding = guard->geometry_depth_binding;
+            sampled_layout = guard->sampled_layout;
+            sampled_set = guard->sampled_set;
+        }
         const array<RHI::BindGroupEntry, 3> entries{
-            RHI::BindGroupEntry{.binding = guard->color_binding, .texture_view = color_view},
-            RHI::BindGroupEntry{.binding = guard->depth_binding, .texture_view = depth_view},
-            RHI::BindGroupEntry{.binding = guard->geometry_depth_binding, .texture_view = geometry_depth_view},
+            RHI::BindGroupEntry{.binding = color_binding, .texture_view = color_view},
+            RHI::BindGroupEntry{.binding = depth_binding, .texture_view = depth_view},
+            RHI::BindGroupEntry{.binding = geometry_depth_binding, .texture_view = geometry_depth_view},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-            .layout = guard->sampled_layout,
+            .layout = sampled_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .label = "deferred MSAA reconstruction bind group",
         });
@@ -274,7 +286,7 @@ namespace SFT::Renderer {
             .far_plane = std::max(far_plane, safe_near + 1.0e-3f),
         };
         pass.set_pipeline(*pipeline);
-        pass.set_bind_group(guard->sampled_set, *bind_group);
+        pass.set_bind_group(sampled_set, *bind_group);
         pass.set_push_constants(
             RHI::ShaderStage::Fragment, 0,
             std::as_bytes(span<const DeferredMsaaConstants>{&constants, 1}));

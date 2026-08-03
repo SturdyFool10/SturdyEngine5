@@ -30,7 +30,17 @@ namespace SFT::Renderer {
                 .window = &window,
                 .surface = *surface,
                 .desired_frames_in_flight = desired_frames_in_flight,
-                .presentation = Core::PresentationSettings{},
+                // Inherit the app's configured default (recovery_create_info_.features.presentation,
+                // stashed at Renderer::initialize() time from the primary window's own RendererCreateInfo)
+                // rather than a fresh Core::PresentationSettings{} default — otherwise every runtime-
+                // added window (docking tear-off, editor windows) silently ignores whatever vsync/
+                // latency/preference the app actually asked for and gets plain VSyncMode::On (Fifo)
+                // regardless, while the primary window alone honors it. Real bug: this is exactly what
+                // made a torn-off window resolve to plain Fifo on Windows while the primary resolved to
+                // FifoRelaxed from the same AdaptiveTearing request — see memory
+                // project_adaptive_present_pacing. A caller can still override per-window afterward via
+                // set_presentation_settings().
+                .presentation = recovery_create_info_.features.presentation,
                 .primary = false,
                 .frames_in_flight = {},
             }));
@@ -49,21 +59,35 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
-        auto guard = window_surfaces_.lock();
-        for (auto it = guard->begin(); it != guard->end(); ++it) {
-            if ((*it)->surface == surface) {
-                destroy_rhi_presentation_resources(**it);
-                // WindowSurfaceRecord::scene_frame_resources holds raw RHI::BufferHandle values, not
-                // RAII-owning ones — erasing the record below without this would leak its view/object
-                // (and instanced-batch) GPU buffers, same reasoning as destroy_rhi_presentation_resources
-                // just above for the swapchain/depth resources.
-                destroy_scene_gpu_resources((*it)->scene_frame_resources);
-                if (graphics_backend_) {
-                    graphics_backend_->destroy_window_surface(surface);
+        // Move the record out of window_surfaces_ (and off the vector) under the lock, then do the
+        // actual GPU teardown unlocked — this window's teardown is real driver work (swapchain/depth/
+        // scene-buffer/Hi-Z destruction), and holding the lock across it would block every other
+        // window's per-frame window_surface() lookup for as long as this one takes to close.
+        unique_ptr<WindowSurfaceRecord> record;
+        {
+            auto guard = window_surfaces_.lock();
+            for (auto it = guard->begin(); it != guard->end(); ++it) {
+                if ((*it)->surface == surface) {
+                    record = std::move(*it);
+                    guard->erase(it);
+                    break;
                 }
-                guard->erase(it);
-                break;
             }
+        }
+        if (!record) {
+            return;
+        }
+        destroy_rhi_presentation_resources(*record);
+        // WindowSurfaceRecord::scene_frame_resources holds raw RHI::BufferHandle values, not
+        // RAII-owning ones — letting `record` go out of scope without this would leak its view/object
+        // (and instanced-batch) GPU buffers, same reasoning as destroy_rhi_presentation_resources
+        // just above for the swapchain/depth resources.
+        destroy_scene_gpu_resources(record->scene_frame_resources);
+        // Same reasoning as scene_frame_resources just above: WindowSurfaceRecord::hiz_pyramid also
+        // holds raw texture/view handles, not RAII-owning ones.
+        destroy_hiz_pyramid(record->hiz_pyramid);
+        if (graphics_backend_) {
+            graphics_backend_->destroy_window_surface(surface);
         }
     }
 
@@ -120,6 +144,21 @@ namespace SFT::Renderer {
                                   "This window has no live swapchain yet (first frame not rendered).");
         }
         return device->update_hdr_content_light_level(record->rhi_swapchain, update);
+    }
+
+    RHI::PresentationResolution Renderer::presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept {
+        const WindowSurfaceRecord *record = window_surface(surface);
+        if (record == nullptr || !record->rhi_swapchain) {
+            // No swapchain yet (first frame not rendered) - default (Fifo/TearFreeOrdered) is the
+            // conservative choice for a caller pacing off this: treat an unknown window as vsync-paced
+            // rather than assuming it's safe to render uncapped.
+            return RHI::PresentationResolution{};
+        }
+        const RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return RHI::PresentationResolution{};
+        }
+        return device->presentation_resolution(record->rhi_swapchain);
     }
 
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
