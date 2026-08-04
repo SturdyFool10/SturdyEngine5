@@ -1047,6 +1047,28 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f128 saturate(f128 x) noexcept { return x < f128(0.0) ? f128(0.0) : (x > f128(1.0) ? f128(1.0) : x); }
     [[nodiscard]] constexpr f256 saturate(const f256 &x) noexcept { return x < f256(0.0) ? f256(0.0) : (x > f256(1.0) ? f256(1.0) : x); }
 
+    // --- bulk array helpers --------------------------------------------------------------------
+    // Elementwise array operations for callers processing many wide-precision values at once (e.g. an
+    // array of f128 accumulators). These loop the same per-element `operator+`/`operator*` already
+    // defined and verified above, rather than hand-rolled SIMD: correctly vectorizing double-double/
+    // quad-double error-compensated arithmetic across SIMD lanes is real, well-trodden numerical work
+    // (see the QD library's two-sum/two-prod-based algorithms), but re-deriving and verifying it here
+    // without an extensive numerical regression suite would risk silently wrong low-order bits — exactly
+    // the class of bug these wide types exist to avoid. If this loop becomes a measured hot path, that
+    // is the place to invest in a verified SIMD-lane two-sum implementation, not here; see
+    // `Cpu::SimdMath` (Foundation/src/Cpu/SimdMath.hpp) for what that already looks like for plain
+    // `f32`/`f64`, where no such per-element error-compensation exists to get wrong.
+    template <Detail::WideNumber T>
+    void array_add(T *dst, const T *a, const T *b, usize n) noexcept {
+        for (usize i = 0; i < n; ++i)
+            dst[i] = a[i] + b[i];
+    }
+    template <Detail::WideNumber T>
+    void array_mul(T *dst, const T *a, const T *b, usize n) noexcept {
+        for (usize i = 0; i < n; ++i)
+            dst[i] = a[i] * b[i];
+    }
+
     namespace Detail {
 
         [[nodiscard]] consteval bool wide_math_constexpr_smoke_test() noexcept {

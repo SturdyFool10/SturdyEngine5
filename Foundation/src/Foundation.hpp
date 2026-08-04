@@ -2,6 +2,7 @@
 
 #include <Foundation/src/Types.hpp>
 #include <Foundation/src/Concepts.hpp>
+#include <Foundation/src/Cxx26.hpp>
 #include <Foundation/src/Wide.hpp>
 #include <Foundation/src/WideTraits.hpp>
 #include <Foundation/src/Constants.hpp>
@@ -13,6 +14,9 @@
 #include <Foundation/src/Embed.hpp>
 #include <Foundation/src/ConsoleDiagnostic.hpp>
 #include <Foundation/src/Log.hpp>
+#include <Foundation/src/Cpu/CpuId.hpp>
+#include <Foundation/src/Cpu/CpuTopology.hpp>
+#include <Foundation/src/Cpu/SimdMath.hpp>
 #include <Foundation/src/Memory.hpp>
 #include <Foundation/src/Utils.hpp>
 #include <Foundation/src/Cli.hpp>
