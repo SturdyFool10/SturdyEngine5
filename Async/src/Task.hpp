@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Foundation/src/Attributes.hpp>
+
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -32,7 +34,8 @@ namespace SFT::Async {
         template <typename R>
         struct TaskState {
             std::atomic<bool> done{false};
-            [[no_unique_address]] std::conditional_t<std::is_void_v<R>, NoResult, std::optional<R>> result{};
+            STURDY_NO_UNIQUE_ADDRESS
+            std::conditional_t<std::is_void_v<R>, NoResult, std::optional<R>> result{};
 
             void wait() noexcept {
                 wait_for_task(done);

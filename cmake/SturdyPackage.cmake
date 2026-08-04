@@ -342,17 +342,30 @@ function(sturdy_enable_static_dead_stripping target_name)
 
   if(MSVC)
     set(_sturdy_section_options /Gy /Gw)
-    set(_sturdy_dead_strip_link_option "LINKER:/OPT:REF")
-  elseif(APPLE)
-    set(_sturdy_section_options -ffunction-sections -fdata-sections)
-    set(_sturdy_dead_strip_link_option "LINKER:-dead_strip")
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(_sturdy_section_options -ffunction-sections -fdata-sections)
-    set(_sturdy_dead_strip_link_option "LINKER:--gc-sections")
   else()
     message(WARNING
       "Static dead stripping is enabled, but ${CMAKE_CXX_COMPILER_ID} "
-      "has no configured section/linker policy."
+      "has no configured section-emission policy."
+    )
+    return()
+  endif()
+
+  # The dead-stripping *linker* flag depends on which linker actually runs, not which compiler
+  # frontend invoked it: Clang targeting Windows still drives lld-link (a COFF linker), not a
+  # GNU-style one, so it needs the MSVC spelling even though CMAKE_CXX_COMPILER_ID reads "Clang"
+  # there (that mismatch is what previously sent lld-link an unrecognized "--gc-sections").
+  if(STURDY_OS STREQUAL "Windows")
+    set(_sturdy_dead_strip_link_option "LINKER:/OPT:REF")
+  elseif(STURDY_OS STREQUAL "MacOS")
+    set(_sturdy_dead_strip_link_option "LINKER:-dead_strip")
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(_sturdy_dead_strip_link_option "LINKER:--gc-sections")
+  else()
+    message(WARNING
+      "Static dead stripping is enabled, but ${CMAKE_CXX_COMPILER_ID} on ${STURDY_OS} "
+      "has no configured linker policy."
     )
     return()
   endif()

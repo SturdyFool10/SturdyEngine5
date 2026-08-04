@@ -35,6 +35,11 @@ namespace SFT::Engine {
         // Walked recursively for *.slang files at the start of Engine::initialize(), before the
         // graphics backend comes up. Relative paths are resolved against the current working directory.
         std::filesystem::path shaders_directory = "Shaders";
+        // Persist compiled shader variants (bytecode + reflection) to disk under
+        // Core::Slang::default_shader_cache_directory ("Shaders/.cache") so a later run can skip
+        // recompiling them with Slang entirely on a cache hit — see Core/Slang/ShaderCache.hpp and
+        // ShaderVariantCache's disk-cache constructor parameters.
+        bool enable_shader_disk_cache = true;
     };
 
     // The glue layer. Owns the high-level Renderer and binds it to Platform windows. The Renderer

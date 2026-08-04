@@ -110,14 +110,15 @@ namespace SFT::Platform::Windowing {
 
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
 #if defined(__linux__)
-        Detail::window_warn(
-            "Linux native window effect requested but unsupported: system={} display={} window={} kind={} enabled={} color_argb=0x{:08X}",
-            static_cast<int>(handle.system),
-            handle.display,
-            handle.window,
-            static_cast<int>(effect.kind),
-            effect.enabled,
-            effect.color_argb);
+        if (!operating_system_may_support_window_effect(effect.kind)) [[unlikely]] {
+            Detail::window_warn(
+                "Linux window effect kind={} enabled={} is not supported on this OS; no-op. "
+                "(Window transparency on Linux is a creation-time-only WindowConfig::transparent flag — "
+                "see its doc comment for why — not something Window::set_transparent() can toggle live.)",
+                static_cast<int>(effect.kind),
+                effect.enabled);
+            return WindowEffectResult::failed("This window effect is not supported on the current OS.");
+        }
 
         if (effect.kind == WindowEffectKind::Blur) [[likely]] {
             return try_linux_blur(handle, effect);

@@ -118,6 +118,7 @@ namespace {
         }
         expected<void, WindowError> set_effect(WindowEffect /*effect*/) noexcept override { return {}; }
         expected<void, WindowError> set_blur_enabled(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_transparent(bool /*enabled*/) noexcept override { return {}; }
         [[nodiscard]] expected<vector<const char *>, WindowError> required_vulkan_instance_extensions() const noexcept override {
             return vector<const char *>{};
         }

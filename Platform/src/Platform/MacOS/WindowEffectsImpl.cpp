@@ -34,14 +34,16 @@ namespace SFT::Platform::Windowing {
 
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
 #if defined(__APPLE__)
-        Detail::window_warn(
-            "macOS native window effect requested but unsupported: system={} display={} window={} kind={} enabled={} color_argb=0x{:08X}",
-            static_cast<int>(handle.system),
-            handle.display,
-            handle.window,
-            static_cast<int>(effect.kind),
-            effect.enabled,
-            effect.color_argb);
+        (void)handle;
+        if (!operating_system_may_support_window_effect(effect.kind)) [[likely]] {
+            Detail::window_warn(
+                "macOS window effect kind={} enabled={} is not supported on this OS build; no-op. "
+                "(NSWindow supports live transparency toggling in principle, but this engine has no "
+                "Objective-C++ build support yet — not implemented.)",
+                static_cast<int>(effect.kind),
+                effect.enabled);
+            return WindowEffectResult::failed("This window effect is not supported on the current OS.");
+        }
         return WindowEffectResult::failed("macOS window effects are not implemented yet.");
 #else
         (void)handle;

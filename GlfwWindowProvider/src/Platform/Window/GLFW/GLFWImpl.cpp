@@ -99,6 +99,7 @@ namespace SFT::Platform::Windowing::GLFW {
             glfwWindowHint(GLFW_VISIBLE, config.visible ? GLFW_TRUE : GLFW_FALSE);
             glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
             glfwWindowHint(GLFW_DECORATED, config.decorated ? GLFW_TRUE : GLFW_FALSE);
+            glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, config.transparent ? GLFW_TRUE : GLFW_FALSE);
 
             if (config.graphics_api == WindowGraphicsApi::OpenGL) {
                 glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
@@ -1215,6 +1216,10 @@ namespace SFT::Platform::Windowing::GLFW {
 
     expected<void, WindowError> GLFWWindow::set_blur_enabled(bool enabled) noexcept {
         return set_effect(WindowEffect::blur(enabled));
+    }
+
+    expected<void, WindowError> GLFWWindow::set_transparent(bool enabled) noexcept {
+        return set_effect(WindowEffect::transparent(enabled));
     }
 
     expected<vector<const char *>, WindowError>

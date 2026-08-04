@@ -3,6 +3,8 @@
 #include <Runtime/Runtime.hpp>
 #include <UiWorkbenchGameLogic/UiWorkbenchGameLogic.hpp>
 
+#include "CrashHandler.hpp"
+
 using SFT::Foundation::CliArgs;
 
 namespace {
@@ -17,7 +19,7 @@ namespace {
         config.application.engine.app_name = "Sturdy Engine 5 UI Workbench";
         config.application.engine.shaders_directory = "Shaders";
         config.application.engine.features.presentation.hdr_enabled = false;
-        config.application.engine.features.presentation.vsync = SFT::Core::VSyncMode::Adaptive;
+        config.application.engine.features.presentation.vsync = SFT::Core::VSyncMode::Off;
         config.application.engine.features.presentation.latency = SFT::Core::LatencyMode::Ultra;
         config.application.primary_window_title_update_interval_seconds = 0.25;
         config.primary_window_title = UString{"SturdyEngine 5 UI Workbench"};
@@ -26,6 +28,8 @@ namespace {
 
 #ifndef SFT_CUSTOM_MAIN
     i32 sturdy_run(const CliArgs &args) {
+        SFT::UiWorkbench::install_crash_handler();
+        SFT::Foundation::init_file_logging("Logs/UiWorkbench.log");
         return SFT::Runtime::run(
             args,
             ui_workbench_config(),

@@ -550,6 +550,15 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(swapchain.error());
         }
 
+        // Flip-model composed presentation on Windows (the fast "Composed: Flip" path vs. the
+        // legacy blit-copy "Composed: Copy with GPU/CPU" path) needs imageCount >= 2 and an opaque
+        // composite alpha; both are already this bridge's default resolution, but log the values
+        // actually negotiated so a regression (e.g. a non-opaque composite alpha request) is
+        // greppable without reaching for PresentMon just to sanity-check preconditions.
+        Foundation::log_info(
+            "Swapchain created: imageCount={} compositeAlpha={} presentMode={}",
+            info.minImageCount, static_cast<u32>(info.compositeAlpha), rhi::present_mode_name(resolution.effective_mode));
+
         VkHdrMetadataEXT initial_hdr_metadata{};
         bool initial_hdr_metadata_set = false;
         if (desc.color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
@@ -728,7 +737,7 @@ namespace SFT::Core::Vulkan {
         };
     }
 
-    rhi::RhiExpected<bool> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc) {
+    rhi::RhiExpected<bool> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
         if (graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run present: device resources are not ready.");
@@ -756,7 +765,7 @@ namespace SFT::Core::Vulkan {
         // swapchain's surface (RHI::PresentationResolution::present_queue_is_compute's own doc
         // comment) — compute_queue_ is guaranteed non-null whenever it's true.
         VulkanQueue &present_queue = (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *graphics_queue_;
-        auto result = present_queue.present(info);
+        auto result = present_queue.present(info, queue_lock_wait_ms);
         if (!result) {
             return rhi_error_from_graphics(result.error());
         }

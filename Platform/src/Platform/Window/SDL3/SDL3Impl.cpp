@@ -124,6 +124,9 @@ namespace SFT::Platform::Windowing::SDL3 {
             if (config.mode != WindowMode::Windowed) [[unlikely]] {
                 flags |= SDL_WINDOW_FULLSCREEN;
             }
+            if (config.transparent) [[unlikely]] {
+                flags |= SDL_WINDOW_TRANSPARENT;
+            }
 
             return flags;
         }
@@ -991,6 +994,10 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     expected<void, WindowError> SDL3Window::set_blur_enabled(bool enabled) noexcept {
         return set_effect(WindowEffect::blur(enabled));
+    }
+
+    expected<void, WindowError> SDL3Window::set_transparent(bool enabled) noexcept {
+        return set_effect(WindowEffect::transparent(enabled));
     }
 
     expected<vector<const char *>, WindowError>

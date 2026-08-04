@@ -54,7 +54,13 @@ namespace SFT::Core::Vulkan {
         // Returns true if the swapchain is stale (suboptimal or out-of-date) and should be rebuilt
         // before the next frame, false if presentation is fully up to date. Both are treated as
         // success — only failures other than staleness are reported as an error.
-        [[nodiscard]] RendererExpected<bool> present(const VkPresentInfoKHR &info) noexcept;
+        //
+        // `lock_wait_ms`, when non-null, is set to how long this call spent waiting on
+        // `submission_lock_` before it could even start `vkQueuePresentKHR` — separating "blocked on
+        // our own queue mutex" from "blocked inside the driver/Windows presentation engine" for
+        // callers profiling present-stage latency (see RendererLifecycle.cpp's "present RHI frame"
+        // stage timer).
+        [[nodiscard]] RendererExpected<bool> present(const VkPresentInfoKHR &info, f64 *lock_wait_ms = nullptr) noexcept;
 
         [[nodiscard]] RendererResult wait_idle() noexcept;
 

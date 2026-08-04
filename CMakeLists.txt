@@ -16,11 +16,19 @@ project(SturdyEngine5
 
 include(CTest)
 
-set(STURDY_CPP_STANDARD 23 CACHE STRING "C++ standard used by SturdyEngine targets. 23 is the latest published stable ISO C++ standard.")
+set(STURDY_CPP_STANDARD 26 CACHE STRING "C++ standard used by SturdyEngine targets. 26 is used ahead of ratification for the newest available toolchain features.")
 set(CMAKE_CXX_STANDARD ${STURDY_CPP_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# std::float_denorm_style and numeric_limits::has_denorm(_loss) are deprecated (not yet removed) as of
+# C++23; Foundation/src/WideTraits.hpp's numeric_limits specializations for the wide numeric types still
+# populate them for compatibility with existing generic code. Must be set here rather than in that
+# header: the deprecation attribute attaches to the enum's declaration the first time any translation
+# unit includes <limits>, so a leaf header's #define is too late once something upstream of it has
+# already pulled <limits> in.
+add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 

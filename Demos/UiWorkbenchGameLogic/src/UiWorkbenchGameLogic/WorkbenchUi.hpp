@@ -39,12 +39,13 @@ namespace SFT::UiWorkbench {
         void process_window_completions(Engine::Engine &engine);
         void route_input(Engine::Engine &engine);
         [[nodiscard]] UI::Docking::DockWorkspaceEvents build_frame(
-            Surface &surface, glm::vec2 viewport, f32 delta_seconds);
+            Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds);
         void build_controls_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
-        void build_composition_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        void build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_text_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        void build_metrics_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void handle_dock_events(Engine::Engine &engine, Surface &surface,
                                 UI::Docking::DockWorkspaceEvents events);
         [[nodiscard]] Renderer::UiOverlayHooks build_overlay_hooks(
@@ -86,8 +87,24 @@ namespace SFT::UiWorkbench {
         bool picker_enabled_ = true;
         bool show_alpha_ = true;
         bool show_preview_ = true;
-        std::array<UI::ToggleState, 8> toggle_states_{};
+        std::array<UI::ToggleState, 12> toggle_states_{};
         UI::ButtonState reset_button_state_{};
+
+        // OS window-composition controls (Composition panel) — fire Engine::window_requests() calls
+        // live, see build_composition_panel(). toggle_states_ indices 6-9 are theirs (0-5 are the
+        // widget-composition toggles above).
+        bool window_borderless_fullscreen_ = false;
+        bool window_decorated_ = true;
+        bool window_transparent_ = false;
+        bool window_blur_enabled_ = false;
+        // Which entry of supported_blur_kinds_ is picked in the blur-type dropdown; only actually
+        // applied to the window once window_blur_enabled_ is on (or changed while already on).
+        usize selected_blur_kind_index_ = 0;
+        UI::DropdownState blur_dropdown_state_{};
+        // Populated once in initialize() by filtering the candidate blur-family kinds through
+        // Platform::Windowing::operating_system_may_support_window_effect() — only what the running
+        // OS actually reports as supported ends up in the dropdown.
+        std::vector<Platform::Windowing::WindowEffectKind> supported_blur_kinds_;
 
         // Applied to each Surface's UI::Context every frame (Context::set_scroll_settings()) —
         // demonstrates the scroll system's own defaults (drag-scroll off, wheel smoothing on) plus

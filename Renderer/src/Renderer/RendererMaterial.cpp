@@ -332,8 +332,10 @@ namespace SFT::Renderer {
 
         // The variant cache owns the source + base options and compiles the base (define-less) permutation
         // now; SKINNED/ALPHA_TEST/... permutations compile lazily on later requests, and a hot-reload
-        // re-drives the same cache against the edited file.
-        slang::ShaderVariantCache variant_cache{source, options};
+        // re-drives the same cache against the edited file. enable_shader_disk_cache mirrors
+        // EngineConfig::enable_shader_disk_cache (Engine/EngineModule.hpp), threaded through
+        // Core::RendererCreateInfo and retained on recovery_create_info_ since Renderer::initialize().
+        slang::ShaderVariantCache variant_cache{source, options, {}, recovery_create_info_.enable_shader_disk_cache};
         auto base = variant_cache.get_or_compile_base();
         if (!base) {
             return unexpected(material_shader_error(base.error(), "compile material template source"));

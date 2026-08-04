@@ -151,6 +151,20 @@ namespace SFT::Core::Slang {
         // ```
         [[nodiscard]] ShaderExpected<ShaderReflection> reflect(const ShaderSource &source, const ShaderCompileOptions &options = {});
 
+        // Builds a "baked" Shader directly from previously-produced data — no Slang session, module,
+        // or program involved at all. This is the on-disk shader cache's reconstruction path
+        // (Core/Slang/ShaderCache.hpp): a cache hit calls this instead of compile(), so the whole
+        // Slang front-end is skipped. `bytecode` must be laid out row-major by
+        // `entry_point_index * targets.size() + target_index`, matching what
+        // Shader::entry_point_code() expects to find; entries requested but not compiled at cache-
+        // write time are simply absent, and entry_point_code() reports OperationFailed for them like
+        // it would for a genuinely empty shader.
+        [[nodiscard]] Shader from_cached_bytecode(
+            string module_name,
+            vector<ShaderTarget> targets,
+            ShaderReflection reflection,
+            vector<ShaderBytecode> bytecode) const;
+
         // Drops the lazily-created Slang global session. A later compile()/reflect() recreates it.
         // Call only when no compilation is active; the internal mutex serializes this with callers.
         void release_session() noexcept;

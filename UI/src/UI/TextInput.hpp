@@ -25,13 +25,12 @@ namespace SFT::UI {
     // `background_color`/`corner_radius`/`border`, driven by the current hover/focus/disabled
     // state.
     //
-    // Click-to-focus only for v1 — clicking anywhere on the input focuses it and places the caret
-    // at the end of the existing text, rather than at the clicked character. Precise click-to-
-    // position needs either per-character hit-test ids (expensive for long text) or a from-scratch
-    // glyph-shaping/measurement pass outside Clay's own text layout; neither seemed worth it before
-    // a caller actually needs it — arrow keys/Home/End/word-jump (Ctrl+Left/Right, via `input.
-    // word_modifier_held`) already reach any position once focused. Clicking anywhere else in the
-    // UI (via Context::clicked_outside()) drops focus.
+    // Click-to-focus *and* click-to-position: clicking the input focuses it and places the caret at
+    // the clicked character, found via Context::hit_test_text_byte_offset() against the single
+    // line's own on-screen bounds (Detail::hit_test_line_scalar(), TextEdit.hpp) — falls back to
+    // the end of the text only if that line wasn't rendered last frame yet (e.g. the very first
+    // frame this input ever appears, before Context has any committed bounds for it to hit-test
+    // against). Clicking anywhere else in the UI (via Context::clicked_outside()) drops focus.
     [[nodiscard]] inline TextInputResult text_input(Context &ctx, const ElementDecl &decl, const TextEditStyle &style,
                                                      TextEditState &state, const TextEditInput &input,
                                                      f32 delta_seconds, const UString &placeholder = {},
@@ -39,7 +38,12 @@ namespace SFT::UI {
         const bool is_hovered = enabled && ctx.hovered(decl.id);
         if (enabled && ctx.clicked(decl.id)) {
             state.set_focused(true);
-            state.set_caret_to(state.text().size(), false);
+            usize caret_scalar = state.text().size();
+            if (const std::optional<ElementBounds> line_bounds = ctx.element_bounds(Detail::line_element_id(decl.id, 0))) {
+                const f32 local_x = ctx.pointer_position().x - line_bounds->position.x;
+                caret_scalar = Detail::hit_test_line_scalar(ctx, style, state.text(), local_x);
+            }
+            state.set_caret_to(caret_scalar, false);
         } else if (ctx.clicked_outside(decl.id)) {
             state.set_focused(false);
         }

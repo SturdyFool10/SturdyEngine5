@@ -206,6 +206,7 @@ namespace SFT::Engine {
         // Hand the backend the shaders we reflected above; it owns compiling them to its native
         // format. shaders_ outlives this call, so the non-owning span stays valid.
         renderer_info.uncompiled_shaders = shaders_;
+        renderer_info.enable_shader_disk_cache = config.enable_shader_disk_cache;
 
         auto surface = renderer_.initialize(renderer_info);
         if (!surface) {
@@ -380,6 +381,7 @@ namespace SFT::Engine {
             renderer_info.window = primary_window_;
             renderer_info.wsi_extensions = std::move(*wsi_extensions);
             renderer_info.uncompiled_shaders = shaders_;
+            renderer_info.enable_shader_disk_cache = settings.enable_shader_disk_cache;
 
             if (Core::RendererResult rebuilt = renderer_.reconfigure_backend(renderer_info); !rebuilt.has_value()) {
                 return unexpected(rebuilt.error());
@@ -624,6 +626,7 @@ namespace SFT::Engine {
             .bloom = has_bloom && graph.bloom.enabled,
             .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled,
             .debug_overlay = has_debug_overlay && graph.debug_overlay.enabled,
+            .draw_overlay_text = graph.debug_overlay.draw_text,
             .wait_for_completion = graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
             .resolution_scale = graph.resolution_scale,
             .background_color = graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),

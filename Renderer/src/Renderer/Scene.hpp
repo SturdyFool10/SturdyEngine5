@@ -7,6 +7,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
@@ -177,6 +178,23 @@ namespace SFT::Renderer {
         [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(prepare) && static_cast<bool>(draw); }
     };
 
+    // Last completed frame's timing readback for one surface — the same numbers the debug-overlay
+    // text block (render_frame_rhi, RendererLifecycle.cpp) formats into on-screen lines, but as
+    // plain data for a caller building its own display (e.g. a UI Workbench panel). One-frame-stale,
+    // same contract as RenderGraph::GpuPassTiming/CpuPassTiming: this frame's numbers reflect the
+    // *previous* frame's submission, since the GPU query results/CPU stage timers for the frame
+    // currently being built aren't available until it's been recorded. Each pair is
+    // (pass/stage category label, milliseconds); see render_graph_pass_timing_category in
+    // RendererLifecycle.cpp for how raw pass labels collapse into these categories.
+    struct FrameTimingSnapshot {
+        // False until the first debug_overlay-enabled frame has completed a full readback — a
+        // caller should show a placeholder rather than an empty breakdown until this is true.
+        bool has_data = false;
+        std::vector<std::pair<std::string, f64>> gpu_pass_timings_ms;
+        std::vector<std::pair<std::string, f64>> cpu_pass_timings_ms;
+        std::vector<std::pair<std::string, f64>> cpu_stage_timings_ms;
+    };
+
     struct RenderGraphSettings {
         bool render_scene = true;
         SpectralPathTracingSettings spectral_path_tracing{};
@@ -185,6 +203,12 @@ namespace SFT::Renderer {
         bool bloom = true;
         bool tone_mapping = true;
         bool debug_overlay = false;
+        // Whether `debug_overlay`'s GPU/CPU timing readback also gets formatted into the burned-in
+        // on-screen text block (render_frame_rhi, RendererLifecycle.cpp). A caller that only wants
+        // the numbers — to show in its own UI via Renderer::last_frame_timings() — sets this false
+        // while leaving `debug_overlay` true: the timing collection (query set + fence readback)
+        // still runs, only the text quads stop drawing. Ignored when `debug_overlay` is false.
+        bool draw_overlay_text = true;
         // Default submission is asynchronous. Explicit completion waits are reserved for tooling,
         // captures, deterministic tests, or other caller-requested synchronization points.
         bool wait_for_completion = false;

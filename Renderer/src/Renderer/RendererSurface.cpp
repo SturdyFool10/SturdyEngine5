@@ -161,6 +161,11 @@ namespace SFT::Renderer {
         return device->presentation_resolution(record->rhi_swapchain);
     }
 
+    FrameTimingSnapshot Renderer::last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept {
+        const WindowSurfaceRecord *record = window_surface(surface);
+        return record != nullptr ? record->last_frame_timings : FrameTimingSnapshot{};
+    }
+
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
         auto guard = window_surfaces_.lock();
         for (auto &record : *guard) {

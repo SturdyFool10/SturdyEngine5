@@ -1,10 +1,15 @@
 #pragma once
 
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <Foundation/src/ConsoleDiagnostic.hpp>
 
+#include <cstddef>
+#include <filesystem>
+#include <memory>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 using std::string_view;
@@ -96,6 +101,34 @@ namespace SFT::Foundation {
                 logger->flush();
             }
         } catch (...) {
+        }
+    }
+
+    // Adds a rotating file sink to spdlog's default logger, on top of whatever sinks it already has
+    // (normally just the default console sink), so log history survives a closed console or a crash.
+    // Also flushes on every `warn`-or-worse record, since a crash can otherwise take buffered lines
+    // down with it. Existing sinks are left untouched; returns false if the file could not be opened.
+    inline bool init_file_logging(
+        const std::filesystem::path &log_file_path,
+        std::size_t max_file_size_bytes = 5 * 1024 * 1024,
+        std::size_t max_rotated_files = 3) noexcept {
+        try {
+            std::error_code ec;
+            std::filesystem::create_directories(log_file_path.parent_path(), ec);
+
+            const auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+                log_file_path.string(), max_file_size_bytes, max_rotated_files);
+            file_sink->set_level(spdlog::level::trace);
+
+            const auto logger = ::spdlog::default_logger();
+            if (!logger) {
+                return false;
+            }
+            logger->sinks().push_back(file_sink);
+            logger->flush_on(spdlog::level::warn);
+            return true;
+        } catch (...) {
+            return false;
         }
     }
 

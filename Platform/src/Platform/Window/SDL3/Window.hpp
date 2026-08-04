@@ -95,6 +95,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect effect) noexcept override;
         expected<void, WindowError> set_effect(WindowEffect effect) noexcept override;
         expected<void, WindowError> set_blur_enabled(bool enabled) noexcept override;
+        expected<void, WindowError> set_transparent(bool enabled) noexcept override;
 
         [[nodiscard]] expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept override;

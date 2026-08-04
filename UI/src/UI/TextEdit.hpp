@@ -7,6 +7,7 @@
 #include <cmath>
 #include <functional>
 #include <set>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -269,9 +270,8 @@ namespace SFT::UI {
         }
 
         // Clamped to the buffer's own bounds — for placing the caret from something other than a
-        // keypress (e.g. a future precise click-to-position implementation; text_input()/
-        // text_area() currently only call this with 0 or text().size(), see their own doc comments
-        // on the click-to-focus simplification).
+        // keypress, e.g. text_input()/text_area()'s own click-to-position handling (Detail::
+        // hit_test_line_scalar(), further down this file).
         void set_caret_to(usize scalar_index, bool extend) noexcept {
             caret_ = std::min(scalar_index, text_.size());
             if (!extend) {
@@ -500,6 +500,15 @@ namespace SFT::UI {
             return UString{widget_id.cpp_string() + "#caret"};
         }
 
+        // Stable per-line id for render_line()'s own row element — text_input() (one line, always
+        // line_scalar_offset 0) and text_area() (one per paragraph, keyed by that paragraph's own
+        // scalar start) use this so a click can later look up *this exact line's* on-screen bounds
+        // via Context::element_bounds() and translate the click into a scalar index — see
+        // hit_test_line_scalar()'s own doc comment.
+        [[nodiscard]] inline UString line_element_id(const UString &widget_id, usize line_scalar_offset) {
+            return UString{widget_id.cpp_string() + "#line" + std::to_string(line_scalar_offset)};
+        }
+
         [[nodiscard]] inline Color color_for_run(const vector<RichTextSpan> &spans, usize global_scalar_index,
                                                  const Color &fallback) noexcept {
             for (const RichTextSpan &span : spans) {
@@ -619,6 +628,7 @@ namespace SFT::UI {
 
             auto row = ctx.element(ElementDecl{
                 .sizing = can_wrap ? Sizing{SizingAxis::grow(), SizingAxis::fit()} : Sizing{SizingAxis::fit(), SizingAxis::fit()},
+                .id = line_element_id(widget_id, line_scalar_offset),
             });
             (void)row;
 
@@ -670,6 +680,39 @@ namespace SFT::UI {
                 ctx.text(placeholder.as_ustr(), TextStyle{.color = style.placeholder_color, .font_id = style.font_id,
                                                           .font_size = style.font_size});
             }
+        }
+
+        // Maps a click at `local_x` pixels — already relative to `line_text`'s own rendered left
+        // edge, i.e. `pointer.x - ctx.element_bounds(line_element_id(...))->position.x` — to a
+        // scalar index within `line_text`. Callers don't need to separately account for horizontal
+        // scroll: a scroll container's children are laid out with the current scroll offset already
+        // baked into their position (Clay applies childOffset while positioning, not as a separate
+        // paint-time transform), so the row's own last-frame bounds already reflect it.
+        //
+        // Mirrors render_line()'s own password-mask substitution (TextEditStyle::mask_characters):
+        // hit-tests against the same per-scalar mask_glyph repetition actually painted, then divides
+        // the resulting byte offset (into the masked string, not line_text) by the mask glyph's own
+        // fixed UTF-8 byte width to recover a scalar index — masking is always exactly one mask_glyph
+        // per scalar, so that division is exact.
+        [[nodiscard]] inline usize hit_test_line_scalar(Context &ctx, const TextEditStyle &style,
+                                                        const UString &line_text, f32 local_x) {
+            const TextStyle text_style{.font_id = style.font_id, .font_size = style.font_size};
+            if (!style.mask_characters) {
+                const usize byte_offset = ctx.hit_test_text_byte_offset(text_style, line_text.cpp_string_view(), local_x);
+                return line_text.scalar_index_of_byte(byte_offset);
+            }
+            const usize scalar_count = line_text.size();
+            const usize mask_glyph_bytes = string_view{style.mask_glyph}.size();
+            if (mask_glyph_bytes == 0) {
+                return 0;
+            }
+            std::string masked;
+            masked.reserve(mask_glyph_bytes * scalar_count);
+            for (usize i = 0; i < scalar_count; ++i) {
+                masked += style.mask_glyph;
+            }
+            const usize byte_offset = ctx.hit_test_text_byte_offset(text_style, masked, local_x);
+            return std::min(byte_offset / mask_glyph_bytes, scalar_count);
         }
 
     } // namespace Detail

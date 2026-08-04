@@ -87,6 +87,11 @@ namespace SFT::Platform::Windowing {
                 return result;
             }
 
+            // DwmEnableBlurBehindWindow (legacy Aero-Glass blur) is a known blocker for flip-model
+            // composed presentation on this HWND — falling back to it here silently trades away
+            // presentation performance for chrome on whatever window it's applied to. Fine for
+            // incidental UI chrome windows; avoid wiring this fallback onto the render/swapchain
+            // window without knowing that tradeoff is being made.
             WindowEffectResult fallback = set_legacy_blur(hwnd, true);
             if (fallback.succeeded()) [[likely]] {
                 Detail::window_warn("Windows DWM backdrop degraded to legacy blur: hwnd={} label='{}'", log_hwnd(hwnd), label);
@@ -94,6 +99,30 @@ namespace SFT::Platform::Windowing {
             }
 
             return WindowEffectResult::failed("Requested Windows backdrop failed and legacy blur fallback also failed.");
+        }
+
+        // Toggles WS_EX_LAYERED plus DWM's "extend frame into client area" glass effect, the
+        // documented way to make an already-open window's client area (including a live Vulkan/D3D
+        // swapchain) show through per-pixel rather than paint opaque — no window recreation needed.
+        // Only controls whether the *window* is capable of showing through: the swapchain must also
+        // use a non-opaque RHI::CompositeAlphaMode and actually write meaningful alpha for anything
+        // to visibly change (see WindowEffectKind::Transparent's doc comment).
+        WindowEffectResult set_transparent(HWND hwnd, bool enabled) noexcept {
+            const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            const LONG_PTR new_ex_style = enabled ? (ex_style | WS_EX_LAYERED) : (ex_style & ~WS_EX_LAYERED);
+            if (new_ex_style != ex_style) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex_style);
+            }
+
+            const MARGINS margins = enabled ? MARGINS{-1, -1, -1, -1} : MARGINS{0, 0, 0, 0};
+            const HRESULT result = DwmExtendFrameIntoClientArea(hwnd, &margins);
+            if (FAILED(result)) [[unlikely]] {
+                Detail::window_error("Windows DWM extend-frame-into-client-area failed: hwnd={} enabled={} hresult={}", log_hwnd(hwnd), enabled, static_cast<long>(result));
+                return WindowEffectResult::failed("DwmExtendFrameIntoClientArea failed.");
+            }
+
+            Detail::window_info("Windows window transparency set: hwnd={} enabled={}", log_hwnd(hwnd), enabled);
+            return WindowEffectResult::success("Windows window transparency applied.");
         }
 #endif
 
@@ -119,6 +148,7 @@ namespace SFT::Platform::Windowing {
             case WindowEffectKind::BorderColor:
             case WindowEffectKind::CaptionColor:
             case WindowEffectKind::TextColor:
+            case WindowEffectKind::Transparent:
                 return true;
         }
 #else
@@ -140,6 +170,14 @@ namespace SFT::Platform::Windowing {
                 effect.enabled,
                 effect.color_argb);
             return WindowEffectResult::failed("Windows window effects require a Win32 HWND.");
+        }
+
+        if (!operating_system_may_support_window_effect(effect.kind)) [[unlikely]] {
+            Detail::window_warn(
+                "Windows window effect kind={} enabled={} is not supported on this OS; no-op.",
+                static_cast<int>(effect.kind),
+                effect.enabled);
+            return WindowEffectResult::failed("This window effect is not supported on the current OS.");
         }
 
         HWND hwnd = static_cast<HWND>(handle.window);
@@ -180,6 +218,8 @@ namespace SFT::Platform::Windowing {
                     const COLORREF color = effect.enabled ? colorref_from_argb(effect.color_argb) : sturdy_dwm_color_default;
                     return set_dwm_attribute(hwnd, sturdy_dwmwa_text_color, &color, sizeof(color), "TextColor");
                 }
+            case WindowEffectKind::Transparent:
+                return set_transparent(hwnd, effect.enabled);
         }
 
         return WindowEffectResult::failed("Unsupported Windows window effect.");

@@ -1028,6 +1028,11 @@ namespace SFT::Renderer {
                 gpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
                 std::sort(gpu_pass_timings_ms.begin(), gpu_pass_timings_ms.end(),
                          [](const auto &a, const auto &b) { return a.second > b.second; });
+                // Published independent of draw_overlay_text (Scene.hpp) — a caller building its own
+                // display via Renderer::last_frame_timings() needs this even when the on-screen text
+                // block further down is skipped.
+                record.last_frame_timings.gpu_pass_timings_ms = gpu_pass_timings_ms;
+                record.last_frame_timings.has_data = true;
             }
             slot.gpu_timing.has_pending_results = false;
         }
@@ -1049,6 +1054,10 @@ namespace SFT::Renderer {
             std::sort(cpu_pass_timings_ms.begin(), cpu_pass_timings_ms.end(),
                      [](const auto &a, const auto &b) { return a.second > b.second; });
             cpu_stage_timings_ms = slot.cpu_timing.stage_timings;
+            // See the matching GPU-side comment above: published regardless of draw_overlay_text.
+            record.last_frame_timings.cpu_pass_timings_ms = cpu_pass_timings_ms;
+            record.last_frame_timings.cpu_stage_timings_ms = cpu_stage_timings_ms;
+            record.last_frame_timings.has_data = true;
             slot.cpu_timing.has_pending_results = false;
         }
 
@@ -1467,7 +1476,7 @@ namespace SFT::Renderer {
         }
 
         vector<TextDrawBatch> text_overlay_batches;
-        if (submission.render_graph.debug_overlay) {
+        if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
             // The large-text path still virtualizes, caches shaping/layout, and avoids redundant
             // instance uploads; only the two changing counter lines need reshaping each frame.
             const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
@@ -2591,7 +2600,7 @@ namespace SFT::Renderer {
             return tone_mapped;
         }
 
-        if (submission.render_graph.debug_overlay) {
+        if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
             // Shaping/residency/instance upload happened above; this pass only issues the prepared
             // instanced draws over the tonemapped scene.
             graph.add_render_pass("debug text overlay")
@@ -2739,13 +2748,18 @@ namespace SFT::Renderer {
         if (offscreen_output) {
             mark_offscreen_render_target_initialized(submission.offscreen_target);
         } else {
+            f64 present_queue_lock_wait_ms = 0.0;
             auto presented = [&]() {
                 ScopedRendererStageTimer timer{"present RHI frame", &current_frame_cpu_stage_timings_ms};
                 return device->present(RHI::PresentDesc{
                     .texture = *acquired_surface,
                     .label = "renderer present",
-                });
+                }, &present_queue_lock_wait_ms);
             }();
+            // Split out of "present RHI frame"'s total so the two can be told apart: near-zero here
+            // means the total is genuinely spent blocked in the driver/Windows presentation engine
+            // (compositor/refresh-cadence backpressure) rather than our own queue mutex.
+            current_frame_cpu_stage_timings_ms.emplace_back("present queue lock wait", present_queue_lock_wait_ms);
             if (!presented) {
                 if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
                     record.rhi_swapchain_dirty = true;

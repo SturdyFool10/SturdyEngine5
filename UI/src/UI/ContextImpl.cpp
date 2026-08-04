@@ -9,6 +9,7 @@
 #include <clay.h>
 #include <cmath>
 #include <glm/geometric.hpp>
+#include <limits>
 #include <string_view>
 #include <utility>
 #pragma endregion
@@ -508,6 +509,60 @@ namespace SFT::UI {
         // currently encloses it.
         Clay_TextElementConfig *config = Clay__StoreTextElementConfig(to_clay_text_config(style, z_stack_.back()));
         Clay__OpenTextElement(clay_string, config);
+    }
+
+    usize Context::hit_test_text_byte_offset(const TextStyle &style, string_view utf8_content, f32 local_x) {
+        if (utf8_content.empty()) {
+            return 0;
+        }
+        const CachedShape *shape = text_bridge_.shape_and_cache(style, utf8_content);
+        if (shape == nullptr) {
+            return 0;
+        }
+        if (local_x <= 0.0f) {
+            return 0;
+        }
+        if (local_x >= shape->width_px) {
+            return utf8_content.size();
+        }
+
+        // One (pixel_x, byte_offset) boundary per glyph cluster, in the same pen-advance order
+        // append_glyph_placements() (above) paints glyphs in — the click just needs the nearest one,
+        // not the actual paint positions, so this skips outline lookup/GlyphPlacement construction
+        // entirely.
+        struct Boundary {
+            f32 x = 0.0f;
+            usize byte_offset = 0;
+        };
+        vector<Boundary> boundaries;
+        boundaries.reserve(utf8_content.size() + 2);
+        boundaries.push_back(Boundary{.x = 0.0f, .byte_offset = 0});
+
+        const f32 font_size = static_cast<f32>(style.font_size);
+        f32 visual_run_x = 0.0f;
+        for (const Text::ShapedRun &run : shape->shaped.runs) {
+            const f32 run_scale = font_size / static_cast<f32>(std::max(run.units_per_em, 1u));
+            f32 cursor_x = visual_run_x + run.pen_origin_em * font_size;
+            for (const Text::PositionedGlyph &glyph : run.glyphs) {
+                if (boundaries.back().byte_offset != glyph.cluster) {
+                    boundaries.push_back(Boundary{.x = cursor_x, .byte_offset = glyph.cluster});
+                }
+                cursor_x += glyph.x_advance * run_scale;
+            }
+            visual_run_x += run.advance_em * font_size;
+        }
+        boundaries.push_back(Boundary{.x = shape->width_px, .byte_offset = utf8_content.size()});
+
+        usize best_offset = 0;
+        f32 best_distance = std::numeric_limits<f32>::max();
+        for (const Boundary &boundary : boundaries) {
+            const f32 distance = std::abs(local_x - boundary.x);
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_offset = boundary.byte_offset;
+            }
+        }
+        return best_offset;
     }
 
     void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture) {

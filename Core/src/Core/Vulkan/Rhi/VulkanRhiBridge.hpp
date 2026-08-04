@@ -137,7 +137,7 @@ namespace SFT::Core::Vulkan {
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
         [[nodiscard]] rhi::PresentationResolution presentation_resolution(rhi::SwapchainHandle handle) const noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain) override;
-        [[nodiscard]] rhi::RhiExpected<bool> present(const rhi::PresentDesc &desc) override;
+        [[nodiscard]] rhi::RhiExpected<bool> present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) override;
 
         [[nodiscard]] rhi::RhiExpected<rhi::SemaphoreHandle> create_semaphore(const rhi::SemaphoreDesc &desc) override;
         void destroy_semaphore(rhi::SemaphoreHandle handle) noexcept override;

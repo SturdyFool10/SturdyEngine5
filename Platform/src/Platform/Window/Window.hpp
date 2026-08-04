@@ -409,6 +409,14 @@ namespace SFT::Platform::Windowing {
         // Shortcut for the common blur-behind toggle — equivalent to `set_effect(WindowEffect::blur(enabled))`.
         virtual expected<void, WindowError> set_blur_enabled(bool enabled) noexcept = 0;
 
+        // Toggles per-pixel window transparency **live**, on an already-open window — equivalent to
+        // `set_effect(WindowEffect::transparent(enabled))`. Only meaningfully supported where the OS
+        // allows a live window to change whether its framebuffer has an alpha channel (Windows via
+        // DWM, in principle macOS via NSWindow); elsewhere (Linux/X11's visual is fixed at window
+        // creation, with no protocol operation to change it afterward) this no-ops with a warning —
+        // see `WindowConfig::transparent` for the creation-time alternative that works everywhere.
+        virtual expected<void, WindowError> set_transparent(bool enabled) noexcept = 0;
+
         // The Vulkan **instance** extension strings this windowing backend requires (e.g.
         // `VK_KHR_surface` + the platform WSI extension).
         //

@@ -60,7 +60,38 @@ namespace SFT::Engine {
         Platform::Windowing::CursorIcon icon = Platform::Windowing::CursorIcon::Default;
     };
 
-    using WindowRequest = std::variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest>;
+    // The four requests below are fire-and-forget for the same reason as SetCursorIconRequest above:
+    // simple window state pushes with nothing for a caller to meaningfully await.
+    struct SetFullscreenRequest {
+        Platform::Windowing::WindowId window{};
+        Platform::Windowing::WindowMode mode = Platform::Windowing::WindowMode::Windowed;
+    };
+
+    struct SetDecoratedRequest {
+        Platform::Windowing::WindowId window{};
+        bool decorated = true;
+    };
+
+    // See Window::set_transparent()'s own doc comment (Platform/Window/Window.hpp) for the real
+    // per-OS constraints this ends up subject to — most notably, this no-ops with a warning on
+    // Linux, where transparency can only be set at window-creation time (WindowConfig::transparent).
+    struct SetTransparentRequest {
+        Platform::Windowing::WindowId window{};
+        bool transparent = false;
+    };
+
+    // `kind` names a specific native effect (Blur, Acrylic, Mica, ...) rather than always the
+    // Window::set_blur_enabled() default — callers should pick from among
+    // Platform::Windowing::operating_system_may_support_window_effect()-true kinds (see its own doc
+    // comment) so this isn't sent for something the current OS silently no-ops+warns on.
+    struct SetBlurRequest {
+        Platform::Windowing::WindowId window{};
+        Platform::Windowing::WindowEffectKind kind = Platform::Windowing::WindowEffectKind::Blur;
+        bool enabled = false;
+    };
+
+    using WindowRequest = std::variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest,
+                                       SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close };
 
@@ -98,6 +129,29 @@ namespace SFT::Engine {
         void set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon) {
             const std::lock_guard lock{mutex_};
             pending_.emplace_back(SetCursorIconRequest{window, icon});
+        }
+
+        // Borderless-fullscreen on via WindowMode::BorderlessFullscreen, off via WindowMode::Windowed
+        // (ExclusiveFullscreen is available too — same underlying enum as Window::set_fullscreen()).
+        void set_fullscreen(Platform::Windowing::WindowId window, Platform::Windowing::WindowMode mode) {
+            const std::lock_guard lock{mutex_};
+            pending_.emplace_back(SetFullscreenRequest{window, mode});
+        }
+
+        // decorated=false removes the OS title bar/border, e.g. so the app can draw its own.
+        void set_decorated(Platform::Windowing::WindowId window, bool decorated) {
+            const std::lock_guard lock{mutex_};
+            pending_.emplace_back(SetDecoratedRequest{window, decorated});
+        }
+
+        void set_transparent(Platform::Windowing::WindowId window, bool transparent) {
+            const std::lock_guard lock{mutex_};
+            pending_.emplace_back(SetTransparentRequest{window, transparent});
+        }
+
+        void set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled) {
+            const std::lock_guard lock{mutex_};
+            pending_.emplace_back(SetBlurRequest{window, kind, enabled});
         }
 
         [[nodiscard]] std::vector<WindowRequest> drain() {

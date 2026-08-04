@@ -896,6 +896,11 @@ namespace SFT::Core::Slang {
         ::Slang::ComPtr<slang::ISession> session;
         ::Slang::ComPtr<slang::IModule> module;
         ::Slang::ComPtr<slang::IComponentType> linked_program;
+        // Populated only for a "baked" Shader built by ShaderCompiler::from_cached_bytecode() (an
+        // on-disk shader-cache hit) — session/module/linked_program stay null in that case, and
+        // entry_point_code() serves straight out of this instead of calling into Slang at all. Empty
+        // for every normally-compiled Shader.
+        vector<ShaderBytecode> baked_bytecode;
     };
 
     namespace {
@@ -1069,7 +1074,7 @@ namespace SFT::Core::Slang {
     }
 
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(usize entry_point_index, usize target_index) const {
-        if (!state_ || !state_->linked_program.get()) {
+        if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
         }
         if (entry_point_index >= state_->reflection.entry_points.size()) {
@@ -1077,6 +1082,21 @@ namespace SFT::Core::Slang {
         }
         if (target_index >= state_->targets.size()) {
             return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader target index is out of range.");
+        }
+
+        // A "baked" shader (ShaderCompiler::from_cached_bytecode(), an on-disk cache hit) has no live
+        // Slang program to ask — serve directly from what was loaded from disk instead.
+        if (!state_->baked_bytecode.empty()) {
+            const usize baked_index = entry_point_index * state_->targets.size() + target_index;
+            if (baked_index >= state_->baked_bytecode.size()) {
+                return shader_error(ShaderErrorCode::OperationFailed,
+                                    "Cached shader has no bytecode for this entry point/target pair.");
+            }
+            return state_->baked_bytecode[baked_index];
+        }
+
+        if (!state_->linked_program.get()) {
+            return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
         }
 
         ::Slang::ComPtr<slang::IBlob> code;
@@ -1177,6 +1197,21 @@ namespace SFT::Core::Slang {
         } catch (...) {
             return shader_error(ShaderErrorCode::OperationFailed, "Unexpected exception while reflecting Slang shader.");
         }
+    }
+
+    Shader ShaderCompiler::from_cached_bytecode(
+        string module_name,
+        vector<ShaderTarget> targets,
+        ShaderReflection reflection,
+        vector<ShaderBytecode> bytecode) const {
+        auto shader_state = make_shared<ShaderState>();
+        shader_state->module_name = std::move(module_name);
+        shader_state->targets = std::move(targets);
+        shader_state->reflection = std::move(reflection);
+        shader_state->baked_bytecode = std::move(bytecode);
+        // session/module/linked_program stay null — entry_point_code() checks baked_bytecode first
+        // and never reaches the code that would dereference them.
+        return Shader{std::move(shader_state)};
     }
 
     ShaderExpected<Shader> ShaderCompiler::compile(const ShaderSource &source, const ShaderCompileOptions &options) {

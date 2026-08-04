@@ -1,5 +1,10 @@
 #include "VulkanQueue.hpp"
 
+#include <chrono>
+
+using std::chrono::duration;
+using std::chrono::steady_clock;
+
 namespace SFT::Core::Vulkan {
 
 VulkanQueue::VulkanQueue(VkQueue handle, u32 family_index) noexcept
@@ -55,8 +60,12 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             return submit(span{&submit_info, 1}, fence);
         }
 
-[[nodiscard]] RendererExpected<bool> VulkanQueue::present(const VkPresentInfoKHR &info) noexcept {
+[[nodiscard]] RendererExpected<bool> VulkanQueue::present(const VkPresentInfoKHR &info, f64 *lock_wait_ms) noexcept {
+            const auto before_lock = steady_clock::now();
             auto lock = submission_lock_.lock();
+            if (lock_wait_ms != nullptr) {
+                *lock_wait_ms = duration<f64>(steady_clock::now() - before_lock).count() * 1000.0;
+            }
             VkResult res = vkQueuePresentKHR(handle_, &info);
             if (res == VK_SUCCESS)
                 return false;

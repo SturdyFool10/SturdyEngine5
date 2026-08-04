@@ -215,6 +215,12 @@ namespace SFT::Engine {
 
     struct DebugOverlayRenderSettings {
         bool enabled = false;
+        // Whether the CPU/GPU timing readback `enabled` turns on also gets formatted into a
+        // burned-in on-screen text block (Renderer::RenderGraphSettings::draw_overlay_text, its own
+        // doc comment). A consumer that only wants the numbers — to display in its own UI via
+        // Renderer::last_frame_timings() — sets this false while leaving `enabled` true. Ignored
+        // when `enabled` is false.
+        bool draw_text = true;
     };
 
     struct RenderGraphDescription {

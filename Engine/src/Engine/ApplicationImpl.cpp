@@ -247,6 +247,34 @@ namespace SFT::Engine {
                 continue;
             }
 
+            if (auto *fullscreen = std::get_if<SetFullscreenRequest>(&request)) {
+                (void)window_manager_.with_window(fullscreen->window, [mode = fullscreen->mode](Platform::Windowing::Window &w) {
+                    return w.set_fullscreen(mode);
+                });
+                continue;
+            }
+
+            if (auto *decorated = std::get_if<SetDecoratedRequest>(&request)) {
+                (void)window_manager_.with_window(decorated->window, [enabled = decorated->decorated](Platform::Windowing::Window &w) {
+                    return w.set_decorated(enabled);
+                });
+                continue;
+            }
+
+            if (auto *transparent = std::get_if<SetTransparentRequest>(&request)) {
+                (void)window_manager_.with_window(transparent->window, [enabled = transparent->transparent](Platform::Windowing::Window &w) {
+                    return w.set_transparent(enabled);
+                });
+                continue;
+            }
+
+            if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
+                (void)window_manager_.with_window(blur->window, [kind = blur->kind, enabled = blur->enabled](Platform::Windowing::Window &w) {
+                    return w.set_effect(Platform::Windowing::WindowEffect{kind, enabled});
+                });
+                continue;
+            }
+
             const CloseWindowRequest &close = std::get<CloseWindowRequest>(request);
             ManagedWindow *target = find_managed_window(close.window);
             if (target != nullptr && !target->pending_close_completion) {

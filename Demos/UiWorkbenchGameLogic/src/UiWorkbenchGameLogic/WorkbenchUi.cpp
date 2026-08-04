@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <functional>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -21,6 +22,7 @@ namespace SFT::UiWorkbench {
         constexpr UI::Color accent_hot{0.630, 0.420, 1.0, 1.0};
         constexpr UI::Color success{0.270, 0.820, 0.620, 1.0};
         constexpr UI::Color warning{1.0, 0.670, 0.260, 1.0};
+        constexpr UI::Color danger{0.960, 0.350, 0.380, 1.0};
 
         // UI stays Platform-agnostic (see UI.hpp's own doc comment), so nothing below Engine ever
         // translates UI::CursorIcon to Platform::Windowing::CursorIcon on its own — this is exactly
@@ -69,6 +71,21 @@ namespace SFT::UiWorkbench {
             std::array<char, 96> buffer{};
             std::snprintf(buffer.data(), buffer.size(), "%s%.2f%s", prefix, value, suffix);
             return std::string{buffer.data()};
+        }
+
+        [[nodiscard]] std::string fps_text(f32 fps) {
+            std::array<char, 32> buffer{};
+            std::snprintf(buffer.data(), buffer.size(), "%.0f FPS", static_cast<f64>(std::max(fps, 0.0f)));
+            return std::string{buffer.data()};
+        }
+
+        // Thresholds match a typical 60Hz-display expectation: comfortably above it is "good," a
+        // choppy-but-usable mid range, and anything below 30 calls out real frame drops.
+        [[nodiscard]] UI::Color fps_color(f32 fps, UI::Color good, UI::Color mid, UI::Color bad) {
+            if (fps >= 55.0f) {
+                return good;
+            }
+            return fps >= 30.0f ? mid : bad;
         }
 
         [[nodiscard]] std::string rgba_text(const UI::Color &color) {
@@ -242,11 +259,28 @@ namespace SFT::UiWorkbench {
         UI::ScrollAreaState composition_scroll{};
         UI::ScrollAreaState text_scroll{};
         UI::ScrollAreaState docking_scroll{};
+        UI::ScrollAreaState metrics_scroll{};
+
+        // Exponentially-smoothed instantaneous FPS (1/delta_seconds), updated once per build_frame()
+        // — negative means "no sample yet," so the header shows the very first frame's raw value
+        // instead of blending from zero.
+        f32 fps_smoothed = -1.0f;
+
+        // This surface's last completed frame's CPU/GPU pass timing breakdown, refreshed once per
+        // render() call from Renderer::last_frame_timings() before build_frame() runs — same
+        // once-per-frame refresh pattern as fps_smoothed above, just sourced from the engine instead
+        // of computed locally. See build_metrics_panel() (the "Performance" tab) for its consumer.
+        Renderer::FrameTimingSnapshot last_timing_snapshot{};
     };
 
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
         render_graph_.set_execution_mode(Engine::RenderGraphExecutionMode::WaitForCompletion);
+        // overlay_only() leaves debug_overlay.enabled true (it's the CPU/GPU timing collection this
+        // workbench wants), but the burned-in on-screen text block it used to also draw is redundant
+        // with the "Performance" dock panel below (build_metrics_panel), which reads the same numbers
+        // via Renderer::last_frame_timings() — so only the text draw is turned off here.
+        render_graph_.debug_overlay().draw_text = false;
     }
 
     WorkbenchUi::~WorkbenchUi() = default;
@@ -274,6 +308,23 @@ namespace SFT::UiWorkbench {
                                                "- `code` inline spans\n"
                                                "\n"
                                                "Plain paragraphs render as body text."});
+
+        // Blur-type dropdown (Composition panel): only offer kinds this OS build actually reports as
+        // supported (see WindowEffectKind::Transparent's doc comment for why this query exists) —
+        // detected once, at startup, rather than hardcoding a per-platform list here.
+        static constexpr std::array<Platform::Windowing::WindowEffectKind, 5> candidate_blur_kinds{
+            Platform::Windowing::WindowEffectKind::Blur,
+            Platform::Windowing::WindowEffectKind::Acrylic,
+            Platform::Windowing::WindowEffectKind::Mica,
+            Platform::Windowing::WindowEffectKind::MicaAlt,
+            Platform::Windowing::WindowEffectKind::Tabbed,
+        };
+        for (Platform::Windowing::WindowEffectKind kind : candidate_blur_kinds) {
+            if (Platform::Windowing::operating_system_may_support_window_effect(kind)) {
+                supported_blur_kinds_.push_back(kind);
+            }
+        }
+
         route_input(engine);
         return {};
     }
@@ -334,6 +385,8 @@ namespace SFT::UiWorkbench {
                     .target_node = color_leaf, .zone = UI::Docking::DockDropZone::Bottom});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
                 .id = UString{"text"}, .title = UString{"Text Lab"}, .closable = true});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"metrics"}, .title = UString{"Performance"}, .closable = true});
         }
         return result;
     }
@@ -515,10 +568,14 @@ namespace SFT::UiWorkbench {
             return std::nullopt;
         }
 
+        if (Renderer::Renderer *renderer = engine.renderer(); renderer != nullptr) {
+            surface->last_timing_snapshot = renderer->last_frame_timings(handle);
+        }
+
         const glm::vec2 viewport{static_cast<f32>(frame.framebuffer_width),
                                  static_cast<f32>(frame.framebuffer_height)};
         UI::Docking::DockWorkspaceEvents dock_events =
-            build_frame(*surface, viewport, static_cast<f32>(frame.delta_seconds));
+            build_frame(engine, *surface, viewport, static_cast<f32>(frame.delta_seconds));
         handle_dock_events(engine, *surface, std::move(dock_events));
         // Fire-and-forget through the same deferred WindowRequests queue spawn/close already use —
         // GameLogic never holds a live Platform::Windowing::Window* (see WindowRequests.hpp's own
@@ -538,13 +595,23 @@ namespace SFT::UiWorkbench {
     }
 
     UI::Docking::DockWorkspaceEvents WorkbenchUi::build_frame(
-        Surface &surface, glm::vec2 viewport, f32 delta_seconds) {
+        Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds) {
         surface.context.begin_layout(viewport, surface.pointer, delta_seconds);
         surface.pointer.pressed = false;
         surface.pointer.press_position.reset();
         surface.pointer.released = false;
         surface.pointer.cancelled = false;
         surface.pointer.scroll_delta = glm::vec2{0.0f};
+
+        if (delta_seconds > 0.0f) {
+            const f32 instantaneous_fps = 1.0f / delta_seconds;
+            // Blend toward the instantaneous reading rather than snapping straight to it — a raw
+            // per-frame 1/delta reading jitters wildly frame to frame, which would make the counter
+            // itself unreadable.
+            const f32 blend = std::min(1.0f, 6.0f * delta_seconds);
+            surface.fps_smoothed =
+                surface.fps_smoothed < 0.0f ? instantaneous_fps : surface.fps_smoothed + (instantaneous_fps - surface.fps_smoothed) * blend;
+        }
 
         {
             // Full-viewport so it fills the margins around the dock workspace below (kWorkspaceOrigin
@@ -590,6 +657,10 @@ namespace SFT::UiWorkbench {
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(1.0f)}});
                 (void)spacer;
             }
+            if (surface.fps_smoothed >= 0.0f) {
+                status_pill(surface.context, font_id_, fps_text(surface.fps_smoothed),
+                            fps_color(surface.fps_smoothed, success, warning, danger));
+            }
             status_pill(surface.context, font_id_, surface.primary ? "PRIMARY SURFACE" : "DETACHED SURFACE",
                         surface.primary ? success : accent_hot);
         }
@@ -619,7 +690,7 @@ namespace SFT::UiWorkbench {
         if (auto decl = surface.workspace.panel_content_region(UString{"composition"})) {
             (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.composition_scroll,
                                   delta_seconds, [&](UI::Context &ctx) {
-                                      build_composition_panel(surface, ctx, delta_seconds);
+                                      build_composition_panel(engine, surface, ctx, delta_seconds);
                                   });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"text"})) {
@@ -632,6 +703,12 @@ namespace SFT::UiWorkbench {
             (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.docking_scroll,
                                   delta_seconds, [&](UI::Context &ctx) {
                                       build_docking_panel(surface, ctx, delta_seconds);
+                                  });
+        }
+        if (auto decl = surface.workspace.panel_content_region(UString{"metrics"})) {
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.metrics_scroll,
+                                  delta_seconds, [&](UI::Context &ctx) {
+                                      build_metrics_panel(surface, ctx, delta_seconds);
                                   });
         }
 
@@ -926,7 +1003,7 @@ namespace SFT::UiWorkbench {
         }
     }
 
-    void WorkbenchUi::build_composition_panel(Surface &, UI::Context &ctx, f32 delta_seconds) {
+    void WorkbenchUi::build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
@@ -938,7 +1015,7 @@ namespace SFT::UiWorkbench {
                       "Enable, disable, hide or replace widget internals without forking interaction logic.");
 
         const auto toggle_row = [&](usize index, const char *label, const char *description,
-                                    bool &value) {
+                                    bool &value, const std::function<void()> &on_change = [] {}) {
             auto row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(12),
@@ -966,6 +1043,7 @@ namespace SFT::UiWorkbench {
                 toggle_style(), toggle_states_[index], delta_seconds, value);
             if (result.clicked) {
                 value = !value;
+                on_change();
             }
         };
 
@@ -975,6 +1053,74 @@ namespace SFT::UiWorkbench {
         toggle_row(3, "Color picker enabled", "Disabled visuals keep layout stable", picker_enabled_);
         toggle_row(4, "Alpha part", "Remove the alpha strip independently", show_alpha_);
         toggle_row(5, "Preview part", "Remove preview without changing color state", show_preview_);
+
+        section_label(ctx, font_id_, "OS WINDOW COMPOSITION");
+        toggle_row(6, "Borderless fullscreen", "Toggle OS borderless fullscreen for this window",
+                   window_borderless_fullscreen_, [&] {
+                       engine.window_requests().set_fullscreen(
+                           surface.handle.window_id,
+                           window_borderless_fullscreen_ ? Platform::Windowing::WindowMode::BorderlessFullscreen
+                                                          : Platform::Windowing::WindowMode::Windowed);
+                   });
+        toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border",
+                   window_decorated_, [&] {
+                       engine.window_requests().set_decorated(surface.handle.window_id, window_decorated_);
+                   });
+        toggle_row(8, "Window transparent", "Live per-pixel transparency (dynamic on Windows; no-ops elsewhere)",
+                   window_transparent_, [&] {
+                       engine.window_requests().set_transparent(surface.handle.window_id, window_transparent_);
+                   });
+
+        section_label(ctx, font_id_, "WINDOW BLUR");
+        if (supported_blur_kinds_.empty()) {
+            draw_text(ctx, "No blur-capable window effect is supported on this OS build.",
+                      text_style(font_id_, text_secondary, 11));
+        } else {
+            std::vector<UI::DropdownOption> blur_options;
+            blur_options.reserve(supported_blur_kinds_.size());
+            for (Platform::Windowing::WindowEffectKind kind : supported_blur_kinds_) {
+                blur_options.push_back(dropdown_option(
+                    font_id_, Platform::Windowing::window_effect_kind_name(kind).data(), accent));
+            }
+
+            UI::DropdownStyle blur_style{};
+            blur_style.trigger = action_button_style();
+            blur_style.list_background = panel_raised;
+            blur_style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
+            blur_style.corner_radius = UI::CornerRadius::all(11.0f);
+            blur_style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
+            blur_style.option_padding = 10;
+            blur_style.arrow_color = accent;
+            blur_style.arrow_font_id = font_id_;
+
+            // The dropdown only stages a choice locally; the "Blur enabled" switch below is what
+            // actually commits it (fires set_blur()) — except while already enabled, in which case
+            // changing the selection here re-applies immediately so switching type feels live rather
+            // than requiring an off/on cycle to pick up the new kind.
+            const usize previous_blur_index = selected_blur_kind_index_;
+            const UI::DropdownResult blur_dropdown_result = UI::dropdown(
+                ctx, UString{"workbench-blur-dropdown"},
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(38.0f)},
+                    .padding = UI::Padding::symmetric(12, 8),
+                    .child_gap = 8,
+                    .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                    .id = UString{"workbench-blur-dropdown"},
+                },
+                blur_style, blur_dropdown_state_, delta_seconds, selected_blur_kind_index_, blur_options, true);
+            selected_blur_kind_index_ = blur_dropdown_result.selected_index;
+            if (window_blur_enabled_ && selected_blur_kind_index_ != previous_blur_index) {
+                engine.window_requests().set_blur(surface.handle.window_id,
+                                                  supported_blur_kinds_[selected_blur_kind_index_], true);
+            }
+
+            toggle_row(9, "Blur enabled", "Applies the selected blur type above",
+                       window_blur_enabled_, [&] {
+                           engine.window_requests().set_blur(surface.handle.window_id,
+                                                             supported_blur_kinds_[selected_blur_kind_index_],
+                                                             window_blur_enabled_);
+                       });
+        }
 
         section_label(ctx, font_id_, "COMPOSED DROPDOWN");
         const std::array options{
@@ -1402,6 +1548,47 @@ namespace SFT::UiWorkbench {
             .smooth_scrolling = scroll_smooth_,
             .smoothing_rate = static_cast<f32>(scroll_smoothing_rate_),
         });
+    }
+
+    void WorkbenchUi::build_metrics_panel(Surface &surface, UI::Context &ctx, f32 /*delta_seconds*/) {
+        auto body = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .padding = UI::Padding::all(22),
+            .child_gap = 13,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-metrics-body"},
+        });
+        panel_heading(ctx, font_id_, "DIAGNOSTICS", "Performance",
+                      "CPU and GPU render-graph pass timing, read back from Renderer::last_frame_timings() "
+                      "— one frame stale, the same contract the engine's own debug overlay uses.");
+
+        const Renderer::FrameTimingSnapshot &timings = surface.last_timing_snapshot;
+        if (!timings.has_data) {
+            draw_text(ctx, "Waiting for the first timing readback…", text_style(font_id_, text_secondary, 13));
+            return;
+        }
+
+        const auto timing_section = [&](const char *label,
+                                        const std::vector<std::pair<std::string, f64>> &entries) {
+            section_label(ctx, font_id_, label);
+            if (entries.empty()) {
+                draw_text(ctx, "No passes recorded this frame.", text_style(font_id_, text_secondary, 12));
+                return;
+            }
+            f64 total_ms = 0.0;
+            for (const auto &[category, ms] : entries) {
+                total_ms += ms;
+            }
+            draw_text(ctx, number_text("Total  ", total_ms, " ms"), text_style(font_id_, text_primary, 14));
+            for (const auto &[category, ms] : entries) {
+                draw_text(ctx, number_text((category + "  ").c_str(), ms, " ms"),
+                          text_style(font_id_, text_secondary, 12));
+            }
+        };
+
+        timing_section("GPU PASS TIMING", timings.gpu_pass_timings_ms);
+        timing_section("CPU FRAME STAGES", timings.cpu_stage_timings_ms);
+        timing_section("CPU PASS RECORDING", timings.cpu_pass_timings_ms);
     }
 
     void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface,

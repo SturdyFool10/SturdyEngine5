@@ -20,7 +20,31 @@ namespace SFT::Platform::Windowing {
         BorderColor,
         CaptionColor,
         TextColor,
+        // Live per-pixel window transparency toggle on an already-open window (no recreate). Only
+        // meaningfully changes what's on screen once the swapchain also uses a non-opaque
+        // RHI::CompositeAlphaMode and the app's render output carries real alpha — this effect only
+        // controls whether the OS-level window itself is capable of showing through.
+        Transparent,
     };
+
+    // Human-readable names for logs/diagnostics/UI (e.g. a runtime-filtered "blur type" picker built
+    // from operating_system_may_support_window_effect() — WindowEffects.hpp) — one spelling per kind,
+    // matching this codebase's other `*_name()` helpers (e.g. RHI::present_mode_name).
+    [[nodiscard]] constexpr string_view window_effect_kind_name(WindowEffectKind kind) noexcept {
+        switch (kind) {
+            case WindowEffectKind::Blur: return "Blur";
+            case WindowEffectKind::Acrylic: return "Acrylic";
+            case WindowEffectKind::Mica: return "Mica";
+            case WindowEffectKind::MicaAlt: return "Mica Alt";
+            case WindowEffectKind::Tabbed: return "Tabbed";
+            case WindowEffectKind::DarkMode: return "Dark Mode";
+            case WindowEffectKind::BorderColor: return "Border Color";
+            case WindowEffectKind::CaptionColor: return "Caption Color";
+            case WindowEffectKind::TextColor: return "Text Color";
+            case WindowEffectKind::Transparent: return "Transparent";
+        }
+        return "Unknown";
+    }
 
     enum class LinuxBlurProtocol {
         Automatic,
@@ -60,6 +84,10 @@ namespace SFT::Platform::Windowing {
 
         [[nodiscard]] static constexpr WindowEffect tabbed(bool enabled = true) noexcept {
             return WindowEffect{WindowEffectKind::Tabbed, enabled, 0, LinuxBlurProtocol::Automatic};
+        }
+
+        [[nodiscard]] static constexpr WindowEffect transparent(bool enabled = true) noexcept {
+            return WindowEffect{WindowEffectKind::Transparent, enabled, 0, LinuxBlurProtocol::Automatic};
         }
 
         [[nodiscard]] static constexpr WindowEffect dark_mode(bool enabled = true) noexcept {

@@ -308,7 +308,12 @@ namespace SFT::RHI {
         [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain) = 0;
         // Presents a previously acquired image. `suboptimal` in the result mirrors acquire — present
         // succeeded but the swapchain should be rebuilt soon.
-        [[nodiscard]] virtual RhiExpected<bool> present(const PresentDesc &desc) = 0;
+        //
+        // `queue_lock_wait_ms`, when non-null, is set to how long this call spent waiting on the
+        // backend's internal presentation-queue lock before the native present call itself could
+        // start — lets a caller profiling this stage separate backend-internal contention from time
+        // genuinely spent blocked in the driver/platform presentation engine.
+        [[nodiscard]] virtual RhiExpected<bool> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
 
         // ── Synchronization ──
         [[nodiscard]] virtual RhiExpected<SemaphoreHandle> create_semaphore(const SemaphoreDesc &desc) = 0;

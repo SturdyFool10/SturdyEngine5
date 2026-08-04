@@ -29,13 +29,12 @@ namespace SFT::UI {
     // `{.horizontal = true, .vertical = true}` regardless of what's passed in — a text area is a
     // scroll container by definition.
     //
-    // Two v1 simplifications, both documented in more depth on their own pieces:
-    // - Click-to-focus, not click-to-position (TextEditState/text_input()'s own doc comment).
+    // One v1 simplification, documented in more depth on its own piece:
     // - EditKey::Up/Down move by *paragraph* (hard '\n'-delimited line), not by wrapped visual
     //   line — a very long paragraph that word-wraps across several visual lines only gets one
     //   Up/Down stop for the whole paragraph, not one per wrapped line. True visual-line
-    //   granularity needs the same glyph-shaping pass click-to-position would (Clay's own word-wrap
-    //   result isn't queryable after the fact), which is out of scope for the same reasons.
+    //   granularity needs per-wrapped-line bounds Clay's own word-wrap result doesn't expose after
+    //   the fact, which is out of scope for the same reasons click-to-position previously was.
     //
     // Lines don't word-wrap by default (TextEditStyle::wrap_lines = false) — a line wider than the
     // box just scrolls horizontally, the same convention a code editor uses (and this is where a
@@ -48,7 +47,37 @@ namespace SFT::UI {
         const bool is_hovered = enabled && ctx.hovered(decl.id);
         if (enabled && ctx.clicked(decl.id)) {
             state.set_focused(true);
-            state.set_caret_to(state.text().size(), false);
+            usize caret_scalar = state.text().size();
+            // Click-to-position: find whichever paragraph row's last-committed bounds sit closest
+            // (by vertical center) to the click, then hit-test the click's x within that paragraph
+            // — same two-step "which row, then where in it" a multi-line editor needs regardless of
+            // whether row layout comes from hard line breaks (here) or word-wrap.
+            const vector<std::pair<usize, usize>> click_paragraphs = Detail::split_paragraphs(state.text());
+            const glm::vec2 pointer = ctx.pointer_position();
+            std::optional<usize> best_index;
+            f32 best_distance = 0.0f;
+            for (usize i = 0; i < click_paragraphs.size(); ++i) {
+                const std::optional<ElementBounds> line_bounds =
+                    ctx.element_bounds(Detail::line_element_id(decl.id, click_paragraphs[i].first));
+                if (!line_bounds) {
+                    continue;
+                }
+                const f32 center_y = line_bounds->position.y + line_bounds->size.y * 0.5f;
+                const f32 distance = std::abs(pointer.y - center_y);
+                if (!best_index || distance < best_distance) {
+                    best_distance = distance;
+                    best_index = i;
+                }
+            }
+            if (best_index) {
+                const auto &[pstart, plen] = click_paragraphs[*best_index];
+                if (const std::optional<ElementBounds> line_bounds = ctx.element_bounds(Detail::line_element_id(decl.id, pstart))) {
+                    const f32 local_x = pointer.x - line_bounds->position.x;
+                    const UString paragraph_text = state.text().substr(pstart, plen);
+                    caret_scalar = pstart + Detail::hit_test_line_scalar(ctx, style, paragraph_text, local_x);
+                }
+            }
+            state.set_caret_to(caret_scalar, false);
         } else if (ctx.clicked_outside(decl.id)) {
             state.set_focused(false);
         }

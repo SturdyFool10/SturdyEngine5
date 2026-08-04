@@ -1,6 +1,9 @@
 #pragma once
 
-#define _SILENCE_CXX23_DENORM_DEPRECATION_WARNING
+// _SILENCE_CXX23_DENORM_DEPRECATION_WARNING (for the numeric_limits::has_denorm(_loss) use below) is
+// defined project-wide in the root CMakeLists.txt, not here: the deprecation attribute is baked into
+// <limits>'s declaration the first time any translation unit includes it, so defining the macro in a
+// leaf header is too late whenever something upstream of this file has already pulled <limits> in.
 
 #include <Foundation/src/Wide.hpp>
 

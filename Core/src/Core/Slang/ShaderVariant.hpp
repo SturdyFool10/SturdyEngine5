@@ -4,6 +4,7 @@
 
 #pragma region Imports
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -12,6 +13,7 @@
 #pragma endregion
 
 #include <Core/Slang/Shader.hpp>
+#include <Core/Slang/ShaderCache.hpp>
 #include <Core/Slang/ShaderError.hpp>
 #include <Core/Slang/ShaderSource.hpp>
 #include <Core/Slang/ShaderTypes.hpp>
@@ -106,7 +108,14 @@ namespace SFT::Core::Slang {
       public:
         ShaderVariantCache() = default;
 
-        ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {});
+        // `enable_disk_cache` opts into ShaderCache.hpp's on-disk persistence: a get_or_compile() hit
+        // reconstructs a baked Shader from `disk_cache_directory` without touching Slang; a miss
+        // compiles normally and additionally writes the result there as a side effect. Defaults to
+        // off here — EngineConfig::enable_shader_disk_cache (Engine/EngineModule.hpp) is where the
+        // engine-wide default actually lives; this constructor parameter is just the plumbing.
+        ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {},
+                           bool enable_disk_cache = false,
+                           std::filesystem::path disk_cache_directory = std::filesystem::path{string{default_shader_cache_directory}});
 
         [[nodiscard]] const ShaderSource &source() const noexcept;
         [[nodiscard]] const ShaderCompileOptions &base_options() const noexcept;
@@ -139,6 +148,8 @@ namespace SFT::Core::Slang {
         ShaderCompiler compiler_{};
         ShaderSource source_{};
         ShaderCompileOptions base_options_{};
+        bool enable_disk_cache_ = false;
+        std::filesystem::path disk_cache_directory_{string{default_shader_cache_directory}};
         // Keyed by ShaderVariantKey::canonical() — a collision-free, order-independent fingerprint.
         unordered_map<string, Shader> variants_;
     };

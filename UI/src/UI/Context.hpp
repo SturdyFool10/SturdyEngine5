@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 #pragma endregion
@@ -26,6 +27,7 @@
 
 using std::deque;
 using std::string;
+using std::string_view;
 using std::unordered_map;
 using std::vector;
 
@@ -248,6 +250,19 @@ namespace SFT::UI {
         [[nodiscard]] ElementScope element(const ElementDecl &decl);
         void text(const ustr &content, const TextStyle &style);
         void image(const ElementDecl &decl, Renderer::TextureHandle texture);
+
+        // UTF-8 byte offset into `utf8_content` whose glyph-cluster boundary sits closest to
+        // `local_x` pixels from the text's own left edge (0 = before the first character), were
+        // `utf8_content` shaped at `style`'s font/size/spacing — the click-to-position hit test
+        // TextInput.hpp/TextArea.hpp build their caret-placement-on-click behavior on (see
+        // TextEditState::set_caret_to()'s own doc comment, which this replaces the "click always
+        // jumps to end" v1 simplification for). Shapes through the same TextBridge cache
+        // Context::text() itself uses, so calling this once per click and then rendering the exact
+        // same (style, content) pair the normal way costs nothing extra on top of the render itself.
+        // Returns 0 for empty content or an unregistered style.font_id, and utf8_content.size() when
+        // local_x is at or past the shaped text's total width — both matching set_caret_to()'s own
+        // clamp-to-buffer-bounds behavior once translated through UString::scalar_index_of_byte().
+        [[nodiscard]] usize hit_test_text_byte_offset(const TextStyle &style, string_view utf8_content, f32 local_x);
 
         // Draws a rasterized SVG icon (Engine::UiSvgCache rasterizes the source file via the
         // vendored lunasvg library into `texture` — see UI/src/UI/Svg/SvgIcon.hpp for what's

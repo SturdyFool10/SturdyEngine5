@@ -2,6 +2,23 @@
 
 namespace SFT::Core::Slang {
 
+namespace {
+
+    // File-kind sources only carry a path; ShaderCache's key needs the actual text (mirrors the read
+    // load_shader_module() itself does in ShaderImpl.cpp) — both to hash it and, on a disk-cache
+    // miss, so the key is ready without re-reading the file a second time.
+    [[nodiscard]] string resolve_source_text(const ShaderSource &source) {
+        if (source.kind == ShaderSourceKind::File) {
+            if (auto loaded = Foundation::read_file_to_string(source.path)) {
+                return std::move(*loaded);
+            }
+            return {};
+        }
+        return source.source;
+    }
+
+} // namespace
+
 ShaderVariantKey::ShaderVariantKey(std::initializer_list<ShaderMacro> defines) {
             for (const ShaderMacro &define : defines) {
                 set(define.name, define.value);
@@ -68,8 +85,10 @@ ShaderVariantKey &ShaderVariantKey::unset(string_view name) {
             return value;
         }
 
-ShaderVariantCache::ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options, ShaderCompiler compiler)
-            : compiler_(std::move(compiler)), source_(std::move(source)), base_options_(std::move(base_options)) {}
+ShaderVariantCache::ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options, ShaderCompiler compiler,
+                                       bool enable_disk_cache, std::filesystem::path disk_cache_directory)
+            : compiler_(std::move(compiler)), source_(std::move(source)), base_options_(std::move(base_options)),
+              enable_disk_cache_(enable_disk_cache), disk_cache_directory_(std::move(disk_cache_directory)) {}
 
 [[nodiscard]] const ShaderSource &ShaderVariantCache::source() const noexcept { return source_; }
 
@@ -105,10 +124,58 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                 options.macros.push_back(define);
             }
 
+            const string source_text = enable_disk_cache_ ? resolve_source_text(source_) : string{};
+            const u64 disk_cache_key = enable_disk_cache_
+                ? compute_shader_cache_key(source_.module_name, source_text, canonical, options)
+                : 0;
+
+            if (enable_disk_cache_) {
+                if (auto entry = load_shader_cache_entry(disk_cache_directory_, disk_cache_key)) {
+                    Shader baked = compiler_.from_cached_bytecode(
+                        std::move(entry->module_name), std::move(entry->targets),
+                        std::move(entry->reflection), std::move(entry->bytecode));
+                    const auto [inserted, _] = variants_.emplace(canonical, std::move(baked));
+                    return inserted->second;
+                }
+            }
+
             ShaderExpected<Shader> compiled = compiler_.compile(source_, options);
             if (!compiled) {
                 return compiled;
             }
+
+            if (enable_disk_cache_) {
+                // Best-effort: eagerly extract every entry point x target's bytecode once (the shader
+                // just compiled, so this is cheap relative to the compile itself) and persist it
+                // alongside the reflection. A write failure here never fails the compile — the caller
+                // still gets a perfectly good live Shader, it just won't be cached this run.
+                ShaderCacheEntry entry{};
+                entry.module_name = string{compiled->module_name()};
+                entry.targets.reserve(options.targets.size());
+                for (const ShaderTarget &target : options.targets) {
+                    entry.targets.push_back(target);
+                }
+                entry.reflection = compiled->reflection();
+                entry.bytecode.reserve(entry.reflection.entry_points.size() * entry.targets.size());
+                bool all_ok = true;
+                for (usize entry_point_index = 0; entry_point_index < entry.reflection.entry_points.size(); ++entry_point_index) {
+                    for (usize target_index = 0; target_index < entry.targets.size(); ++target_index) {
+                        ShaderExpected<ShaderBytecode> bytecode = compiled->entry_point_code(entry_point_index, target_index);
+                        if (!bytecode) {
+                            all_ok = false;
+                            break;
+                        }
+                        entry.bytecode.push_back(std::move(*bytecode));
+                    }
+                    if (!all_ok) {
+                        break;
+                    }
+                }
+                if (all_ok) {
+                    (void)store_shader_cache_entry(disk_cache_directory_, disk_cache_key, entry);
+                }
+            }
+
             const auto [inserted, _] = variants_.emplace(canonical, std::move(*compiled));
             return inserted->second;
         }

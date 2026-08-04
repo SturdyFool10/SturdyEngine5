@@ -205,6 +205,11 @@ namespace SFT::Core {
         // these into its native format (Vulkan: SPIR-V modules per entry point) during initialize().
         // Non-owning: the backing storage (the engine's shader list) must outlive initialize().
         span<const Slang::UnCompiledShader> uncompiled_shaders;
+        // Mirrors Engine::EngineConfig::enable_shader_disk_cache — threaded through here so
+        // Renderer::create_material_template_from_source() (which stores the whole
+        // RendererCreateInfo as recovery_create_info_) can read it when constructing each material
+        // template's Slang::ShaderVariantCache.
+        bool enable_shader_disk_cache = true;
     };
 
     // Per-frame payload from the engine to the backend. Timing and drawable resolution live here so

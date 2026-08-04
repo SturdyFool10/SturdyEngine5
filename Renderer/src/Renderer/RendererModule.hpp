@@ -91,6 +91,13 @@ namespace SFT::Renderer {
         // frame not rendered) — the conservative "assume vsync-paced" answer.
         [[nodiscard]] RHI::PresentationResolution presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept;
 
+        // Last completed frame's CPU/GPU pass timing breakdown for `surface` (see
+        // FrameTimingSnapshot's own doc comment, Scene.hpp) — populated whenever that surface's
+        // render graph runs with RenderGraphSettings::debug_overlay enabled, regardless of whether
+        // draw_overlay_text is also set. Default-constructed (has_data = false) when `surface` is
+        // unregistered or no debug_overlay frame has completed yet.
+        [[nodiscard]] FrameTimingSnapshot last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept;
+
         [[nodiscard]] Core::RendererResult render_frame(Core::RenderSurfaceHandle surface,
                                                         const Core::FrameInput &frame);
 
@@ -627,6 +634,11 @@ namespace SFT::Renderer {
             // not just wasted rebuild work. Real bug found during the same session's lock-contention
             // audit — see memory project_multi_window_render_threading.
             HiZPyramidTargets hiz_pyramid;
+            // Last completed frame's CPU/GPU timing readback (see FrameTimingSnapshot's own doc
+            // comment, Scene.hpp) — updated in render_frame_rhi whenever a ring slot's pending
+            // gpu_timing/cpu_timing results are read back, independent of whether that data also got
+            // formatted into the on-screen debug-overlay text (RenderGraphSettings::draw_overlay_text).
+            FrameTimingSnapshot last_frame_timings;
         };
 
         struct RenderItem {

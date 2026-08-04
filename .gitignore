@@ -23,6 +23,10 @@ out/
 # build/<arch>/<os>/<profile> trees so each configuration does not re-download dependencies.
 /.cache/
 
+# Persisted Slang shader compile cache (EngineConfig::enable_shader_disk_cache) — regenerated from
+# source .slang files + compile options; each entry embeds its own reflection info alongside its bytecode.
+/Shaders/.cache/
+
 # Upstream dependency licenses, copied in from each FetchContent source tree at build time
 # (see cmake/SturdyLicenses.cmake). Regenerated content, not tracked.
 /thirdparty/licenses/
