@@ -41,6 +41,18 @@ namespace SFT::Renderer {
         }
 
         recovering_from_device_loss_ = true;
+        // Best-effort: the device is already lost, so a present job still in `present_thread`'s queue
+        // is about to reference a `device` pointer wait_idle()/graphics_backend_.reset() below are
+        // about to invalidate. Draining here can't fully close the window against a *different*
+        // window's render thread concurrently mid-submit/present on the same (already-lost) device --
+        // that race predates this per-window present_thread and isn't newly introduced by it -- but it
+        // does guarantee this window's own pending_present isn't left referencing a freed device.
+        {
+            auto guard = window_surfaces_.lock();
+            for (auto &record_ptr : *guard) {
+                (void)drain_pending_present(*record_ptr, nullptr);
+            }
+        }
         wait_idle();
         invalidate_gpu_resource_handles_no_destroy();
         graphics_backend_.reset();

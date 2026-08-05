@@ -60,6 +60,29 @@ namespace SFT::Async {
         return cores;
     }
 
+    std::vector<u32> ranked_physical_cores() noexcept {
+        const Foundation::Cpu::CoreMap &map = Foundation::Cpu::CoreMap::instance();
+        const std::vector<u32> ranked_logical = ranked_logical_cores();
+
+        // ranked_logical_cores() is already best-first over every logical core; SMT siblings share
+        // identical CoreCapabilities (same type/cache sizes), so they land as adjacent ties. Walking it
+        // once and keeping only the first logical index seen per physical core yields one
+        // representative per physical core, in the same best-first order, with no separate ranking
+        // pass needed.
+        std::vector<u32> physical;
+        physical.reserve(map.physical_core_count());
+        std::vector<bool> seen(map.physical_core_count(), false);
+        for (u32 logical_index : ranked_logical) {
+            const Foundation::usize physical_index = map.physical_core_of(logical_index);
+            if (seen[physical_index]) {
+                continue;
+            }
+            seen[physical_index] = true;
+            physical.push_back(logical_index);
+        }
+        return physical;
+    }
+
 #if defined(STURDY_PLATFORM_WEB)
 
     bool pin_thread_to_core(std::thread & /*thread*/, u32 /*core_index*/) noexcept { return false; }

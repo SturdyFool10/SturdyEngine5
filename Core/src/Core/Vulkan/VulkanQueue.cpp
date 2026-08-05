@@ -2,6 +2,8 @@
 
 #include <chrono>
 
+#include <tracy/Tracy.hpp>
+
 using std::chrono::duration;
 using std::chrono::steady_clock;
 
@@ -66,7 +68,11 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             if (lock_wait_ms != nullptr) {
                 *lock_wait_ms = duration<f64>(steady_clock::now() - before_lock).count() * 1000.0;
             }
-            VkResult res = vkQueuePresentKHR(handle_, &info);
+            VkResult res;
+            {
+                ZoneScopedN("vkQueuePresentKHR");
+                res = vkQueuePresentKHR(handle_, &info);
+            }
             if (res == VK_SUCCESS)
                 return false;
             if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)

@@ -16,6 +16,8 @@
 #include <Platform/Platform.hpp>
 #include <Platform/Window/SDL3/SDL3.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using SFT::Foundation::f64;
 using std::make_unique;
 using std::vector;
@@ -708,6 +710,8 @@ namespace SFT::Engine {
                 }
                 last_title_update = now;
             }
+
+            FrameMark;
         }
 
         for (auto &managed : windows_) {

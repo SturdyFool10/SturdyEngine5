@@ -70,6 +70,33 @@ namespace SFT::Foundation::Cpu {
             return ebx >> 24;
         }
 
+        // Number of low bits of `x2apic_id` that identify the SMT sibling within one physical core.
+        // Same leaf-preference order as read_x2apic_id() above (0x1f, then 0xb) so the shift width
+        // always matches whichever leaf actually produced the id it's applied to. Subleaf 0 of either
+        // leaf is defined by Intel's SDM / AMD's APM to always be the SMT level (ECX[15:8] == 1) when
+        // the leaf exists at all; EAX[4:0] is the shift width. Returns 0 (no grouping -- every logical
+        // core reports as its own physical core) when neither leaf is present, which is the safe
+        // fallback rather than guessing: some older/virtualized CPUs expose no topology leaf at all.
+        [[nodiscard]] u32 read_smt_shift_width() noexcept {
+            unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+            read_leaf(0, 0, eax, ebx, ecx, edx);
+            const unsigned int max_leaf = eax;
+            unsigned int topology_leaf = 0;
+            if (max_leaf >= 0x1f) {
+                topology_leaf = 0x1f;
+            } else if (max_leaf >= 0xb) {
+                topology_leaf = 0xb;
+            } else {
+                return 0;
+            }
+            read_leaf(topology_leaf, 0, eax, ebx, ecx, edx);
+            const unsigned int level_type = (ecx >> 8) & 0xffu;
+            if (level_type != 1) {
+                return 0;
+            }
+            return eax & 0x1fu;
+        }
+
         [[nodiscard]] CoreType read_core_type() noexcept {
             // Duplicated from CpuTopology.cpp's read_core_type() (anonymous-namespace, not shared across
             // TUs) -- GenuineIntel-only leaf 0x1A decode, see that file's header comment for why every
@@ -580,6 +607,42 @@ namespace SFT::Foundation::Cpu {
                   [](const std::pair<u32, usize> &a, const std::pair<u32, usize> &b) noexcept {
                       return a.first < b.first;
                   });
+
+        // Physical-core grouping: only meaningful on x86, where `x2apic_id` is a genuine per-core
+        // topology identity (see CoreCapabilities' field comment). The non-x86 fallback path
+        // (uniform_capabilities() above) leaves x2apic_id at its default 0 for every core -- shifting
+        // and grouping that would collapse every logical core into one bogus physical core, so it's
+        // skipped there in favor of the identity mapping (every logical core is its own physical core),
+        // which is also the correct assumption for platforms with no SMT concept exposed here anyway.
+        physical_core_of_logical_.resize(cores_.size());
+#if defined(STURDY_CPU_X86)
+        const u32 smt_shift = read_smt_shift_width();
+        std::vector<std::pair<u32, usize>> physical_id_of_core;
+        physical_id_of_core.reserve(cores_.size());
+        for (usize i = 0; i < cores_.size(); ++i) {
+            physical_id_of_core.emplace_back(cores_[i].x2apic_id >> smt_shift, i);
+        }
+        // Default pair ordering (physical id, then logical index) rather than a first-only comparator:
+        // keeps sibling order within a group deterministic (lowest logical index first) run to run.
+        std::sort(physical_id_of_core.begin(), physical_id_of_core.end());
+        u32 last_physical_id = 0;
+        bool have_last = false;
+        for (const auto &[physical_id, logical_index] : physical_id_of_core) {
+            if (!have_last || physical_id != last_physical_id) {
+                logical_cores_of_physical_core_.emplace_back();
+                last_physical_id = physical_id;
+                have_last = true;
+            }
+            logical_cores_of_physical_core_.back().push_back(logical_index);
+            physical_core_of_logical_[logical_index] = logical_cores_of_physical_core_.size() - 1;
+        }
+#else
+        logical_cores_of_physical_core_.reserve(cores_.size());
+        for (usize i = 0; i < cores_.size(); ++i) {
+            logical_cores_of_physical_core_.push_back({i});
+            physical_core_of_logical_[i] = i;
+        }
+#endif
     }
 
     const CoreMap &CoreMap::instance() noexcept {

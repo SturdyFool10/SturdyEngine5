@@ -16,6 +16,7 @@ sturdy_add_package(EngineComponents
         Sturdy::cgltf
         Sturdy::miniaudio
         Sturdy::bc7enc
+        Sturdy::Tracy
 
     DEBUG_PUBLIC_DEPS
 )

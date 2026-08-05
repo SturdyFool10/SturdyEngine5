@@ -800,6 +800,31 @@ namespace SFT::Renderer {
         return {};
     }
 
+    Core::RendererResult Renderer::drain_pending_present(WindowSurfaceRecord &record,
+                                                         vector<std::pair<string, f64>> *stage_timings_ms) {
+        if (!record.pending_present) {
+            return {};
+        }
+        RHI::RhiExpected<bool> presented = [&]() {
+            ScopedRendererStageTimer timer{"wait pending present", stage_timings_ms};
+            return record.pending_present->wait();
+        }();
+        record.pending_present.reset();
+        if (stage_timings_ms != nullptr) {
+            stage_timings_ms->emplace_back("present queue lock wait", record.last_present_lock_wait_ms);
+        }
+        if (!presented) {
+            if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
+                record.rhi_swapchain_dirty = true;
+            }
+            return unexpected(graphics_error_from_rhi(presented.error(), "present RHI frame"));
+        }
+        if (*presented) {
+            record.rhi_swapchain_dirty = true;
+        }
+        return {};
+    }
+
     Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index,
                                                           optional<Core::Extent2D> known_extent) {
         RHI::RhiDevice *device = rhi_device();
@@ -1083,6 +1108,15 @@ namespace SFT::Renderer {
         } else {
             if (Core::RendererResult resources = ensure_rhi_presentation_resources(record); !resources.has_value()) {
                 return resources;
+            }
+
+            // Must happen before rhi_swapchain_dirty (read just below) or any recreate/retire-flush of
+            // the swapchain — see drain_pending_present's and WindowSurfaceRecord::pending_present's
+            // doc comments. In steady state (GPU keeping up) the previous frame's present has already
+            // finished by the time we get here, so this is a no-op wait.
+            if (Core::RendererResult drained = drain_pending_present(record, &current_frame_cpu_stage_timings_ms);
+                !drained.has_value()) {
+                return drained;
             }
 
             // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
@@ -2748,33 +2782,40 @@ namespace SFT::Renderer {
         if (offscreen_output) {
             mark_offscreen_render_target_initialized(submission.offscreen_target);
         } else {
-            f64 present_queue_lock_wait_ms = 0.0;
-            auto presented = [&]() {
-                ScopedRendererStageTimer timer{"present RHI frame", &current_frame_cpu_stage_timings_ms};
-                return device->present(RHI::PresentDesc{
-                    .texture = *acquired_surface,
-                    .label = "renderer present",
-                }, &present_queue_lock_wait_ms);
-            }();
-            // Split out of "present RHI frame"'s total so the two can be told apart: near-zero here
-            // means the total is genuinely spent blocked in the driver/Windows presentation engine
-            // (compositor/refresh-cadence backpressure) rather than our own queue mutex.
-            current_frame_cpu_stage_timings_ms.emplace_back("present queue lock wait", present_queue_lock_wait_ms);
-            if (!presented) {
-                if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
-                    record.rhi_swapchain_dirty = true;
-                }
-                return unexpected(graphics_error_from_rhi(presented.error(), "present RHI frame"));
+            // Handed off to record.present_thread rather than called synchronously here: on Windows
+            // the driver commonly blocks the calling thread inside vkQueuePresentKHR until this
+            // frame's GPU work actually finishes (present-mode independent -- its pWaitSemaphores
+            // waits on the render-finished semaphore this same frame's submit() just signaled, only
+            // moments earlier). Blocking this render thread on that would waste the CPU/GPU overlap
+            // desired_frames_in_flight is meant to buy. The result (error / suboptimal-dirty flag /
+            // queue-lock-wait timing) is picked up next frame by drain_pending_present() instead of
+            // here -- see WindowSurfaceRecord::pending_present's doc comment for the ordering
+            // invariant that keeps this safe.
+            if (!record.present_thread) {
+                record.present_thread = std::make_unique<Async::DedicatedThread>("PresentThread");
             }
-            if (*presented) {
-                record.rhi_swapchain_dirty = true;
-            }
+            ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
+            RHI::PresentDesc present_desc{
+                .texture = *acquired_surface,
+                .label = "renderer present",
+            };
+            WindowSurfaceRecord *record_ptr = &record;
+            record.pending_present = record.present_thread->run(
+                [device, present_desc, record_ptr]() -> RHI::RhiExpected<bool> {
+                    return device->present(present_desc, &record_ptr->last_present_lock_wait_ms);
+                });
         }
 
         if (submission.render_graph.wait_for_completion) {
             ScopedRendererStageTimer timer{"wait explicitly requested frame completion", &current_frame_cpu_stage_timings_ms};
             if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait explicitly requested frame completion"));
+            }
+            // Explicit completion means presented too, not just GPU-rendered -- drain the present this
+            // same call just issued above rather than leaving it for next frame.
+            if (Core::RendererResult drained = drain_pending_present(record, &current_frame_cpu_stage_timings_ms);
+                !drained.has_value()) {
+                return drained;
             }
         }
 
@@ -3395,6 +3436,12 @@ namespace SFT::Renderer {
 
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
         if (RHI::RhiDevice *device = rhi_device()) {
+            // Must happen before drain_frames_in_flight()'s wait_idle() / anything that destroys this
+            // record's swapchain -- an outstanding present_thread job that hasn't actually issued its
+            // vkQueuePresentKHR call yet is invisible to wait_idle() (it only knows about work already
+            // handed to the driver). Result/error ignored: this is best-effort teardown, and the window
+            // is going away regardless. See WindowSurfaceRecord::pending_present's doc comment.
+            (void)drain_pending_present(record, nullptr);
             // Per-window teardown is allowed to stall. The window is about to disappear, so first make
             // every submitted frame for this surface complete and reclaim frame-owned command buffers,
             // transient targets, and retired swapchains. Without this, Wayland WSI objects backing

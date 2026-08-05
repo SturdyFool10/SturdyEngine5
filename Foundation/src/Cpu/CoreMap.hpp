@@ -74,6 +74,23 @@ namespace SFT::Foundation::Cpu {
             return cores_of_type_.at(type_index);
         }
 
+        // Number of distinct *physical* cores -- SMT siblings (e.g. the two logical cores of one
+        // Hyper-Threaded/SMT physical core) collapse to one entry here, unlike `core_count()` which
+        // counts logical processors. Derived from `x2apic_id` (CoreCapabilities) shifted right by the
+        // SMT level's bit width (CPUID leaf 0x1f/0xb subleaf 0, x86 only -- see CoreMap.cpp). Equal to
+        // `core_count()` whenever that topology leaf is unavailable (no SMT known, non-x86, or a
+        // genuinely SMT-less machine) -- the safe fallback of treating every logical core as its own
+        // physical core rather than guessing.
+        [[nodiscard]] usize physical_core_count() const noexcept { return logical_cores_of_physical_core_.size(); }
+        // Physical-core index (usable with `logical_cores_of_physical_core()` below) that logical core
+        // `logical_index` belongs to.
+        [[nodiscard]] usize physical_core_of(usize logical_index) const noexcept { return physical_core_of_logical_.at(logical_index); }
+        // Logical core indices (as usable with `core()` above) that are SMT siblings of one physical
+        // core, in `[0, physical_core_count())`. Size 1 wherever SMT isn't present/known for that core.
+        [[nodiscard]] const std::vector<usize> &logical_cores_of_physical_core(usize physical_index) const noexcept {
+            return logical_cores_of_physical_core_.at(physical_index);
+        }
+
       private:
         CoreMap();
 
@@ -81,6 +98,8 @@ namespace SFT::Foundation::Cpu {
         std::vector<usize> type_of_core_;              // core index -> type index
         std::vector<std::vector<usize>> cores_of_type_; // type index -> core indices
         std::vector<std::pair<u32, usize>> index_of_x2apic_id_; // sorted by x2apic_id; linear-scan-sized
+        std::vector<usize> physical_core_of_logical_;              // logical index -> physical core index
+        std::vector<std::vector<usize>> logical_cores_of_physical_core_; // physical core index -> logical (SMT sibling) indices
     };
 
 } // namespace SFT::Foundation::Cpu

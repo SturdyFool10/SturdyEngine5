@@ -75,7 +75,10 @@ namespace SFT::Async {
     }
 
     bool DedicatedThread::pin_to_fastest_core() noexcept {
-        const std::vector<u32> ranked = ranked_logical_cores();
+        // ranked_physical_cores(), not ranked_logical_cores(): pinning to a physical core rather than
+        // a logical/SMT-sibling slot avoids landing this dedicated thread on the same physical core as
+        // one of Async::Scheduler's own workers (SchedulerImpl.cpp sizes/pins its pool the same way).
+        const std::vector<u32> ranked = ranked_physical_cores();
         if (ranked.empty()) {
             return false;
         }

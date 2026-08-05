@@ -30,6 +30,9 @@ sturdy_add_package(Core
         Sturdy::Slang
         ${_sturdy_core_graphics_deps}
 
+    PRIVATE_DEPS
+        Sturdy::Tracy
+
     # volk provides dynamically-loaded entry points; VK_NO_PROTOTYPES keeps the Vulkan headers
     # from also declaring statically-linked prototypes. Set now so volk includes are correct as
     # soon as the renderer starts including <volk.h>. Not applicable on Web (no volk/Vulkan there).

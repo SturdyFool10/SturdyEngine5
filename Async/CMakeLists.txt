@@ -5,6 +5,9 @@ sturdy_add_package(Async
     PUBLIC_DEPS
         Sturdy::Foundation
 
+    PRIVATE_DEPS
+        Sturdy::Tracy
+
     DEBUG_PUBLIC_DEPS
 )
 

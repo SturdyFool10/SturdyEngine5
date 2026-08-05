@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -12,6 +13,8 @@
 #include <Async/src/Scheduler.hpp>
 #include <Async/src/Mutex.hpp>
 #include <Async/src/Topology.hpp>
+
+#include <tracy/Tracy.hpp>
 
 
 using std::condition_variable;
@@ -89,7 +92,7 @@ namespace SFT::Async {
             SchedulerConfig config{};
 
             // Workers are created in best-core-first order (see initialize()'s use of
-            // ranked_logical_cores()), so worker indices [0, heavy_worker_count) already name the
+            // ranked_physical_cores()), so worker indices [0, heavy_worker_count) already name the
             // fastest cores on this machine — no separate ranked-index table needed at enqueue time.
             // `Heavy` tasks (TaskWeight) are seeded onto one of these deques round-robin; `Light` tasks
             // (the default, and every existing call site) are completely unaffected.
@@ -161,6 +164,11 @@ namespace SFT::Async {
 
         void worker_loop(u32 index) noexcept {
             t_worker_index = static_cast<i32>(index);
+            // Lives for the rest of this call, which is the worker thread's entire lifetime (the loop
+            // below only returns at shutdown) — tracy::SetThreadName keeps the pointer, not a copy.
+            char tracy_thread_name[32];
+            std::snprintf(tracy_thread_name, sizeof(tracy_thread_name), "Async Worker %u", index);
+            tracy::SetThreadName(tracy_thread_name);
             Pool &p = pool();
             u32 idle_spins = 0;
             u32 idle_yields = 0;
@@ -259,9 +267,19 @@ namespace SFT::Async {
         }
 
         SchedulerConfig active_config = config;
+        // One worker per *physical* core, not per logical/SMT hardware thread: this pool is meant for
+        // CPU-bound work-stealing, where a second software thread sharing an already-busy physical
+        // core's execution units adds contention, not throughput. ranked_physical_cores() collapses
+        // SMT siblings to one representative each (Foundation::Cpu::CoreMap); it degrades to one entry
+        // per logical core (old behavior) wherever physical-core topology isn't known. One core is
+        // reserved unpinned for the caller (main/render thread), same as the old hardware_concurrency()
+        // headroom.
         if (active_config.worker_count == 0) {
-            const u32 hardware_threads = thread::hardware_concurrency();
-            active_config.worker_count = hardware_threads > 1 ? hardware_threads - 1 : 1;
+            const vector<u32> physical_cores = ranked_physical_cores();
+            const u32 physical_count = physical_cores.empty()
+                ? std::max<u32>(1, thread::hardware_concurrency())
+                : static_cast<u32>(physical_cores.size());
+            active_config.worker_count = physical_count > 1 ? physical_count - 1 : 1;
         }
         if (active_config.idle_sleep_microseconds == 0) {
             active_config.idle_sleep_microseconds = 1;
@@ -279,13 +297,15 @@ namespace SFT::Async {
             p.threads.emplace_back(worker_loop, i);
         }
 
-        // Pin each worker to a real core, best-ranked cores first (ranked_logical_cores(),
-        // Topology.hpp) — worker indices [0, heavy_worker_count) below are therefore already the
-        // fastest cores on this machine by construction, with no separate lookup needed at enqueue
-        // time. This is the scheduler's new default placement behavior (no opt-out config flag);
-        // pinning failures are logged once and otherwise harmless — a worker just keeps floating
-        // across cores exactly like every worker did before this change.
-        const vector<u32> ranked_cores = ranked_logical_cores();
+        // Pin each worker to a distinct real *physical* core, best-ranked first
+        // (ranked_physical_cores(), Topology.hpp) — worker_count was sized off the same list above, so
+        // (barring a pinning failure) every worker lands on its own physical core with none shared and
+        // none idle. Worker indices [0, heavy_worker_count) below are therefore already the fastest
+        // cores on this machine by construction, with no separate lookup needed at enqueue time. This
+        // is the scheduler's default placement behavior (no opt-out config flag); pinning failures are
+        // logged once and otherwise harmless — a worker just keeps floating across cores exactly like
+        // every worker did before this change.
+        const vector<u32> ranked_cores = ranked_physical_cores();
         u32 pinned_count = 0;
         if (!ranked_cores.empty()) {
             for (u32 i = 0; i < worker_count; ++i) {
@@ -299,7 +319,8 @@ namespace SFT::Async {
         const auto &core_map = Foundation::Cpu::CoreMap::instance();
         Foundation::log_info(
             "Async::Scheduler started {} worker thread(s) [spin={}, yield={}, sleep={}us], "
-            "{} pinned, {} heavy-preferred; topology: {} logical core(s), {} distinct type(s), hybrid={}.",
+            "{} pinned, {} heavy-preferred; topology: {} logical core(s), {} physical core(s), "
+            "{} distinct type(s), hybrid={}.",
             worker_count,
             active_config.idle_spin_iterations,
             active_config.idle_yield_iterations,
@@ -307,6 +328,7 @@ namespace SFT::Async {
             pinned_count,
             p.heavy_worker_count,
             core_map.core_count(),
+            core_map.physical_core_count(),
             core_map.distinct_type_count(),
             core_map.is_hybrid());
 

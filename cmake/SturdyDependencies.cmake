@@ -81,6 +81,12 @@ set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2-preview" CACHE STRING "DirectX-Headers 
 # prebuilt binary, this just wraps the Objective-C API). Tags track macOS/iOS SDK releases. Only
 # fetched when STURDY_OS is MacOS.
 set(STURDY_METALCPP_TAG "release/metal-cpp_macOS27_iOS27" CACHE STRING "apple/metal-cpp git tag to fetch.")
+# wolfpld/tracy (BSD-3-Clause) — the Tracy profiler client library (TracyClient). Fetched
+# unconditionally (not gated behind STURDY_ENABLE_TRACY) so <tracy/Tracy.hpp> is always available to
+# include; STURDY_ENABLE_TRACY instead controls TRACY_ENABLE, which decides whether its zone/frame
+# macros record anything or compile down to no-ops. Only the client is built here, not the separate
+# Tracy profiler GUI/server application.
+set(STURDY_TRACY_TAG "v0.13.1" CACHE STRING "Tracy Profiler git tag to fetch.")
 
 set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader library. Set this to a static loader library when available.")
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")
@@ -196,6 +202,8 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_cgltf()
         sturdy_fetch_bc7enc()
 
+        sturdy_fetch_tracy()
+
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
         endif()
@@ -225,6 +233,7 @@ function(sturdy_configure_dependencies)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
         sturdy_find_bc7enc()
+        find_package(Tracy CONFIG REQUIRED)
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
@@ -1056,6 +1065,21 @@ function(sturdy_find_stb_image)
     endif()
 endfunction()
 
+function(sturdy_fetch_tracy)
+    # TRACY_ENABLE gates whether the zone/frame macros in <tracy/Tracy.hpp> actually record
+    # anything or compile down to no-ops. Tied to STURDY_ENABLE_TRACY so a shipping (Dist) build
+    # can disable profiling instrumentation without touching any instrumented source file.
+    set(TRACY_ENABLE ${STURDY_ENABLE_TRACY} CACHE BOOL "" FORCE)
+    sturdy_fetchcontent_declare(tracy
+        GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+        GIT_TAG ${STURDY_TRACY_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(tracy)
+    sturdy_mark_dependency_targets_exclude_from_all(TracyClient Tracy::TracyClient)
+    sturdy_register_license(tracy "${tracy_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_fetch_cgltf)
     # cgltf.h is a single header with no CMakeLists.txt of its own — wire up the include directory
     # by hand, same shape as sturdy_fetch_stb_image().
@@ -1261,6 +1285,11 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::bc7enc
         bc7enc
+    )
+
+    sturdy_alias_existing_target(Sturdy::Tracy
+        Tracy::TracyClient
+        TracyClient
     )
 endfunction()
 

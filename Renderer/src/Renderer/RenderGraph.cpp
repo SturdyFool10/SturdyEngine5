@@ -7,6 +7,8 @@
 #include <optional>
 #include <utility>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Renderer {
 
     namespace {
@@ -638,6 +640,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                                    u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
                                                                    bool timing_enabled, bool cpu_timing_enabled,
                                                                    GpuPassTiming *out_gpu_timing, CpuPassTiming *out_cpu_timing) {
+            ZoneScopedN("RenderGraph::execute_one_pass");
             if (timing_enabled) {
                 encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, begin_query_index);
             }
@@ -677,6 +680,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     });
                     break;
                 }
+            }
+            if (!label.empty()) {
+                ZoneText(label.data(), label.size());
             }
             if (!result.has_value()) {
                 return result;
@@ -791,6 +797,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                                    RHI::QuerySetHandle timestamp_query_set,
                                                                    vector<GpuPassTiming> *out_pass_timings,
                                                                    vector<CpuPassTiming> *out_cpu_pass_timings) {
+            ZoneScopedN("RenderGraph::execute_parallel");
             // Destroys whatever command buffers this call already finished/appended before returning
             // `result` — every error path below routes through this instead of a bare `return`, so a
             // mid-sequence failure (e.g. a later level's encoder creation fails after an earlier level
@@ -805,13 +812,20 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 return result;
             };
 
-            CompileResult compiled = compile();
+            CompileResult compiled = [&] {
+                ZoneScopedN("RenderGraph::compile");
+                return compile();
+            }();
             if (!compiled.has_value()) {
                 return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                          compiled.error().message));
             }
             const vector<OrderedPass> &execution_order = compiled->order;
-            if (Core::RendererResult created = create_transient_resources(device, execution_order); !created.has_value()) {
+            Core::RendererResult created = [&] {
+                ZoneScopedN("RenderGraph::create_transient_resources");
+                return create_transient_resources(device, execution_order);
+            }();
+            if (!created.has_value()) {
                 return fail(created);
             }
 
@@ -839,13 +853,16 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             // reasoning as record_render_items_culled's kParallelRecordThreshold) — record every pass
             // into primary_encoder itself, exactly like execute() does with its caller-provided encoder.
             if (execution_order.size() < 2 || Async::Scheduler::worker_count() <= 1) {
-                for (usize i = 0; i < execution_order.size(); ++i) {
-                    Core::RendererResult result = execute_one_pass(
-                        *primary_encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
-                        cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
-                        cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
-                    if (!result.has_value()) {
-                        return fail(result);
+                {
+                    ZoneScopedN("RenderGraph::execute_serial_passes");
+                    for (usize i = 0; i < execution_order.size(); ++i) {
+                        Core::RendererResult result = execute_one_pass(
+                            *primary_encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                            cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                            cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                        if (!result.has_value()) {
+                            return fail(result);
+                        }
                     }
                 }
                 Core::RendererResult final_transitions = transition_to_final_states(*primary_encoder);
@@ -929,43 +946,49 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 // already-owned-by-one-thread encoder is exactly the pattern the pre-existing render-
                 // bundle parallel-recording path already proves safe, so only that part stays
                 // parallel below.
-                for (usize slot = 0; slot < positions.size(); ++slot) {
-                    auto encoder =
-                        device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
-                    if (!encoder) {
-                        return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                                 "execute_parallel: failed to create command encoder."));
+                {
+                    ZoneScopedN("RenderGraph::create_level_encoders");
+                    for (usize slot = 0; slot < positions.size(); ++slot) {
+                        auto encoder = device.create_command_encoder(
+                            RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
+                        if (!encoder) {
+                            return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                     "execute_parallel: failed to create command encoder."));
+                        }
+                        results[slot].encoder = std::move(*encoder);
                     }
-                    results[slot].encoder = std::move(*encoder);
                 }
 
-                vector<Async::TaskHandle<void>> tasks;
-                tasks.reserve(positions.size());
-                for (usize slot = 0; slot < positions.size(); ++slot) {
-                    const usize i = positions[slot];
-                    tasks.push_back(Async::Scheduler::spawn([this, &execution_order, &results, slot, i,
-                                                              timestamp_query_set, timing_enabled, cpu_timing_enabled,
-                                                              out_pass_timings, out_cpu_pass_timings]() {
-                        RHI::CommandEncoder &encoder = *results[slot].encoder;
-                        Core::RendererResult result = execute_one_pass(
-                            encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
-                            cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
-                            cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
-                        if (!result.has_value()) {
-                            results[slot].status = result;
-                            return;
-                        }
-                        auto finished = encoder.finish();
-                        if (!finished) {
-                            results[slot].status = Core::graphics_backend_error(
-                                Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");
-                            return;
-                        }
-                        results[slot].command_buffer = *finished;
-                    }));
-                }
-                for (const Async::TaskHandle<void> &task : tasks) {
-                    task.wait();
+                {
+                    ZoneScopedN("RenderGraph::execute_level_tasks");
+                    vector<Async::TaskHandle<void>> tasks;
+                    tasks.reserve(positions.size());
+                    for (usize slot = 0; slot < positions.size(); ++slot) {
+                        const usize i = positions[slot];
+                        tasks.push_back(Async::Scheduler::spawn([this, &execution_order, &results, slot, i,
+                                                                  timestamp_query_set, timing_enabled, cpu_timing_enabled,
+                                                                  out_pass_timings, out_cpu_pass_timings]() {
+                            RHI::CommandEncoder &encoder = *results[slot].encoder;
+                            Core::RendererResult result = execute_one_pass(
+                                encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                                cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                                cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                            if (!result.has_value()) {
+                                results[slot].status = result;
+                                return;
+                            }
+                            auto finished = encoder.finish();
+                            if (!finished) {
+                                results[slot].status = Core::graphics_backend_error(
+                                    Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");
+                                return;
+                            }
+                            results[slot].command_buffer = *finished;
+                        }));
+                    }
+                    for (const Async::TaskHandle<void> &task : tasks) {
+                        task.wait();
+                    }
                 }
 
                 Core::RendererResult first_error{};
@@ -985,21 +1008,24 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 }
             }
 
-            auto epilogue = device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph final transitions"});
-            if (!epilogue) {
-                return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                         "execute_parallel: failed to create the final-transitions command encoder."));
+            {
+                ZoneScopedN("RenderGraph::transition_to_final_states");
+                auto epilogue = device.create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "render graph final transitions"});
+                if (!epilogue) {
+                    return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                             "execute_parallel: failed to create the final-transitions command encoder."));
+                }
+                Core::RendererResult final_transitions = transition_to_final_states(**epilogue);
+                if (!final_transitions.has_value()) {
+                    return fail(final_transitions);
+                }
+                auto finished_epilogue = (*epilogue)->finish();
+                if (!finished_epilogue) {
+                    return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                             "execute_parallel: failed to finish the final-transitions command encoder."));
+                }
+                out_command_buffers.push_back(*finished_epilogue);
             }
-            Core::RendererResult final_transitions = transition_to_final_states(**epilogue);
-            if (!final_transitions.has_value()) {
-                return fail(final_transitions);
-            }
-            auto finished_epilogue = (*epilogue)->finish();
-            if (!finished_epilogue) {
-                return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                         "execute_parallel: failed to finish the final-transitions command encoder."));
-            }
-            out_command_buffers.push_back(*finished_epilogue);
             return {};
         }
 

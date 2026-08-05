@@ -598,6 +598,29 @@ namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
+            // Runs RHI::RhiDevice::present() (ultimately vkQueuePresentKHR) off this window's render
+            // thread. On Windows the driver commonly blocks the calling thread inside that call until
+            // the frame's GPU work actually finishes -- present-mode independent, not just vsync/FIFO
+            // pacing (see render_frame_rhi's present-issue site) -- so running it here instead lets the
+            // render thread move straight on to recording the next frame rather than idling through
+            // that wait. Created lazily on first use; persists for the window's whole lifetime,
+            // independent of any one swapchain instance (a recreated swapchain keeps using the same
+            // present_thread).
+            unique_ptr<Async::DedicatedThread> present_thread;
+            // The previous frame's outstanding present, if any. At most one is ever in flight:
+            // render_frame_rhi always drains this (see its swapchain-recreate section) before reading
+            // rhi_swapchain_dirty or letting the swapchain be recreated/destroyed -- destroying a
+            // swapchain still referenced by an unexecuted vkQueuePresentKHR call is
+            // VUID-vkDestroySwapchainKHR-swapchain-01282. destroy_rhi_presentation_resources() also
+            // drains this before tearing the window down.
+            optional<Async::TaskHandle<RHI::RhiExpected<bool>>> pending_present;
+            // Queue-mutex wait time recorded by the last drained pending_present's device->present()
+            // call, surfaced into the *next* frame's stage timings the same one-frame-stale way
+            // GPU/CPU pass timings already are (FrameGpuTimingTarget's doc comment) -- there is no
+            // earlier point at which the async present's own timings are known. Written only by
+            // present_thread, read only after pending_present->wait() returns (TaskState's done-flag
+            // release/acquire orders the two), so this never needs its own lock.
+            f64 last_present_lock_wait_ms = 0.0;
             SpectralAccumulationTarget spectral_accumulation{};
             // Ring of N = desired_frames_in_flight (well, capabilities_.max_frames_in_flight — see
             // render_frame_rhi) deferred-cleanup slots, one per window: each window has its own swapchain
@@ -1162,6 +1185,13 @@ namespace SFT::Renderer {
         // create_window_surface/initialize(), single-threaded, before any concurrent rendering begins).
         [[nodiscard]] Core::RendererResult recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index = 0,
                                                                    optional<Core::Extent2D> known_extent = std::nullopt);
+        // Waits for record.pending_present (a no-op if there isn't one), applies its result to
+        // record.rhi_swapchain_dirty / propagates a hard error, and appends its queue-lock-wait timing
+        // into `stage_timings_ms`. Must be called before rhi_swapchain_dirty is read for this frame's
+        // recreate decision, and before any code destroys/recreates this record's swapchain -- see
+        // WindowSurfaceRecord::pending_present's doc comment.
+        [[nodiscard]] Core::RendererResult drain_pending_present(
+            WindowSurfaceRecord &record, vector<std::pair<string, f64>> *stage_timings_ms);
         [[nodiscard]] Core::RendererResult ensure_rhi_depth_resources(WindowSurfaceRecord &record);
         // Looks up `surface`, calls render_frame_rhi(), and on a DeviceLost error runs the recover-then-
         // retry-once sequence, re-resolving the record afterward (recovery may have rebuilt it).

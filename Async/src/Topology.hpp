@@ -20,6 +20,15 @@ namespace SFT::Async {
     // unavailable, don't pin anything" defensively.
     [[nodiscard]] std::vector<u32> ranked_logical_cores() noexcept;
 
+    // One representative logical core index per *physical* core (SMT siblings collapsed to their
+    // first/lowest logical index -- see Foundation::Cpu::CoreMap::physical_core_count()), ranked
+    // best-first with the same key as ranked_logical_cores(). Size == CoreMap::physical_core_count().
+    // This is what CPU-bound work-stealing pools should size/pin against: spawning one OS thread per
+    // SMT sibling oversubscribes the physical core's shared execution units for compute-bound work,
+    // it doesn't add real parallelism. Falls back to one entry per logical core (identical to
+    // ranked_logical_cores()) wherever physical-core grouping isn't known (see CoreMap's own fallback).
+    [[nodiscard]] std::vector<u32> ranked_physical_cores() noexcept;
+
     // Pins `thread` to logical `core_index`. Shared by DedicatedThread::pin_to_core (Affinity.hpp) and
     // Scheduler's own worker threads (SchedulerImpl.cpp) so the platform-`#ifdef` body exists exactly
     // once. Best-effort: returns false (and leaves the thread's affinity unchanged) on platforms/cases

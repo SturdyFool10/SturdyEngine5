@@ -14,6 +14,9 @@ sturdy_add_package(Renderer
         Sturdy::GLM
         Sturdy::Text
 
+    PRIVATE_DEPS
+        Sturdy::Tracy
+
     DEBUG_PUBLIC_DEPS
 )
 
