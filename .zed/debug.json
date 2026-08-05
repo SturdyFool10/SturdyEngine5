@@ -32,19 +32,67 @@
     "build": "Compile Runtime Demo (RelWithDebInfo)"
   },
   {
-    "label": "Debug Runtime Demo (Dist)",
+    "label": "Debug Keyboard Tester (Debug)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/host/dist/bin/RuntimeDemo",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/KeyboardTester",
     "cwd": "$ZED_WORKTREE_ROOT",
-    "build": "Compile Runtime Demo (Dist)"
+    "build": "Compile Keyboard Tester (Debug)"
   },
   {
-    "label": "Debug Runtime Demo (Dist, Windows .exe)",
+    "label": "Debug Keyboard Tester (Debug, Windows .exe)",
     "adapter": "CodeLLDB",
     "request": "launch",
-    "program": "$ZED_WORKTREE_ROOT/build/host/dist/bin/RuntimeDemo.exe",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/KeyboardTester.exe",
     "cwd": "$ZED_WORKTREE_ROOT",
-    "build": "Compile Runtime Demo (Dist)"
+    "build": "Compile Keyboard Tester (Debug)"
+  },
+  {
+    "label": "Debug Keyboard Tester (RelWithDebInfo)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/KeyboardTester",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile Keyboard Tester (RelWithDebInfo)"
+  },
+  {
+    "label": "Debug Keyboard Tester (RelWithDebInfo, Windows .exe)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/KeyboardTester.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile Keyboard Tester (RelWithDebInfo)"
+  },
+  {
+    "label": "Debug UI Workbench (Debug)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/UiWorkbench",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile UI Workbench (Debug)"
+  },
+  {
+    "label": "Debug UI Workbench (Debug, Windows .exe)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/debug/bin/UiWorkbench.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile UI Workbench (Debug)"
+  },
+  {
+    "label": "Debug UI Workbench (RelWithDebInfo)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/UiWorkbench",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile UI Workbench (RelWithDebInfo)"
+  },
+  {
+    "label": "Debug UI Workbench (RelWithDebInfo, Windows .exe)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build/host/relwithdebinfo/bin/UiWorkbench.exe",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": "Compile UI Workbench (RelWithDebInfo)"
   }
 ]
