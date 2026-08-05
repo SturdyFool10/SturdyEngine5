@@ -60,8 +60,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "upsampleMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/fullscreen_bloom.slang", "fullscreen_bloom"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/fullscreen_bloom.slang", "fullscreen_bloom"),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) return unexpected(bloom_error("compile bloom shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         guard->shader = *shader;
         guard->vertex_entry_point = "vertexMain";
@@ -295,8 +299,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/fullscreen_bloom_composite.slang", "fullscreen_bloom_composite"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/fullscreen_bloom_composite.slang", "fullscreen_bloom_composite"),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) return unexpected(bloom_error("compile bloom composite shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         guard->shader = *shader;
         guard->vertex_entry_point = "vertexMain";

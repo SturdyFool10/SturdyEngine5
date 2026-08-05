@@ -40,7 +40,7 @@ namespace SFT::UI {
     }
 
     Core::RendererExpected<UiCustomElementPipeline::CachedShader *> UiCustomElementPipeline::ensure_shader(
-        RHI::RhiDevice &device, RHI::Format color_format, const CustomShaderRef &shader) {
+        RHI::RhiDevice &device, RHI::Format color_format, const CustomShaderRef &shader, bool enable_shader_disk_cache) {
         if (shader.shader_path.empty() || shader.module_name.empty() || shader.fragment_entry_point.empty()) {
             return unexpected(custom_element_error(
                 "UI custom element requires shader_path, module_name, and fragment_entry_point."));
@@ -69,8 +69,12 @@ namespace SFT::UI {
                 slang::ShaderEntryPointRequest{.name = shader.fragment_entry_point, .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto compiled = compiler.compile(slang::ShaderSource::from_file(shader.shader_path, shader.module_name), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file(shader.shader_path, shader.module_name),
+            options,
+            slang::ShaderCompiler{},
+            enable_shader_disk_cache};
+        auto compiled = shader_cache.get_or_compile_base();
         if (!compiled) {
             return unexpected(custom_element_error(
                 "compile UI custom element shader failed: " + compiled.error().message + "\n" + compiled.error().diagnostics));
@@ -175,13 +179,13 @@ namespace SFT::UI {
     }
 
     Core::RendererResult UiCustomElementPipeline::prepare(RHI::RhiDevice &device, RHI::Format color_format,
-                                                           span<const CustomDraw> draws) {
+                                                           span<const CustomDraw> draws, bool enable_shader_disk_cache) {
         for (const CustomDraw &draw : draws) {
             if (draw.shader == nullptr) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "UI custom element draw has no shader reference.");
             }
-            if (auto cached = ensure_shader(device, color_format, *draw.shader); !cached) {
+            if (auto cached = ensure_shader(device, color_format, *draw.shader, enable_shader_disk_cache); !cached) {
                 return unexpected(cached.error());
             }
         }

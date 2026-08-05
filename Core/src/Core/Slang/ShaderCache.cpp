@@ -26,6 +26,11 @@ namespace SFT::Core::Slang {
         constexpr u32 shader_cache_format_version = 1;
         constexpr u32 shader_cache_magic = 0x53484341u; // "SHCA"
 
+        // Separate magic/version/file-suffix from the compiled-bytecode cache above -- see
+        // load/store_shader_reflection_cache_entry()'s doc comment (ShaderCache.hpp) for why.
+        constexpr u32 shader_reflection_cache_format_version = 1;
+        constexpr u32 shader_reflection_cache_magic = 0x53484352u; // "SHCR"
+
         // --- Binary writer/reader: flat, no alignment padding, little-endian (this cache never
         // crosses machines/processes with different endianness — it's a same-build local artifact). ---
 
@@ -401,6 +406,12 @@ namespace SFT::Core::Slang {
             return directory / (string{hex} + ".sc");
         }
 
+        [[nodiscard]] path reflection_cache_file_path(const path &directory, u64 key) {
+            char hex[17];
+            std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(key));
+            return directory / (string{hex} + ".sr");
+        }
+
     } // namespace
 
     [[nodiscard]] u64 compute_shader_cache_key(
@@ -492,6 +503,63 @@ namespace SFT::Core::Slang {
         // Write to a temp file then rename, so a crash/power-loss mid-write never leaves a truncated
         // .sc file that load_shader_cache_entry() could mistake for a valid (if corrupt) entry.
         const path final_path = cache_file_path(directory, key);
+        const path temp_path = final_path.string() + ".tmp";
+        {
+            ofstream file(temp_path, ios::binary | ios::trunc);
+            if (!file) {
+                return false;
+            }
+            file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
+            if (!file) {
+                return false;
+            }
+        }
+        std::filesystem::rename(temp_path, final_path, ec);
+        if (ec) {
+            std::filesystem::remove(temp_path, ec);
+            return false;
+        }
+        return true;
+    }
+
+    [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
+        const path &directory, u64 key) {
+        ifstream file(reflection_cache_file_path(directory, key), ios::binary);
+        if (!file) {
+            return std::nullopt;
+        }
+
+        string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        if (contents.size() < sizeof(u32) * 2) {
+            return std::nullopt;
+        }
+
+        ByteReader r(reinterpret_cast<const byte *>(contents.data()), contents.size());
+        if (r.read<u32>() != shader_reflection_cache_magic || r.read<u32>() != shader_reflection_cache_format_version) {
+            return std::nullopt;
+        }
+
+        ShaderReflection reflection = read_reflection(r);
+        if (!r.ok()) {
+            return std::nullopt;
+        }
+        return reflection;
+    }
+
+    bool store_shader_reflection_cache_entry(
+        const path &directory, u64 key, const ShaderReflection &reflection) {
+        std::error_code ec;
+        std::filesystem::create_directories(directory, ec);
+        if (ec) {
+            return false;
+        }
+
+        ByteWriter w;
+        w.write(shader_reflection_cache_magic);
+        w.write(shader_reflection_cache_format_version);
+        write_reflection(w, reflection);
+
+        const path final_path = reflection_cache_file_path(directory, key);
         const path temp_path = final_path.string() + ".tmp";
         {
             ofstream file(temp_path, ios::binary | ios::trunc);

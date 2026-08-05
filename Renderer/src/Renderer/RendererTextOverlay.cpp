@@ -150,7 +150,7 @@ namespace SFT::Renderer {
             return unexpected(atlas.error());
         }
 
-        auto pipeline = TextPipeline::create(*device, RHI::Format::BGRA8UnormSrgb);
+        auto pipeline = TextPipeline::create(*device, RHI::Format::BGRA8UnormSrgb, recovery_create_info_.enable_shader_disk_cache);
         if (!pipeline) {
             return unexpected(pipeline.error());
         }

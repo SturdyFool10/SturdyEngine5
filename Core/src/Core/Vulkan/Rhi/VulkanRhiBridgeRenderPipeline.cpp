@@ -185,7 +185,7 @@ namespace SFT::Core::Vulkan {
 
         builder.set_view_mask(desc.view_mask);
 
-        auto pipeline = builder.create(logical_device_->vk_handle());
+        auto pipeline = builder.create(logical_device_->vk_handle(), pipeline_cache_.vk_handle());
         if (!pipeline) {
             return rhi_error_from_graphics(pipeline.error());
         }

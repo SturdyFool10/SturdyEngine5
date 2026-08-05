@@ -68,7 +68,8 @@ namespace SFT::UI {
       public:
         UiQuadPipeline() noexcept = default;
 
-        [[nodiscard]] static Core::RendererExpected<UiQuadPipeline> create(RHI::RhiDevice &device, RHI::Format color_format);
+        [[nodiscard]] static Core::RendererExpected<UiQuadPipeline> create(
+            RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
 
         // `instance_texture_views[i]` is the texture UiInstances[i] samples — UiRenderer supplies
         // Renderer's shared default-white-texture view (Renderer::ensure_default_white_texture())

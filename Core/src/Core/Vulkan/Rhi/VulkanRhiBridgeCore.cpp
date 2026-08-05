@@ -8,6 +8,8 @@
 #include "volk.h"
 #include <algorithm>
 #include <expected>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <span>
 #include <string>
@@ -52,6 +54,52 @@ namespace SFT::Core::Vulkan {
                 case rhi::QueueClass::VideoEncode: return "VideoEncode";
             }
             return "Unknown";
+        }
+
+        // A single flat file (not per-GPU/driver-keyed): a mismatched blob from a different GPU or
+        // driver version is safely ignored by Vulkan itself via the cache header's UUID (vkCreatePipelineCache
+        // just yields an empty cache in that case, never an error) -- see pipeline_cache_'s doc comment
+        // in VulkanRhiBridge.hpp.
+        [[nodiscard]] std::filesystem::path pipeline_cache_path() {
+            return std::filesystem::path{".cache/vulkan_pipeline_cache.bin"};
+        }
+
+        [[nodiscard]] std::vector<u8> load_pipeline_cache_blob() {
+            std::ifstream file(pipeline_cache_path(), std::ios::binary);
+            if (!file) {
+                return {};
+            }
+            return std::vector<u8>{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        }
+
+        // Best-effort, same "never fail the caller, just skip caching this run" convention as
+        // Core/Slang/ShaderCache.cpp's store_shader_cache_entry() -- write-to-temp-then-rename so a
+        // crash mid-write never leaves a truncated file a later load could mistake for valid data.
+        void store_pipeline_cache_blob(std::span<const u8> blob) noexcept {
+            try {
+                const std::filesystem::path final_path = pipeline_cache_path();
+                std::error_code ec;
+                std::filesystem::create_directories(final_path.parent_path(), ec);
+                if (ec) {
+                    return;
+                }
+                const std::filesystem::path temp_path = final_path.string() + ".tmp";
+                {
+                    std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+                    if (!file) {
+                        return;
+                    }
+                    file.write(reinterpret_cast<const char *>(blob.data()), static_cast<std::streamsize>(blob.size()));
+                    if (!file) {
+                        return;
+                    }
+                }
+                std::filesystem::rename(temp_path, final_path, ec);
+                if (ec) {
+                    std::filesystem::remove(temp_path, ec);
+                }
+            } catch (...) {
+            }
         }
 
     } // namespace
@@ -250,6 +298,21 @@ namespace SFT::Core::Vulkan {
 
         // write_buffer()'s staged upload path for DeviceLocal buffers (VulkanRhiBridgeBuffers.cpp)
         // checks pool/fence pairs out of upload_pool_ lazily, on first use — nothing to pre-create here.
+
+        // Best-effort: a missing/corrupt/stale file just yields an empty span, and create() with an
+        // empty span behaves exactly like today's VK_NULL_HANDLE-cache callers (a fresh, cold cache) —
+        // never a hard failure of device creation.
+        if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), load_pipeline_cache_blob())) {
+            pipeline_cache_ = std::move(*cache);
+        }
+    }
+
+    VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge() {
+        if (pipeline_cache_.is_valid()) {
+            if (auto blob = pipeline_cache_.serialize()) {
+                store_pipeline_cache_blob(*blob);
+            }
+        }
     }
 
     rhi::BackendType VulkanRhiDeviceBridge::backend_type() const noexcept { return rhi::BackendType::Vulkan; }

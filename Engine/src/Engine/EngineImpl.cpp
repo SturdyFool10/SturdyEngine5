@@ -190,7 +190,8 @@ namespace SFT::Engine {
         // Reflect every shader on disk before the graphics backend exists, so the rest of startup
         // can see entry points, bindings, and parameter layouts without having generated any
         // target bytecode yet.
-        shaders_ = Core::Slang::discover_shaders(config.shaders_directory, shader_compiler_);
+        shaders_ = Core::Slang::discover_shaders(
+            config.shaders_directory, shader_compiler_, Core::Slang::ShaderCompileOptions{}, config.enable_shader_disk_cache);
 
         auto wsi_extensions = window.required_vulkan_instance_extensions();
         if (!wsi_extensions) {
@@ -375,7 +376,8 @@ namespace SFT::Engine {
             }
 
             if (config_.shaders_directory != settings.shaders_directory) {
-                shaders_ = Core::Slang::discover_shaders(settings.shaders_directory, shader_compiler_);
+                shaders_ = Core::Slang::discover_shaders(
+                    settings.shaders_directory, shader_compiler_, Core::Slang::ShaderCompileOptions{}, settings.enable_shader_disk_cache);
             }
 
             Core::RendererCreateInfo renderer_info{};

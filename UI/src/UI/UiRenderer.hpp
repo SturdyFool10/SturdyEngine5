@@ -51,7 +51,8 @@ namespace SFT::UI {
       public:
         UiRenderer() noexcept = default;
 
-        [[nodiscard]] static Core::RendererExpected<UiRenderer> create(RHI::RhiDevice &device, RHI::Format color_format);
+        [[nodiscard]] static Core::RendererExpected<UiRenderer> create(
+            RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
 
         // `out_retired_atlas_resources` collects atlas images superseded by grow-only replacement,
         // same deferred-destruction contract as Renderer::TextAtlas::ensure_resident() itself. No
@@ -91,6 +92,9 @@ namespace SFT::UI {
         // Stashed from create() — UiCustomElementPipeline's shader cache is keyed by color_format,
         // and needs it again at both prepare() and draw() time, neither of which otherwise takes it.
         RHI::Format color_format_{};
+        // Stashed from create() — custom_element_pipeline_.prepare() needs it every frame (a custom
+        // element's shader is only compiled lazily, on the first frame it's actually drawn).
+        bool enable_shader_disk_cache_ = true;
         // Lazily created on first prepare() that has a texture_resolver — see prepare()'s doc
         // comment for why this isn't Renderer::ensure_default_white_texture().
         Renderer::TextureHandle white_texture_{};

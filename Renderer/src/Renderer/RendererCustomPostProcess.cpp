@@ -68,8 +68,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = effect.fragment_entry_point, .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file(effect.shader_path, effect.module_name), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file(effect.shader_path, effect.module_name),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) return unexpected(custom_effect_error("compile custom post-process failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         resource.shader = *shader;
 

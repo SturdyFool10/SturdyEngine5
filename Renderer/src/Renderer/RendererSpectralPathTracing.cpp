@@ -215,10 +215,16 @@ namespace SFT::Renderer {
             .targets = {slang::ShaderTarget{}},
             .entry_points = std::move(entry_requests),
         };
+        // One ShaderCompiler shared across all three spectral shaders below (integrators, photon
+        // caustics, depth) so they reuse the same Slang global session rather than each paying to
+        // create their own -- each still gets its own disk-cache entry via a fresh ShaderVariantCache.
         slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(
+        slang::ShaderVariantCache shader_cache{
             slang::ShaderSource::from_file("Shaders/spectral_integrators.slang", "spectral_integrators"),
-            options);
+            options,
+            compiler,
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(spectral_error(
                 Core::GraphicsBackendErrorCode::OperationFailed,
@@ -334,9 +340,12 @@ namespace SFT::Renderer {
             .targets = {slang::ShaderTarget{}},
             .entry_points = std::move(photon_entry_requests),
         };
-        auto photon_shader = compiler.compile(
+        slang::ShaderVariantCache photon_shader_cache{
             slang::ShaderSource::from_file("Shaders/spectral_photon_caustics.slang", "spectral_photon_caustics"),
-            photon_options);
+            photon_options,
+            compiler,
+            recovery_create_info_.enable_shader_disk_cache};
+        auto photon_shader = photon_shader_cache.get_or_compile_base();
         if (!photon_shader) {
             const Core::GraphicsBackendError error = spectral_error(
                 Core::GraphicsBackendErrorCode::OperationFailed,
@@ -438,9 +447,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        auto depth_shader = compiler.compile(
+        slang::ShaderVariantCache depth_shader_cache{
             slang::ShaderSource::from_file("Shaders/spectral_depth_commit.slang", "spectral_depth_commit"),
-            depth_options);
+            depth_options,
+            compiler,
+            recovery_create_info_.enable_shader_disk_cache};
+        auto depth_shader = depth_shader_cache.get_or_compile_base();
         if (!depth_shader) {
             const Core::GraphicsBackendError error = spectral_error(
                 Core::GraphicsBackendErrorCode::OperationFailed,

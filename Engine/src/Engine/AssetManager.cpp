@@ -15,6 +15,7 @@
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 
@@ -196,6 +197,18 @@ namespace SFT::Engine {
                     renderer.destroy_material_template(shader->material_template);
                 }
             }
+            // Drop the dedup entry before clearing `source` below — a stale path_cache hit after this
+            // asset is gone would hand out a destroyed Asset handle to the next load_texture/load_sound/
+            // load_file call for the same path. Erases all three possible key shapes unconditionally
+            // (plain path, and the two texture color-space-suffixed variants) rather than tracking which
+            // one this record actually used — each erase is a cheap no-op when absent.
+            if (!record.source.empty()) {
+                const std::string source_string = record.source.string();
+                path_cache.erase(source_string);
+                path_cache.erase(source_string + "|srgb");
+                path_cache.erase(source_string + "|linear");
+            }
+
             record.data = std::monostate{};
             record.loaded = false;
             record.memory_bytes = 0;
@@ -211,6 +224,18 @@ namespace SFT::Engine {
         u64 owner = 0;
         mutable std::shared_mutex mutex;
         std::vector<Record> records;
+
+        // In-memory dedup for load_texture/load_sound/load_file: loading the same source path twice in
+        // one process previously re-did the full file read + decode both times (the BC7 compression
+        // step downstream is already content-hash disk-cached, TextureCompression.cpp, but nothing
+        // caught the redundant call before reaching it). Deliberately excludes load_shader, whose result
+        // depends on far more than the source path (entry points, defines, module name) -- path alone
+        // isn't a safe cache key there. Keyed by plain path string for load_sound/load_file; load_texture
+        // suffixes the color space ("|srgb"/"|linear") since the same file decodes differently depending
+        // on it (same reasoning GltfImport.cpp's local ImageCache already applies within one import).
+        // Not persisted across processes -- purely an in-process memoization, invalidated via the
+        // erase() above whenever the underlying asset is unloaded.
+        std::unordered_map<std::string, Asset> path_cache;
     };
 
     AssetManager::AssetManager(SFT::Renderer::Renderer &renderer)
@@ -371,6 +396,14 @@ namespace SFT::Engine {
     AssetExpected<Asset> AssetManager::load_texture(const std::filesystem::path &source,
                                                     TextureColorSpace color_space,
                                                     UString label) {
+        const std::string dedup_key = source.string() + (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear");
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(dedup_key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+
         const Foundation::Stopwatch stopwatch;
         auto encoded = read_binary_file(source);
         if (!encoded) {
@@ -406,6 +439,7 @@ namespace SFT::Engine {
         if (Impl::Record *record = impl_->find(*texture)) {
             record->source = source;
         }
+        impl_->path_cache.emplace(dedup_key, *texture);
         return texture;
     }
 
@@ -430,6 +464,14 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::load_sound(const std::filesystem::path &source, UString label) {
+        const std::string dedup_key = source.string();
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(dedup_key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+
         const Foundation::Stopwatch stopwatch;
         auto encoded = read_binary_file(source);
         if (!encoded) {
@@ -484,7 +526,7 @@ namespace SFT::Engine {
                              sample_rate,
                              stopwatch.elapsed_human());
         std::unique_lock lock{impl_->mutex};
-        return impl_->insert(Impl::Record{
+        const Asset asset = impl_->insert(Impl::Record{
             .type = AssetType::Sound,
             .label = std::move(label),
             .source = source,
@@ -501,9 +543,19 @@ namespace SFT::Engine {
                 },
             },
         });
+        impl_->path_cache.emplace(dedup_key, asset);
+        return asset;
     }
 
     AssetExpected<Asset> AssetManager::load_file(const std::filesystem::path &source, UString label) {
+        const std::string dedup_key = source.string();
+        {
+            std::shared_lock read_lock{impl_->mutex};
+            if (const auto it = impl_->path_cache.find(dedup_key); it != impl_->path_cache.end()) {
+                return it->second;
+            }
+        }
+
         const Foundation::Stopwatch stopwatch;
         auto bytes = read_binary_file(source);
         if (!bytes) {
@@ -515,13 +567,15 @@ namespace SFT::Engine {
         auto shared = std::make_shared<std::vector<std::byte>>(std::move(*bytes));
         Foundation::log_info("AssetManager: loaded file '{}' ({} bytes) in {}", source.string(), shared->size(), stopwatch.elapsed_human());
         std::unique_lock lock{impl_->mutex};
-        return impl_->insert(Impl::Record{
+        const Asset asset = impl_->insert(Impl::Record{
             .type = AssetType::File,
             .label = std::move(label),
             .source = source,
             .memory_bytes = shared->size(),
             .data = Impl::FileData{.bytes = std::move(shared)},
         });
+        impl_->path_cache.emplace(dedup_key, asset);
+        return asset;
     }
 
     AssetExpected<Asset> AssetManager::create_model(SFT::Renderer::Mesh mesh,

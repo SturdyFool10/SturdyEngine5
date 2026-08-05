@@ -67,4 +67,14 @@ namespace SFT::Core::Slang {
     bool store_shader_cache_entry(
         const std::filesystem::path &directory, u64 key, const ShaderCacheEntry &entry);
 
+    // Reflection-only counterpart of the pair above, for Core::Slang::discover_shaders() (which only
+    // ever reflects, never compiles to bytecode — see ShaderDiscovery.cpp). Uses a distinct file suffix
+    // (`.sr` vs `.sc`) and magic, so a reflection entry and a compiled-bytecode entry for the same
+    // shader never collide on disk even if their keys happened to coincide. Same miss-is-never-an-error,
+    // write-failure-is-silent contract as the pair above.
+    [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
+        const std::filesystem::path &directory, u64 key);
+    bool store_shader_reflection_cache_entry(
+        const std::filesystem::path &directory, u64 key, const ShaderReflection &reflection);
+
 } // namespace SFT::Core::Slang

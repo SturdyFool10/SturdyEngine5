@@ -1,5 +1,7 @@
 #include "ShaderDiscovery.hpp"
 
+#include <Core/Slang/ShaderCache.hpp>
+
 namespace SFT::Core::Slang {
 
 [[nodiscard]] string_view UnCompiledShader::module_name() const noexcept {
@@ -8,12 +10,15 @@ namespace SFT::Core::Slang {
 
 vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
-                                                                   const ShaderCompileOptions &options) {
+                                                                   const ShaderCompileOptions &options,
+                                                                   bool enable_disk_cache) {
         vector<UnCompiledShader> shaders;
         Foundation::log_info("Slang: discovering shaders under '{}'...", directory.string());
         const Foundation::Stopwatch stopwatch;
+        const std::filesystem::path cache_directory{string{default_shader_cache_directory}};
         usize considered = 0;
         usize failed = 0;
+        usize cache_hits = 0;
 
         error_code ec;
         if (!fs::is_directory(directory, ec) || ec) {
@@ -57,7 +62,23 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
 
             // Use the file stem as the module name — the same value the backend's later compile()
             // derives from the path, so a shader keeps one stable module name end to end.
-            ShaderSource source = ShaderSource::from_source(entry.path().stem().string(), std::move(*text), path_string);
+            const string module_name = entry.path().stem().string();
+            const u64 cache_key = enable_disk_cache
+                ? compute_shader_cache_key(module_name, *text, /*variant_canonical=*/"", options)
+                : 0;
+
+            optional<ShaderReflection> cached_reflection;
+            if (enable_disk_cache) {
+                cached_reflection = load_shader_reflection_cache_entry(cache_directory, cache_key);
+            }
+
+            ShaderSource source = ShaderSource::from_source(module_name, std::move(*text), path_string);
+            if (cached_reflection) {
+                ++cache_hits;
+                shaders.push_back(UnCompiledShader{std::move(source), std::move(*cached_reflection)});
+                continue;
+            }
+
             auto reflected = compiler.reflect(source, options);
             if (!reflected) {
                 const ShaderError &error = reflected.error();
@@ -74,13 +95,17 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                 continue;
             }
 
+            if (enable_disk_cache) {
+                (void)store_shader_reflection_cache_entry(cache_directory, cache_key, *reflected);
+            }
             shaders.push_back(UnCompiledShader{std::move(source), std::move(*reflected)});
         }
 
-        Foundation::log_info("Slang: discovered {} shader(s) ({} of {} .slang file(s) failed) in {}",
+        Foundation::log_info("Slang: discovered {} shader(s) ({} of {} .slang file(s) failed, {} reflection cache hit(s)) in {}",
                              shaders.size(),
                              failed,
                              considered,
+                             cache_hits,
                              stopwatch.elapsed_human());
         return shaders;
     }

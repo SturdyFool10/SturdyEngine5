@@ -56,9 +56,12 @@ namespace SFT::Renderer {
             .targets = {slang::ShaderTarget{}},
             .entry_points = {slang::ShaderEntryPointRequest{.name = "vertexMainWithHistory", .stage = slang::ShaderStage::Vertex}},
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(
-            slang::ShaderSource::from_file("Shaders/gbuffer_geometry_history.slang", "gbuffer_geometry_history"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/gbuffer_geometry_history.slang", "gbuffer_geometry_history"),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(object_history_error("compile object-history vertex shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }

@@ -53,6 +53,11 @@ namespace SFT::Core::Slang {
     // @param directory root to walk (recursively).
     // @param compiler  used for the reflection pass (`ShaderCompiler::reflect`).
     // @param options   reflection options (search paths, macros, ...); defaults are usually fine.
+    // @param enable_disk_cache opts into ShaderCache.hpp's on-disk reflection cache (a *separate* cache
+    //        from the compiled-bytecode one `ShaderVariantCache` uses — reflection never produces
+    //        bytecode) keyed by each file's content, under the same `default_shader_cache_directory`.
+    //        Mirrors `EngineConfig::enable_shader_disk_cache` — off here by default, same convention as
+    //        `ShaderVariantCache`'s own constructor parameter.
     // @returns every successfully reflected shader found, in traversal order.
     //
     // ```cpp
@@ -64,6 +69,7 @@ namespace SFT::Core::Slang {
     // ```
     [[nodiscard]] vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
-                                                                   const ShaderCompileOptions &options = {});
+                                                                   const ShaderCompileOptions &options = {},
+                                                                   bool enable_disk_cache = false);
 
 } // namespace SFT::Core::Slang

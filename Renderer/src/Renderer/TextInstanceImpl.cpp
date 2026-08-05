@@ -88,7 +88,8 @@ namespace SFT::Renderer {
 
     } // namespace
 
-    Core::RendererExpected<TextPipeline> TextPipeline::create(RHI::RhiDevice &device, RHI::Format color_format) {
+    Core::RendererExpected<TextPipeline> TextPipeline::create(
+        RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         const slang::ShaderCompileOptions options{
             .targets = {slang::ShaderTarget{}},
             .entry_points = {
@@ -96,8 +97,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/text_sdf.slang", "text_sdf"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/text_sdf.slang", "text_sdf"),
+            options,
+            slang::ShaderCompiler{},
+            enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(Core::GraphicsBackendError{
                 Core::GraphicsBackendErrorCode::OperationFailed,

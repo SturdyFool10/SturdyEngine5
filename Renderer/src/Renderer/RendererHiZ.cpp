@@ -57,8 +57,16 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "reduceMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/hiz_build.slang", "hiz_build"), options);
+        // Disk-cached (ShaderVariantCache, same mechanism Material.hpp uses) rather than a bare
+        // ShaderCompiler::compile() call: this only ever runs once per process (guarded by `ready`
+        // above), so the win isn't in-memory reuse — it's skipping a from-source Slang recompile on
+        // every single process launch.
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/hiz_build.slang", "hiz_build"),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(hiz_error("compile Hi-Z build shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }

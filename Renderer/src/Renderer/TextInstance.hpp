@@ -215,7 +215,8 @@ namespace SFT::Renderer {
       public:
         TextPipeline() noexcept = default;
 
-        [[nodiscard]] static Core::RendererExpected<TextPipeline> create(RHI::RhiDevice &device, RHI::Format color_format);
+        [[nodiscard]] static Core::RendererExpected<TextPipeline> create(
+            RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
 
         // Forms consecutive (format, tile, scissor, paint_group) batches without reordering painter
         // order — `instance_scissors[i]` is the clip rect `instances[i]` was placed under (a caller

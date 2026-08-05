@@ -95,8 +95,12 @@ namespace SFT::Renderer {
                 .targets = {slang::ShaderTarget{}},
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "cullMain", .stage = slang::ShaderStage::Compute}},
             };
-            slang::ShaderCompiler compiler;
-            auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/gpu_instance_cull.slang", "gpu_instance_cull"), options);
+            slang::ShaderVariantCache shader_cache{
+                slang::ShaderSource::from_file("Shaders/gpu_instance_cull.slang", "gpu_instance_cull"),
+                options,
+                slang::ShaderCompiler{},
+                recovery_create_info_.enable_shader_disk_cache};
+            auto shader = shader_cache.get_or_compile_base();
             if (!shader) {
                 return unexpected(instance_cull_error("compile instance-cull shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
             }
@@ -165,9 +169,12 @@ namespace SFT::Renderer {
                 .targets = {slang::ShaderTarget{}},
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "vertexMainInstanced", .stage = slang::ShaderStage::Vertex}},
             };
-            slang::ShaderCompiler compiler;
-            auto shader = compiler.compile(
-                slang::ShaderSource::from_file("Shaders/gbuffer_geometry_instanced.slang", "gbuffer_geometry_instanced"), options);
+            slang::ShaderVariantCache shader_cache{
+                slang::ShaderSource::from_file("Shaders/gbuffer_geometry_instanced.slang", "gbuffer_geometry_instanced"),
+                options,
+                slang::ShaderCompiler{},
+                recovery_create_info_.enable_shader_disk_cache};
+            auto shader = shader_cache.get_or_compile_base();
             if (!shader) {
                 return unexpected(instance_cull_error("compile instanced vertex shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
             }

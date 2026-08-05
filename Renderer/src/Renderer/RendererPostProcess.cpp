@@ -101,8 +101,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/fullscreen_tonemap.slang", "fullscreen_tonemap"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/fullscreen_tonemap.slang", "fullscreen_tonemap"),
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(tonemap_error("compile tonemap shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }

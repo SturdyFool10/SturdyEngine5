@@ -51,7 +51,7 @@ namespace SFT::Core::Vulkan {
             .layout = layout->vk_handle(),
         };
 
-        auto pipeline = VulkanPipeline::create_compute(logical_device_->vk_handle(), VK_NULL_HANDLE, info);
+        auto pipeline = VulkanPipeline::create_compute(logical_device_->vk_handle(), pipeline_cache_.vk_handle(), info);
         if (!pipeline) {
             return rhi_error_from_graphics(pipeline.error());
         }

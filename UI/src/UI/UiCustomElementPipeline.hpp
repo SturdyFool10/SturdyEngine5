@@ -38,7 +38,7 @@ namespace SFT::UI {
         // contract (UiElementConstants-prefixed single push-constant struct, no resource bindings)
         // is an app bug, not something to draw around silently.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, RHI::Format color_format,
-                                                    span<const CustomDraw> draws);
+                                                    span<const CustomDraw> draws, bool enable_shader_disk_cache = true);
 
         // Issues one draw call per entry of `draws`, in order — see class doc comment for why this
         // doesn't batch. Every shader referenced must have already been prepared this frame via
@@ -66,7 +66,8 @@ namespace SFT::UI {
 
         [[nodiscard]] Core::RendererExpected<CachedShader *> ensure_shader(RHI::RhiDevice &device,
                                                                             RHI::Format color_format,
-                                                                            const CustomShaderRef &shader);
+                                                                            const CustomShaderRef &shader,
+                                                                            bool enable_shader_disk_cache);
         [[nodiscard]] CachedShader *find_shader(const CustomShaderRef &shader, RHI::Format color_format) noexcept;
 
         vector<CachedShader> shaders_;

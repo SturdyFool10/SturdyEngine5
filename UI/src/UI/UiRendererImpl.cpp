@@ -16,7 +16,8 @@ using std::unexpected;
 
 namespace SFT::UI {
 
-    Core::RendererExpected<UiRenderer> UiRenderer::create(RHI::RhiDevice &device, RHI::Format color_format) {
+    Core::RendererExpected<UiRenderer> UiRenderer::create(
+        RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         UiRenderer renderer;
 
         auto atlas = Renderer::TextAtlas::create(device, Renderer::TextAtlas::Config{});
@@ -25,14 +26,14 @@ namespace SFT::UI {
         }
         renderer.text_atlas_ = std::move(*atlas);
 
-        auto text_pipeline = Renderer::TextPipeline::create(device, color_format);
+        auto text_pipeline = Renderer::TextPipeline::create(device, color_format, enable_shader_disk_cache);
         if (!text_pipeline) {
             renderer.text_atlas_.destroy(device);
             return unexpected(text_pipeline.error());
         }
         renderer.text_pipeline_ = std::move(*text_pipeline);
 
-        auto quad_pipeline = UiQuadPipeline::create(device, color_format);
+        auto quad_pipeline = UiQuadPipeline::create(device, color_format, enable_shader_disk_cache);
         if (!quad_pipeline) {
             renderer.text_pipeline_.destroy(device);
             renderer.text_atlas_.destroy(device);
@@ -40,6 +41,7 @@ namespace SFT::UI {
         }
         renderer.quad_pipeline_ = std::move(*quad_pipeline);
         renderer.color_format_ = color_format;
+        renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
 
         renderer.ready_ = true;
         return renderer;
@@ -187,7 +189,8 @@ namespace SFT::UI {
             return quad_prepared;
         }
 
-        if (Core::RendererResult custom_prepared = custom_element_pipeline_.prepare(device, color_format_, custom_draws_);
+        if (Core::RendererResult custom_prepared =
+                custom_element_pipeline_.prepare(device, color_format_, custom_draws_, enable_shader_disk_cache_);
             !custom_prepared) {
             return custom_prepared;
         }

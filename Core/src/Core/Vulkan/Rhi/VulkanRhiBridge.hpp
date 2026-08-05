@@ -62,6 +62,10 @@ namespace SFT::Core::Vulkan {
                               bool hdr_swapchain_colorspace_enabled = false,
                               bool hdr_metadata_enabled = false);
 
+        // Persists pipeline_cache_ to disk (best-effort) before the implicit member teardown destroys
+        // the underlying VkPipelineCache -- see pipeline_cache_'s own doc comment.
+        ~VulkanRhiDeviceBridge() override;
+
         // ── Introspection ──
         [[nodiscard]] rhi::BackendType backend_type() const noexcept override;
         [[nodiscard]] const rhi::AdapterInfo &adapter_info() const noexcept override;
@@ -320,6 +324,13 @@ namespace SFT::Core::Vulkan {
         VulkanDevice *logical_device_ = nullptr;
         VulkanQueue *graphics_queue_ = nullptr;
         VulkanAllocator *allocator_ = nullptr;
+
+        // Seeded from `pipeline_cache_path()`'s file (if any) at construction, serialized back to it in
+        // the destructor -- so a second process launch's vkCreateGraphicsPipelines/
+        // vkCreateComputePipelines calls can reuse the driver's already-compiled machine code instead of
+        // recompiling from SPIR-V cold every time. A stale blob (different GPU/driver) is silently
+        // ignored by Vulkan itself via the cache header's UUID, so no manual invalidation is needed here.
+        VulkanPipelineCache pipeline_cache_{};
 
         rhi::AdapterInfo adapter_info_{};
         rhi::DeviceLimits limits_{};

@@ -70,7 +70,8 @@ namespace SFT::UI {
 
     } // namespace
 
-    Core::RendererExpected<UiQuadPipeline> UiQuadPipeline::create(RHI::RhiDevice &device, RHI::Format color_format) {
+    Core::RendererExpected<UiQuadPipeline> UiQuadPipeline::create(
+        RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         const slang::ShaderCompileOptions options{
             .targets = {slang::ShaderTarget{}},
             .entry_points = {
@@ -78,8 +79,12 @@ namespace SFT::UI {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(slang::ShaderSource::from_file("Shaders/ui_quad.slang", "ui_quad"), options);
+        slang::ShaderVariantCache shader_cache{
+            slang::ShaderSource::from_file("Shaders/ui_quad.slang", "ui_quad"),
+            options,
+            slang::ShaderCompiler{},
+            enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(ui_quad_error("compile ui_quad shader failed: " + shader.error().message + "\n" + shader.error().diagnostics));
         }

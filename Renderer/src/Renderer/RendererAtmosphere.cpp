@@ -179,8 +179,12 @@ namespace SFT::Renderer {
                 .targets = {slang::ShaderTarget{}},
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "mainCS", .stage = slang::ShaderStage::Compute}},
             };
-            slang::ShaderCompiler compiler;
-            auto shader = compiler.compile(slang::ShaderSource::from_file(shader_path, module_name), options);
+            slang::ShaderVariantCache shader_cache{
+                slang::ShaderSource::from_file(shader_path, module_name),
+                options,
+                slang::ShaderCompiler{},
+                recovery_create_info_.enable_shader_disk_cache};
+            auto shader = shader_cache.get_or_compile_base();
             if (!shader) {
                 return unexpected(atmosphere_error(string{"compile "} + label + " failed: " + shader.error().message + "\n" + shader.error().diagnostics));
             }

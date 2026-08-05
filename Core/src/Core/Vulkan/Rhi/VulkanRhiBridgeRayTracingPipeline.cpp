@@ -154,7 +154,7 @@ namespace SFT::Core::Vulkan {
             .maxPipelineRayRecursionDepth = desc.max_ray_recursion_depth,
             .layout = layout->vk_handle(),
         };
-        auto pipeline = VulkanPipeline::create_ray_tracing(logical_device_->vk_handle(), VK_NULL_HANDLE, info);
+        auto pipeline = VulkanPipeline::create_ray_tracing(logical_device_->vk_handle(), pipeline_cache_.vk_handle(), info);
         if (!pipeline) {
             return rhi_error_from_graphics(pipeline.error());
         }

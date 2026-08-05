@@ -66,10 +66,12 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        slang::ShaderCompiler compiler;
-        auto shader = compiler.compile(
+        slang::ShaderVariantCache shader_cache{
             slang::ShaderSource::from_file("Shaders/deferred_msaa_reconstruction.slang", "deferred_msaa_reconstruction"),
-            options);
+            options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto shader = shader_cache.get_or_compile_base();
         if (!shader) {
             return unexpected(deferred_msaa_error(
                 "compile deferred MSAA reconstruction shader failed: " + shader.error().message +
