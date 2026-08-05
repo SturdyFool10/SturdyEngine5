@@ -457,6 +457,7 @@ namespace SFT::Engine {
     bool Application::initialize() {
         using namespace Platform::Windowing;
 
+        const Foundation::Stopwatch stopwatch;
         client_initialized_ = false;
         client_shutdown_ = false;
         engine_ = make_unique<Engine>();
@@ -512,6 +513,12 @@ namespace SFT::Engine {
             threading_caps = backend->render_threading_capabilities();
         }
         use_render_threading_ = RHI::choose_render_threading_mode(threading_caps) != RHI::RenderThreadingMode::SingleThreaded;
+        Foundation::log_info(
+            "Application: per-window render threading {} (dedicated_thread={} parallel_recording={} platform_allows={}).",
+            use_render_threading_ ? "enabled" : "disabled",
+            threading_caps.backend_allows_dedicated_render_thread,
+            threading_caps.backend_allows_parallel_command_recording,
+            threading_caps.platform_allows_threads);
         if (use_render_threading_ && !windows_.empty()) {
             windows_.front()->render_thread =
                 make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(windows_.front()->window_id)));
@@ -519,6 +526,7 @@ namespace SFT::Engine {
         max_frames_in_flight_ = std::max<u32>(1, engine_->capabilities().max_frames_in_flight);
 
         Async::Scheduler::initialize_low_latency();
+        Foundation::log_info("Application initialized in {}", stopwatch.elapsed_human());
         return true;
     }
 

@@ -286,6 +286,7 @@ namespace SFT::UiWorkbench {
     WorkbenchUi::~WorkbenchUi() = default;
 
     Engine::GameLogicResult WorkbenchUi::initialize(Engine::Engine &engine) {
+        const Foundation::Stopwatch stopwatch;
         const std::optional<std::string> font_bytes =
             Foundation::read_file_to_string("Fonts/MapleMono-NF-Regular.ttf");
         if (!font_bytes) {
@@ -299,6 +300,10 @@ namespace SFT::UiWorkbench {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
         font_ = std::move(*loaded);
+        Foundation::log_info(
+            "UiWorkbench: loaded font 'Fonts/MapleMono-NF-Regular.ttf' ({} bytes) in {}",
+            font_bytes->size(),
+            stopwatch.elapsed_human());
         markdown_input_state_.set_text(UString{"# Text Lab\n"
                                                "Edit this buffer and watch the preview follow.\n"
                                                "\n"

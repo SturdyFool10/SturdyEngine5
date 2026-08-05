@@ -105,6 +105,7 @@ namespace {
         expected<void, WindowError> set_fullscreen(WindowMode /*mode*/) noexcept override { return {}; }
         expected<void, WindowError> set_opacity(f32 /*opacity*/) noexcept override { return {}; }
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override { return 1.0F; }
+        expected<void, WindowError> set_cursor_icon(CursorIcon /*icon*/) noexcept override { return {}; }
         expected<void, WindowError> set_cursor_visible(bool /*visible*/) noexcept override { return {}; }
         expected<void, WindowError> set_cursor_grabbed(bool /*grabbed*/) noexcept override { return {}; }
         expected<void, WindowError> set_relative_mouse_mode(bool /*enabled*/) noexcept override { return {}; }

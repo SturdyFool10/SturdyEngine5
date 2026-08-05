@@ -1172,6 +1172,7 @@ namespace SFT::Core::Slang {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
         }
 
+        const Foundation::Stopwatch stopwatch;
         try {
             auto global_session = state_->global_session.lock();
 
@@ -1189,7 +1190,11 @@ namespace SFT::Core::Slang {
                 return unexpected(shader_state.error());
             }
 
-            return parse_reflection((*shader_state)->module.get(), 0);
+            ShaderExpected<ShaderReflection> reflection = parse_reflection((*shader_state)->module.get(), 0);
+            // debug, not info: reflect() runs once per .slang file during discover_shaders() (could be
+            // hundreds of files) -- see that function's own info-level summary log for the aggregate.
+            Foundation::log_debug("Slang: reflected '{}' in {}", source.module_name, stopwatch.elapsed_human());
+            return reflection;
         } catch (const bad_alloc &) {
             return shader_error(ShaderErrorCode::OutOfMemory, "Out of memory while reflecting Slang shader.");
         } catch (const exception &exception) {
@@ -1219,6 +1224,7 @@ namespace SFT::Core::Slang {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
         }
 
+        const Foundation::Stopwatch stopwatch;
         try {
             auto global_session = state_->global_session.lock();
 
@@ -1273,6 +1279,10 @@ namespace SFT::Core::Slang {
             }
             shader_state->reflection = std::move(*reflection);
 
+            Foundation::log_info("Slang: compiled '{}' ({} entry point(s)) in {}",
+                                 source.module_name,
+                                 entry_points->size(),
+                                 stopwatch.elapsed_human());
             return Shader{std::move(shader_state)};
         } catch (const bad_alloc &) {
             return shader_error(ShaderErrorCode::OutOfMemory, "Out of memory while compiling Slang shader.");

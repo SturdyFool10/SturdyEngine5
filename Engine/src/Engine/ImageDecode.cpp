@@ -25,6 +25,7 @@ namespace SFT::Engine::Detail {
     AssetExpected<DecodedImage> decode_image_rgba8(
         std::span<const std::byte> encoded,
         const std::filesystem::path &source) {
+        const Foundation::Stopwatch stopwatch;
         if (encoded.size() > static_cast<usize>(std::numeric_limits<int>::max())) {
             return std::unexpected(AssetError{
                 .code = AssetErrorCode::DecodeFailure,
@@ -62,6 +63,12 @@ namespace SFT::Engine::Detail {
         };
         std::memcpy(image.pixels.data(), decoded, byte_count);
         stbi_image_free(decoded);
+        Foundation::log_info("ImageDecode: decoded '{}' ({}x{}, {} encoded bytes) in {}",
+                             source.string(),
+                             image.width,
+                             image.height,
+                             encoded.size(),
+                             stopwatch.elapsed_human());
         return image;
     }
 

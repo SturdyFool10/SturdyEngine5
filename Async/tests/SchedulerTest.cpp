@@ -97,13 +97,40 @@ namespace {
         return passed;
     }
 
+    // Behavioral smoke test for TaskWeight, not a placement/perf assertion: Heavy is a placement
+    // *seed* onto the best-ranked workers (see SchedulerImpl.cpp's enqueue()), still fully stealable,
+    // so this only confirms both weights complete correctly and don't deadlock or corrupt results --
+    // real placement can only be observed on an actually hybrid/X3D machine.
+    bool heavy_and_light_tasks_complete() {
+        constexpr std::uint32_t worker_count = 4;
+        SFT::Async::Scheduler::initialize(worker_count);
+
+        std::vector<SFT::Async::TaskHandle<std::uint32_t>> heavy_tasks;
+        std::vector<SFT::Async::TaskHandle<std::uint32_t>> light_tasks;
+        heavy_tasks.reserve(32);
+        light_tasks.reserve(32);
+        for (std::uint32_t index = 0; index < 32; ++index) {
+            heavy_tasks.push_back(SFT::Async::Scheduler::spawn([index] { return index * 2; }, SFT::Async::TaskWeight::Heavy));
+            light_tasks.push_back(SFT::Async::Scheduler::spawn([index] { return index * 3; }));
+        }
+
+        bool passed = true;
+        for (std::uint32_t index = 0; index < 32; ++index) {
+            passed &= check(heavy_tasks[index].wait() == index * 2, "heavy task returned the wrong value");
+            passed &= check(light_tasks[index].wait() == index * 3, "light task returned the wrong value");
+        }
+        SFT::Async::Scheduler::shutdown();
+        return passed;
+    }
+
 } // namespace
 
 int main() {
     const bool passed = single_worker_nested_wait() &&
                         single_worker_nested_parallel_reduce() &&
                         worker_wait_wakes_for_late_dependency_work() &&
-                        saturated_pool_nested_waits();
+                        saturated_pool_nested_waits() &&
+                        heavy_and_light_tasks_complete();
     if (passed) {
         std::cout << "Async scheduler nested-wait tests passed.\n";
         return 0;

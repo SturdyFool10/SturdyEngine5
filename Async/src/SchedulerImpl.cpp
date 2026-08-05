@@ -1,4 +1,6 @@
 #include <Foundation/src/Foundation.hpp>
+#include <Foundation/src/Cpu/CoreMap.hpp>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -9,6 +11,7 @@
 #include <vector>
 #include <Async/src/Scheduler.hpp>
 #include <Async/src/Mutex.hpp>
+#include <Async/src/Topology.hpp>
 
 
 using std::condition_variable;
@@ -22,6 +25,15 @@ using std::vector;
 namespace SFT::Async {
 
     namespace {
+
+        [[nodiscard]] const char *core_type_name(Foundation::Cpu::CoreType type) noexcept {
+            switch (type) {
+                case Foundation::Cpu::CoreType::Performance: return "Performance";
+                case Foundation::Cpu::CoreType::Efficiency: return "Efficiency";
+                case Foundation::Cpu::CoreType::Unknown: return "Unknown";
+            }
+            return "?";
+        }
 
         // A single worker's task queue: push/pop from the back (owner), steal from the front
         // (thief). Built on `Mutex<T>` rather than a lock-free Chase-Lev deque — simpler to get
@@ -75,6 +87,14 @@ namespace SFT::Async {
             std::mutex wake_mutex;
             condition_variable wake_cv;
             SchedulerConfig config{};
+
+            // Workers are created in best-core-first order (see initialize()'s use of
+            // ranked_logical_cores()), so worker indices [0, heavy_worker_count) already name the
+            // fastest cores on this machine — no separate ranked-index table needed at enqueue time.
+            // `Heavy` tasks (TaskWeight) are seeded onto one of these deques round-robin; `Light` tasks
+            // (the default, and every existing call site) are completely unaffected.
+            usize heavy_worker_count = 1;
+            std::atomic<u32> heavy_round_robin{0};
         };
 
         Pool &pool() noexcept {
@@ -259,11 +279,61 @@ namespace SFT::Async {
             p.threads.emplace_back(worker_loop, i);
         }
 
-        Foundation::log_info("Async::Scheduler started {} worker thread(s) [spin={}, yield={}, sleep={}us].",
-                             worker_count,
-                             active_config.idle_spin_iterations,
-                             active_config.idle_yield_iterations,
-                             active_config.idle_sleep_microseconds);
+        // Pin each worker to a real core, best-ranked cores first (ranked_logical_cores(),
+        // Topology.hpp) — worker indices [0, heavy_worker_count) below are therefore already the
+        // fastest cores on this machine by construction, with no separate lookup needed at enqueue
+        // time. This is the scheduler's new default placement behavior (no opt-out config flag);
+        // pinning failures are logged once and otherwise harmless — a worker just keeps floating
+        // across cores exactly like every worker did before this change.
+        const vector<u32> ranked_cores = ranked_logical_cores();
+        u32 pinned_count = 0;
+        if (!ranked_cores.empty()) {
+            for (u32 i = 0; i < worker_count; ++i) {
+                if (pin_thread_to_core(p.threads[i], ranked_cores[i % ranked_cores.size()])) {
+                    ++pinned_count;
+                }
+            }
+        }
+        p.heavy_worker_count = std::max<usize>(1, worker_count / 4);
+
+        const auto &core_map = Foundation::Cpu::CoreMap::instance();
+        Foundation::log_info(
+            "Async::Scheduler started {} worker thread(s) [spin={}, yield={}, sleep={}us], "
+            "{} pinned, {} heavy-preferred; topology: {} logical core(s), {} distinct type(s), hybrid={}.",
+            worker_count,
+            active_config.idle_spin_iterations,
+            active_config.idle_yield_iterations,
+            active_config.idle_sleep_microseconds,
+            pinned_count,
+            p.heavy_worker_count,
+            core_map.core_count(),
+            core_map.distinct_type_count(),
+            core_map.is_hybrid());
+
+        // One line per distinct core type (CoreCapabilities equality -- CoreMap.hpp) so an actually
+        // hybrid or multi-CCD X3D machine shows exactly what the ranking above saw: which cores got
+        // grouped together, why (CoreType and/or cache size), and how many of each this run has.
+        for (usize type_index = 0; type_index < core_map.distinct_type_count(); ++type_index) {
+            const vector<usize> &members = core_map.core_indices_of_type(type_index);
+            const Foundation::Cpu::CoreCapabilities &rep = core_map.core(members.front());
+
+            usize extension_count = 0;
+            for (const bool bit : rep.extensions) {
+                extension_count += bit ? 1 : 0;
+            }
+
+            Foundation::log_info(
+                "  topology type[{}]: {} core(s), core_type={}, {} extension(s), "
+                "l1d={}B l1i={}B l2={}B l3={}B",
+                type_index,
+                members.size(),
+                core_type_name(rep.type),
+                extension_count,
+                rep.l1d_bytes,
+                rep.l1i_bytes,
+                rep.l2_bytes,
+                rep.l3_bytes);
+        }
     }
 
     void Scheduler::shutdown() noexcept {
@@ -296,7 +366,7 @@ namespace SFT::Async {
         return static_cast<u32>(pool().deques.size());
     }
 
-    void Scheduler::enqueue(unique_ptr<Detail::TaskBase> task) noexcept {
+    void Scheduler::enqueue(unique_ptr<Detail::TaskBase> task, TaskWeight weight) noexcept {
         Pool &p = pool();
         if (!p.running.load(std::memory_order_acquire)) {
             initialize();
@@ -304,12 +374,24 @@ namespace SFT::Async {
 
         // Publish the count before the queue entry so a worker can never dequeue and decrement from
         // zero. Seeing a positive count slightly early is harmless: it is only an idle-wakeup hint.
+        // This increment, and every other detail of execute_one_task()'s lock-free gate, is identical
+        // regardless of `weight` below — only the destination deque changes.
         p.queued_count.fetch_add(1, std::memory_order_acq_rel);
-        if (t_worker_index >= 0) {
+
+        // Heavy is a placement *seed*, not a pin: it lands on one of the best-ranked workers' own
+        // deques (see initialize()'s core-ranked worker order), but try_take_task()'s existing
+        // work-stealing is completely unchanged, so any other worker can still pick it up if that
+        // worker is busy. Light (the default) is byte-for-byte today's existing path.
+        if (weight == TaskWeight::Heavy && p.heavy_worker_count > 0) {
+            const u32 index = p.heavy_round_robin.fetch_add(1, std::memory_order_relaxed) %
+                               static_cast<u32>(p.heavy_worker_count);
+            p.deques[index]->push_back(std::move(task));
+        } else if (t_worker_index >= 0) {
             p.deques[static_cast<usize>(t_worker_index)]->push_back(std::move(task));
         } else {
             p.injector.push_back(std::move(task));
         }
+
         if (p.config.notify_all_on_enqueue) {
             p.wake_cv.notify_all();
         } else {

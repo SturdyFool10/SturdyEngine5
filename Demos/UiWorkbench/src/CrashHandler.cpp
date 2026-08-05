@@ -164,7 +164,7 @@ namespace SFT::UiWorkbench {
             }
             log_backtrace();
             Foundation::flush_logs();
-            // SA_RESETHANDLER (below) already reset this signal's disposition to default before this
+            // SA_RESETHAND (below) already reset this signal's disposition to default before this
             // handler ran, so simply returning re-raises it against that default — producing the
             // platform's normal core dump / crash report instead of looping back into this handler.
         }
@@ -182,7 +182,7 @@ namespace SFT::UiWorkbench {
 
         struct sigaction action{};
         action.sa_sigaction = &on_fatal_signal;
-        action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHANDLER;
+        action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
         sigemptyset(&action.sa_mask);
 
         for (const int signal_number : {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS}) {

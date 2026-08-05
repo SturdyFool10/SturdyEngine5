@@ -185,6 +185,8 @@ namespace SFT::Engine {
                                                          "Engine renderer is already initialized."});
         }
 
+        const Foundation::Stopwatch stopwatch;
+
         // Reflect every shader on disk before the graphics backend exists, so the rest of startup
         // can see entry points, bindings, and parameter layouts without having generated any
         // target bytecode yet.
@@ -217,6 +219,7 @@ namespace SFT::Engine {
         config_ = config;
         primary_window_ = &window;
         capabilities_ = renderer_.capabilities();
+        Foundation::log_info("Engine initialized in {}", stopwatch.elapsed_human());
         return *surface;
     }
 

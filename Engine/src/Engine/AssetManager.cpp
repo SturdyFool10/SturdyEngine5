@@ -221,6 +221,8 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::load_shader(ShaderAssetDesc desc) {
+        const Foundation::Stopwatch stopwatch;
+        const std::string source_for_log = desc.source.string();
         if (desc.source.empty()) {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A shader asset requires a source path."));
@@ -287,6 +289,7 @@ namespace SFT::Engine {
             source_bytes = static_cast<usize>(size);
         }
 
+        Foundation::log_info("AssetManager: loaded shader '{}' ({} bytes) in {}", source_for_log, source_bytes, stopwatch.elapsed_human());
         std::unique_lock lock{impl_->mutex};
         return impl_->insert(Impl::Record{
             .type = AssetType::Shader,
@@ -368,6 +371,7 @@ namespace SFT::Engine {
     AssetExpected<Asset> AssetManager::load_texture(const std::filesystem::path &source,
                                                     TextureColorSpace color_space,
                                                     UString label) {
+        const Foundation::Stopwatch stopwatch;
         auto encoded = read_binary_file(source);
         if (!encoded) {
             return std::unexpected(encoded.error());
@@ -380,6 +384,8 @@ namespace SFT::Engine {
         if (label.empty()) {
             label = path_label(source, "texture");
         }
+        const u32 decoded_width = decoded->width;
+        const u32 decoded_height = decoded->height;
         auto texture = create_texture(TextureAssetDesc{
             .width = decoded->width,
             .height = decoded->height,
@@ -390,6 +396,11 @@ namespace SFT::Engine {
         if (!texture) {
             return texture;
         }
+        Foundation::log_info("AssetManager: loaded texture '{}' ({}x{}) in {}",
+                             source.string(),
+                             decoded_width,
+                             decoded_height,
+                             stopwatch.elapsed_human());
 
         std::unique_lock lock{impl_->mutex};
         if (Impl::Record *record = impl_->find(*texture)) {
@@ -419,6 +430,7 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::load_sound(const std::filesystem::path &source, UString label) {
+        const Foundation::Stopwatch stopwatch;
         auto encoded = read_binary_file(source);
         if (!encoded) {
             return std::unexpected(encoded.error());
@@ -465,6 +477,12 @@ namespace SFT::Engine {
         if (label.empty()) {
             label = path_label(source, "sound");
         }
+        Foundation::log_info("AssetManager: loaded sound '{}' ({} frames, {}ch @ {}Hz) in {}",
+                             source.string(),
+                             frames_read,
+                             channels,
+                             sample_rate,
+                             stopwatch.elapsed_human());
         std::unique_lock lock{impl_->mutex};
         return impl_->insert(Impl::Record{
             .type = AssetType::Sound,
@@ -486,6 +504,7 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::load_file(const std::filesystem::path &source, UString label) {
+        const Foundation::Stopwatch stopwatch;
         auto bytes = read_binary_file(source);
         if (!bytes) {
             return std::unexpected(bytes.error());
@@ -494,6 +513,7 @@ namespace SFT::Engine {
             label = path_label(source, "file");
         }
         auto shared = std::make_shared<std::vector<std::byte>>(std::move(*bytes));
+        Foundation::log_info("AssetManager: loaded file '{}' ({} bytes) in {}", source.string(), shared->size(), stopwatch.elapsed_human());
         std::unique_lock lock{impl_->mutex};
         return impl_->insert(Impl::Record{
             .type = AssetType::File,
@@ -526,6 +546,7 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::create_model(ModelAssetDesc desc) {
+        const Foundation::Stopwatch stopwatch;
         if (desc.primitives.empty()) {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A model asset requires at least one primitive."));
@@ -619,6 +640,11 @@ namespace SFT::Engine {
         const usize approximate_bytes =
             model.info.vertex_count * sizeof(SFT::Renderer::GeometryVertex) +
             model.info.index_count * sizeof(u32);
+        Foundation::log_info("AssetManager: created model '{}' ({} primitive(s), {} tri) in {}",
+                             desc.label.cpp_string(),
+                             model.info.primitive_count,
+                             model.info.triangle_count,
+                             stopwatch.elapsed_human());
         return impl_->insert(Impl::Record{
             .type = AssetType::Model,
             .label = std::move(desc.label),

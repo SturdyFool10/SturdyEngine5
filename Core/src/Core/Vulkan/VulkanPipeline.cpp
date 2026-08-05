@@ -138,9 +138,11 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             if (vkCreateGraphicsPipelines == nullptr)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines is not loaded. Call volkLoadDevice after device creation.");
 
+            const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines failed.");
+            Foundation::log_info("Vulkan: created graphics pipeline ({} stage(s)) in {}", info.stageCount, stopwatch.elapsed_human());
             VulkanPipeline out;
             out.device_ = device;
             out.pipeline_ = pipeline;
@@ -153,10 +155,12 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkPipelineCache cache,
             VkGraphicsPipelineCreateInfo info // taken by value so we can assert renderPass is null
             ) noexcept {
+            const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkCreateGraphicsPipelines (dynamic rendering) failed.");
+            Foundation::log_info("Vulkan: created graphics pipeline (dynamic rendering, {} stage(s)) in {}", info.stageCount, stopwatch.elapsed_human());
             VulkanPipeline out;
             out.device_ = device;
             out.pipeline_ = pipeline;
@@ -168,9 +172,11 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkDevice device,
             VkPipelineCache cache,
             const VkComputePipelineCreateInfo &info) noexcept {
+            const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateComputePipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines failed.");
+            Foundation::log_info("Vulkan: created compute pipeline in {}", stopwatch.elapsed_human());
             VulkanPipeline out;
             out.device_ = device;
             out.pipeline_ = pipeline;

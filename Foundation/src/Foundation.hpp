@@ -19,6 +19,7 @@
 #include <Foundation/src/Cpu/SimdMath.hpp>
 #include <Foundation/src/Memory.hpp>
 #include <Foundation/src/Utils.hpp>
+#include <Foundation/src/Stopwatch.hpp>
 #include <Foundation/src/Cli.hpp>
 
 using b8 [[maybe_unused]] = SFT::Foundation::b8;

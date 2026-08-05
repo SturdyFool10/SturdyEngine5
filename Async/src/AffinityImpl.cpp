@@ -5,22 +5,8 @@
 #include <thread>
 #include <utility>
 
-#if !defined(STURDY_PLATFORM_WEB)
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#elif defined(__APPLE__)
-#include <mach/mach.h>
-#include <mach/thread_policy.h>
-#include <pthread.h>
-#elif defined(__linux__)
-#include <pthread.h>
-#include <sched.h>
-#endif
-#endif
 #include <Async/src/Affinity.hpp>
+#include <Async/src/Topology.hpp>
 
 using std::unique_lock;
 using std::unique_ptr;
@@ -85,43 +71,15 @@ namespace SFT::Async {
     }
 
     bool DedicatedThread::pin_to_core(u32 core_index) noexcept {
-#if defined(STURDY_PLATFORM_WEB)
-        (void)core_index;
-        return false;
-#elif defined(_WIN32)
-        if (!thread_.joinable()) {
+        return pin_thread_to_core(thread_, core_index);
+    }
+
+    bool DedicatedThread::pin_to_fastest_core() noexcept {
+        const std::vector<u32> ranked = ranked_logical_cores();
+        if (ranked.empty()) {
             return false;
         }
-        const DWORD_PTR mask = DWORD_PTR{1} << core_index;
-        return SetThreadAffinityMask(thread_.native_handle(), mask) != 0;
-#elif defined(__APPLE__)
-        // Mach's thread-affinity-tag API is a *scheduling hint* for cache/locality grouping, not a
-        // hard core pin — macOS offers no equivalent of Linux/Windows' exact affinity masks.
-        if (!thread_.joinable()) {
-            return false;
-        }
-        thread_affinity_policy_data_t policy{.affinity_tag = static_cast<integer_t>(core_index)};
-        const mach_port_t mach_thread = pthread_mach_thread_np(thread_.native_handle());
-        return thread_policy_set(mach_thread,
-                                  THREAD_AFFINITY_POLICY,
-                                  reinterpret_cast<thread_policy_t>(&policy),
-                                  THREAD_AFFINITY_POLICY_COUNT) == KERN_SUCCESS;
-#elif defined(__linux__)
-        if (!thread_.joinable()) {
-            return false;
-        }
-        cpu_set_t cpu_set;
-        CPU_ZERO(&cpu_set);
-        CPU_SET(static_cast<int>(core_index), &cpu_set);
-        return pthread_setaffinity_np(thread_.native_handle(), sizeof(cpu_set_t), &cpu_set) == 0;
-#else
-        // FreeBSD (and anything else): not implemented yet — FreeBSD's cpuset_t API lives under
-        // <pthread_np.h>/<sys/cpuset.h> and differs enough from Linux's that it needs its own
-        // verified implementation rather than a guess. Flesh out when there's a FreeBSD box to test
-        // against (same stance Platform/CMakeLists.txt already takes for FreeBSD-specific code).
-        (void)core_index;
-        return false;
-#endif
+        return pin_thread_to_core(thread_, ranked.front());
     }
 
 } // namespace SFT::Async

@@ -10,6 +10,10 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
                                                                    const ShaderCompileOptions &options) {
         vector<UnCompiledShader> shaders;
+        Foundation::log_info("Slang: discovering shaders under '{}'...", directory.string());
+        const Foundation::Stopwatch stopwatch;
+        usize considered = 0;
+        usize failed = 0;
 
         error_code ec;
         if (!fs::is_directory(directory, ec) || ec) {
@@ -34,6 +38,7 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                 continue;
             }
 
+            ++considered;
             const string path_string = entry.path().string();
             auto text = Foundation::read_file_to_string(entry.path());
             if (!text) {
@@ -46,6 +51,7 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                     .details = {},
                     .help = "check the file path and read permissions",
                 });
+                ++failed;
                 continue;
             }
 
@@ -64,12 +70,18 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                     .details = error.diagnostics,
                     .help = "fix the reported Slang diagnostics before starting the renderer",
                 });
+                ++failed;
                 continue;
             }
 
             shaders.push_back(UnCompiledShader{std::move(source), std::move(*reflected)});
         }
 
+        Foundation::log_info("Slang: discovered {} shader(s) ({} of {} .slang file(s) failed) in {}",
+                             shaders.size(),
+                             failed,
+                             considered,
+                             stopwatch.elapsed_human());
         return shaders;
     }
 

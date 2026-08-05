@@ -1,25 +1,30 @@
 #pragma once
 
+#include <Foundation/src/Cpu/CpuTopology.hpp>
 #include <Foundation/src/Cpu/Extensions.hpp>
 #include <Foundation/src/Types.hpp>
 
+#include <utility>
 #include <vector>
 
 namespace SFT::Foundation::Cpu {
 
     // Everything known about one logical core: its extension support (a `vector<bool>` indexed by
-    // `Extension`, per the project's explicit storage-mechanism requirement) plus cache sizes. Cache
-    // size is part of a core's identity here on purpose — a cache-asymmetric design (e.g. AMD's X3D
-    // parts, where half the cores get a 3D V-Cache die with much larger L3 and half don't) has zero
-    // ISA difference between its core types; `extensions` alone can't distinguish them, but
-    // `l3_bytes` can.
+    // `Extension`, per the project's explicit storage-mechanism requirement) plus cache sizes plus
+    // `CoreType` (CpuTopology.hpp). Cache size and `type` are both part of a core's identity here on
+    // purpose: a cache-asymmetric design (e.g. AMD's X3D parts, where half the cores get a 3D V-Cache
+    // die with much larger L3 and half don't) has zero ISA difference between its core types, so
+    // `extensions` alone can't distinguish them, but `l3_bytes` can. Conversely `type` distinguishes
+    // Intel P/E cores even in the (largely theoretical, given Intel's documented ISA-parity policy)
+    // case where their cache sizes happen to coincide.
     struct CoreCapabilities {
         std::vector<bool> extensions; // size == static_cast<usize>(Extension::Count)
         usize l1d_bytes = 0;
         usize l1i_bytes = 0;
         usize l2_bytes = 0;
-        usize l3_bytes = 0; // the L3 slice/shared cache visible from this core -- the X3D signal
-        u32 x2apic_id = 0;  // topology identity (CpuTopology.hpp); 0 where unavailable
+        usize l3_bytes = 0;              // the L3 slice/shared cache visible from this core -- the X3D signal
+        u32 x2apic_id = 0;               // topology identity (CpuTopology.hpp); 0 where unavailable
+        CoreType type = CoreType::Unknown; // P/E classification (CpuTopology.hpp); Unknown on non-Intel/uniform
 
         [[nodiscard]] bool has(Extension extension) const noexcept {
             const auto index = static_cast<usize>(extension);
@@ -27,9 +32,10 @@ namespace SFT::Foundation::Cpu {
         }
     };
 
-    // Two cores are the same "type" iff every field here matches — same extension support and same
-    // cache sizes. This is what makes X3D-style cache-only asymmetry register as more than one type
-    // without needing a dedicated enum value for every possible future kind of core asymmetry.
+    // Two cores are the same "type" iff every field here matches — same extension support, same cache
+    // sizes, and same `CoreType` (x2apic_id is identity, not type, and is deliberately excluded). This
+    // is what makes X3D-style cache-only asymmetry register as more than one type without needing a
+    // dedicated enum value for every possible future kind of core asymmetry.
     [[nodiscard]] bool operator==(const CoreCapabilities &a, const CoreCapabilities &b) noexcept;
 
     // Per-core view of the whole machine, built once by pinning the calling thread to each logical
@@ -45,6 +51,15 @@ namespace SFT::Foundation::Cpu {
 
         [[nodiscard]] usize core_count() const noexcept { return cores_.size(); }
         [[nodiscard]] const CoreCapabilities &core(usize logical_index) const noexcept { return cores_.at(logical_index); }
+
+        // What the logical processor *this call* is executing on can do, right now. Looks up
+        // `Cpu::current_core()` (CpuTopology.hpp; reads fresh via `cpuid` every call) against the
+        // x2apic_id -> index map built once at construction. A task that migrated between workers
+        // between two calls gets a correctly different answer each time — this is deliberately not
+        // cached per-call the way `cores_` itself is cached once. Returns `nullptr` on the rare machine
+        // where the running core's x2apic_id wasn't part of the set enumerated at construction (e.g. a
+        // CPU hot-plug after startup).
+        [[nodiscard]] const CoreCapabilities *capabilities_of_current_core() const noexcept;
 
         // Number of distinct core types present (by `CoreCapabilities` equality — see `operator==`
         // above). 1 on a uniform machine; >1 on any hybrid design, ISA-heterogeneous (Intel P/E) or
@@ -65,6 +80,7 @@ namespace SFT::Foundation::Cpu {
         std::vector<CoreCapabilities> cores_;
         std::vector<usize> type_of_core_;              // core index -> type index
         std::vector<std::vector<usize>> cores_of_type_; // type index -> core indices
+        std::vector<std::pair<u32, usize>> index_of_x2apic_id_; // sorted by x2apic_id; linear-scan-sized
     };
 
 } // namespace SFT::Foundation::Cpu

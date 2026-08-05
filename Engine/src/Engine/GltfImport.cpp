@@ -245,7 +245,9 @@ namespace SFT::Engine {
 
     AssetExpected<GltfImportResult> import_gltf(AssetManager &assets, const std::filesystem::path &source,
                                                 Asset shader) {
+        const Foundation::Stopwatch stopwatch;
         const std::string source_path = source.string();
+        Foundation::log_info("GltfImport: loading '{}'...", source_path);
 
         cgltf_options options{};
         cgltf_data *raw_data = nullptr;
@@ -758,8 +760,9 @@ namespace SFT::Engine {
             const f64 mesh_mb = static_cast<f64>(total_mesh_bytes) / (1024.0 * 1024.0);
             const f64 texture_mb = static_cast<f64>(total_texture_bytes) / (1024.0 * 1024.0);
             Foundation::log_info(
-                "Loaded glTF '{}': {} model(s), {} triangles, ~{:.2f} MB VRAM ({:.2f} MB mesh, {:.2f} MB textures)",
-                source_path, out.models.size(), total_triangles, mesh_mb + texture_mb, mesh_mb, texture_mb);
+                "Loaded glTF '{}': {} model(s), {} triangles, ~{:.2f} MB VRAM ({:.2f} MB mesh, {:.2f} MB textures) in {}",
+                source_path, out.models.size(), total_triangles, mesh_mb + texture_mb, mesh_mb, texture_mb,
+                stopwatch.elapsed_human());
         }
 
         return out;
