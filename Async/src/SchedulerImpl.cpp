@@ -44,6 +44,12 @@ namespace SFT::Async {
         // drop-in optimization behind this same interface if that ever shows up in a profile.
         class WorkerDeque {
           public:
+            // `debug_name` labels this deque's mutex in Tracy's lock view (Mutex<T>::set_debug_name,
+            // Async/src/Mutex.hpp) -- this is the scheduler's documented contention-sensitive hot
+            // path (see class comment above), so it's one of the few Async::Mutex instances worth
+            // telling apart on the timeline rather than leaving under the shared generic label.
+            explicit WorkerDeque(const char *debug_name = nullptr) noexcept { tasks_.set_debug_name(debug_name); }
+
             void push_back(unique_ptr<Detail::TaskBase> task) noexcept {
                 auto guard = tasks_.lock();
                 guard->push_back(std::move(task));
@@ -81,7 +87,7 @@ namespace SFT::Async {
         struct Pool {
             vector<thread> threads;
             vector<unique_ptr<WorkerDeque>> deques;
-            WorkerDeque injector; // fallback queue fed by non-worker threads
+            WorkerDeque injector{"Scheduler Injector"}; // fallback queue fed by non-worker threads
             std::atomic<bool> running{false};
             // Tasks available in a deque, excluding work already executing. This keeps idle workers
             // asleep while the pool is fully occupied by long-running tasks.
@@ -289,7 +295,9 @@ namespace SFT::Async {
         const u32 worker_count = active_config.worker_count;
         p.deques.reserve(worker_count);
         for (u32 i = 0; i < worker_count; ++i) {
-            p.deques.push_back(make_unique<WorkerDeque>());
+            char deque_name[32];
+            std::snprintf(deque_name, sizeof(deque_name), "Scheduler Worker %u Deque", i);
+            p.deques.push_back(make_unique<WorkerDeque>(deque_name));
         }
 
         p.threads.reserve(worker_count);

@@ -14,6 +14,12 @@ namespace SFT::Async {
 
         Mutex<deque<function<void()>>> &main_thread_queue() noexcept {
             static Mutex<deque<function<void()>>> queue;
+            // Mutex<T> is non-copyable/non-movable (it guards its value in place), so it can't be
+            // built-then-named via a static initializer lambda the usual way -- this runs
+            // set_debug_name() exactly once, piggybacking on the same thread-safe "init on first
+            // call" guarantee `queue` itself already gets as a function-local static.
+            static const bool named = (queue.set_debug_name("Async Main Thread Queue"), true);
+            (void)named;
             return queue;
         }
 

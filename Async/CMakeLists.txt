@@ -4,8 +4,10 @@ sturdy_add_package(Async
 
     PUBLIC_DEPS
         Sturdy::Foundation
-
-    PRIVATE_DEPS
+        # Public, not private: Mutex.hpp (a public header, used by every consumer of Async::Mutex<T>
+        # -- Platform, GlfwWindowProvider, and others that never otherwise touch Async/Tracy) includes
+        # <tracy/Tracy.hpp> directly for its lock-visibility wrapping. Private visibility here only
+        # covers Async's own .cpp files, not headers transitively included by other packages.
         Sturdy::Tracy
 
     DEBUG_PUBLIC_DEPS
