@@ -879,6 +879,32 @@ namespace SFT::Core::Vulkan {
         u32 active_pipeline_statistics_query_index_ = 0;
     };
 
+    std::optional<VulkanRhiDeviceBridge::CommandBufferRecord> VulkanRhiDeviceBridge::checkout_command_buffer(
+        u32 family_index) noexcept {
+        auto guard = command_buffer_free_list_.lock();
+        auto it = guard->find(family_index);
+        if (it == guard->end() || it->second.empty()) {
+            return std::nullopt;
+        }
+        CommandBufferRecord record = std::move(it->second.back());
+        it->second.pop_back();
+        return record;
+    }
+
+    void VulkanRhiDeviceBridge::return_command_buffer(CommandBufferRecord &&record) noexcept {
+        const u32 family_index = record.pool.family_index();
+        // Recycles the pool's one command buffer back to initial state so the next checkout's
+        // begin() is legal without a separate per-buffer reset -- VulkanCommandPool::create() already
+        // requests VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT (VulkanCommandPool.hpp).
+        if (auto reset = record.pool.reset(); !reset) {
+            Foundation::log_warn("Command pool reset failed while returning it to the free list ({}) -- dropping it instead of reusing.",
+                                 reset.error().message);
+            return;
+        }
+        auto guard = command_buffer_free_list_.lock();
+        (*guard)[family_index].push_back(std::move(record));
+    }
+
     rhi::RhiExpected<unique_ptr<rhi::CommandEncoder>> VulkanRhiDeviceBridge::create_command_encoder(
         const rhi::CommandEncoderDesc &desc) {
         if (logical_device_ == nullptr || graphics_queue_ == nullptr) {
@@ -897,27 +923,43 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "create_command_encoder: queue lane is not available.");
         }
 
-        auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), queue->family_index());
-        if (!pool) {
-            return rhi_error_from_graphics(pool.error());
+        // Reuse a returned (pool, command buffer) pair for this queue family when one is available --
+        // see command_buffer_free_list_'s own doc comment. Only mints a fresh
+        // vkCreateCommandPool/vkAllocateCommandBuffers pair when the free list for this family is
+        // empty (steady state should exhaust this fallback after the first few frames reach the real
+        // peak concurrent-encoder count).
+        CommandBufferRecord record;
+        if (std::optional<CommandBufferRecord> reused = checkout_command_buffer(queue->family_index())) {
+            record = std::move(*reused);
+        } else {
+            auto pool = VulkanCommandPool::create(logical_device_->vk_handle(), queue->family_index());
+            if (!pool) {
+                return rhi_error_from_graphics(pool.error());
+            }
+            auto command_buffer = VulkanCommandBuffer::allocate(logical_device_->vk_handle(), pool->vk_handle());
+            if (!command_buffer) {
+                return rhi_error_from_graphics(command_buffer.error());
+            }
+            record.pool = std::move(*pool);
+            record.command_buffer = std::move(*command_buffer);
         }
-        auto command_buffer = VulkanCommandBuffer::allocate(logical_device_->vk_handle(), pool->vk_handle());
-        if (!command_buffer) {
-            return rhi_error_from_graphics(command_buffer.error());
-        }
+        record.queue = desc.queue;
 
         const VkCommandBufferUsageFlags flags = desc.usage == rhi::CommandBufferUsage::OneTimeSubmit
             ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
             : VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-        if (auto began = command_buffer->begin(flags); !began) {
+        if (auto began = record.command_buffer.begin(flags); !began) {
             return rhi_error_from_graphics(began.error());
         }
 
-        CommandBufferRecord record{std::move(*pool), std::move(*command_buffer), desc.queue};
         return unique_ptr<rhi::CommandEncoder>(make_unique<VulkanRhiCommandEncoder>(*this, std::move(record)));
     }
 
     void VulkanRhiDeviceBridge::destroy_command_buffer(rhi::CommandBufferHandle handle) noexcept {
+        CommandBufferRecord *record = command_buffers_.find(handle);
+        if (record != nullptr) {
+            return_command_buffer(std::move(*record));
+        }
         command_buffers_.erase(handle);
     }
 

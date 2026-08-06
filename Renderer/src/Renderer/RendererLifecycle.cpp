@@ -883,6 +883,11 @@ namespace SFT::Renderer {
             .image_count = record.presentation.swapchain_image_count != 0
                                ? record.presentation.swapchain_image_count
                                : record.desired_frames_in_flight + 1,
+            // Sizes the backend's acquisition-semaphore ring, independent of image_count above — see
+            // RHI::SwapchainDesc::frames_in_flight's own doc comment. capabilities_.max_frames_in_flight
+            // is the one resolved value every frames-in-flight-derived subsystem consumes (Phase 1 of
+            // the sync/presentation rework — Core::resolve_frames_in_flight, Core/Renderer.hpp).
+            .frames_in_flight = capabilities_.max_frames_in_flight,
             .old_swapchain = old_swapchain,
             .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
             .label = "renderer swapchain",
@@ -1450,34 +1455,37 @@ namespace SFT::Renderer {
             return unexpected(tonemap_pipeline.error());
         }
 
-        optional<RHI::SurfaceTexture> acquired_surface;
-        if (!offscreen_output) {
-            auto acquired = [&]() {
-                ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
-                return device->acquire_next_texture(record.rhi_swapchain);
-            }();
-            if (!acquired) {
-                if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
-                    return {};
+        // Ensures a successfully-acquired swapchain image is never abandoned: unless explicitly
+        // disarmed once its acquisition semaphore is safely consumed by a successful submit(), any
+        // early return below forces a full swapchain rebuild (fresh semaphores) instead of risking
+        // the next acquire on this frame slot observing a still-signaled semaphore -- Vulkan
+        // requires it unsignaled at acquire time, and there is no explicit release path
+        // (VK_EXT_swapchain_maintenance1) wired in here to un-signal it any other way. A single
+        // guard covering every exit path, rather than ad hoc handling at each one -- see "successful
+        // acquisition must always resolve" (Phase 2 of the sync/presentation rework).
+        struct AcquiredImageGuard {
+            WindowSurfaceRecord *record = nullptr;
+            bool resolved = false;
+            ~AcquiredImageGuard() noexcept {
+                if (record != nullptr && !resolved) {
+                    record->rhi_swapchain_dirty = true;
                 }
-                if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
-                    record.rhi_swapchain_dirty = true;
-                }
-                return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
             }
-            acquired_surface = *acquired;
-            if (acquired_surface->suboptimal) {
-                record.rhi_swapchain_dirty = true;
-            }
-        }
+        } acquired_image_guard;
 
-        const RHI::TextureHandle output_texture = offscreen_output
-            ? resolved_offscreen->texture
-            : acquired_surface->texture;
-        const RHI::TextureViewHandle output_view = offscreen_output
-            ? resolved_offscreen->view
-            : acquired_surface->view;
-
+        // Everything from here down through graph_resources.reset() below is acquisition-independent
+        // -- none of it reads the acquired swapchain image/texture/view, only `submission`/`slot`/
+        // `record` state already established above -- so it runs *before* acquire_next_texture
+        // instead of after. This keeps the acquired image (and its acquisition semaphore) held for as
+        // short a time as possible, and means a failure in any of this work returns before an image
+        // was ever acquired at all, so acquired_image_guard never fires an unnecessary swapchain
+        // rebuild for a failure that has nothing to do with the swapchain (spec: "do not acquire so
+        // early that the image remains held through long CPU preparation" / "do not perform expensive
+        // image-specific work before knowing an image was acquired" -- the TLAS build below is the
+        // main example). The one exception is prepare_spectral_photon_mapping, deliberately left
+        // *after* acquire below despite also being acquisition-independent in principle -- see its own
+        // call site's comment for why (optimistic "populated" bookkeeping that must not run unless the
+        // encoder recording it is actually going to be submitted).
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
@@ -1520,22 +1528,6 @@ namespace SFT::Renderer {
         const bool spectral_photon_emission_needed = spectral_photon_mapping &&
             (!slot.spectral_photon_targets.populated ||
              slot.spectral_photon_targets.state_signature != spectral_photon_signature);
-        if (gpu_timing_enabled) {
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
-        }
-        if (Core::RendererResult photon_mapping = prepare_spectral_photon_mapping(
-                **encoder, slot, submission, spectral_photon_emission_needed, spectral_photon_signature);
-            !photon_mapping.has_value()) {
-            return photon_mapping;
-        }
-        if (gpu_timing_enabled) {
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
-            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
-                .label = "pre-graph: photon hash clear",
-                .begin_query_index = 2,
-                .end_query_index = 3,
-            });
-        }
 
         vector<TextDrawBatch> text_overlay_batches;
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
@@ -1646,6 +1638,70 @@ namespace SFT::Renderer {
         graph.reset();
         RenderGraphBlackboard &graph_resources = record.graph_resources;
         graph_resources.reset();
+
+        // Genuinely image-dependent work starts here: acquiring which specific swapchain image this
+        // frame will render into, then importing exactly that image into the render graph just
+        // declared above as `final_output` below. See this function's earlier comment (right before
+        // encoder creation) for why everything above this point was deliberately placed before acquire.
+        optional<RHI::SurfaceTexture> acquired_surface;
+        if (!offscreen_output) {
+            auto acquired = [&]() {
+                ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
+                // Same ring index as `slot` above (frame.frame_index % frame_count) -- this is what
+                // ties the acquisition semaphore's reuse safety to that slot's own "wait in-flight
+                // frame fence" stage having already proven its prior GPU work complete.
+                return device->acquire_next_texture(record.rhi_swapchain, frame.frame_index % frame_count);
+            }();
+            if (!acquired) {
+                if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
+                    return {};
+                }
+                if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
+                    record.rhi_swapchain_dirty = true;
+                }
+                return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
+            }
+            acquired_surface = *acquired;
+            acquired_image_guard.record = &record;
+            if (acquired_surface->suboptimal) {
+                record.rhi_swapchain_dirty = true;
+            }
+        }
+
+        const RHI::TextureHandle output_texture = offscreen_output
+            ? resolved_offscreen->texture
+            : acquired_surface->texture;
+        const RHI::TextureViewHandle output_view = offscreen_output
+            ? resolved_offscreen->view
+            : acquired_surface->view;
+
+        // Deliberately NOT hoisted above acquire with the rest of this function's pre-graph work
+        // (TLAS build, text/UI overlay prep, graph.reset()): prepare_spectral_photon_mapping marks
+        // slot.spectral_photon_targets.populated = true (and updates its state_signature) as soon as
+        // it *records* the emission dispatch, optimistically assuming the encoder recording it will
+        // actually be submitted. Recording it before acquire would mean the routine, expected-to-
+        // happen "NotReady" acquire result (a clean early return, not an error -- see below) could
+        // mark the photon map populated for a frame whose GPU work never ran, leaving a later frame
+        // that trusts `populated` reading stale/uninitialized photon data. TLAS build has no such
+        // optimistic-completion bookkeeping (it unconditionally rebuilds every call), so it stays
+        // safely hoisted above; only this call needs to wait until an image is actually in hand.
+        if (gpu_timing_enabled) {
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
+        }
+        if (Core::RendererResult photon_mapping = prepare_spectral_photon_mapping(
+                **encoder, slot, submission, spectral_photon_emission_needed, spectral_photon_signature);
+            !photon_mapping.has_value()) {
+            return photon_mapping;
+        }
+        if (gpu_timing_enabled) {
+            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
+            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
+                .label = "pre-graph: photon hash clear",
+                .begin_query_index = 2,
+                .end_query_index = 3,
+            });
+        }
+
         // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
         // (every add_render_pass/add_compute_pass/set_execute call, down to just before "execute
         // render graph" starts), which is too much code to wrap in one extra brace level without
@@ -2780,6 +2836,10 @@ namespace SFT::Renderer {
                 return unexpected(graphics_error_from_rhi(submitted.error(), "submit RHI frame"));
             }
         }
+        // The acquisition semaphore (if any) is now safely consumed -- submit_desc's presented_textures
+        // embedded it as a wait-semaphore, and that submission just succeeded. See acquired_image_guard's
+        // own doc comment: only a *successful* submit() actually resolves the acquired image.
+        acquired_image_guard.resolved = true;
 
         // The frame is now in flight. Hand its GPU resources to the ring slot for fence-gated cleanup —
         // deliberately NO wait here (the whole point of the async model). They are reclaimed the next time
@@ -2810,28 +2870,26 @@ namespace SFT::Renderer {
         if (offscreen_output) {
             mark_offscreen_render_target_initialized(submission.offscreen_target);
         } else {
-            // Handed off to record.present_thread rather than called synchronously here: on Windows
-            // the driver commonly blocks the calling thread inside vkQueuePresentKHR until this
-            // frame's GPU work actually finishes (present-mode independent -- its pWaitSemaphores
-            // waits on the render-finished semaphore this same frame's submit() just signaled, only
-            // moments earlier). Blocking this render thread on that would waste the CPU/GPU overlap
-            // desired_frames_in_flight is meant to buy. The result (error / suboptimal-dirty flag /
-            // queue-lock-wait timing) is picked up next frame by drain_pending_present() instead of
-            // here -- see WindowSurfaceRecord::pending_present's doc comment for the ordering
-            // invariant that keeps this safe.
-            if (!record.present_thread) {
-                record.present_thread = std::make_unique<Async::DedicatedThread>("PresentThread");
-            }
+            // Handed off to Renderer's shared PresentationCoordinator rather than called
+            // synchronously here: on Windows the driver commonly blocks the calling thread inside
+            // vkQueuePresentKHR until this frame's GPU work actually finishes (present-mode
+            // independent -- its pWaitSemaphores waits on the render-finished semaphore this same
+            // frame's submit() just signaled, only moments earlier). Blocking this render thread on
+            // that would waste the CPU/GPU overlap desired_frames_in_flight is meant to buy, and
+            // routing through the coordinator (rather than a per-window present thread) gives every
+            // window sharing this native queue one ordered point of issuance instead of N
+            // independently-threaded ones with no ordering guarantee relative to each other. The
+            // result (error / suboptimal-dirty flag / queue-lock-wait timing) is picked up next frame
+            // by drain_pending_present() instead of here -- see WindowSurfaceRecord::pending_present's
+            // doc comment for the ordering invariant that keeps this safe.
             ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
             RHI::PresentDesc present_desc{
                 .texture = *acquired_surface,
                 .label = "renderer present",
             };
-            WindowSurfaceRecord *record_ptr = &record;
-            record.pending_present = record.present_thread->run(
-                [device, present_desc, record_ptr]() -> RHI::RhiExpected<RHI::PresentOutcome> {
-                    return device->present(present_desc, &record_ptr->last_present_lock_wait_ms);
-                });
+            const bool present_via_compute = device->presentation_resolution(record.rhi_swapchain).present_queue_is_compute;
+            record.pending_present = presentation_coordinator_for(present_via_compute).enqueue(
+                device, present_desc, &record.last_present_lock_wait_ms);
         }
 
         if (submission.render_graph.wait_for_completion) {
@@ -3470,10 +3528,11 @@ namespace SFT::Renderer {
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
         if (RHI::RhiDevice *device = rhi_device()) {
             // Must happen before drain_frames_in_flight()'s wait_idle() / anything that destroys this
-            // record's swapchain -- an outstanding present_thread job that hasn't actually issued its
-            // vkQueuePresentKHR call yet is invisible to wait_idle() (it only knows about work already
-            // handed to the driver). Result/error ignored: this is best-effort teardown, and the window
-            // is going away regardless. See WindowSurfaceRecord::pending_present's doc comment.
+            // record's swapchain -- an outstanding presentation-coordinator job that hasn't actually
+            // issued its vkQueuePresentKHR call yet is invisible to wait_idle() (it only knows about
+            // work already handed to the driver). Result/error ignored: this is best-effort teardown,
+            // and the window is going away regardless. See WindowSurfaceRecord::pending_present's doc
+            // comment.
             (void)drain_pending_present(record, nullptr);
             // Per-window teardown is allowed to stall. The window is about to disappear, so first make
             // every submitted frame for this surface complete and reclaim frame-owned command buffers,

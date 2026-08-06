@@ -927,12 +927,39 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     continue;
                 }
 
-                struct LevelPassResult {
+                struct LevelPassGroup {
                     Core::RendererResult status{};
                     RHI::CommandBufferHandle command_buffer{};
                     std::unique_ptr<RHI::CommandEncoder> encoder;
+                    usize begin = 0; // index into `positions`, inclusive
+                    usize end = 0;   // index into `positions`, exclusive
                 };
-                vector<LevelPassResult> results(positions.size());
+                // Every pass in one level is mutually independent by construction (compute_levels_
+                // from_usage's own contract: two passes touching the same resource at all always land
+                // in different levels) — recording several of them sequentially into one encoder needs
+                // no barrier between them and is exactly as valid as recording each into its own
+                // encoder, since submission order within one command buffer already matches what
+                // separate command buffers submitted together would produce. Grouping into at most
+                // worker_count() encoders (rather than one per pass) avoids paying a full pool
+                // checkout + vkBeginCommandBuffer/vkEndCommandBuffer + task-spawn/collect round trip
+                // for passes too small to be worth their own encoder, while never creating fewer
+                // groups than there are workers available to record them concurrently — see
+                // RenderGraph.cpp's own module doc / spec's "adaptive pass grouping" guidance.
+                const usize worker_count = std::max<usize>(1, Async::Scheduler::worker_count());
+                const usize group_count = std::min(positions.size(), worker_count);
+                vector<LevelPassGroup> groups(group_count);
+                {
+                    const usize base = positions.size() / group_count;
+                    const usize remainder = positions.size() % group_count;
+                    usize cursor = 0;
+                    for (usize g = 0; g < group_count; ++g) {
+                        const usize count = base + (g < remainder ? 1 : 0);
+                        groups[g].begin = cursor;
+                        groups[g].end = cursor + count;
+                        cursor += count;
+                    }
+                }
+
                 // Pool/buffer *creation* happens here, serially, on the calling thread — not inside
                 // the spawned tasks below. Measured on this codebase's dev hardware (RADV/RX 9070):
                 // calling vkCreateCommandPool/vkAllocateCommandBuffers concurrently from multiple
@@ -948,42 +975,45 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 // parallel below.
                 {
                     ZoneScopedN("RenderGraph::create_level_encoders");
-                    for (usize slot = 0; slot < positions.size(); ++slot) {
+                    for (LevelPassGroup &group : groups) {
                         auto encoder = device.create_command_encoder(
                             RHI::CommandEncoderDesc{.queue = queue, .label = "render graph pass (parallel)"});
                         if (!encoder) {
                             return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                                      "execute_parallel: failed to create command encoder."));
                         }
-                        results[slot].encoder = std::move(*encoder);
+                        group.encoder = std::move(*encoder);
                     }
                 }
 
                 {
                     ZoneScopedN("RenderGraph::execute_level_tasks");
                     vector<Async::TaskHandle<void>> tasks;
-                    tasks.reserve(positions.size());
-                    for (usize slot = 0; slot < positions.size(); ++slot) {
-                        const usize i = positions[slot];
-                        tasks.push_back(Async::Scheduler::spawn([this, &execution_order, &results, slot, i,
+                    tasks.reserve(groups.size());
+                    for (usize g = 0; g < groups.size(); ++g) {
+                        tasks.push_back(Async::Scheduler::spawn([this, &execution_order, &positions, &groups, g,
                                                                   timestamp_query_set, timing_enabled, cpu_timing_enabled,
                                                                   out_pass_timings, out_cpu_pass_timings]() {
-                            RHI::CommandEncoder &encoder = *results[slot].encoder;
-                            Core::RendererResult result = execute_one_pass(
-                                encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
-                                cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
-                                cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
-                            if (!result.has_value()) {
-                                results[slot].status = result;
-                                return;
+                            LevelPassGroup &group = groups[g];
+                            RHI::CommandEncoder &encoder = *group.encoder;
+                            for (usize slot = group.begin; slot < group.end; ++slot) {
+                                const usize i = positions[slot];
+                                Core::RendererResult result = execute_one_pass(
+                                    encoder, execution_order[i], static_cast<u32>(i * 2), timestamp_query_set, timing_enabled,
+                                    cpu_timing_enabled, timing_enabled ? &(*out_pass_timings)[i] : nullptr,
+                                    cpu_timing_enabled ? &(*out_cpu_pass_timings)[i] : nullptr);
+                                if (!result.has_value()) {
+                                    group.status = result;
+                                    return;
+                                }
                             }
                             auto finished = encoder.finish();
                             if (!finished) {
-                                results[slot].status = Core::graphics_backend_error(
+                                group.status = Core::graphics_backend_error(
                                     Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");
                                 return;
                             }
-                            results[slot].command_buffer = *finished;
+                            group.command_buffer = *finished;
                         }));
                     }
                     for (const Async::TaskHandle<void> &task : tasks) {
@@ -993,15 +1023,15 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 
                 Core::RendererResult first_error{};
                 bool has_error = false;
-                for (LevelPassResult &result : results) {
-                    if (!result.status.has_value()) {
+                for (LevelPassGroup &group : groups) {
+                    if (!group.status.has_value()) {
                         if (!has_error) {
-                            first_error = result.status;
+                            first_error = group.status;
                             has_error = true;
                         }
                         continue;
                     }
-                    out_command_buffers.push_back(result.command_buffer);
+                    out_command_buffers.push_back(group.command_buffer);
                 }
                 if (has_error) {
                     return fail(first_error);

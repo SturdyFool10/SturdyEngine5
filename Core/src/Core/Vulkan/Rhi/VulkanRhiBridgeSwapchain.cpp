@@ -590,9 +590,29 @@ namespace SFT::Core::Vulkan {
         record.has_hdr_metadata = initial_hdr_metadata_set;
         record.textures.reserve(record.swapchain.image_count());
         record.views.reserve(record.swapchain.image_count());
-        record.image_available_semaphores.reserve(record.swapchain.image_count());
         record.render_finished_semaphores.reserve(record.swapchain.image_count());
+        // Indexed by *image* index (set in acquire_next_texture, read in submit()) — records which
+        // image_available_semaphores slot ended up signaled for that image's most recent acquire,
+        // since vkAcquireNextImageKHR doesn't let the caller choose which image it gets back. Stays
+        // sized to image_count, independent of the frames-in-flight ring below.
         record.image_available_signal_indices.resize(record.swapchain.image_count(), 0);
+
+        // One image_available semaphore per resolved CPU-side frame slot, not per swapchain image —
+        // see SwapchainDesc::frames_in_flight's own doc comment. acquire_next_texture indexes this by
+        // the caller's frame_slot_index, so a semaphore's reuse safety is proven by that slot's own
+        // submission fence (Renderer::render_frame_rhi's "wait in-flight frame fence" stage) rather
+        // than by a free-running cursor with no relationship to GPU completion.
+        const u32 frames_in_flight_count = desc.frames_in_flight != 0
+            ? desc.frames_in_flight
+            : std::max<u32>(1, record.swapchain.image_count());
+        record.image_available_semaphores.reserve(frames_in_flight_count);
+        for (u32 i = 0; i < frames_in_flight_count; ++i) {
+            auto image_available = VulkanSemaphore::create_binary(logical_device_->vk_handle());
+            if (!image_available) {
+                return rhi_error_from_graphics(image_available.error());
+            }
+            record.image_available_semaphores.push_back(std::move(*image_available));
+        }
 
         for (VkImage image : record.swapchain.images()) {
             VulkanImage borrowed = VulkanImage::borrow(logical_device_->vk_handle(), image, record.swapchain.format(),
@@ -624,12 +644,6 @@ namespace SFT::Core::Vulkan {
                 return rhi_error_from_graphics(view.error());
             }
             record.views.push_back(texture_views_.insert(std::move(*view)));
-
-            auto image_available = VulkanSemaphore::create_binary(logical_device_->vk_handle());
-            if (!image_available) {
-                return rhi_error_from_graphics(image_available.error());
-            }
-            record.image_available_semaphores.push_back(std::move(*image_available));
 
             auto render_finished = VulkanSemaphore::create_binary(logical_device_->vk_handle());
             if (!render_finished) {
@@ -687,7 +701,7 @@ namespace SFT::Core::Vulkan {
         return record != nullptr ? record->presentation_resolution : rhi::PresentationResolution{};
     }
 
-    rhi::RhiExpected<rhi::SurfaceTexture> VulkanRhiDeviceBridge::acquire_next_texture(rhi::SwapchainHandle handle) {
+    rhi::RhiExpected<rhi::SurfaceTexture> VulkanRhiDeviceBridge::acquire_next_texture(rhi::SwapchainHandle handle, u32 frame_slot_index) {
         SwapchainRecord *record = swapchains_.find(handle);
         if (record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "acquire_next_texture: unknown swapchain handle.");
@@ -696,8 +710,17 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "acquire_next_texture: swapchain has no image-available semaphores.");
         }
+        if (frame_slot_index >= record->image_available_semaphores.size()) {
+            return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                  "acquire_next_texture: frame_slot_index is out of range for this swapchain's frame ring.");
+        }
 
-        const u32 semaphore_index = record->acquire_cursor++ % static_cast<u32>(record->image_available_semaphores.size());
+        // The semaphore for this acquire is the caller's own frame slot's semaphore, not a
+        // free-running cursor — its safety is proven by that slot's submission fence having already
+        // signaled (the caller's "wait in-flight frame fence" stage, which always runs before this
+        // call for a reused slot). A timeout/not-ready result below never touches this index, so it
+        // can never desynchronize semaphore-reuse tracking from actual GPU completion.
+        const u32 semaphore_index = frame_slot_index;
         VkAcquireNextImageInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
             .swapchain = record->swapchain.vk_handle(),

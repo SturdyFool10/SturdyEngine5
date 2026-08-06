@@ -36,6 +36,7 @@
 #include "TileGrid.hpp"
 #include "TextAtlas.hpp"
 #include "TextInstance.hpp"
+#include "PresentationCoordinator.hpp"
 
 using std::chrono::steady_clock;
 using std::optional;
@@ -598,15 +599,16 @@ namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
-            // Runs RHI::RhiDevice::present() (ultimately vkQueuePresentKHR) off this window's render
-            // thread. On Windows the driver commonly blocks the calling thread inside that call until
-            // the frame's GPU work actually finishes -- present-mode independent, not just vsync/FIFO
-            // pacing (see render_frame_rhi's present-issue site) -- so running it here instead lets the
-            // render thread move straight on to recording the next frame rather than idling through
-            // that wait. Created lazily on first use; persists for the window's whole lifetime,
-            // independent of any one swapchain instance (a recreated swapchain keeps using the same
-            // present_thread).
-            unique_ptr<Async::DedicatedThread> present_thread;
+            // RHI::RhiDevice::present() (ultimately vkQueuePresentKHR) is issued through Renderer's
+            // shared PresentationCoordinator (presentation_coordinator_for()), not this window's own
+            // render thread. On Windows the driver commonly blocks the calling thread inside that
+            // call until the frame's GPU work actually finishes -- present-mode independent, not
+            // just vsync/FIFO pacing (see render_frame_rhi's present-issue site) -- so handing it off
+            // lets the render thread move straight on to recording the next frame rather than idling
+            // through that wait, while also giving every window sharing one native queue a single,
+            // ordered point of issuance instead of N independently-threaded ones racing
+            // VulkanQueue::submission_lock_ with no ordering guarantee between them.
+            //
             // The previous frame's outstanding present, if any. At most one is ever in flight:
             // render_frame_rhi always drains this (see its swapchain-recreate section) before reading
             // rhi_swapchain_dirty or letting the swapchain be recreated/destroyed -- destroying a
@@ -617,9 +619,9 @@ namespace SFT::Renderer {
             // Queue-mutex wait time recorded by the last drained pending_present's device->present()
             // call, surfaced into the *next* frame's stage timings the same one-frame-stale way
             // GPU/CPU pass timings already are (FrameGpuTimingTarget's doc comment) -- there is no
-            // earlier point at which the async present's own timings are known. Written only by
-            // present_thread, read only after pending_present->wait() returns (TaskState's done-flag
-            // release/acquire orders the two), so this never needs its own lock.
+            // earlier point at which the async present's own timings are known. Written only by the
+            // presentation coordinator thread, read only after pending_present->wait() returns
+            // (TaskState's done-flag release/acquire orders the two), so this never needs its own lock.
             f64 last_present_lock_wait_ms = 0.0;
             SpectralAccumulationTarget spectral_accumulation{};
             // Ring of N = desired_frames_in_flight (well, capabilities_.max_frames_in_flight — see
@@ -1272,6 +1274,16 @@ namespace SFT::Renderer {
         // recreates every frame, by design, see render_frame_rhi — doesn't pay a wait_idle() on every
         // single one of those frames; it still won't grow the backlog without bound for a drag that
         // runs long enough to never hit a non-resizing frame.
+        //
+        // FOLLOW-UP (not yet done): drain_frames_in_flight()'s wait_idle() below is a real, sanctioned
+        // full-device stall standing in for per-present completion tracking this engine doesn't have
+        // yet. RHI::Feature::SwapchainMaintenance (VK_KHR_swapchain_maintenance1) is now detected and
+        // enabled when the device supports it (VulkanBackendDevice.cpp) specifically so a future pass
+        // can attach VkSwapchainPresentFenceInfoEXT to each present, track the fence from a retired
+        // swapchain's *last* present, and wait on just that fence here instead of the whole device —
+        // routine swapchain recreation would then never need to stall unrelated in-flight frames on
+        // other windows. That fence-tracking plumbing itself is not implemented; this function still
+        // always uses the wait_idle() fallback regardless of the feature being enabled.
         void maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(
@@ -1774,6 +1786,19 @@ namespace SFT::Renderer {
         // only needs the lock for the brief lookup, then keeps using the (stable) pointer unlocked.
         mutable Async::Mutex<vector<unique_ptr<WindowSurfaceRecord>>> window_surfaces_;
         mutable Async::Mutex<vector<OffscreenRenderTargetRecord>> offscreen_render_targets_;
+        // Centralize vkQueuePresentKHR issuance across every window that shares a native queue --
+        // see PresentationCoordinator's own doc comment. Constructed unconditionally (not lazily) so
+        // two windows' render threads can never race a lazy-create check; the compute one costs
+        // nothing when nothing ever presents from compute (PresentationSettings::
+        // allow_present_from_compute defaults to false -- see Core/Renderer.hpp). Selected per
+        // swapchain via presentation_coordinator_for(), keyed by
+        // RHI::PresentationResolution::present_queue_is_compute (the backend's own resolved answer,
+        // never re-derived here).
+        PresentationCoordinator graphics_presentation_coordinator_{"PresentationCoordinator-Graphics"};
+        PresentationCoordinator compute_presentation_coordinator_{"PresentationCoordinator-Compute"};
+        [[nodiscard]] PresentationCoordinator &presentation_coordinator_for(bool present_via_compute) noexcept {
+            return present_via_compute ? compute_presentation_coordinator_ : graphics_presentation_coordinator_;
+        }
         Core::RendererCapabilities capabilities_{};
         // A single growable GPU buffer that mesh uploads sub-allocate append-only ranges from, instead
         // of each Mesh owning its own dedicated VkBuffer — see try_upload_mesh/grow_geometry_arena.

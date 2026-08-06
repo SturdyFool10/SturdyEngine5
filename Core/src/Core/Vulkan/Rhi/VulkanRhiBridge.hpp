@@ -12,6 +12,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #pragma endregion
 
@@ -140,7 +141,7 @@ namespace SFT::Core::Vulkan {
             rhi::SwapchainHandle handle, const rhi::HdrContentLightLevelUpdate &update) override;
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
         [[nodiscard]] rhi::PresentationResolution presentation_resolution(rhi::SwapchainHandle handle) const noexcept override;
-        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain) override;
+        [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain, u32 frame_slot_index) override;
         [[nodiscard]] rhi::RhiExpected<rhi::PresentOutcome> present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) override;
 
         [[nodiscard]] rhi::RhiExpected<rhi::SemaphoreHandle> create_semaphore(const rhi::SemaphoreDesc &desc) override;
@@ -259,7 +260,6 @@ namespace SFT::Core::Vulkan {
             vector<VulkanSemaphore> image_available_semaphores;
             vector<u32> image_available_signal_indices;
             vector<VulkanSemaphore> render_finished_semaphores;
-            u32 acquire_cursor = 0;
             u32 current_image = ~0u;
             bool current_suboptimal = false;
             // Requested-vs-effective presentation state (RHI::PresentationResolution's own doc
@@ -317,6 +317,17 @@ namespace SFT::Core::Vulkan {
         // creation failed in acquire_upload_resources) is dropped instead of recycled — pushing an
         // invalid entry back would just hand the same failure to the next caller.
         void release_upload_resources(UploadResources resources) noexcept;
+
+        // Checks one (pool, command buffer) pair out of command_buffer_free_list_ for `family_index`
+        // (std::nullopt if that family's free list is empty — the caller falls back to creating a
+        // fresh pair). See command_buffer_free_list_'s own doc comment.
+        [[nodiscard]] std::optional<CommandBufferRecord> checkout_command_buffer(u32 family_index) noexcept;
+        // Resets `record`'s pool (recycling its one command buffer back to initial state) and returns
+        // it to command_buffer_free_list_ for reuse, keyed by the pool's own family_index. A pool
+        // reset failure (rare) drops the entry instead of returning a possibly-corrupt pool to the
+        // free list — it is simply destroyed here (record goes out of scope), same fallback
+        // release_upload_resources uses for a broken entry.
+        void return_command_buffer(CommandBufferRecord &&record) noexcept;
 
         VulkanBackend *backend_ = nullptr;
         VkInstance instance_ = VK_NULL_HANDLE;
@@ -383,6 +394,16 @@ namespace SFT::Core::Vulkan {
         // Grows lazily to whatever the real peak concurrent-upload count turns out to be, then stays
         // that size (entries are always returned, never destroyed, once created).
         Async::Mutex<vector<UploadResources>> upload_pool_;
+
+        // Same shape as upload_pool_ immediately above, generalized to every create_command_encoder()
+        // caller instead of just upload_via_staging(): a per-queue-family free list of reusable
+        // (pool, command buffer) pairs, keyed by VulkanQueue::family_index() since a command pool is
+        // only ever compatible with the family it was created for. create_command_encoder() checks
+        // one out (falling back to a fresh vkCreateCommandPool/vkAllocateCommandBuffers only when the
+        // family's free list is empty); destroy_command_buffer() resets and returns it instead of
+        // destroying it. Grows lazily to the real peak concurrent-encoder count per family, then
+        // stays that size. See checkout_command_buffer()/return_command_buffer() (VulkanRhiBridgeCommands.cpp).
+        Async::Mutex<std::unordered_map<u32, vector<CommandBufferRecord>>> command_buffer_free_list_;
 
         // Appended after the original bridge state to avoid shifting resource-pool offsets across module
         // implementation units while the project is still using fragile C++23 module/BMI generation.

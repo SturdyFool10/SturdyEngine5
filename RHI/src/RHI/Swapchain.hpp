@@ -245,6 +245,16 @@ namespace SFT::RHI {
         // Desired images in the swapchain (0 = backend's choice, typically 2–3). The backend clamps
         // to the surface's supported range and reports the actual count.
         u32 image_count = 0;
+        // The resolved CPU-side frames-in-flight count (Core::RendererCapabilities::
+        // max_frames_in_flight, itself produced by Core::resolve_frames_in_flight — see its doc
+        // comment) — deliberately a separate field from image_count, not derived from it. This is
+        // what sizes the backend's acquisition-semaphore ring: one semaphore per frame slot, indexed
+        // by the caller's frame-slot index (acquire_next_texture's frame_slot_index parameter), so a
+        // semaphore's reuse safety is proven by that slot's own submission fence rather than by a
+        // free-running cursor unrelated to GPU completion. 0 falls back to image_count (or the
+        // backend's own image-count default if that's also 0) purely so callers that genuinely have
+        // no frames-in-flight concept (tests, tools) still get a sane, nonzero ring size.
+        u32 frames_in_flight = 0;
         // Optional retiring swapchain for resize/recreation handoff. Backends may pass this to native
         // APIs such as Vulkan's oldSwapchain/DXGI resize path to reuse presentation resources. The old
         // handle remains caller-owned: destroy it after this creation succeeds; keep it on failure.

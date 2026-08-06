@@ -145,9 +145,19 @@ namespace SFT::Core::Vulkan {
         // own doc comment, and the "Optional Core: enabled when present" handling below).
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR, .pNext = nullptr};
+        // Detection/enablement only for now -- RHI::Feature::SwapchainMaintenance gates whether
+        // VkSwapchainPresentFenceInfoEXT/vkReleaseSwapchainImagesEXT are *legal* to use, but nothing
+        // in this codebase calls them yet (present-fence-gated swapchain retirement, replacing the
+        // wait_idle() fallback in Renderer::maybe_flush_retired_swapchains, is tracked as follow-up
+        // work — see that function's own doc comment). Querying it now so
+        // RHI::RhiDevice::enabled_features() correctly reports availability regardless.
+        VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR supportedSwapchainMaintenance1Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
+            .pNext = &supportedPresentModeFifoLatestReadyFeatures,
+        };
         VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQueryFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
-            .pNext = &supportedPresentModeFifoLatestReadyFeatures,
+            .pNext = &supportedSwapchainMaintenance1Features,
         };
         VkPhysicalDeviceRayTracingPipelineFeaturesKHR supportedRayTracingPipelineFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
@@ -241,6 +251,10 @@ namespace SFT::Core::Vulkan {
         if (this->physicalDevice.supports_extension(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME) &&
             supportedPresentModeFifoLatestReadyFeatures.presentModeFifoLatestReady) {
             supported_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
+        }
+        if (this->physicalDevice.supports_extension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) &&
+            supportedSwapchainMaintenance1Features.swapchainMaintenance1) {
+            supported_rhi_features.set(RHI::Feature::SwapchainMaintenance);
         }
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         const auto probed_dedicated_compute_family = find_dedicated_queue_family(
@@ -350,6 +364,10 @@ namespace SFT::Core::Vulkan {
         // — a lower-latency Fifo variant with no tradeoff for an app to weigh, unlike raytracing/
         // async-compute/etc. above (all real capacity/power tradeoffs the app opts into deliberately).
         optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
+        // Same reasoning as PresentModeFifoLatestReady immediately above: a pure capability with no
+        // tradeoff, enabled whenever the device reports it. Detection/enablement only for now — see
+        // the query-time struct's own doc comment above for what's not wired up yet.
+        optional_rhi_features.set(RHI::Feature::SwapchainMaintenance);
 
         feature_report_ = RHI::negotiate_features(supported_rhi_features, required_rhi_features, optional_rhi_features);
         if (!feature_report_.required_satisfied()) {
@@ -403,6 +421,7 @@ namespace SFT::Core::Vulkan {
         const bool enable_ray_query = enabled_rhi_features.has(RHI::Feature::RayQuery);
         const bool enable_bindless_descriptor_heap = enabled_rhi_features.has(RHI::Feature::BindlessResources);
         const bool enable_present_mode_fifo_latest_ready = enabled_rhi_features.has(RHI::Feature::PresentModeFifoLatestReady);
+        const bool enable_swapchain_maintenance1 = enabled_rhi_features.has(RHI::Feature::SwapchainMaintenance);
 
         // Build the enable chain — only request what we verified above.
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoLatestReadyFeatures{
@@ -412,6 +431,14 @@ namespace SFT::Core::Vulkan {
         };
         void *feature_chain_tail = enable_present_mode_fifo_latest_ready
             ? static_cast<void *>(&presentModeFifoLatestReadyFeatures) : nullptr;
+        VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR swapchainMaintenance1Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .swapchainMaintenance1 = enable_swapchain_maintenance1 ? VK_TRUE : VK_FALSE,
+        };
+        if (enable_swapchain_maintenance1) {
+            feature_chain_tail = &swapchainMaintenance1Features;
+        }
         VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
             .pNext = feature_chain_tail,
@@ -442,14 +469,17 @@ namespace SFT::Core::Vulkan {
             .taskShader = enable_task_shader ? VK_TRUE : VK_FALSE,
             .meshShader = enable_mesh_shader ? VK_TRUE : VK_FALSE,
         };
-        // meshFeatures must stay chained here whenever *either* it or the struct behind it
-        // (presentModeFifoLatestReadyFeatures) is needed — dropping it based on enable_mesh_shader
-        // alone would silently disconnect presentModeFifoLatestReadyFeatures from the enable chain
-        // too whenever mesh shading itself is off.
+        // meshFeatures must stay chained here whenever *any* struct behind it in the chain
+        // (rayQueryFeatures / rayTracingPipelineFeatures / accelerationStructureFeatures /
+        // swapchainMaintenance1Features / presentModeFifoLatestReadyFeatures) is needed — dropping it
+        // based on enable_mesh_shader alone would silently disconnect all of those from the enable
+        // chain too whenever mesh shading itself is off. Every bool that conditionally advances
+        // feature_chain_tail above must be listed here.
         VkPhysicalDeviceVulkan14Features features14{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
-                      enable_ray_query || enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
+                      enable_ray_query || enable_swapchain_maintenance1 ||
+                      enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
         };
         VkPhysicalDeviceVulkan13Features features13{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,

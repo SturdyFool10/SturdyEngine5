@@ -305,7 +305,16 @@ namespace SFT::RHI {
 
         // Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
         // caller to recreate the swapchain.
-        [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain) = 0;
+        //
+        // `frame_slot_index` identifies which of the caller's own CPU-side frame-in-flight slots this
+        // acquisition belongs to (e.g. `frame_index % resolved_frames_in_flight`) — it selects which
+        // internal acquisition semaphore to signal, sized to match SwapchainDesc::frames_in_flight.
+        // The caller must only pass a slot index whose previous use has already been proven complete
+        // (that slot's own submission fence signaled) before calling this — reusing a slot's
+        // acquisition semaphore before its prior GPU work has finished is undefined. A NotReady/
+        // SurfaceLost/error result never consumes or advances any acquisition-semaphore state, so
+        // retrying with the same frame_slot_index after a timeout is always safe.
+        [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain, u32 frame_slot_index) = 0;
         // Presents a previously acquired image. `suboptimal` in the result mirrors acquire — present
         // succeeded but the swapchain should be rebuilt soon.
         //
