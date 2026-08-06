@@ -1070,6 +1070,14 @@ function(sturdy_fetch_tracy)
     # anything or compile down to no-ops. Tied to STURDY_ENABLE_TRACY so a shipping (Dist) build
     # can disable profiling instrumentation without touching any instrumented source file.
     set(TRACY_ENABLE ${STURDY_ENABLE_TRACY} CACHE BOOL "" FORCE)
+    # Without on-demand mode, the client starts queuing every zone/message/plot in memory the
+    # instant the process starts and keeps all of it forever, unbounded, until a Tracy profiler
+    # actually connects and drains it -- if nothing ever connects (the common case for a normal
+    # run of an instrumented build), that queue is a slow, steady, unbounded memory leak, and it
+    # gets worse the more of the engine is instrumented. On-demand defers recording until a
+    # profiler client attaches, so an instrumented-but-unobserved run has effectively zero
+    # profiling memory overhead.
+    set(TRACY_ON_DEMAND ${STURDY_ENABLE_TRACY} CACHE BOOL "" FORCE)
     sturdy_fetchcontent_declare(tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
         GIT_TAG ${STURDY_TRACY_TAG}
