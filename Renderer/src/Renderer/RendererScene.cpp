@@ -33,7 +33,9 @@ namespace SFT::Renderer {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
         }
 
-        const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
+        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
+        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp).
+        const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.scene_frame_resources.size() != frame_count) {
             destroy_scene_gpu_resources(record.scene_frame_resources);
             record.scene_frame_resources.assign(frame_count, SceneFrameGpuResources{});

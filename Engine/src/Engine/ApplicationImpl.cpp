@@ -525,7 +525,10 @@ namespace SFT::Engine {
             windows_.front()->render_thread =
                 make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(windows_.front()->window_id)));
         }
-        max_frames_in_flight_ = std::max<u32>(1, engine_->capabilities().max_frames_in_flight);
+        // engine_->capabilities().max_frames_in_flight is already >= 1 by construction — resolved
+        // exactly once, through Core::resolve_frames_in_flight, at backend initialization
+        // (Core/Vulkan/VulkanBackendDevice.cpp) — no local zero-guard needed here.
+        max_frames_in_flight_ = engine_->capabilities().max_frames_in_flight;
 
         Async::Scheduler::initialize_low_latency();
         Foundation::log_info("Application initialized in {}", stopwatch.elapsed_human());

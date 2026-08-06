@@ -313,7 +313,7 @@ namespace SFT::RHI {
         // backend's internal presentation-queue lock before the native present call itself could
         // start — lets a caller profiling this stage separate backend-internal contention from time
         // genuinely spent blocked in the driver/platform presentation engine.
-        [[nodiscard]] virtual RhiExpected<bool> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
+        [[nodiscard]] virtual RhiExpected<PresentOutcome> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
 
         // ── Synchronization ──
         [[nodiscard]] virtual RhiExpected<SemaphoreHandle> create_semaphore(const SemaphoreDesc &desc) = 0;
@@ -326,7 +326,14 @@ namespace SFT::RHI {
 
         [[nodiscard]] virtual RhiExpected<FenceHandle> create_fence(const FenceDesc &desc) = 0;
         virtual void destroy_fence(FenceHandle handle) noexcept = 0;
-        [[nodiscard]] virtual RhiResult wait_fences(span<const FenceHandle> fences,
+        // The returned bool distinguishes a confirmed-signaled fence (true) from a real timeout
+        // (false, `vkWaitForFences` returning VK_TIMEOUT) -- a timeout is NOT an error, but it is
+        // also NOT permission to reclaim/reset/reuse anything the fence protects. Every caller must
+        // gate resource reclamation on `true`, never merely on the absence of an error. Every
+        // current call site uses the default `wait_forever` timeout, under which `false` should not
+        // occur outside a device hang; the distinction still has to exist so a future finite-timeout
+        // caller (e.g. a hang watchdog) can't accidentally reclaim fence-protected resources early.
+        [[nodiscard]] virtual RhiExpected<bool> wait_fences(span<const FenceHandle> fences,
                                                     bool wait_all = true,
                                                     u64 timeout_ns = wait_forever) = 0;
         [[nodiscard]] virtual RhiResult reset_fences(span<const FenceHandle> fences) = 0;

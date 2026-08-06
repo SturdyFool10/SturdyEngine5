@@ -290,9 +290,6 @@ namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult reset_fences(span<const VkFence> fences) noexcept;
 
-        // Returns success on both VK_SUCCESS and VK_TIMEOUT (caller checks elapsed time separately).
-        [[nodiscard]] RendererResult wait_for_fences(span<const VkFence> fences, bool wait_all, u64 timeout_ns) noexcept;
-
         // Returns true if signaled, false if not ready.
         [[nodiscard]] RendererExpected<bool> is_fence_signaled(VkFence fence) const noexcept;
 

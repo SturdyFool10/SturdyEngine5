@@ -316,11 +316,19 @@ namespace SFT::Renderer {
                 device->destroy_buffer(*new_buffer);
                 return unexpected(graphics_error_from_rhi(submitted.error(), "submit geometry arena growth"));
             }
-            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true); !waited) {
+            auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
+            if (!waited) {
                 device->destroy_fence(*fence);
                 device->destroy_command_buffer(*command_buffer);
                 device->destroy_buffer(*new_buffer);
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait geometry arena growth fence"));
+            }
+            if (!*waited) {
+                // Real timeout (this call uses wait_forever, so unreachable outside a device hang) --
+                // the fence is not confirmed signaled, so destroying anything it protects here would
+                // be a real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "wait geometry arena growth fence: vkWaitForFences timed out.");
             }
 
             device->destroy_fence(*fence);
@@ -436,6 +444,7 @@ namespace SFT::Renderer {
             case RHI::RhiErrorCode::OutOfMemory: code = Core::GraphicsBackendErrorCode::OutOfMemory; break;
             case RHI::RhiErrorCode::DeviceLost: code = Core::GraphicsBackendErrorCode::DeviceLost; break;
             case RHI::RhiErrorCode::SurfaceLost: code = Core::GraphicsBackendErrorCode::SurfaceLost; break;
+            case RHI::RhiErrorCode::FullScreenExclusiveLost: code = Core::GraphicsBackendErrorCode::FullScreenExclusiveLost; break;
             case RHI::RhiErrorCode::InvalidArgument:
             case RHI::RhiErrorCode::NotReady:
             case RHI::RhiErrorCode::OperationFailed:

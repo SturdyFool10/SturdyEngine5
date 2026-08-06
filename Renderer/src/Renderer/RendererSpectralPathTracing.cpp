@@ -686,12 +686,20 @@ namespace SFT::Renderer {
                 device->destroy_acceleration_structure(*blas);
                 return unexpected(graphics_error_from_rhi(submitted.error(), "submit mesh BLAS build"));
             }
-            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true); !waited) {
+            auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
+            if (!waited) {
                 device->destroy_fence(*fence);
                 device->destroy_command_buffer(*command_buffer);
                 device->destroy_buffer(*scratch);
                 device->destroy_acceleration_structure(*blas);
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait mesh BLAS build"));
+            }
+            if (!*waited) {
+                // Real timeout (wait_forever is used here, so unreachable outside a device hang) --
+                // the fence is not confirmed signaled, so destroying anything it protects here would
+                // be a real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+                return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                 "wait mesh BLAS build: vkWaitForFences timed out."));
             }
             device->destroy_fence(*fence);
             device->destroy_command_buffer(*command_buffer);

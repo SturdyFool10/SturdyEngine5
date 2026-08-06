@@ -730,7 +730,9 @@ namespace SFT::Renderer {
             instance.textures.push_back(MaterialTextureBinding{.binding = slot.binding, .texture = *white});
         }
 
-        const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
+        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
+        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp).
+        const u32 frame_count = capabilities_.max_frames_in_flight;
         instance.frames.assign(frame_count, MaterialInstanceFrame{});
         for (MaterialInstanceFrame &frame : instance.frames) {
             if (tmpl.has_uniform_block && tmpl.uniform_block_size > 0) {

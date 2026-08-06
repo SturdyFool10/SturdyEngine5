@@ -345,22 +345,38 @@ namespace SFT::Core::Vulkan {
             return index == 0 && fallback != nullptr && fallback->is_valid() ? fallback : nullptr;
         };
 
+        // Lane index 0 always resolves to the class's own primary `_queue_` member, never into
+        // `*_queue_lanes()[0]` — `vkGetDeviceQueue(device, family, 0, ...)` is spec-guaranteed to
+        // return the identical VkQueue handle each call, so `_queue_lanes_[0]` (built independently
+        // by VulkanDevice::get_queue_lanes) wraps the same native queue as the primary `_queue_`
+        // member in a *second* VulkanQueue object with its own, separately-locked
+        // `submission_lock_` — two independently-locked C++ wrappers around one native queue give no
+        // real mutual exclusion between them. Routing lane 0 to the primary member for every class
+        // (not just Graphics, which already did this) closes that off; `_queue_lanes_[0]` itself is
+        // still constructed (harmless, just never returned to a caller through this function, the
+        // only path any `*_queue_lanes()` entry is ever consumed from).
         switch (lane.queue) {
             case rhi::QueueClass::Graphics:
                 return lane.index == 0 ? graphics_queue_ : lane_from(logical_device_->graphics_queue_lanes(), nullptr);
             case rhi::QueueClass::Compute:
-                return lane_from(logical_device_->compute_queue_lanes(), compute_queue_);
+                return lane.index == 0 ? compute_queue_ : lane_from(logical_device_->compute_queue_lanes(), nullptr);
             case rhi::QueueClass::Transfer:
                 if (transfer_queue_ == compute_queue_) {
-                    return lane_from(logical_device_->compute_queue_lanes(), compute_queue_);
+                    return lane.index == 0 ? compute_queue_ : lane_from(logical_device_->compute_queue_lanes(), nullptr);
                 }
-                return lane_from(logical_device_->transfer_queue_lanes(), transfer_queue_);
-            case rhi::QueueClass::Sparse:
-                return lane_from(logical_device_->sparse_queue_lanes(), logical_device_->sparse_queue().has_value() ? &*logical_device_->sparse_queue() : nullptr);
-            case rhi::QueueClass::VideoDecode:
-                return lane_from(logical_device_->video_decode_queue_lanes(), logical_device_->video_decode_queue().has_value() ? &*logical_device_->video_decode_queue() : nullptr);
-            case rhi::QueueClass::VideoEncode:
-                return lane_from(logical_device_->video_encode_queue_lanes(), logical_device_->video_encode_queue().has_value() ? &*logical_device_->video_encode_queue() : nullptr);
+                return lane.index == 0 ? transfer_queue_ : lane_from(logical_device_->transfer_queue_lanes(), nullptr);
+            case rhi::QueueClass::Sparse: {
+                VulkanQueue *primary = logical_device_->sparse_queue().has_value() ? &*logical_device_->sparse_queue() : nullptr;
+                return lane.index == 0 ? primary : lane_from(logical_device_->sparse_queue_lanes(), nullptr);
+            }
+            case rhi::QueueClass::VideoDecode: {
+                VulkanQueue *primary = logical_device_->video_decode_queue().has_value() ? &*logical_device_->video_decode_queue() : nullptr;
+                return lane.index == 0 ? primary : lane_from(logical_device_->video_decode_queue_lanes(), nullptr);
+            }
+            case rhi::QueueClass::VideoEncode: {
+                VulkanQueue *primary = logical_device_->video_encode_queue().has_value() ? &*logical_device_->video_encode_queue() : nullptr;
+                return lane.index == 0 ? primary : lane_from(logical_device_->video_encode_queue_lanes(), nullptr);
+            }
         }
         return nullptr;
     }
@@ -393,6 +409,7 @@ namespace SFT::Core::Vulkan {
             case GraphicsBackendErrorCode::OutOfMemory: code = rhi::RhiErrorCode::OutOfMemory; break;
             case GraphicsBackendErrorCode::DeviceLost: code = rhi::RhiErrorCode::DeviceLost; break;
             case GraphicsBackendErrorCode::SurfaceLost: code = rhi::RhiErrorCode::SurfaceLost; break;
+            case GraphicsBackendErrorCode::FullScreenExclusiveLost: code = rhi::RhiErrorCode::FullScreenExclusiveLost; break;
             case GraphicsBackendErrorCode::InitializationFailed:
             case GraphicsBackendErrorCode::OperationFailed:
                 code = rhi::RhiErrorCode::OperationFailed;

@@ -25,6 +25,8 @@
 
 #include <Foundation/src/Foundation.hpp>
 
+#include <tracy/Tracy.hpp>
+
 #include <Core/Vulkan/VulkanAllocator.hpp>
 #include <Core/Vulkan/VulkanBackend.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>
@@ -366,7 +368,33 @@ namespace SFT::Core::Vulkan {
         capabilities_.raytracing = enabled_rhi_features.has(RHI::Feature::RayTracingPipeline) || enabled_rhi_features.has(RHI::Feature::RayQuery);
         capabilities_.mesh_shaders = enabled_rhi_features.has(RHI::Feature::MeshShader);
         capabilities_.bindless = enabled_rhi_features.has(RHI::Feature::BindlessResources);
-        capabilities_.max_frames_in_flight = sanitize_frames_in_flight(init.features.desired_frames_in_flight);
+        // DEFAULT_FRAMES_IN_FLIGHT as the lower bound (not 1) preserves today's "0 means double-
+        // buffer" behavior exactly, while still routing through the one centralized picker every
+        // frames-in-flight-derived subsystem now consumes RendererCapabilities::max_frames_in_flight
+        // from (see resolve_frames_in_flight's doc comment, Core/Renderer.hpp). upper_bound is 0
+        // (unbounded) here — a real surface-derived upper bound isn't wired in yet.
+        if (auto resolution = resolve_frames_in_flight(init.features.desired_frames_in_flight, DEFAULT_FRAMES_IN_FLIGHT, 0)) {
+            capabilities_.max_frames_in_flight = resolution->resolved;
+            TracyPlot("frames_in_flight.requested", static_cast<i64>(resolution->requested));
+            TracyPlot("frames_in_flight.lower_bound", static_cast<i64>(resolution->lower_bound));
+            TracyPlot("frames_in_flight.resolved", static_cast<i64>(resolution->resolved));
+            if (resolution->adjustment != FramesInFlightResolution::Adjustment::Accepted) {
+                const bool raised = resolution->adjustment == FramesInFlightResolution::Adjustment::RaisedToLower;
+                TracyMessageL(raised ? "frames-in-flight request raised to lower bound"
+                                     : "frames-in-flight request reduced to upper bound");
+                Foundation::log_info("Frames in flight: requested {} {} to {} (lower_bound={}, upper_bound={}).",
+                                     resolution->requested, raised ? "raised" : "reduced", resolution->resolved,
+                                     resolution->lower_bound, resolution->upper_bound);
+            }
+        } else {
+            // Unreachable today (upper_bound is always 0/unbounded here, so lower_bound can never
+            // exceed it) — kept as a real fallback rather than an assert so a future caller that does
+            // pass a real upper bound can't turn an invalid-range configuration error into UB.
+            TracyMessageLC("invalid frames-in-flight bounds -- falling back to default", tracy::Color::Red);
+            Foundation::log_warn("Frames in flight: {} -- falling back to default ({}).",
+                                 resolution.error(), DEFAULT_FRAMES_IN_FLIGHT);
+            capabilities_.max_frames_in_flight = DEFAULT_FRAMES_IN_FLIGHT;
+        }
 
         const bool enable_mesh_shader = enabled_rhi_features.has(RHI::Feature::MeshShader);
         const bool enable_task_shader = enabled_rhi_features.has(RHI::Feature::TaskShader);

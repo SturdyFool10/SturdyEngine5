@@ -187,7 +187,7 @@ namespace SFT::Core::Vulkan {
         fences_.erase(handle);
     }
 
-    rhi::RhiResult VulkanRhiDeviceBridge::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all, u64 timeout_ns) {
+    rhi::RhiExpected<bool> VulkanRhiDeviceBridge::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all, u64 timeout_ns) {
         if (logical_device_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run wait_fences: device resources are not ready.");
@@ -203,10 +203,13 @@ namespace SFT::Core::Vulkan {
         }
         const VkResult result = vkWaitForFences(logical_device_->vk_handle(), static_cast<u32>(vk_fences.size()),
                                                 vk_fences.data(), wait_all ? VK_TRUE : VK_FALSE, timeout_ns);
-        if (result != VK_SUCCESS && result != VK_TIMEOUT) {
+        if (result == VK_TIMEOUT) {
+            return false; // A real timeout, not an error -- caller must not reclaim anything the fence protects.
+        }
+        if (result != VK_SUCCESS) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "wait_fences: vkWaitForFences failed.");
         }
-        return {};
+        return true;
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::reset_fences(span<const rhi::FenceHandle> fences) {

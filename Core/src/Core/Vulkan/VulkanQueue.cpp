@@ -62,7 +62,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             return submit(span{&submit_info, 1}, fence);
         }
 
-[[nodiscard]] RendererExpected<bool> VulkanQueue::present(const VkPresentInfoKHR &info, f64 *lock_wait_ms) noexcept {
+[[nodiscard]] RendererExpected<PresentOutcome> VulkanQueue::present(const VkPresentInfoKHR &info, f64 *lock_wait_ms) noexcept {
             const auto before_lock = steady_clock::now();
             auto lock = submission_lock_.lock();
             if (lock_wait_ms != nullptr) {
@@ -74,11 +74,18 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
                 res = vkQueuePresentKHR(handle_, &info);
             }
             if (res == VK_SUCCESS)
-                return false;
-            if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)
-                return true;
+                return PresentOutcome::Success;
+            if (res == VK_SUBOPTIMAL_KHR)
+                return PresentOutcome::Suboptimal;
+            if (res == VK_ERROR_OUT_OF_DATE_KHR)
+                return PresentOutcome::OutOfDate;
             if (res == VK_ERROR_DEVICE_LOST)
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueuePresentKHR reported device loss.");
+            if (res == VK_ERROR_SURFACE_LOST_KHR)
+                return graphics_backend_error(GraphicsBackendErrorCode::SurfaceLost, "vkQueuePresentKHR reported surface loss.");
+            if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
+                return graphics_backend_error(GraphicsBackendErrorCode::FullScreenExclusiveLost,
+                                              "vkQueuePresentKHR reported loss of exclusive-fullscreen ownership.");
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
         }
 

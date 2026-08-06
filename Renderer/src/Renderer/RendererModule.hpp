@@ -613,7 +613,7 @@ namespace SFT::Renderer {
             // swapchain still referenced by an unexecuted vkQueuePresentKHR call is
             // VUID-vkDestroySwapchainKHR-swapchain-01282. destroy_rhi_presentation_resources() also
             // drains this before tearing the window down.
-            optional<Async::TaskHandle<RHI::RhiExpected<bool>>> pending_present;
+            optional<Async::TaskHandle<RHI::RhiExpected<RHI::PresentOutcome>>> pending_present;
             // Queue-mutex wait time recorded by the last drained pending_present's device->present()
             // call, surfaced into the *next* frame's stage timings the same one-frame-stale way
             // GPU/CPU pass timings already are (FrameGpuTimingTarget's doc comment) -- there is no

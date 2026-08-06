@@ -562,13 +562,6 @@ void VulkanDevice::destroy_fence(VkFence fence) noexcept { vkDestroyFence(device
             return {};
         }
 
-[[nodiscard]] RendererResult VulkanDevice::wait_for_fences(span<const VkFence> fences, bool wait_all, u64 timeout_ns) noexcept {
-            VkResult res = vkWaitForFences(device_, static_cast<u32>(fences.size()), fences.data(), wait_all ? VK_TRUE : VK_FALSE, timeout_ns);
-            if (res != VK_SUCCESS && res != VK_TIMEOUT)
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitForFences failed.");
-            return {};
-        }
-
 [[nodiscard]] RendererExpected<bool> VulkanDevice::is_fence_signaled(VkFence fence) const noexcept {
             VkResult res = vkGetFenceStatus(device_, fence);
             if (res == VK_SUCCESS)

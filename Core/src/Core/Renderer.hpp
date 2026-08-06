@@ -3,6 +3,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <expected>
 #include <span>
 #include <string>
 #include <vector>
@@ -43,6 +44,60 @@ namespace SFT::Core {
         b8 timeline_semaphores = false;
         u32 max_frames_in_flight = 2;
     };
+
+    // Result of resolve_frames_in_flight() below.
+    struct FramesInFlightResolution {
+        u32 requested = 0;
+        u32 lower_bound = 1;
+        u32 upper_bound = 0; // 0 = no known upper bound (mirrors Vulkan's own maxImageCount==0 convention)
+        u32 resolved = 0;
+        enum class Adjustment : u8 { Accepted, RaisedToLower, ReducedToUpper };
+        Adjustment adjustment = Adjustment::Accepted;
+    };
+
+    // The single place a requested frames-in-flight count is resolved against policy bounds.
+    // RendererCapabilities::max_frames_in_flight is set from this function's result exactly once, at
+    // backend initialization (VulkanBackendDevice.cpp) — every other subsystem that needs the frame-
+    // slot/acquisition-semaphore/command-allocator count must consume that already-resolved value
+    // rather than re-deriving its own "at least 1" interpretation of it.
+    //
+    // `requested == 0` means "no explicit preference" and resolves to `lower_bound` — NOT to
+    // "unbounded". A caller that wants a specific default (e.g. double-buffering) passes it as
+    // `lower_bound`, it isn't inferred from requested==0 alone. `upper_bound == 0` means no known
+    // upper bound (Vulkan's own "maxImageCount == 0 means no explicit maximum" convention, reused
+    // here for the same reason — the real surface-derived upper bound isn't wired in yet).
+    //
+    // Only the bound relationship itself can be invalid (lower_bound > upper_bound, with
+    // upper_bound != 0); that returns an error rather than silently swapping the bounds, ignoring
+    // one of them, or falling back to an unrelated constant. A request merely outside the bounds is
+    // not an error — it's raised/reduced to fit, reported via `FramesInFlightResolution::adjustment`.
+    [[nodiscard]] inline std::expected<FramesInFlightResolution, string> resolve_frames_in_flight(
+        u32 requested, u32 lower_bound, u32 upper_bound) noexcept {
+        if (lower_bound == 0) {
+            lower_bound = 1; // 0 is never a valid frames-in-flight count
+        }
+        if (upper_bound != 0 && lower_bound > upper_bound) {
+            return std::unexpected(
+                "invalid frames-in-flight bounds: lower_bound (" + std::to_string(lower_bound) +
+                ") exceeds upper_bound (" + std::to_string(upper_bound) + ")");
+        }
+
+        FramesInFlightResolution result{
+            .requested = requested,
+            .lower_bound = lower_bound,
+            .upper_bound = upper_bound,
+        };
+        u32 resolved = requested == 0 ? lower_bound : requested;
+        if (resolved < lower_bound) {
+            resolved = lower_bound;
+            result.adjustment = FramesInFlightResolution::Adjustment::RaisedToLower;
+        } else if (upper_bound != 0 && resolved > upper_bound) {
+            resolved = upper_bound;
+            result.adjustment = FramesInFlightResolution::Adjustment::ReducedToUpper;
+        }
+        result.resolved = resolved;
+        return result;
+    }
 
     enum class RuntimeSettingApplyMode : u8 {
         NoChange,

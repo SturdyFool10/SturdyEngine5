@@ -9,6 +9,7 @@ Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, c
             case RHI::RhiErrorCode::OutOfMemory: code = Core::GraphicsBackendErrorCode::OutOfMemory; break;
             case RHI::RhiErrorCode::DeviceLost: code = Core::GraphicsBackendErrorCode::DeviceLost; break;
             case RHI::RhiErrorCode::SurfaceLost: code = Core::GraphicsBackendErrorCode::SurfaceLost; break;
+            case RHI::RhiErrorCode::FullScreenExclusiveLost: code = Core::GraphicsBackendErrorCode::FullScreenExclusiveLost; break;
             case RHI::RhiErrorCode::InvalidArgument:
             case RHI::RhiErrorCode::NotReady:
             case RHI::RhiErrorCode::OperationFailed:

@@ -141,7 +141,7 @@ namespace SFT::Core::Vulkan {
         void destroy_swapchain(rhi::SwapchainHandle handle) noexcept override;
         [[nodiscard]] rhi::PresentationResolution presentation_resolution(rhi::SwapchainHandle handle) const noexcept override;
         [[nodiscard]] rhi::RhiExpected<rhi::SurfaceTexture> acquire_next_texture(rhi::SwapchainHandle swapchain) override;
-        [[nodiscard]] rhi::RhiExpected<bool> present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) override;
+        [[nodiscard]] rhi::RhiExpected<rhi::PresentOutcome> present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) override;
 
         [[nodiscard]] rhi::RhiExpected<rhi::SemaphoreHandle> create_semaphore(const rhi::SemaphoreDesc &desc) override;
         void destroy_semaphore(rhi::SemaphoreHandle handle) noexcept override;
@@ -150,7 +150,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] rhi::RhiResult signal_semaphore(rhi::SemaphoreHandle handle, u64 value) override;
         [[nodiscard]] rhi::RhiExpected<rhi::FenceHandle> create_fence(const rhi::FenceDesc &desc) override;
         void destroy_fence(rhi::FenceHandle handle) noexcept override;
-        [[nodiscard]] rhi::RhiResult wait_fences(span<const rhi::FenceHandle> fences, bool wait_all = true, u64 timeout_ns = rhi::wait_forever) override;
+        [[nodiscard]] rhi::RhiExpected<bool> wait_fences(span<const rhi::FenceHandle> fences, bool wait_all = true, u64 timeout_ns = rhi::wait_forever) override;
         [[nodiscard]] rhi::RhiResult reset_fences(span<const rhi::FenceHandle> fences) override;
         [[nodiscard]] rhi::RhiExpected<rhi::QuerySetHandle> create_query_set(const rhi::QuerySetDesc &desc) override;
         void destroy_query_set(rhi::QuerySetHandle handle) noexcept override;

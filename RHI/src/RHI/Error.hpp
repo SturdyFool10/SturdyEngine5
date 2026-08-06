@@ -33,6 +33,11 @@ namespace SFT::RHI {
         // The presentation surface became invalid (window closed/resized out from under us); the
         // swapchain must be recreated before presenting again.
         SurfaceLost,
+        // The presentation engine revoked previously-granted exclusive-fullscreen ownership (another
+        // app took focus, the user alt-tabbed, ...). A normal, recoverable state transition, not a
+        // device/surface failure -- the swapchain itself is still valid; fall back to windowed/
+        // borderless presentation and mark it dirty for rebuild rather than hard-failing.
+        FullScreenExclusiveLost,
         // A non-blocking or short-timeout operation has no result available yet. Callers may skip this
         // frame and try again without treating it as a device or surface failure.
         NotReady,

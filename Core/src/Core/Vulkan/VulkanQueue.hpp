@@ -15,6 +15,7 @@
 
 using SFT::Core::graphics_backend_error;
 using SFT::Core::GraphicsBackendErrorCode;
+using SFT::Core::PresentOutcome;
 using SFT::Core::RendererExpected;
 using SFT::Core::RendererResult;
 using std::span;
@@ -51,16 +52,18 @@ namespace SFT::Core::Vulkan {
             span<const VkSemaphoreSubmitInfo> signals,
             VkFence fence = VK_NULL_HANDLE) noexcept;
 
-        // Returns true if the swapchain is stale (suboptimal or out-of-date) and should be rebuilt
-        // before the next frame, false if presentation is fully up to date. Both are treated as
-        // success — only failures other than staleness are reported as an error.
+        // Distinguishes Success from Suboptimal (still usable, rebuild soon) from OutOfDate (stop
+        // presenting to this swapchain until rebuilt) -- see PresentOutcome's own doc comment.
+        // VK_ERROR_SURFACE_LOST_KHR and VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT are reported as
+        // their own distinct GraphicsBackendErrorCode (not folded into the generic OperationFailed
+        // bucket) so callers can recover appropriately instead of hard-failing.
         //
         // `lock_wait_ms`, when non-null, is set to how long this call spent waiting on
         // `submission_lock_` before it could even start `vkQueuePresentKHR` — separating "blocked on
         // our own queue mutex" from "blocked inside the driver/Windows presentation engine" for
         // callers profiling present-stage latency (see RendererLifecycle.cpp's "present RHI frame"
         // stage timer).
-        [[nodiscard]] RendererExpected<bool> present(const VkPresentInfoKHR &info, f64 *lock_wait_ms = nullptr) noexcept;
+        [[nodiscard]] RendererExpected<PresentOutcome> present(const VkPresentInfoKHR &info, f64 *lock_wait_ms = nullptr) noexcept;
 
         [[nodiscard]] RendererResult wait_idle() noexcept;
 

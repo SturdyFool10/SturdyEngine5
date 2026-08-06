@@ -737,7 +737,7 @@ namespace SFT::Core::Vulkan {
         };
     }
 
-    rhi::RhiExpected<bool> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
+    rhi::RhiExpected<rhi::PresentOutcome> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
         if (graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run present: device resources are not ready.");
@@ -769,7 +769,19 @@ namespace SFT::Core::Vulkan {
         if (!result) {
             return rhi_error_from_graphics(result.error());
         }
-        return *result || desc.texture.suboptimal;
+        // acquire_next_texture's own staleness signal (desc.texture.suboptimal) folds in here too:
+        // if present() itself came back clean but the image was already known-suboptimal at
+        // acquisition, the overall outcome must still say so -- Suboptimal, not silently Success.
+        // OutOfDate always wins over Suboptimal (it is the more urgent of the two).
+        switch (*result) {
+            case PresentOutcome::OutOfDate:
+                return rhi::PresentOutcome::OutOfDate;
+            case PresentOutcome::Suboptimal:
+                return rhi::PresentOutcome::Suboptimal;
+            case PresentOutcome::Success:
+                return desc.texture.suboptimal ? rhi::PresentOutcome::Suboptimal : rhi::PresentOutcome::Success;
+        }
+        return rhi::PresentOutcome::Success;
     }
 
 } // namespace SFT::Core::Vulkan

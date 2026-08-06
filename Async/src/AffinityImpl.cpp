@@ -8,6 +8,8 @@
 #include <Async/src/Affinity.hpp>
 #include <Async/src/Topology.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::unique_lock;
 using std::unique_ptr;
 
@@ -42,6 +44,10 @@ namespace SFT::Async {
     }
 
     void DedicatedThread::worker_loop() noexcept {
+        // name_ is set once in the constructor and never touched again, and this object outlives the
+        // thread (the destructor joins before the object can be destroyed) -- the pointer stays valid
+        // for tracy::SetThreadName's requirement of a stable pointer for the thread's whole lifetime.
+        tracy::SetThreadName(name_.c_str());
         while (running_.load(std::memory_order_acquire)) {
             unique_ptr<Detail::TaskBase> task;
             {

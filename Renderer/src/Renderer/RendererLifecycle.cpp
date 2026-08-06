@@ -805,7 +805,7 @@ namespace SFT::Renderer {
         if (!record.pending_present) {
             return {};
         }
-        RHI::RhiExpected<bool> presented = [&]() {
+        RHI::RhiExpected<RHI::PresentOutcome> presented = [&]() {
             ScopedRendererStageTimer timer{"wait pending present", stage_timings_ms};
             return record.pending_present->wait();
         }();
@@ -814,13 +814,28 @@ namespace SFT::Renderer {
             stage_timings_ms->emplace_back("present queue lock wait", record.last_present_lock_wait_ms);
         }
         if (!presented) {
-            if (presented.error().code == RHI::RhiErrorCode::SurfaceLost) {
+            // SurfaceLost: the swapchain must be recreated before presenting again -- the existing
+            // dirty-flag path already does that (a true surface-loss recovery, distinct from a mere
+            // swapchain rebuild, is Phase 3 scope per the sync/presentation rework plan). Reachable
+            // now for the first time: VulkanQueue::present previously folded VK_ERROR_SURFACE_LOST_KHR
+            // into a generic OperationFailed, so this branch was dead code.
+            //
+            // FullScreenExclusiveLost: a normal, recoverable state transition (alt-tab, focus loss),
+            // not a device/surface failure -- no exclusive-fullscreen state exists in the engine yet
+            // to clear, so this becomes the same dirty-flag response until that support itself exists.
+            if (presented.error().code == RHI::RhiErrorCode::SurfaceLost ||
+                presented.error().code == RHI::RhiErrorCode::FullScreenExclusiveLost) {
                 record.rhi_swapchain_dirty = true;
             }
             return unexpected(graphics_error_from_rhi(presented.error(), "present RHI frame"));
         }
-        if (*presented) {
-            record.rhi_swapchain_dirty = true;
+        switch (*presented) {
+            case RHI::PresentOutcome::Success:
+                break;
+            case RHI::PresentOutcome::Suboptimal:
+            case RHI::PresentOutcome::OutOfDate:
+                record.rhi_swapchain_dirty = true;
+                break;
         }
         return {};
     }
@@ -940,7 +955,10 @@ namespace SFT::Renderer {
         // UBO slot (frame_index % N). (Re)size on the first frame or after a capability change (device-loss
         // recovery clears the ring). Lives on the window's own record, not a Renderer-wide member, since
         // each window has its own swapchain and therefore its own frame-in-flight lifetime.
-        const u32 frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
+        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
+        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp)
+        // — so no local zero-guard is needed here.
+        const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
                 destroy_text_frame_resources(*device, old_slot.text_overlay_resources);
@@ -983,8 +1001,16 @@ namespace SFT::Renderer {
         if (slot.submitted) {
             {
                 ScopedRendererStageTimer timer{"wait in-flight frame fence", &current_frame_cpu_stage_timings_ms};
-                if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
+                auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true);
+                if (!waited) {
                     return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
+                }
+                if (!*waited) {
+                    // A real timeout (this call uses wait_forever, so this should be unreachable
+                    // outside a device hang) -- not an error, but resource reclamation below must
+                    // not run: the fence is not confirmed signaled.
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "wait in-flight frame fence: vkWaitForFences timed out.");
                 }
             }
             if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
@@ -1172,7 +1198,9 @@ namespace SFT::Renderer {
         // some overdraw-elimination on the table for this specific batch).
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
-        const u32 scene_frame_count = capabilities_.max_frames_in_flight == 0 ? 1u : capabilities_.max_frames_in_flight;
+        // capabilities_.max_frames_in_flight is already >= 1 by construction (see the frame_count
+        // comment above) — no local zero-guard needed.
+        const u32 scene_frame_count = capabilities_.max_frames_in_flight;
         SceneFrameGpuResources &instance_cull_resources = record.scene_frame_resources[frame.frame_index % scene_frame_count];
         // One bind group for every with-object-history draw this frame (RenderItem::object_index
         // indexes the same object_buffer/view_buffer prepare_scene_gpu_data already populated above,
@@ -2801,15 +2829,20 @@ namespace SFT::Renderer {
             };
             WindowSurfaceRecord *record_ptr = &record;
             record.pending_present = record.present_thread->run(
-                [device, present_desc, record_ptr]() -> RHI::RhiExpected<bool> {
+                [device, present_desc, record_ptr]() -> RHI::RhiExpected<RHI::PresentOutcome> {
                     return device->present(present_desc, &record_ptr->last_present_lock_wait_ms);
                 });
         }
 
         if (submission.render_graph.wait_for_completion) {
             ScopedRendererStageTimer timer{"wait explicitly requested frame completion", &current_frame_cpu_stage_timings_ms};
-            if (auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true); !waited) {
+            auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true);
+            if (!waited) {
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait explicitly requested frame completion"));
+            }
+            if (!*waited) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "wait explicitly requested frame completion: vkWaitForFences timed out.");
             }
             // Explicit completion means presented too, not just GPU-rendered -- drain the present this
             // same call just issued above rather than leaving it for next frame.

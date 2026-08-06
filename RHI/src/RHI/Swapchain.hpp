@@ -274,4 +274,16 @@ namespace SFT::RHI {
         const char *label = nullptr;
     };
 
+    // Distinguishes the non-error outcomes a successful present can still report. Suboptimal and
+    // OutOfDate both mean the present itself went through, but differ in urgency: Suboptimal means
+    // the swapchain still works and can keep presenting, OutOfDate means it should stop being used
+    // for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-exclusive loss) are
+    // reported through RhiError, not this enum -- see RhiErrorCode::SurfaceLost/
+    // FullScreenExclusiveLost/DeviceLost.
+    enum class PresentOutcome {
+        Success,
+        Suboptimal,
+        OutOfDate,
+    };
+
 } // namespace SFT::RHI
