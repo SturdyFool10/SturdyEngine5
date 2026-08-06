@@ -13,6 +13,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string_view;
@@ -40,6 +42,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_hiz_build_resources() {
+        ZoneScopedN("Renderer::ensure_hiz_build_resources");
         auto guard = hiz_build_.lock();
         if (guard->ready) {
             return {};
@@ -140,6 +143,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_hiz_build_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_hiz_build_resources");
         auto guard = hiz_build_.lock();
         if (RHI::RhiDevice *device = rhi_device()) {
             if (guard->pipeline) device->destroy_render_pipeline(guard->pipeline);
@@ -152,6 +156,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_hiz_pyramid(HiZPyramidTargets &pyramid, Core::Extent2D depth_extent) {
+        ZoneScopedN("Renderer::ensure_hiz_pyramid");
         if (depth_extent.width == 0 || depth_extent.height == 0) {
             return unexpected(hiz_error("Cannot build a Hi-Z pyramid for a zero-sized depth extent."));
         }
@@ -235,6 +240,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_hiz_pyramid(HiZPyramidTargets &pyramid) noexcept {
+        ZoneScopedN("Renderer::destroy_hiz_pyramid");
         if (RHI::RhiDevice *device = rhi_device()) {
             if (pyramid.full_view) device->destroy_texture_view(pyramid.full_view);
             for (RHI::TextureViewHandle view : pyramid.mip_views) {
@@ -249,6 +255,7 @@ namespace SFT::Renderer {
                                                      RHI::TextureViewHandle depth_view, Core::Extent2D depth_extent,
                                                      RenderGraphTextureHandle pyramid_texture, HiZPyramidTargets &pyramid,
                                                      vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_hiz_build");
         if (pyramid.mip_levels == 0 || pyramid.mip_views.empty()) {
             return unexpected(hiz_error("Cannot record Hi-Z build passes without a prepared pyramid."));
         }

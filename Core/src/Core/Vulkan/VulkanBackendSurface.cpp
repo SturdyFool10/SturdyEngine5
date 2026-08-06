@@ -26,6 +26,8 @@
 #include <Core/RenderSurface.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using SFT::Platform::Windowing::Window;
 using SFT::Platform::Windowing::WindowId;
 using std::bad_alloc;
@@ -54,6 +56,7 @@ namespace SFT::Core::Vulkan {
     } // namespace
 
     VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) noexcept {
+        ZoneScopedN("VulkanBackend::surface_slot");
         if (!handle.is_valid()) {
             return nullptr;
         }
@@ -62,6 +65,7 @@ namespace SFT::Core::Vulkan {
     }
 
     const VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) const noexcept {
+        ZoneScopedN("VulkanBackend::surface_slot");
         if (!handle.is_valid()) {
             return nullptr;
         }
@@ -70,6 +74,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroySurface(VulkanSurface &surface) noexcept {
+        ZoneScopedN("VulkanBackend::destroySurface");
         if (surface.rhi_surface() && rhiDevice) {
             rhiDevice->destroy_surface(surface.rhi_surface());
             surface.clear_rhi_surface();
@@ -78,6 +83,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroy_all_surfaces() noexcept {
+        ZoneScopedN("VulkanBackend::destroy_all_surfaces");
         for (VulkanSurface &surface : surfaces_ | std::views::values) {
             destroySurface(surface);
         }
@@ -85,6 +91,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::destroy_window_surface(RenderSurfaceHandle handle) noexcept {
+        ZoneScopedN("VulkanBackend::destroy_window_surface");
         if (!handle.is_valid()) [[unlikely]] {
             return;
         }
@@ -97,6 +104,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept {
+        ZoneScopedN("VulkanBackend::on_surface_resize_needed");
         VulkanSurface *s = surface_slot(surface);
         if (!s) [[unlikely]]
             return;
@@ -108,6 +116,7 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<VulkanBackend::SurfaceCreateInfo>
     VulkanBackend::surface_create_info_from_window(Window &window, u32 desired_frames_in_flight) const {
+        ZoneScopedN("VulkanBackend::surface_create_info_from_window");
         const auto native = window.native_window_handle();
         if (!native) [[unlikely]] {
             return unexpected(GraphicsBackendError{
@@ -137,6 +146,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::createSurface(const SurfaceCreateInfo &init) {
+        ZoneScopedN("VulkanBackend::createSurface");
         if (!initialized_) [[unlikely]] {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend must be initialized before creating its owned surface."});
@@ -191,6 +201,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererExpected<RHI::SurfaceHandle> VulkanBackend::rhi_surface_for(RenderSurfaceHandle handle) {
+        ZoneScopedN("VulkanBackend::rhi_surface_for");
         VulkanSurface *surface = surface_slot(handle);
         if (surface == nullptr || !surface->is_active()) [[unlikely]] {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::OperationFailed,
@@ -226,6 +237,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::create_window_surface(Window &window, u32 desired_frames_in_flight) {
+        ZoneScopedN("VulkanBackend::create_window_surface");
         if (!initialized_) [[unlikely]] {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend must be initialized before adding another window."});

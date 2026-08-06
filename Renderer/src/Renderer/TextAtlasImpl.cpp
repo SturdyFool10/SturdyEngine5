@@ -22,6 +22,8 @@
 #include <Core/Core.hpp>
 #include <Text/Text.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -152,6 +154,7 @@ namespace SFT::Renderer {
     } // namespace
 
     usize GlyphKeyHash::operator()(const GlyphKey &key) const noexcept {
+        ZoneScopedN("GlyphKeyHash::operator");
         u64 hashed = key.font_id;
         hashed ^= static_cast<u64>(key.glyph_id) + 0x9e3779b97f4a7c15ULL + (hashed << 6) + (hashed >> 2);
         hashed ^= static_cast<u64>(key.reference_ppem) + 0x9e3779b97f4a7c15ULL + (hashed << 6) + (hashed >> 2);
@@ -160,6 +163,7 @@ namespace SFT::Renderer {
     }
 
     GlyphSlot TextAtlas::slot_from_rect(Text::RasterFormat format, RectLocation rect) const noexcept {
+        ZoneScopedN("TextAtlas::slot_from_rect");
         const f32 raster_width = static_cast<f32>(rect.raster_width);
         const f32 raster_height = static_cast<f32>(rect.raster_height);
         const FormatAtlas &atlas = format_atlas(format);
@@ -186,6 +190,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<TextAtlas> TextAtlas::create(RHI::RhiDevice &device, const Config &config) {
+        ZoneScopedN("TextAtlas::create");
         TextAtlas atlas;
         atlas.config_ = config;
         atlas.max_tile_size_ = clamp_tile_size(config.maximum_image_size, device.limits());
@@ -207,6 +212,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextAtlas::Tile> TextAtlas::create_tile(RHI::RhiDevice &device,
                                                                    Text::RasterFormat format, u32 size) {
+        ZoneScopedN("TextAtlas::create_tile");
         if (size == 0 || size > max_tile_size_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Text atlas growth requested an invalid image size."});
@@ -245,6 +251,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextAtlas::append_tile(RHI::RhiDevice &device, Text::RasterFormat format, u32 size) {
+        ZoneScopedN("TextAtlas::append_tile");
         FormatAtlas &atlas = format_atlas(format);
         if (!atlas.tiles.empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -261,6 +268,7 @@ namespace SFT::Renderer {
     Core::RendererResult TextAtlas::grow_tile(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                Text::RasterFormat format, u32 new_size,
                                                TextAtlasRetiredResources &out_retired_resources) {
+        ZoneScopedN("TextAtlas::grow_tile");
         FormatAtlas &atlas = format_atlas(format);
         if (atlas.tiles.size() != 1 || new_size <= atlas.tiles.front().size || new_size > max_tile_size_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -339,6 +347,7 @@ namespace SFT::Renderer {
     TextAtlas::allocate_rect(RHI::RhiDevice &device, RHI::CommandEncoder &encoder, Text::RasterFormat format,
                              u32 width, u32 height, span<const GlyphKey> protected_keys,
                              TextAtlasRetiredResources &out_retired_resources) {
+        ZoneScopedN("TextAtlas::allocate_rect");
         if (width == 0 || height == 0 || width > max_tile_size_ || height > max_tile_size_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Text atlas glyph rectangle does not fit in a tile."});
@@ -447,6 +456,7 @@ namespace SFT::Renderer {
     }
 
     void TextAtlas::release_rect(Text::RasterFormat format, RectLocation rect) noexcept {
+        ZoneScopedN("TextAtlas::release_rect");
         FormatAtlas &atlas = format_atlas(format);
         if (rect.tile_index >= atlas.tiles.size() || rect.raster_width == 0 || rect.raster_height == 0) {
             return;
@@ -502,6 +512,7 @@ namespace SFT::Renderer {
                                                      span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
                                                      vector<RHI::BufferHandle> &out_transient_buffers,
                                                      TextAtlasRetiredResources &out_retired_resources) {
+        ZoneScopedN("TextAtlas::ensure_resident");
         out_slots.assign(requests.size(), GlyphSlot{});
         vector<RasterPlan> raster_plans(requests.size());
         vector<GlyphKey> request_keys(requests.size());
@@ -657,6 +668,7 @@ namespace SFT::Renderer {
     Core::RendererResult TextAtlas::upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                   span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
                                                   vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers) {
+        ZoneScopedN("TextAtlas::upload_misses");
         // Rasterize every miss off the calling thread in parallel — this is the engine's job
         // system's (Async::Scheduler) first real consumer in the renderer.
         vector<Text::TextExpected<Text::RasterizedGlyph>> rasterized(misses.size());
@@ -816,6 +828,7 @@ namespace SFT::Renderer {
     }
 
     RHI::TextureViewHandle TextAtlas::tile_view(Text::RasterFormat format, u32 tile_index) const noexcept {
+        ZoneScopedN("TextAtlas::tile_view");
         const FormatAtlas &atlas = format_atlas(format);
         if (tile_index >= atlas.tiles.size()) {
             return {};
@@ -824,10 +837,12 @@ namespace SFT::Renderer {
     }
 
     u32 TextAtlas::tile_count(Text::RasterFormat format) const noexcept {
+        ZoneScopedN("TextAtlas::tile_count");
         return static_cast<u32>(format_atlas(format).tiles.size());
     }
 
     void TextAtlas::destroy(RHI::RhiDevice &device) noexcept {
+        ZoneScopedN("TextAtlas::destroy");
         for (FormatAtlas *atlas : {&sdf_, &msdf_, &color_}) {
             for (Tile &tile : atlas->tiles) {
                 if (tile.view) {

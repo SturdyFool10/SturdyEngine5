@@ -1,15 +1,19 @@
 #include "VulkanSampler.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanSampler::~VulkanSampler() { destroy(); }
 
 VulkanSampler::VulkanSampler(VulkanSampler &&o) noexcept : device_(o.device_), sampler_(o.sampler_) {
+            ZoneScopedN("VulkanSampler::VulkanSampler");
             o.device_ = VK_NULL_HANDLE;
             o.sampler_ = VK_NULL_HANDLE;
         }
 
 VulkanSampler &VulkanSampler::operator=(VulkanSampler &&o) noexcept {
+            ZoneScopedN("VulkanSampler::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -23,6 +27,7 @@ VulkanSampler &VulkanSampler::operator=(VulkanSampler &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanSampler> VulkanSampler::create(
             VkDevice device,
             const VkSamplerCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanSampler::create");
             VkSampler sampler = VK_NULL_HANDLE;
             if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSampler failed.");
@@ -37,6 +42,7 @@ VulkanSampler &VulkanSampler::operator=(VulkanSampler &&o) noexcept {
 [[nodiscard]] bool VulkanSampler::is_valid() const noexcept { return sampler_ != VK_NULL_HANDLE; }
 
 void VulkanSampler::destroy() noexcept {
+            ZoneScopedN("VulkanSampler::destroy");
             if (sampler_ == VK_NULL_HANDLE)
                 return;
             vkDestroySampler(device_, sampler_, nullptr);

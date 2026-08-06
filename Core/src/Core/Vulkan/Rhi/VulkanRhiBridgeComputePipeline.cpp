@@ -14,12 +14,15 @@
 #include <Core/Vulkan/Rhi/VulkanRhiBridge.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::ComputePipelineHandle> VulkanRhiDeviceBridge::create_compute_pipeline(
         const rhi::ComputePipelineDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_compute_pipeline");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::ComputePipelineHandle>("create_compute_pipeline");
         }
@@ -59,6 +62,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_compute_pipeline(rhi::ComputePipelineHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_compute_pipeline");
         compute_pipelines_.erase(handle);
     }
 

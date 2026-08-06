@@ -1,17 +1,21 @@
 #include "VulkanCommandPool.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanCommandPool::~VulkanCommandPool() { destroy(); }
 
 VulkanCommandPool::VulkanCommandPool(VulkanCommandPool &&o) noexcept
             : device_(o.device_), pool_(o.pool_), family_index_(o.family_index_) {
+            ZoneScopedN("VulkanCommandPool::VulkanCommandPool");
             o.device_ = VK_NULL_HANDLE;
             o.pool_ = VK_NULL_HANDLE;
             o.family_index_ = 0;
         }
 
 VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept {
+            ZoneScopedN("VulkanCommandPool::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -28,6 +32,7 @@ VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept 
             VkDevice device,
             u32 family_index,
             VkCommandPoolCreateFlags flags) noexcept {
+            ZoneScopedN("VulkanCommandPool::create");
             VkCommandPoolCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                 .pNext = nullptr,
@@ -53,6 +58,7 @@ VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept 
 [[nodiscard]] RendererExpected<vector<VkCommandBuffer>> VulkanCommandPool::allocate(
             u32 count,
             VkCommandBufferLevel level) const {
+            ZoneScopedN("VulkanCommandPool::allocate");
             VkCommandBufferAllocateInfo info{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
                 .pNext = nullptr,
@@ -67,6 +73,7 @@ VulkanCommandPool &VulkanCommandPool::operator=(VulkanCommandPool &&o) noexcept 
         }
 
 void VulkanCommandPool::free(vector<VkCommandBuffer> &buffers) noexcept {
+            ZoneScopedN("VulkanCommandPool::free");
             if (buffers.empty())
                 return;
             vkFreeCommandBuffers(device_, pool_, static_cast<u32>(buffers.size()), buffers.data());
@@ -74,16 +81,19 @@ void VulkanCommandPool::free(vector<VkCommandBuffer> &buffers) noexcept {
         }
 
 [[nodiscard]] RendererResult VulkanCommandPool::reset(VkCommandPoolResetFlags flags) noexcept {
+            ZoneScopedN("VulkanCommandPool::reset");
             if (vkResetCommandPool(device_, pool_, flags) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandPool failed.");
             return {};
         }
 
 void VulkanCommandPool::trim(VkCommandPoolTrimFlags flags) noexcept {
+            ZoneScopedN("VulkanCommandPool::trim");
             vkTrimCommandPool(device_, pool_, flags);
         }
 
 void VulkanCommandPool::destroy() noexcept {
+            ZoneScopedN("VulkanCommandPool::destroy");
             if (pool_ == VK_NULL_HANDLE)
                 return;
             vkDestroyCommandPool(device_, pool_, nullptr);

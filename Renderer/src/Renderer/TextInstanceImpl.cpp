@@ -25,6 +25,8 @@
 #include <Core/Core.hpp>
 #include <Text/Text.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -90,6 +92,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextPipeline> TextPipeline::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
+        ZoneScopedN("TextPipeline::create");
         const slang::ShaderCompileOptions options{
             .targets = {slang::ShaderTarget{}},
             .entry_points = {
@@ -262,6 +265,7 @@ namespace SFT::Renderer {
                                                span<const RHI::Rect2D> instance_scissors,
                                                span<const u32> instance_paint_groups,
                                                TextFrameResources &resources, vector<TextDrawBatch> &out_batches) {
+        ZoneScopedN("TextPipeline::prepare");
         out_batches.clear();
         if (instances.size() != slots.size() || instances.size() != instance_scissors.size() ||
             instances.size() != instance_paint_groups.size()) {
@@ -410,6 +414,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult TextPipeline::draw(RHI::RenderPassEncoder &pass,
                                             span<const TextDrawBatch> batches, glm::vec2 viewport_size) {
+        ZoneScopedN("TextPipeline::draw");
         if (batches.empty()) {
             return {};
         }
@@ -452,6 +457,7 @@ namespace SFT::Renderer {
     }
 
     void TextPipeline::destroy(RHI::RhiDevice &device) noexcept {
+        ZoneScopedN("TextPipeline::destroy");
         if (pipeline_) {
             device.destroy_render_pipeline(pipeline_);
         }

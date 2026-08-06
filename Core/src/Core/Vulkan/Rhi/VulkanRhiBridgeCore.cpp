@@ -31,6 +31,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
@@ -121,6 +123,7 @@ namespace SFT::Core::Vulkan {
           feature_report_(feature_report), enabled_features_(feature_report_.enabled_features()),
           hdr_swapchain_colorspace_enabled_(hdr_swapchain_colorspace_enabled),
           hdr_metadata_enabled_(hdr_metadata_enabled) {
+        ZoneScopedN("VulkanRhiDeviceBridge::VulkanRhiDeviceBridge");
         compute_queue_ = compute_queue;
         transfer_queue_ = transfer_queue;
         if (hdr_swapchain_colorspace_enabled_) {
@@ -308,6 +311,7 @@ namespace SFT::Core::Vulkan {
     }
 
     VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge() {
+        ZoneScopedN("VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge");
         if (pipeline_cache_.is_valid()) {
             if (auto blob = pipeline_cache_.serialize()) {
                 store_pipeline_cache_blob(*blob);
@@ -324,6 +328,7 @@ namespace SFT::Core::Vulkan {
     std::span<const rhi::QueueInfo> VulkanRhiDeviceBridge::queue_infos() const noexcept { return queue_infos_; }
     std::span<const rhi::ExtensionId> VulkanRhiDeviceBridge::enabled_extensions() const noexcept { return enabled_extensions_; }
     rhi::RhiDeviceExtension *VulkanRhiDeviceBridge::extension_interface(rhi::ExtensionId extension) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::extension_interface");
         if (native_access_extension_.has_value() &&
             rhi::extension_matches(VulkanNativeAccessExtension::id(), extension)) {
             return &*native_access_extension_;
@@ -332,12 +337,14 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::wait_idle() noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::wait_idle");
         if (logical_device_ != nullptr) {
             logical_device_->wait_idle();
         }
     }
 
     VulkanQueue *VulkanRhiDeviceBridge::queue_for_lane(rhi::QueueLane lane) const noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::queue_for_lane");
         auto lane_from = [index = lane.index](std::vector<VulkanQueue> &lanes, VulkanQueue *fallback) noexcept -> VulkanQueue * {
             if (!lanes.empty()) {
                 return index < lanes.size() ? &lanes[index] : nullptr;
@@ -382,6 +389,7 @@ namespace SFT::Core::Vulkan {
     }
 
     u32 VulkanRhiDeviceBridge::queue_family_for_lane(rhi::QueueLane lane) const noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::queue_family_for_lane");
         if (VulkanQueue *queue = queue_for_lane(lane)) {
             return queue->family_index();
         }
@@ -389,6 +397,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::validate_queue_lane(rhi::QueueLane lane, const char *operation) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::validate_queue_lane");
         if (queue_for_lane(lane) != nullptr) {
             return {};
         }
@@ -403,6 +412,7 @@ namespace SFT::Core::Vulkan {
     }
 
     std::unexpected<rhi::RhiError> VulkanRhiDeviceBridge::rhi_error_from_graphics(const GraphicsBackendError &error) {
+        ZoneScopedN("VulkanRhiDeviceBridge::rhi_error_from_graphics");
         rhi::RhiErrorCode code = rhi::RhiErrorCode::OperationFailed;
         switch (error.code) {
             case GraphicsBackendErrorCode::Unsupported: code = rhi::RhiErrorCode::Unsupported; break;
@@ -420,14 +430,17 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiDevice *VulkanBackend::rhi_device() noexcept {
+        ZoneScopedN("VulkanBackend::rhi_device");
         return rhiDevice.get();
     }
 
     const rhi::RhiDevice *VulkanBackend::rhi_device() const noexcept {
+        ZoneScopedN("VulkanBackend::rhi_device");
         return rhiDevice.get();
     }
 
     void VulkanBackend::installRhiBridge() {
+        ZoneScopedN("VulkanBackend::installRhiBridge");
         auto &device_compute_queue = logicalDevice.compute_queue();
         auto &device_transfer_queue = logicalDevice.transfer_queue();
         VulkanQueue *compute_queue = device_compute_queue.has_value() ? &*device_compute_queue : nullptr;

@@ -15,6 +15,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 
 using std::array;
 using std::span;
@@ -44,6 +46,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_bloom_resources(RHI::Format color_format) {
+        ZoneScopedN("Renderer::ensure_bloom_resources");
         auto guard = bloom_.lock();
         if (guard->ready && guard->color_format == color_format) return {};
         if (guard->ready) destroy_bloom_resources_locked(*guard);
@@ -198,6 +201,7 @@ namespace SFT::Renderer {
                                                        f32 threshold, f32 soft_knee, f32 scatter,
                                                        glm::vec2 filter_scale, bool prefilter, bool upsample,
                                                        RHI::BindGroupHandle bind_group) {
+        ZoneScopedN("Renderer::record_bloom_draw");
         RHI::RenderPipelineHandle pipeline{};
         u32 sampled_set = 0;
         {
@@ -230,6 +234,7 @@ namespace SFT::Renderer {
                                                             glm::vec2 source_texel_size, const RenderGraphSettings &settings,
                                                             glm::vec2 filter_scale, bool apply_threshold,
                                                             RHI::BindGroupHandle bind_group) {
+        ZoneScopedN("Renderer::record_bloom_downsample");
         return record_bloom_draw(pass, source_view, source_texel_size,
                                  settings.bloom_threshold, settings.bloom_soft_knee, settings.bloom_scatter,
                                  filter_scale, apply_threshold, false, bind_group);
@@ -238,6 +243,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_bloom_upsample(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                           glm::vec2 source_texel_size, const RenderGraphSettings &settings,
                                                           RHI::BindGroupHandle bind_group) {
+        ZoneScopedN("Renderer::record_bloom_upsample");
         return record_bloom_draw(pass, source_view, source_texel_size,
                                  settings.bloom_threshold, settings.bloom_soft_knee, settings.bloom_scatter,
                                  glm::vec2{1.0f}, false, true, bind_group);
@@ -246,6 +252,7 @@ namespace SFT::Renderer {
     void Renderer::destroy_bloom_resources() noexcept { auto guard = bloom_.lock(); destroy_bloom_resources_locked(*guard); }
 
     void Renderer::destroy_bloom_resources_locked(BloomResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_bloom_resources_locked");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             if (resources.upsample_pipeline) device->destroy_render_pipeline(resources.upsample_pipeline);
@@ -263,6 +270,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::BindGroupHandle> Renderer::create_bloom_source_bind_group(RHI::TextureViewHandle source_view) {
+        ZoneScopedN("Renderer::create_bloom_source_bind_group");
         auto guard = bloom_.lock();
         if (!guard->ready || !guard->sampled_layout) {
             return unexpected(bloom_error("Cannot create a bloom source bind group before bloom resources are ready."));
@@ -286,6 +294,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_bloom_composite_resources() {
+        ZoneScopedN("Renderer::ensure_bloom_composite_resources");
         auto guard = bloom_composite_.lock();
         if (guard->ready) return {};
 
@@ -412,6 +421,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::bloom_composite_pipeline_for(RHI::Format color_format) {
+        ZoneScopedN("Renderer::bloom_composite_pipeline_for");
         if (Core::RendererResult ready = ensure_bloom_composite_resources(); !ready) return unexpected(ready.error());
 
         auto guard = bloom_composite_.lock();
@@ -445,6 +455,7 @@ namespace SFT::Renderer {
                                                            f32 bloom_intensity,
                                                            bool threshold_enabled,
                                                            vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_bloom_composite");
         auto pipeline = bloom_composite_pipeline_for(color_format);
         if (!pipeline) return unexpected(pipeline.error());
         RHI::RhiDevice *device = rhi_device();
@@ -494,11 +505,13 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_bloom_composite_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_bloom_composite_resources");
         auto guard = bloom_composite_.lock();
         destroy_bloom_composite_resources_locked(*guard);
     }
 
     void Renderer::destroy_bloom_composite_resources_locked(BloomCompositeResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_bloom_composite_resources_locked");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             for (const BloomCompositePipelineVariant &variant : resources.pipeline_variants) {

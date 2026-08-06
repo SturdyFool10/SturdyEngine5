@@ -27,6 +27,8 @@
 #include <Core/RenderSurface.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::format;
 using std::nullopt;
 using std::optional;
@@ -39,10 +41,12 @@ namespace SFT::Core::Vulkan {
         : EngineBackend(key) {}
 
     RendererCapabilities VulkanBackend::capabilities() const noexcept {
+        ZoneScopedN("VulkanBackend::VulkanBackend");
         return capabilities_;
     }
 
     RHI::RenderThreadingCapabilities VulkanBackend::render_threading_capabilities() const noexcept {
+        ZoneScopedN("VulkanBackend::render_threading_capabilities");
         return RHI::RenderThreadingCapabilities{
             .backend_allows_dedicated_render_thread = true,
             // Vulkan supports multithreaded command recording when each recording thread owns its command
@@ -64,6 +68,7 @@ namespace SFT::Core::Vulkan {
     }
 
     optional<GpuInfo> VulkanBackend::gpu_info() const {
+        ZoneScopedN("VulkanBackend::gpu_info");
         // Translate the cached VkPhysicalDeviceProperties into the API-agnostic GpuInfo. Everything
         // here is already decoded to strings/ints by VulkanPhysicalDevice, so no Vulkan types leak.
         if (!physicalDevice.is_valid()) {
@@ -83,12 +88,14 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanBackend::wait_idle() noexcept {
+        ZoneScopedN("VulkanBackend::wait_idle");
         if (logicalDevice.is_valid()) {
             logicalDevice.wait_idle();
         }
     }
 
     void VulkanBackend::destroyVulkanResources() noexcept {
+        ZoneScopedN("VulkanBackend::destroyVulkanResources");
         wait_idle();
         rhiDevice.reset();
         destroy_all_surfaces();
@@ -107,6 +114,7 @@ namespace SFT::Core::Vulkan {
     }
 
     VulkanBackend::~VulkanBackend() {
+        ZoneScopedN("VulkanBackend::~VulkanBackend");
         // RAII teardown: drain all in-flight work first, then release GPU objects in
         // reverse creation order (surfaces → shaders/pipelines/layouts → allocator → device → instance). This must happen
         // explicitly and in this order, since automatic member destruction would otherwise run
@@ -116,6 +124,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initVulkan(const RendererCreateInfo &init) {
+        ZoneScopedN("VulkanBackend::initVulkan");
         if (auto result = this->createVulkanInstance(init); !result.has_value()) [[unlikely]] {
             return graphics_backend_error(result.error().code,
                                   format("Failed to create Vulkan instance: {}", result.error().message));
@@ -160,6 +169,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initialize(const RendererCreateInfo &init) {
+        ZoneScopedN("VulkanBackend::initialize");
         create_info_ = init;
 
         if (!init.window) [[unlikely]] {

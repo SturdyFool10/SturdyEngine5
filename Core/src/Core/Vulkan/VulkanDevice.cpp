@@ -1,5 +1,7 @@
 #include "VulkanDevice.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanDevice::~VulkanDevice() { destroy(); }
@@ -19,11 +21,13 @@ VulkanDevice::VulkanDevice(VulkanDevice &&o) noexcept
               sparse_queue_lanes_(std::move(o.sparse_queue_lanes_)),
               video_decode_queue_lanes_(std::move(o.video_decode_queue_lanes_)),
               video_encode_queue_lanes_(std::move(o.video_encode_queue_lanes_)) {
+            ZoneScopedN("VulkanDevice::VulkanDevice");
             o.device_ = VK_NULL_HANDLE;
             o.physical_device_ = VK_NULL_HANDLE;
         }
 
 VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
+            ZoneScopedN("VulkanDevice::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -50,6 +54,7 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanDevice> VulkanDevice::create(
             VkPhysicalDevice physical,
             const VulkanDevice::DeviceCreateDesc &desc) noexcept {
+            ZoneScopedN("VulkanDevice::create");
             u32 family_count = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
             vector<VkQueueFamilyProperties> family_properties(family_count);
@@ -189,11 +194,13 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
 [[nodiscard]] vector<VulkanQueue> &VulkanDevice::video_encode_queue_lanes() noexcept { return video_encode_queue_lanes_; }
 
 void VulkanDevice::wait_idle() noexcept {
+            ZoneScopedN("VulkanDevice::wait_idle");
             if (device_ != VK_NULL_HANDLE)
                 vkDeviceWaitIdle(device_);
         }
 
 void VulkanDevice::destroy() noexcept {
+            ZoneScopedN("VulkanDevice::destroy");
             if (device_ == VK_NULL_HANDLE)
                 return;
             vkDestroyDevice(device_, nullptr);
@@ -215,6 +222,7 @@ void VulkanDevice::destroy() noexcept {
         }
 
 [[nodiscard]] RendererExpected<VkDeviceMemory> VulkanDevice::allocate_memory(const VkMemoryAllocateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::allocate_memory");
             VkDeviceMemory mem = VK_NULL_HANDLE;
             if (vkAllocateMemory(device_, &info, nullptr, &mem) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateMemory failed.");
@@ -222,10 +230,12 @@ void VulkanDevice::destroy() noexcept {
         }
 
 void VulkanDevice::free_memory(VkDeviceMemory memory) noexcept {
+            ZoneScopedN("VulkanDevice::free_memory");
             vkFreeMemory(device_, memory, nullptr);
         }
 
 [[nodiscard]] RendererExpected<void *> VulkanDevice::map_memory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::map_memory");
             void *ptr = nullptr;
             if (vkMapMemory(device_, memory, offset, size, flags, &ptr) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkMapMemory failed.");
@@ -235,18 +245,21 @@ void VulkanDevice::free_memory(VkDeviceMemory memory) noexcept {
 void VulkanDevice::unmap_memory(VkDeviceMemory memory) noexcept { vkUnmapMemory(device_, memory); }
 
 [[nodiscard]] RendererResult VulkanDevice::flush_mapped_memory_ranges(span<const VkMappedMemoryRange> ranges) noexcept {
+            ZoneScopedN("VulkanDevice::flush_mapped_memory_ranges");
             if (vkFlushMappedMemoryRanges(device_, static_cast<u32>(ranges.size()), ranges.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkFlushMappedMemoryRanges failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanDevice::invalidate_mapped_memory_ranges(span<const VkMappedMemoryRange> ranges) noexcept {
+            ZoneScopedN("VulkanDevice::invalidate_mapped_memory_ranges");
             if (vkInvalidateMappedMemoryRanges(device_, static_cast<u32>(ranges.size()), ranges.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkInvalidateMappedMemoryRanges failed.");
             return {};
         }
 
 [[nodiscard]] RendererExpected<VkBuffer> VulkanDevice::create_buffer(const VkBufferCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_buffer");
             VkBuffer buf = VK_NULL_HANDLE;
             if (vkCreateBuffer(device_, &info, nullptr, &buf) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateBuffer failed.");
@@ -256,12 +269,14 @@ void VulkanDevice::unmap_memory(VkDeviceMemory memory) noexcept { vkUnmapMemory(
 void VulkanDevice::destroy_buffer(VkBuffer buffer) noexcept { vkDestroyBuffer(device_, buffer, nullptr); }
 
 [[nodiscard]] VkMemoryRequirements VulkanDevice::buffer_memory_requirements(VkBuffer buffer) const noexcept {
+            ZoneScopedN("VulkanDevice::buffer_memory_requirements");
             VkMemoryRequirements req{};
             vkGetBufferMemoryRequirements(device_, buffer, &req);
             return req;
         }
 
 [[nodiscard]] VkMemoryRequirements2 VulkanDevice::buffer_memory_requirements2(VkBuffer buffer) const noexcept {
+            ZoneScopedN("VulkanDevice::buffer_memory_requirements2");
             VkBufferMemoryRequirementsInfo2 query{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2,
                 .pNext = nullptr,
@@ -273,12 +288,14 @@ void VulkanDevice::destroy_buffer(VkBuffer buffer) noexcept { vkDestroyBuffer(de
         }
 
 [[nodiscard]] RendererResult VulkanDevice::bind_buffer_memory(VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanDevice::bind_buffer_memory");
             if (vkBindBufferMemory(device_, buffer, memory, offset) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindBufferMemory failed.");
             return {};
         }
 
 [[nodiscard]] VkDeviceAddress VulkanDevice::buffer_device_address(VkBuffer buffer) const noexcept {
+            ZoneScopedN("VulkanDevice::buffer_device_address");
             VkBufferDeviceAddressInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
                 .pNext = nullptr,
@@ -288,6 +305,7 @@ void VulkanDevice::destroy_buffer(VkBuffer buffer) noexcept { vkDestroyBuffer(de
         }
 
 [[nodiscard]] u64 VulkanDevice::buffer_opaque_capture_address(VkBuffer buffer) const noexcept {
+            ZoneScopedN("VulkanDevice::buffer_opaque_capture_address");
             VkBufferDeviceAddressInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
                 .pNext = nullptr,
@@ -297,6 +315,7 @@ void VulkanDevice::destroy_buffer(VkBuffer buffer) noexcept { vkDestroyBuffer(de
         }
 
 [[nodiscard]] RendererExpected<VkImage> VulkanDevice::create_image(const VkImageCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_image");
             VkImage img = VK_NULL_HANDLE;
             if (vkCreateImage(device_, &info, nullptr, &img) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImage failed.");
@@ -306,12 +325,14 @@ void VulkanDevice::destroy_buffer(VkBuffer buffer) noexcept { vkDestroyBuffer(de
 void VulkanDevice::destroy_image(VkImage image) noexcept { vkDestroyImage(device_, image, nullptr); }
 
 [[nodiscard]] VkMemoryRequirements VulkanDevice::image_memory_requirements(VkImage image) const noexcept {
+            ZoneScopedN("VulkanDevice::image_memory_requirements");
             VkMemoryRequirements req{};
             vkGetImageMemoryRequirements(device_, image, &req);
             return req;
         }
 
 [[nodiscard]] VkMemoryRequirements2 VulkanDevice::image_memory_requirements2(VkImage image) const noexcept {
+            ZoneScopedN("VulkanDevice::image_memory_requirements2");
             VkImageMemoryRequirementsInfo2 query{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
                 .pNext = nullptr,
@@ -323,6 +344,7 @@ void VulkanDevice::destroy_image(VkImage image) noexcept { vkDestroyImage(device
         }
 
 [[nodiscard]] RendererResult VulkanDevice::bind_image_memory(VkImage image, VkDeviceMemory memory, VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanDevice::bind_image_memory");
             if (vkBindImageMemory(device_, image, memory, offset) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindImageMemory failed.");
             return {};
@@ -330,12 +352,14 @@ void VulkanDevice::destroy_image(VkImage image) noexcept { vkDestroyImage(device
 
 [[nodiscard]] VkSubresourceLayout VulkanDevice::image_subresource_layout(VkImage image,
                                                                    const VkImageSubresource &subresource) const noexcept {
+            ZoneScopedN("VulkanDevice::image_subresource_layout");
             VkSubresourceLayout layout{};
             vkGetImageSubresourceLayout(device_, image, &subresource, &layout);
             return layout;
         }
 
 [[nodiscard]] RendererExpected<VkImageView> VulkanDevice::create_image_view(const VkImageViewCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_image_view");
             VkImageView view = VK_NULL_HANDLE;
             if (vkCreateImageView(device_, &info, nullptr, &view) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImageView failed.");
@@ -345,6 +369,7 @@ void VulkanDevice::destroy_image(VkImage image) noexcept { vkDestroyImage(device
 void VulkanDevice::destroy_image_view(VkImageView view) noexcept { vkDestroyImageView(device_, view, nullptr); }
 
 [[nodiscard]] RendererExpected<VkSampler> VulkanDevice::create_sampler(const VkSamplerCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_sampler");
             VkSampler sampler = VK_NULL_HANDLE;
             if (vkCreateSampler(device_, &info, nullptr, &sampler) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSampler failed.");
@@ -354,6 +379,7 @@ void VulkanDevice::destroy_image_view(VkImageView view) noexcept { vkDestroyImag
 void VulkanDevice::destroy_sampler(VkSampler sampler) noexcept { vkDestroySampler(device_, sampler, nullptr); }
 
 [[nodiscard]] RendererExpected<VkShaderModule> VulkanDevice::create_shader_module(const VkShaderModuleCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_shader_module");
             VkShaderModule mod = VK_NULL_HANDLE;
             if (vkCreateShaderModule(device_, &info, nullptr, &mod) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateShaderModule failed.");
@@ -361,10 +387,12 @@ void VulkanDevice::destroy_sampler(VkSampler sampler) noexcept { vkDestroySample
         }
 
 void VulkanDevice::destroy_shader_module(VkShaderModule shader_module) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_shader_module");
             vkDestroyShaderModule(device_, shader_module, nullptr);
         }
 
 [[nodiscard]] RendererExpected<VkPipelineLayout> VulkanDevice::create_pipeline_layout(const VkPipelineLayoutCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_pipeline_layout");
             VkPipelineLayout layout = VK_NULL_HANDLE;
             if (vkCreatePipelineLayout(device_, &info, nullptr, &layout) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineLayout failed.");
@@ -372,10 +400,12 @@ void VulkanDevice::destroy_shader_module(VkShaderModule shader_module) noexcept 
         }
 
 void VulkanDevice::destroy_pipeline_layout(VkPipelineLayout layout) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_pipeline_layout");
             vkDestroyPipelineLayout(device_, layout, nullptr);
         }
 
 [[nodiscard]] RendererExpected<VkPipelineCache> VulkanDevice::create_pipeline_cache(const VkPipelineCacheCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_pipeline_cache");
             VkPipelineCache cache = VK_NULL_HANDLE;
             if (vkCreatePipelineCache(device_, &info, nullptr, &cache) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineCache failed.");
@@ -383,17 +413,20 @@ void VulkanDevice::destroy_pipeline_layout(VkPipelineLayout layout) noexcept {
         }
 
 void VulkanDevice::destroy_pipeline_cache(VkPipelineCache cache) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_pipeline_cache");
             vkDestroyPipelineCache(device_, cache, nullptr);
         }
 
 [[nodiscard]] RendererResult VulkanDevice::merge_pipeline_caches(VkPipelineCache dst,
                                                            span<const VkPipelineCache> srcs) noexcept {
+            ZoneScopedN("VulkanDevice::merge_pipeline_caches");
             if (vkMergePipelineCaches(device_, dst, static_cast<u32>(srcs.size()), srcs.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkMergePipelineCaches failed.");
             return {};
         }
 
 [[nodiscard]] RendererExpected<vector<u8>> VulkanDevice::pipeline_cache_data(VkPipelineCache cache) const {
+            ZoneScopedN("VulkanDevice::pipeline_cache_data");
             usize size = 0;
             if (vkGetPipelineCacheData(device_, cache, &size, nullptr) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (size) failed.");
@@ -406,6 +439,7 @@ void VulkanDevice::destroy_pipeline_cache(VkPipelineCache cache) noexcept {
 [[nodiscard]] RendererExpected<VkPipeline> VulkanDevice::create_graphics_pipeline(
             VkPipelineCache cache,
             const VkGraphicsPipelineCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_graphics_pipeline");
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device_, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines failed.");
@@ -415,6 +449,7 @@ void VulkanDevice::destroy_pipeline_cache(VkPipelineCache cache) noexcept {
 [[nodiscard]] RendererExpected<vector<VkPipeline>> VulkanDevice::create_graphics_pipelines(
             VkPipelineCache cache,
             span<const VkGraphicsPipelineCreateInfo> infos) {
+            ZoneScopedN("VulkanDevice::create_graphics_pipelines");
             vector<VkPipeline> pipelines(infos.size(), VK_NULL_HANDLE);
             if (vkCreateGraphicsPipelines(device_, cache, static_cast<u32>(infos.size()), infos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines (batch) failed.");
@@ -424,6 +459,7 @@ void VulkanDevice::destroy_pipeline_cache(VkPipelineCache cache) noexcept {
 [[nodiscard]] RendererExpected<VkPipeline> VulkanDevice::create_compute_pipeline(
             VkPipelineCache cache,
             const VkComputePipelineCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_compute_pipeline");
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateComputePipelines(device_, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines failed.");
@@ -433,6 +469,7 @@ void VulkanDevice::destroy_pipeline_cache(VkPipelineCache cache) noexcept {
 [[nodiscard]] RendererExpected<vector<VkPipeline>> VulkanDevice::create_compute_pipelines(
             VkPipelineCache cache,
             span<const VkComputePipelineCreateInfo> infos) {
+            ZoneScopedN("VulkanDevice::create_compute_pipelines");
             vector<VkPipeline> pipelines(infos.size(), VK_NULL_HANDLE);
             if (vkCreateComputePipelines(device_, cache, static_cast<u32>(infos.size()), infos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateComputePipelines (batch) failed.");
@@ -443,6 +480,7 @@ void VulkanDevice::destroy_pipeline(VkPipeline pipeline) noexcept { vkDestroyPip
 
 [[nodiscard]] RendererExpected<VkDescriptorSetLayout> VulkanDevice::create_descriptor_set_layout(
             const VkDescriptorSetLayoutCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_descriptor_set_layout");
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
             if (vkCreateDescriptorSetLayout(device_, &info, nullptr, &layout) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorSetLayout failed.");
@@ -450,11 +488,13 @@ void VulkanDevice::destroy_pipeline(VkPipeline pipeline) noexcept { vkDestroyPip
         }
 
 void VulkanDevice::destroy_descriptor_set_layout(VkDescriptorSetLayout layout) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_descriptor_set_layout");
             vkDestroyDescriptorSetLayout(device_, layout, nullptr);
         }
 
 [[nodiscard]] VkDescriptorSetLayoutSupport VulkanDevice::descriptor_set_layout_support(
             const VkDescriptorSetLayoutCreateInfo &info) const noexcept {
+            ZoneScopedN("VulkanDevice::descriptor_set_layout_support");
             VkDescriptorSetLayoutSupport support{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT,
                 .pNext = nullptr};
@@ -464,6 +504,7 @@ void VulkanDevice::destroy_descriptor_set_layout(VkDescriptorSetLayout layout) n
 
 [[nodiscard]] RendererExpected<VkDescriptorPool> VulkanDevice::create_descriptor_pool(
             const VkDescriptorPoolCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_descriptor_pool");
             VkDescriptorPool pool = VK_NULL_HANDLE;
             if (vkCreateDescriptorPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateDescriptorPool failed.");
@@ -471,11 +512,13 @@ void VulkanDevice::destroy_descriptor_set_layout(VkDescriptorSetLayout layout) n
         }
 
 void VulkanDevice::destroy_descriptor_pool(VkDescriptorPool pool) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_descriptor_pool");
             vkDestroyDescriptorPool(device_, pool, nullptr);
         }
 
 [[nodiscard]] RendererResult VulkanDevice::reset_descriptor_pool(VkDescriptorPool pool,
                                                            VkDescriptorPoolResetFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::reset_descriptor_pool");
             if (vkResetDescriptorPool(device_, pool, flags) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetDescriptorPool failed.");
             return {};
@@ -483,6 +526,7 @@ void VulkanDevice::destroy_descriptor_pool(VkDescriptorPool pool) noexcept {
 
 [[nodiscard]] RendererExpected<vector<VkDescriptorSet>> VulkanDevice::allocate_descriptor_sets(
             const VkDescriptorSetAllocateInfo &info) {
+            ZoneScopedN("VulkanDevice::allocate_descriptor_sets");
             vector<VkDescriptorSet> sets(info.descriptorSetCount, VK_NULL_HANDLE);
             if (vkAllocateDescriptorSets(device_, &info, sets.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateDescriptorSets failed.");
@@ -491,6 +535,7 @@ void VulkanDevice::destroy_descriptor_pool(VkDescriptorPool pool) noexcept {
 
 [[nodiscard]] RendererResult VulkanDevice::free_descriptor_sets(VkDescriptorPool pool,
                                                           span<const VkDescriptorSet> sets) noexcept {
+            ZoneScopedN("VulkanDevice::free_descriptor_sets");
             if (vkFreeDescriptorSets(device_, pool, static_cast<u32>(sets.size()), sets.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkFreeDescriptorSets failed.");
             return {};
@@ -498,6 +543,7 @@ void VulkanDevice::destroy_descriptor_pool(VkDescriptorPool pool) noexcept {
 
 void VulkanDevice::update_descriptor_sets(span<const VkWriteDescriptorSet> writes,
                                     span<const VkCopyDescriptorSet> copies) noexcept {
+            ZoneScopedN("VulkanDevice::update_descriptor_sets");
             vkUpdateDescriptorSets(device_,
                                    static_cast<u32>(writes.size()),
                                    writes.data(),
@@ -507,6 +553,7 @@ void VulkanDevice::update_descriptor_sets(span<const VkWriteDescriptorSet> write
 
 [[nodiscard]] RendererExpected<VkCommandPool> VulkanDevice::create_command_pool(
             const VkCommandPoolCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_command_pool");
             VkCommandPool pool = VK_NULL_HANDLE;
             if (vkCreateCommandPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateCommandPool failed.");
@@ -514,22 +561,26 @@ void VulkanDevice::update_descriptor_sets(span<const VkWriteDescriptorSet> write
         }
 
 void VulkanDevice::destroy_command_pool(VkCommandPool pool) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_command_pool");
             vkDestroyCommandPool(device_, pool, nullptr);
         }
 
 [[nodiscard]] RendererResult VulkanDevice::reset_command_pool(VkCommandPool pool,
                                                         VkCommandPoolResetFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::reset_command_pool");
             if (vkResetCommandPool(device_, pool, flags) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandPool failed.");
             return {};
         }
 
 void VulkanDevice::trim_command_pool(VkCommandPool pool, VkCommandPoolTrimFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::trim_command_pool");
             vkTrimCommandPool(device_, pool, flags);
         }
 
 [[nodiscard]] RendererExpected<vector<VkCommandBuffer>> VulkanDevice::allocate_command_buffers(
             const VkCommandBufferAllocateInfo &info) {
+            ZoneScopedN("VulkanDevice::allocate_command_buffers");
             vector<VkCommandBuffer> buffers(info.commandBufferCount, VK_NULL_HANDLE);
             if (vkAllocateCommandBuffers(device_, &info, buffers.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OutOfMemory, "vkAllocateCommandBuffers failed.");
@@ -537,17 +588,20 @@ void VulkanDevice::trim_command_pool(VkCommandPool pool, VkCommandPoolTrimFlags 
         }
 
 void VulkanDevice::free_command_buffers(VkCommandPool pool, span<const VkCommandBuffer> buffers) noexcept {
+            ZoneScopedN("VulkanDevice::free_command_buffers");
             vkFreeCommandBuffers(device_, pool, static_cast<u32>(buffers.size()), buffers.data());
         }
 
 [[nodiscard]] RendererResult VulkanDevice::reset_command_buffer(VkCommandBuffer buffer,
                                                           VkCommandBufferResetFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::reset_command_buffer");
             if (vkResetCommandBuffer(buffer, flags) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandBuffer failed.");
             return {};
         }
 
 [[nodiscard]] RendererExpected<VkFence> VulkanDevice::create_fence(const VkFenceCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_fence");
             VkFence fence = VK_NULL_HANDLE;
             if (vkCreateFence(device_, &info, nullptr, &fence) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateFence failed.");
@@ -557,12 +611,14 @@ void VulkanDevice::free_command_buffers(VkCommandPool pool, span<const VkCommand
 void VulkanDevice::destroy_fence(VkFence fence) noexcept { vkDestroyFence(device_, fence, nullptr); }
 
 [[nodiscard]] RendererResult VulkanDevice::reset_fences(span<const VkFence> fences) noexcept {
+            ZoneScopedN("VulkanDevice::reset_fences");
             if (vkResetFences(device_, static_cast<u32>(fences.size()), fences.data()) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetFences failed.");
             return {};
         }
 
 [[nodiscard]] RendererExpected<bool> VulkanDevice::is_fence_signaled(VkFence fence) const noexcept {
+            ZoneScopedN("VulkanDevice::is_fence_signaled");
             VkResult res = vkGetFenceStatus(device_, fence);
             if (res == VK_SUCCESS)
                 return true;
@@ -572,6 +628,7 @@ void VulkanDevice::destroy_fence(VkFence fence) noexcept { vkDestroyFence(device
         }
 
 [[nodiscard]] RendererExpected<VkSemaphore> VulkanDevice::create_semaphore(const VkSemaphoreCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_semaphore");
             VkSemaphore semaphore = VK_NULL_HANDLE;
             if (vkCreateSemaphore(device_, &info, nullptr, &semaphore) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSemaphore failed.");
@@ -579,10 +636,12 @@ void VulkanDevice::destroy_fence(VkFence fence) noexcept { vkDestroyFence(device
         }
 
 void VulkanDevice::destroy_semaphore(VkSemaphore semaphore) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_semaphore");
             vkDestroySemaphore(device_, semaphore, nullptr);
         }
 
 [[nodiscard]] RendererExpected<u64> VulkanDevice::semaphore_counter_value(VkSemaphore semaphore) const noexcept {
+            ZoneScopedN("VulkanDevice::semaphore_counter_value");
             u64 value = 0;
             if (vkGetSemaphoreCounterValue(device_, semaphore, &value) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSemaphoreCounterValue failed.");
@@ -590,12 +649,14 @@ void VulkanDevice::destroy_semaphore(VkSemaphore semaphore) noexcept {
         }
 
 [[nodiscard]] RendererResult VulkanDevice::signal_semaphore(const VkSemaphoreSignalInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::signal_semaphore");
             if (vkSignalSemaphore(device_, &info) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSignalSemaphore failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanDevice::wait_semaphores(const VkSemaphoreWaitInfo &info, u64 timeout_ns) noexcept {
+            ZoneScopedN("VulkanDevice::wait_semaphores");
             VkResult res = vkWaitSemaphores(device_, &info, timeout_ns);
             if (res != VK_SUCCESS && res != VK_TIMEOUT)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkWaitSemaphores failed.");
@@ -603,6 +664,7 @@ void VulkanDevice::destroy_semaphore(VkSemaphore semaphore) noexcept {
         }
 
 [[nodiscard]] RendererExpected<VkEvent> VulkanDevice::create_event(const VkEventCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_event");
             VkEvent event = VK_NULL_HANDLE;
             if (vkCreateEvent(device_, &info, nullptr, &event) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateEvent failed.");
@@ -612,6 +674,7 @@ void VulkanDevice::destroy_semaphore(VkSemaphore semaphore) noexcept {
 void VulkanDevice::destroy_event(VkEvent event) noexcept { vkDestroyEvent(device_, event, nullptr); }
 
 [[nodiscard]] RendererExpected<bool> VulkanDevice::event_status(VkEvent event) const noexcept {
+            ZoneScopedN("VulkanDevice::event_status");
             VkResult res = vkGetEventStatus(device_, event);
             if (res == VK_EVENT_SET)
                 return true;
@@ -621,18 +684,21 @@ void VulkanDevice::destroy_event(VkEvent event) noexcept { vkDestroyEvent(device
         }
 
 [[nodiscard]] RendererResult VulkanDevice::set_event(VkEvent event) noexcept {
+            ZoneScopedN("VulkanDevice::set_event");
             if (vkSetEvent(device_, event) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkSetEvent failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanDevice::reset_event(VkEvent event) noexcept {
+            ZoneScopedN("VulkanDevice::reset_event");
             if (vkResetEvent(device_, event) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetEvent failed.");
             return {};
         }
 
 [[nodiscard]] RendererExpected<VkQueryPool> VulkanDevice::create_query_pool(const VkQueryPoolCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_query_pool");
             VkQueryPool pool = VK_NULL_HANDLE;
             if (vkCreateQueryPool(device_, &info, nullptr, &pool) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateQueryPool failed.");
@@ -642,6 +708,7 @@ void VulkanDevice::destroy_event(VkEvent event) noexcept { vkDestroyEvent(device
 void VulkanDevice::destroy_query_pool(VkQueryPool pool) noexcept { vkDestroyQueryPool(device_, pool, nullptr); }
 
 [[nodiscard]] RendererResult VulkanDevice::get_query_pool_results(VkQueryPool pool, u32 first_query, u32 query_count, span<u8> data, VkDeviceSize stride, VkQueryResultFlags flags) noexcept {
+            ZoneScopedN("VulkanDevice::get_query_pool_results");
             VkResult res = vkGetQueryPoolResults(device_, pool, first_query, query_count, data.size_bytes(), data.data(), stride, flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
@@ -649,11 +716,13 @@ void VulkanDevice::destroy_query_pool(VkQueryPool pool) noexcept { vkDestroyQuer
         }
 
 void VulkanDevice::reset_query_pool(VkQueryPool pool, u32 first_query, u32 query_count) noexcept {
+            ZoneScopedN("VulkanDevice::reset_query_pool");
             vkResetQueryPool(device_, pool, first_query, query_count);
         }
 
 [[nodiscard]] RendererExpected<VkSwapchainKHR> VulkanDevice::create_swapchain(
             const VkSwapchainCreateInfoKHR &info) noexcept {
+            ZoneScopedN("VulkanDevice::create_swapchain");
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
             if (vkCreateSwapchainKHR(device_, &info, nullptr, &swapchain) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
@@ -661,10 +730,12 @@ void VulkanDevice::reset_query_pool(VkQueryPool pool, u32 first_query, u32 query
         }
 
 void VulkanDevice::destroy_swapchain(VkSwapchainKHR swapchain) noexcept {
+            ZoneScopedN("VulkanDevice::destroy_swapchain");
             vkDestroySwapchainKHR(device_, swapchain, nullptr);
         }
 
 [[nodiscard]] RendererExpected<vector<VkImage>> VulkanDevice::swapchain_images(VkSwapchainKHR swapchain) const {
+            ZoneScopedN("VulkanDevice::swapchain_images");
             u32 count = 0;
             if (vkGetSwapchainImagesKHR(device_, swapchain, &count, nullptr) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetSwapchainImagesKHR (count) failed.");
@@ -675,6 +746,7 @@ void VulkanDevice::destroy_swapchain(VkSwapchainKHR swapchain) noexcept {
         }
 
 [[nodiscard]] RendererExpected<u32> VulkanDevice::acquire_next_image(const VkAcquireNextImageInfoKHR &info) noexcept {
+            ZoneScopedN("VulkanDevice::acquire_next_image");
             u32 index = 0;
             VkResult res = vkAcquireNextImage2KHR(device_, &info, &index);
             if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
@@ -683,6 +755,7 @@ void VulkanDevice::destroy_swapchain(VkSwapchainKHR swapchain) noexcept {
         }
 
 void VulkanDevice::set_debug_name(VkObjectType type, u64 object_handle, const char *name) noexcept {
+            ZoneScopedN("VulkanDevice::set_debug_name");
             if (!vkSetDebugUtilsObjectNameEXT)
                 return;
             VkDebugUtilsObjectNameInfoEXT info{
@@ -696,6 +769,7 @@ void VulkanDevice::set_debug_name(VkObjectType type, u64 object_handle, const ch
         }
 
 void VulkanDevice::set_debug_tag(VkObjectType type, u64 object_handle, u64 tag_name, span<const u8> tag_data) noexcept {
+            ZoneScopedN("VulkanDevice::set_debug_tag");
             if (!vkSetDebugUtilsObjectTagEXT)
                 return;
             VkDebugUtilsObjectTagInfoEXT info{

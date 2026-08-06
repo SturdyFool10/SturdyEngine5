@@ -13,6 +13,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -27,6 +29,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_custom_compute_effect(const CustomComputeEffect &effect) {
+        ZoneScopedN("Renderer::ensure_custom_compute_effect");
         if (effect.shader_path.empty() || effect.module_name.empty() || effect.compute_entry_point.empty()) {
             return unexpected(custom_compute_error(
                 "Custom compute effect requires shader_path, module_name, and compute_entry_point."));
@@ -238,6 +241,7 @@ namespace SFT::Renderer {
         Core::Extent2D extent,
         const CustomComputeEffect &effect,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_custom_compute_effect");
         if (Core::RendererResult ready = ensure_custom_compute_effect(effect); !ready.has_value()) {
             return ready;
         }
@@ -308,6 +312,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_custom_compute_effect_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_custom_compute_effect_resources");
         auto resources = custom_compute_effect_resources_.lock();
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {

@@ -27,6 +27,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::make_unique;
 using std::span;
@@ -881,6 +883,7 @@ namespace SFT::Core::Vulkan {
 
     std::optional<VulkanRhiDeviceBridge::CommandBufferRecord> VulkanRhiDeviceBridge::checkout_command_buffer(
         u32 family_index) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::checkout_command_buffer");
         auto guard = command_buffer_free_list_.lock();
         auto it = guard->find(family_index);
         if (it == guard->end() || it->second.empty()) {
@@ -892,6 +895,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::return_command_buffer(CommandBufferRecord &&record) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::return_command_buffer");
         const u32 family_index = record.pool.family_index();
         // Recycles the pool's one command buffer back to initial state so the next checkout's
         // begin() is legal without a separate per-buffer reset -- VulkanCommandPool::create() already
@@ -907,6 +911,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<unique_ptr<rhi::CommandEncoder>> VulkanRhiDeviceBridge::create_command_encoder(
         const rhi::CommandEncoderDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_command_encoder");
         if (logical_device_ == nullptr || graphics_queue_ == nullptr) {
             return device_not_ready<unique_ptr<rhi::CommandEncoder>>("create_command_encoder");
         }
@@ -956,6 +961,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_command_buffer(rhi::CommandBufferHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_command_buffer");
         CommandBufferRecord *record = command_buffers_.find(handle);
         if (record != nullptr) {
             return_command_buffer(std::move(*record));
@@ -965,6 +971,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<unique_ptr<rhi::RenderBundleEncoder>> VulkanRhiDeviceBridge::create_render_bundle_encoder(
         const rhi::RenderBundleDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_render_bundle_encoder");
         if (logical_device_ == nullptr || graphics_queue_ == nullptr) {
             return device_not_ready<unique_ptr<rhi::RenderBundleEncoder>>("create_render_bundle_encoder");
         }
@@ -1007,12 +1014,14 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_render_bundle(rhi::RenderBundleHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_render_bundle");
         render_bundles_.erase(handle);
     }
 
     // Defined here, not in VulkanNativeAccessExtension.cppm: VulkanRhiCommandEncoder is a
     // module-implementation-unit-local type, only nameable from within this translation unit.
     VkCommandBuffer VulkanNativeAccessExtension::native_command_buffer(const rhi::CommandEncoder &encoder) const noexcept {
+        ZoneScopedN("VulkanNativeAccessExtension::native_command_buffer");
         if (const auto *vulkan_encoder = dynamic_cast<const VulkanRhiCommandEncoder *>(&encoder)) {
             return vulkan_encoder->native_vk_command_buffer();
         }

@@ -1,5 +1,7 @@
 #include "VulkanNativeAccessExtension.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanNativeAccessExtension::VulkanNativeAccessExtension(VkInstance instance,
@@ -24,6 +26,7 @@ VulkanNativeAccessExtension::VulkanNativeAccessExtension(VkInstance instance,
 [[nodiscard]] VkQueue VulkanNativeAccessExtension::native_graphics_queue() const noexcept { return graphics_queue_; }
 
 [[nodiscard]] VkQueue VulkanNativeAccessExtension::native_queue(RHI::QueueLane lane) const noexcept {
+            ZoneScopedN("VulkanNativeAccessExtension::VulkanNativeAccessExtension");
             if (queue_lookup_ == nullptr) {
                 return lane.queue == RHI::QueueClass::Graphics && lane.index == 0 ? graphics_queue_ : VK_NULL_HANDLE;
             }
@@ -31,6 +34,7 @@ VulkanNativeAccessExtension::VulkanNativeAccessExtension(VkInstance instance,
         }
 
 [[nodiscard]] u32 VulkanNativeAccessExtension::native_queue_family(RHI::QueueLane lane) const noexcept {
+            ZoneScopedN("VulkanNativeAccessExtension::native_queue_family");
             if (queue_family_lookup_ == nullptr) {
                 return ~0u;
             }

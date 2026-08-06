@@ -1,5 +1,7 @@
 #include "VulkanTimestamp.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 RendererExpected<vector<VkTimeDomainKHR>> get_calibrateable_time_domains(
@@ -51,11 +53,13 @@ VulkanTimestampPool::~VulkanTimestampPool() { destroy(); }
 
 VulkanTimestampPool::VulkanTimestampPool(VulkanTimestampPool &&o) noexcept
             : device_(o.device_), pool_(o.pool_), query_count_(o.query_count_) {
+            ZoneScopedN("VulkanTimestampPool::VulkanTimestampPool");
             o.device_ = VK_NULL_HANDLE;
             o.pool_ = VK_NULL_HANDLE;
         }
 
 VulkanTimestampPool &VulkanTimestampPool::operator=(VulkanTimestampPool &&o) noexcept {
+            ZoneScopedN("VulkanTimestampPool::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -70,6 +74,7 @@ VulkanTimestampPool &VulkanTimestampPool::operator=(VulkanTimestampPool &&o) noe
 [[nodiscard]] RendererExpected<VulkanTimestampPool> VulkanTimestampPool::create(
             VkDevice device,
             u32 query_count) noexcept {
+            ZoneScopedN("VulkanTimestampPool::create");
             VkQueryPoolCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
                 .pNext = nullptr,
@@ -98,6 +103,7 @@ VulkanTimestampPool &VulkanTimestampPool::operator=(VulkanTimestampPool &&o) noe
             u32 first_query,
             u32 count,
             VkQueryResultFlags flags) const {
+            ZoneScopedN("VulkanTimestampPool::resolve");
             if (count == 0)
                 count = query_count_;
             vector<u64> ticks(count, 0);
@@ -109,10 +115,12 @@ VulkanTimestampPool &VulkanTimestampPool::operator=(VulkanTimestampPool &&o) noe
         }
 
 void VulkanTimestampPool::reset(u32 first_query, u32 count) noexcept {
+            ZoneScopedN("VulkanTimestampPool::reset");
             vkResetQueryPool(device_, pool_, first_query, count == 0 ? query_count_ : count);
         }
 
 void VulkanTimestampPool::destroy() noexcept {
+            ZoneScopedN("VulkanTimestampPool::destroy");
             if (pool_ == VK_NULL_HANDLE)
                 return;
             vkDestroyQueryPool(device_, pool_, nullptr);

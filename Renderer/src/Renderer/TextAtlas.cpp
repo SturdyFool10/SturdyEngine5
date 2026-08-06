@@ -1,5 +1,7 @@
 #include "TextAtlas.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Renderer {
 
 [[nodiscard]] u32 TextAtlas::tile_size() const noexcept { return max_tile_size_; }
@@ -7,6 +9,7 @@ namespace SFT::Renderer {
 [[nodiscard]] f32 TextAtlas::pixel_range() const noexcept { return config_.pixel_range; }
 
 [[nodiscard]] TextAtlas::FormatAtlas &TextAtlas::format_atlas(Text::RasterFormat format) noexcept {
+            ZoneScopedN("TextAtlas::format_atlas");
             switch (format) {
                 case Text::RasterFormat::SDF: return sdf_;
                 case Text::RasterFormat::MSDF: return msdf_;
@@ -16,10 +19,12 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] const TextAtlas::FormatAtlas &TextAtlas::format_atlas(Text::RasterFormat format) const noexcept {
+            ZoneScopedN("TextAtlas::format_atlas");
             return const_cast<TextAtlas *>(this)->format_atlas(format);
         }
 
 [[nodiscard]] LruIndex<GlyphKey, GlyphKeyHash> &TextAtlas::format_lru(Text::RasterFormat format) noexcept {
+            ZoneScopedN("TextAtlas::format_lru");
             switch (format) {
                 case Text::RasterFormat::SDF: return sdf_lru_;
                 case Text::RasterFormat::MSDF: return msdf_lru_;
@@ -29,6 +34,7 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] RHI::Format TextAtlas::texture_format(Text::RasterFormat format) const noexcept {
+            ZoneScopedN("TextAtlas::texture_format");
             return format == Text::RasterFormat::SDF ? RHI::Format::R8Unorm : RHI::Format::RGBA8Unorm;
         }
 

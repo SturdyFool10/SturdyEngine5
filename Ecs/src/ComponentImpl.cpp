@@ -4,6 +4,8 @@
 #include <format>
 #include <mutex>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     namespace {
@@ -26,6 +28,7 @@ namespace SFT::Ecs {
     } // namespace
 
     ComponentRegistryExpected<ComponentId> ComponentRegistry::register_component(ComponentInfo info) {
+        ZoneScopedN("ComponentRegistry::register_component");
         if (!info.key || info.canonical_name.empty() || info.schema_version == 0 || info.size == 0 ||
             info.align == 0 || !std::has_single_bit(info.align) ||
             (info.move_construct == nullptr && !has_flag(info.flags, ComponentFlags::TriviallyCopyable)) ||
@@ -72,12 +75,14 @@ namespace SFT::Ecs {
     }
 
     std::optional<ComponentId> ComponentRegistry::find(ComponentKey key) const noexcept {
+        ZoneScopedN("ComponentRegistry::find");
         std::shared_lock lock{mutex_};
         const auto found = ids_by_key_.find(key);
         return found == ids_by_key_.end() ? std::nullopt : std::optional<ComponentId>{found->second};
     }
 
     std::optional<ComponentId> ComponentRegistry::find(const ustr &canonical_name) const noexcept {
+        ZoneScopedN("ComponentRegistry::find");
         std::shared_lock lock{mutex_};
         for (ComponentId id = 0; id < infos_.size(); ++id) {
             if (infos_[id].canonical_name == canonical_name) {
@@ -88,11 +93,13 @@ namespace SFT::Ecs {
     }
 
     const ComponentInfo *ComponentRegistry::info(ComponentId id) const noexcept {
+        ZoneScopedN("ComponentRegistry::info");
         std::shared_lock lock{mutex_};
         return id < infos_.size() ? &infos_[id] : nullptr;
     }
 
     usize ComponentRegistry::size() const noexcept {
+        ZoneScopedN("ComponentRegistry::size");
         std::shared_lock lock{mutex_};
         return infos_.size();
     }

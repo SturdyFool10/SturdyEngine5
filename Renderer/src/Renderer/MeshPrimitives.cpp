@@ -24,6 +24,8 @@
 #include <Renderer/Geometry.hpp>
 #include <Core/Core.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 using std::vector;
 
@@ -197,12 +199,14 @@ namespace SFT::Renderer {
     } // namespace
 
     Mesh Mesh::create(const char *label) {
+        ZoneScopedN("Mesh::create");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         return mesh;
     }
 
     Mesh Mesh::from_triangles(span<const Core::Triangle> triangles, const char *label) {
+        ZoneScopedN("Mesh::from_triangles");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         mesh.vertices_.reserve(triangles.size() * 3);
@@ -221,6 +225,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::from_vertices(span<const GeometryVertex> vertices, span<const u32> indices, const char *label) {
+        ZoneScopedN("Mesh::from_vertices");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         mesh.vertices_.assign(vertices.begin(), vertices.end());
@@ -229,6 +234,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::uv_sphere(const UvSphereParams &params, const char *label) {
+        ZoneScopedN("Mesh::uv_sphere");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         const u32 rings = params.rings < 2 ? 2 : params.rings;
@@ -265,6 +271,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::ico_sphere(const IcoSphereParams &params, const char *label) {
+        ZoneScopedN("Mesh::ico_sphere");
         Mesh mesh;
         mesh.label_ = label ? label : "";
 
@@ -331,6 +338,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::cylinder(const CylinderParams &params, const char *label) {
+        ZoneScopedN("Mesh::cylinder");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         append_frustum(mesh.vertices_, mesh.indices_, params.radius, params.radius, params.height,
@@ -339,6 +347,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::cone(const ConeParams &params, const char *label) {
+        ZoneScopedN("Mesh::cone");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         append_frustum(mesh.vertices_, mesh.indices_, params.radius, 0.0f, params.height, params.radial_segments,
@@ -347,6 +356,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::cube(const CubeParams &params, const char *label) {
+        ZoneScopedN("Mesh::cube");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         const glm::vec3 half(params.size * 0.5f);
@@ -355,6 +365,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::rectangular_prism(const RectangularPrismParams &params, const char *label) {
+        ZoneScopedN("Mesh::rectangular_prism");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         append_box(mesh.vertices_, mesh.indices_, params.extents * 0.5f);
@@ -362,6 +373,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::tetrahedron(const TetrahedronParams &params, const char *label) {
+        ZoneScopedN("Mesh::tetrahedron");
         Mesh mesh;
         mesh.label_ = label ? label : "";
 
@@ -389,6 +401,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::plane(const PlaneParams &params, const char *label) {
+        ZoneScopedN("Mesh::plane");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         const u32 width_segments = params.width_segments < 1 ? 1 : params.width_segments;
@@ -422,6 +435,7 @@ namespace SFT::Renderer {
     }
 
     Mesh Mesh::torus(const TorusParams &params, const char *label) {
+        ZoneScopedN("Mesh::torus");
         Mesh mesh;
         mesh.label_ = label ? label : "";
         const u32 major_segments = params.major_segments < 3 ? 3 : params.major_segments;

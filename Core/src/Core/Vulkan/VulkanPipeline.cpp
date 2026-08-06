@@ -1,16 +1,20 @@
 #include "VulkanPipeline.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanPipelineLayout::~VulkanPipelineLayout() { destroy(); }
 
 VulkanPipelineLayout::VulkanPipelineLayout(VulkanPipelineLayout &&o) noexcept
             : device_(o.device_), layout_(o.layout_) {
+            ZoneScopedN("VulkanPipelineLayout::VulkanPipelineLayout");
             o.device_ = VK_NULL_HANDLE;
             o.layout_ = VK_NULL_HANDLE;
         }
 
 VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) noexcept {
+            ZoneScopedN("VulkanPipelineLayout::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -24,6 +28,7 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> VulkanPipelineLayout::create(
             VkDevice device,
             const VkPipelineLayoutCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanPipelineLayout::create");
             VkPipelineLayout layout = VK_NULL_HANDLE;
             if (vkCreatePipelineLayout(device, &info, nullptr, &layout) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreatePipelineLayout failed.");
@@ -37,6 +42,7 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             VkDevice device,
             span<const VkDescriptorSetLayout> set_layouts,
             span<const VkPushConstantRange> push_constants) noexcept {
+            ZoneScopedN("VulkanPipelineLayout::create_from_sets");
             VkPipelineLayoutCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .pNext = nullptr,
@@ -50,6 +56,7 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
         }
 
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> VulkanPipelineLayout::create_empty(VkDevice device) noexcept {
+            ZoneScopedN("VulkanPipelineLayout::create_empty");
             VkPipelineLayoutCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .pNext = nullptr,
@@ -67,6 +74,7 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
 [[nodiscard]] bool VulkanPipelineLayout::is_valid() const noexcept { return layout_ != VK_NULL_HANDLE; }
 
 void VulkanPipelineLayout::destroy() noexcept {
+            ZoneScopedN("VulkanPipelineLayout::destroy");
             if (layout_ == VK_NULL_HANDLE)
                 return;
             vkDestroyPipelineLayout(device_, layout_, nullptr);
@@ -75,16 +83,19 @@ void VulkanPipelineLayout::destroy() noexcept {
         }
 
 PipelineLayoutBuilder &PipelineLayoutBuilder::add_set_layout(VkDescriptorSetLayout layout) {
+            ZoneScopedN("PipelineLayoutBuilder::add_set_layout");
             set_layouts_.push_back(layout);
             return *this;
         }
 
 PipelineLayoutBuilder &PipelineLayoutBuilder::set_set_layouts(span<const VkDescriptorSetLayout> layouts) {
+            ZoneScopedN("PipelineLayoutBuilder::set_set_layouts");
             set_layouts_.assign(layouts.begin(), layouts.end());
             return *this;
         }
 
 PipelineLayoutBuilder &PipelineLayoutBuilder::add_push_constant_range(VkShaderStageFlags stages, u32 offset, u32 size) {
+            ZoneScopedN("PipelineLayoutBuilder::add_push_constant_range");
             push_constants_.push_back(VkPushConstantRange{
                 .stageFlags = stages,
                 .offset = offset,
@@ -94,10 +105,12 @@ PipelineLayoutBuilder &PipelineLayoutBuilder::add_push_constant_range(VkShaderSt
         }
 
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> PipelineLayoutBuilder::create(VkDevice device) const noexcept {
+            ZoneScopedN("PipelineLayoutBuilder::create");
             return VulkanPipelineLayout::create_from_sets(device, set_layouts_, push_constants_);
         }
 
 [[nodiscard]] VkPipelineRenderingCreateInfo VulkanGraphicsPipelineSignature::rendering_info() const noexcept {
+            ZoneScopedN("VulkanGraphicsPipelineSignature::rendering_info");
             return VkPipelineRenderingCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
                 .pNext = nullptr,
@@ -113,11 +126,13 @@ VulkanPipeline::~VulkanPipeline() { destroy(); }
 
 VulkanPipeline::VulkanPipeline(VulkanPipeline &&o) noexcept
             : device_(o.device_), pipeline_(o.pipeline_), bind_point_(o.bind_point_) {
+            ZoneScopedN("VulkanPipeline::VulkanPipeline");
             o.device_ = VK_NULL_HANDLE;
             o.pipeline_ = VK_NULL_HANDLE;
         }
 
 VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
+            ZoneScopedN("VulkanPipeline::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -133,6 +148,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkDevice device,
             VkPipelineCache cache,
             const VkGraphicsPipelineCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanPipeline::create_graphics");
             if (device == VK_NULL_HANDLE)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateGraphicsPipelines called with a null VkDevice.");
             if (vkCreateGraphicsPipelines == nullptr)
@@ -155,6 +171,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkPipelineCache cache,
             VkGraphicsPipelineCreateInfo info // taken by value so we can assert renderPass is null
             ) noexcept {
+            ZoneScopedN("VulkanPipeline::create_graphics_dynamic");
             const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
@@ -172,6 +189,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkDevice device,
             VkPipelineCache cache,
             const VkComputePipelineCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanPipeline::create_compute");
             const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateComputePipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
@@ -189,6 +207,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkPipelineCache cache,
             const VkRayTracingPipelineCreateInfoKHR &info,
             VkDeferredOperationKHR deferred_op) noexcept {
+            ZoneScopedN("VulkanPipeline::create_ray_tracing");
             if (vkCreateRayTracingPipelinesKHR == nullptr)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkCreateRayTracingPipelinesKHR is not loaded (ray tracing pipeline extension not enabled).");
@@ -204,6 +223,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanPipeline::get_ray_tracing_shader_group_handles(
             u32 first_group, u32 group_count, span<u8> handle_data) const noexcept {
+            ZoneScopedN("VulkanPipeline::get_ray_tracing_shader_group_handles");
             if (vkGetRayTracingShaderGroupHandlesKHR == nullptr)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetRayTracingShaderGroupHandlesKHR is not loaded.");
@@ -226,6 +246,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
 [[nodiscard]] bool VulkanPipeline::is_ray_tracing() const noexcept { return bind_point_ == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR; }
 
 void VulkanPipeline::destroy() noexcept {
+            ZoneScopedN("VulkanPipeline::destroy");
             if (pipeline_ == VK_NULL_HANDLE)
                 return;
             vkDestroyPipeline(device_, pipeline_, nullptr);
@@ -234,80 +255,95 @@ void VulkanPipeline::destroy() noexcept {
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_layout(VkPipelineLayout layout) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_layout");
             layout_ = layout;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_flags(VkPipelineCreateFlags flags) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_flags");
             flags_ = flags;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_next(const void *next) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_next");
             rendering_next_ = next;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_stage(const VkPipelineShaderStageCreateInfo &stage) {
+            ZoneScopedN("GraphicsPipelineBuilder::add_stage");
             stages_.push_back(stage);
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stages(span<const VkPipelineShaderStageCreateInfo> stages) {
+            ZoneScopedN("GraphicsPipelineBuilder::set_stages");
             stages_.assign(stages.begin(), stages.end());
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_mesh_shader_frontend(bool enabled) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_mesh_shader_frontend");
             mesh_shader_frontend_ = enabled;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_vertex_input(span<const VkVertexInputBindingDescription> bindings,
                                                   span<const VkVertexInputAttributeDescription> attributes) {
+            ZoneScopedN("GraphicsPipelineBuilder::set_vertex_input");
             vertex_bindings_.assign(bindings.begin(), bindings.end());
             vertex_attributes_.assign(attributes.begin(), attributes.end());
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_topology(VkPrimitiveTopology topology, bool primitive_restart) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_topology");
             topology_ = topology;
             primitive_restart_ = primitive_restart;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_tessellation_patch_control_points(u32 points) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_tessellation_patch_control_points");
             patch_control_points_ = points;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_polygon_mode(VkPolygonMode mode) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_polygon_mode");
             polygon_mode_ = mode;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_cull_mode");
             cull_mode_ = mode;
             front_face_ = front_face;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_line_width(float width) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_line_width");
             line_width_ = width;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_clamp(bool enable) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_depth_clamp");
             depth_clamp_ = enable;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_rasterizer_discard(bool enable) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_rasterizer_discard");
             rasterizer_discard_ = enable;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bias(float constant, float clamp, float slope) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_depth_bias");
             depth_bias_enable_ = true;
             depth_bias_constant_ = constant;
             depth_bias_clamp_ = clamp;
@@ -316,18 +352,21 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bias(float constant,
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_samples(VkSampleCountFlagBits samples, bool alpha_to_coverage) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_samples");
             samples_ = samples;
             alpha_to_coverage_ = alpha_to_coverage;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_sample_mask(u32 mask) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_sample_mask");
             sample_mask_ = mask;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_test(bool test, bool write,
                                                 VkCompareOp compare) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_depth_test");
             depth_test_ = test;
             depth_write_ = write;
             depth_compare_ = compare;
@@ -335,11 +374,13 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_test(bool test, bool
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bounds_test(bool enable) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_depth_bounds_test");
             depth_bounds_test_ = enable;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil(const VkStencilOpState &front, const VkStencilOpState &back) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_stencil");
             stencil_test_ = true;
             stencil_front_ = front;
             stencil_back_ = back;
@@ -348,12 +389,14 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil(const VkStencilOpS
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat format,
                                                   const VkPipelineColorBlendAttachmentState &blend) {
+            ZoneScopedN("GraphicsPipelineBuilder::add_color_target");
             color_formats_.push_back(format);
             blend_attachments_.push_back(blend);
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat format) {
+            ZoneScopedN("GraphicsPipelineBuilder::add_color_target");
             return add_color_target(format, VkPipelineColorBlendAttachmentState{
                                                 .blendEnable = VK_FALSE,
                                                 .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -362,32 +405,38 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat form
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_format(VkFormat format) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_depth_format");
             depth_format_ = format;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil_format(VkFormat format) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_stencil_format");
             stencil_format_ = format;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_view_mask(u32 mask) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_view_mask");
             view_mask_ = mask;
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_dynamic_states(span<const VkDynamicState> states) {
+            ZoneScopedN("GraphicsPipelineBuilder::set_dynamic_states");
             dynamic_states_.assign(states.begin(), states.end());
             return *this;
         }
 
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicState state) {
+            ZoneScopedN("GraphicsPipelineBuilder::add_dynamic_state");
             dynamic_states_.push_back(state);
             return *this;
         }
 
 [[nodiscard]] RendererExpected<VulkanPipeline> GraphicsPipelineBuilder::create(VkDevice device,
                                                               VkPipelineCache cache) const noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::create");
             const VkPipelineVertexInputStateCreateInfo vertex_input{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                 .vertexBindingDescriptionCount = static_cast<u32>(vertex_bindings_.size()),
@@ -487,11 +536,13 @@ VulkanPipelineCache::~VulkanPipelineCache() { destroy(); }
 
 VulkanPipelineCache::VulkanPipelineCache(VulkanPipelineCache &&o) noexcept
             : device_(o.device_), cache_(o.cache_) {
+            ZoneScopedN("VulkanPipelineCache::VulkanPipelineCache");
             o.device_ = VK_NULL_HANDLE;
             o.cache_ = VK_NULL_HANDLE;
         }
 
 VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noexcept {
+            ZoneScopedN("VulkanPipelineCache::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -505,6 +556,7 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
 [[nodiscard]] RendererExpected<VulkanPipelineCache> VulkanPipelineCache::create(
             VkDevice device,
             span<const u8> initial_data) noexcept {
+            ZoneScopedN("VulkanPipelineCache::create");
             VkPipelineCacheCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
                 .pNext = nullptr,
@@ -526,6 +578,7 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
 [[nodiscard]] bool VulkanPipelineCache::is_valid() const noexcept { return cache_ != VK_NULL_HANDLE; }
 
 [[nodiscard]] RendererExpected<vector<u8>> VulkanPipelineCache::serialize() const {
+            ZoneScopedN("VulkanPipelineCache::serialize");
             usize size = 0;
             if (vkGetPipelineCacheData(device_, cache_, &size, nullptr) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetPipelineCacheData (size) failed.");
@@ -536,6 +589,7 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
         }
 
 void VulkanPipelineCache::destroy() noexcept {
+            ZoneScopedN("VulkanPipelineCache::destroy");
             if (cache_ == VK_NULL_HANDLE)
                 return;
             vkDestroyPipelineCache(device_, cache_, nullptr);

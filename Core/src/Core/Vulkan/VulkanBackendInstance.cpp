@@ -20,6 +20,8 @@
 #include <Core/Renderer.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::format;
 using std::string_view;
 using std::vector;
@@ -57,6 +59,7 @@ namespace SFT::Core::Vulkan {
     } // namespace
 
     RendererResult VulkanBackend::createVulkanInstance(const RendererCreateInfo &init) {
+        ZoneScopedN("VulkanBackend::createVulkanInstance");
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
         }

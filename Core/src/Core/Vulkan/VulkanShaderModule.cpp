@@ -1,5 +1,7 @@
 #include "VulkanShaderModule.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VkShaderStageFlagBits to_vk_shader_stage(Slang::ShaderStage stage) noexcept {
@@ -49,12 +51,14 @@ VulkanShaderModule::VulkanShaderModule(VulkanShaderModule &&o) noexcept
               entry_point_(std::move(o.entry_point_)),
               stage_(o.stage_),
               reflection_(std::move(o.reflection_)) {
+            ZoneScopedN("VulkanShaderModule::VulkanShaderModule");
             o.device_ = VK_NULL_HANDLE;
             o.module_ = VK_NULL_HANDLE;
             o.stage_ = static_cast<VkShaderStageFlagBits>(0);
         }
 
 VulkanShaderModule &VulkanShaderModule::operator=(VulkanShaderModule &&o) noexcept {
+            ZoneScopedN("VulkanShaderModule::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -77,6 +81,7 @@ VulkanShaderModule &VulkanShaderModule::operator=(VulkanShaderModule &&o) noexce
             UString entry_point,
             VkShaderStageFlagBits stage,
             shared_ptr<const Slang::ShaderReflection> reflection) noexcept {
+            ZoneScopedN("VulkanShaderModule::create");
             VkShaderModuleCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                 .pNext = nullptr,
@@ -99,6 +104,7 @@ VulkanShaderModule &VulkanShaderModule::operator=(VulkanShaderModule &&o) noexce
 
 [[nodiscard]] VkPipelineShaderStageCreateInfo VulkanShaderModule::stage_info(
             const VkSpecializationInfo *specialization) const noexcept {
+            ZoneScopedN("VulkanShaderModule::stage_info");
             return {
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .pNext = nullptr,
@@ -121,10 +127,12 @@ VulkanShaderModule &VulkanShaderModule::operator=(VulkanShaderModule &&o) noexce
 [[nodiscard]] VkShaderStageFlagBits VulkanShaderModule::stage() const noexcept { return stage_; }
 
 [[nodiscard]] const shared_ptr<const Slang::ShaderReflection> &VulkanShaderModule::reflection() const noexcept {
+            ZoneScopedN("VulkanShaderModule::reflection");
             return reflection_;
         }
 
 void VulkanShaderModule::destroy() noexcept {
+            ZoneScopedN("VulkanShaderModule::destroy");
             if (module_ == VK_NULL_HANDLE)
                 return;
             vkDestroyShaderModule(device_, module_, nullptr);
@@ -134,6 +142,7 @@ void VulkanShaderModule::destroy() noexcept {
         }
 
 [[nodiscard]] std::size_t VulkanShaderModuleKeyHash::operator()(const VulkanShaderModuleKey &key) const noexcept {
+            ZoneScopedN("VulkanShaderModuleKeyHash::operator");
             const std::size_t h1 = std::hash<UString>{}(key.source_file);
             const std::size_t h2 = std::hash<UString>{}(key.entry_point);
             // 0x9e3779b97f4a7c15 is the 64-bit golden-ratio constant; the usual hash_combine mix.

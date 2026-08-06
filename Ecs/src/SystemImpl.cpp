@@ -6,6 +6,8 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     namespace {
@@ -32,6 +34,7 @@ namespace SFT::Ecs {
     // Greedy, stable dependency staging. Every system placed in one stage is mutually non-conflicting;
     // conflicting systems retain their registration order across later stage boundaries.
     void Schedule::rebuild_stages() {
+        ZoneScopedN("Schedule::rebuild_stages");
         stages_.clear();
         std::vector<usize> remaining(systems_.size());
         for (usize i = 0; i < systems_.size(); ++i) {
@@ -83,6 +86,7 @@ namespace SFT::Ecs {
     // register every EventWriter<T> system before any EventReader<T> system for the same T. Catch a
     // violation here, once, right after (re)building stages, instead of losing events at runtime.
     void Schedule::validate_event_ordering() const {
+        ZoneScopedN("Schedule::validate_event_ordering");
         if (!config_.clear_events_on_run) return;
         std::unordered_map<ResourceKey, usize, ResourceKeyHash> max_writer_stage;
         for (usize stage_index = 0; stage_index < stages_.size(); ++stage_index) {
@@ -115,6 +119,7 @@ namespace SFT::Ecs {
     }
 
     void Schedule::run(World &world) {
+        ZoneScopedN("Schedule::run");
         // Under ExecutorPolicy::Synchronous this function must never reference Async::Scheduler's
         // process-global state: a headless/deterministic caller that built a synchronous Schedule
         // pays no worker-thread, allocation, or static-initialization cost for a scheduler it never

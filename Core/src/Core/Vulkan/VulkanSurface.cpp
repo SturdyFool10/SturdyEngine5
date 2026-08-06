@@ -1,13 +1,17 @@
 #include "VulkanSurface.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 void FrameResources::destroyCommandResources() noexcept {
+            ZoneScopedN("FrameResources::destroyCommandResources");
             commandBuffer.destroy();
             commandPool.destroy();
         }
 
 void FrameResources::destroy() noexcept {
+            ZoneScopedN("FrameResources::destroy");
             destroyCommandResources();
             imageAcquiredSemaphore.destroy();
         }
@@ -23,6 +27,7 @@ VulkanSurface::VulkanSurface(VulkanSurface &&o) noexcept
               active_(o.active_), swapchain_dirty_(o.swapchain_dirty_),
               frames_(std::move(o.frames_)), frame_timeline_(std::move(o.frame_timeline_)),
               frame_cursor_(o.frame_cursor_), next_signal_value_(o.next_signal_value_) {
+            ZoneScopedN("VulkanSurface::VulkanSurface");
             o.vk_surface_ = VK_NULL_HANDLE;
             o.rhi_surface_ = {};
             o.active_ = false;
@@ -31,6 +36,7 @@ VulkanSurface::VulkanSurface(VulkanSurface &&o) noexcept
         }
 
 VulkanSurface &VulkanSurface::operator=(VulkanSurface &&o) noexcept {
+            ZoneScopedN("VulkanSurface::operator=");
             if (this != &o) {
                 window_ = o.window_;
                 descriptor_ = o.descriptor_;
@@ -87,6 +93,7 @@ void VulkanSurface::set_swapchain(VulkanSwapchain swapchain) noexcept { swapchai
 [[nodiscard]] VulkanSemaphore &VulkanSurface::frame_timeline() noexcept { return frame_timeline_; }
 
 [[nodiscard]] VulkanSurface::FrameTicket VulkanSurface::begin_frame() noexcept {
+            ZoneScopedN("VulkanSurface::begin_frame");
             const u32 slot = frame_cursor_++ % frames_in_flight_;
             const u64 signal_value = next_signal_value_++;
             const u64 wait_value = signal_value - frames_in_flight_;
@@ -94,6 +101,7 @@ void VulkanSurface::set_swapchain(VulkanSwapchain swapchain) noexcept { swapchai
         }
 
 void VulkanSurface::set_frame_resources(vector<FrameResources> frames, VulkanSemaphore timeline, u64 next_signal_value) noexcept {
+            ZoneScopedN("VulkanSurface::set_frame_resources");
             destroy_frame_resources();
             frames_ = std::move(frames);
             frame_timeline_ = std::move(timeline);
@@ -102,6 +110,7 @@ void VulkanSurface::set_frame_resources(vector<FrameResources> frames, VulkanSem
         }
 
 void VulkanSurface::destroy_frame_resources() noexcept {
+            ZoneScopedN("VulkanSurface::destroy_frame_resources");
             std::ranges::for_each(frames_, &FrameResources::destroy);
             frames_.clear();
             frame_timeline_.destroy();
@@ -116,6 +125,7 @@ void VulkanSurface::clear_dirty() noexcept { swapchain_dirty_ = false; }
 void VulkanSurface::set_extent(Extent2D extent) noexcept { extent_ = extent; }
 
 void VulkanSurface::destroy(VkInstance instance) noexcept {
+            ZoneScopedN("VulkanSurface::destroy");
             destroy_frame_resources();
             swapchain_.destroy();
             if (vk_surface_ != VK_NULL_HANDLE) {

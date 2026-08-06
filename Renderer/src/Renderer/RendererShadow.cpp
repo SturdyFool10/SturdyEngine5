@@ -32,6 +32,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -163,6 +165,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_frame_shadow_targets(FrameInFlight &slot, u32 requested_atlas_size) {
+        ZoneScopedN("Renderer::ensure_frame_shadow_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(shadow_error("Cannot allocate shadow targets without an RHI device."));
@@ -239,6 +242,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_shadow_targets(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_shadow_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             if (slot.shadow_targets.atlas_view) {
@@ -258,6 +262,7 @@ namespace SFT::Renderer {
                                                         FrameShadowTargets &targets,
                                                         PreparedShadowFrame &prepared,
                                                         Core::Extent2D render_extent) {
+        ZoneScopedN("Renderer::prepare_shadow_frame");
         static_assert(sizeof(ShadowViewGpuData) == 112);
         static_assert(sizeof(DirectionalLightGpuData) == 64);
         static_assert(sizeof(SpotLightGpuData) == 64);
@@ -613,6 +618,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_shadow_lighting_resources() {
+        ZoneScopedN("Renderer::ensure_shadow_lighting_resources");
         auto guard = shadow_lighting_.lock();
         if (guard->ready) {
             return {};
@@ -747,6 +753,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::shadow_lighting_pipeline_for(
         RHI::Format color_format) {
+        ZoneScopedN("Renderer::shadow_lighting_pipeline_for");
         if (Core::RendererResult ready = ensure_shadow_lighting_resources(); !ready) {
             return unexpected(ready.error());
         }
@@ -806,6 +813,7 @@ namespace SFT::Renderer {
         RHI::BufferHandle atmosphere_buffer,
         RHI::Format color_format,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_shadow_lighting");
         auto pipeline = shadow_lighting_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -902,11 +910,13 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_shadow_lighting_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_shadow_lighting_resources");
         auto guard = shadow_lighting_.lock();
         destroy_shadow_lighting_resources_locked(*guard);
     }
 
     void Renderer::destroy_shadow_lighting_resources_locked(ShadowLightingResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_shadow_lighting_resources_locked");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             resources = {};

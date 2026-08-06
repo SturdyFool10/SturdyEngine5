@@ -25,6 +25,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::chrono::steady_clock;
 using std::optional;
@@ -156,6 +158,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::build_material_template_gpu(MaterialTemplateResource &resource,
                                                                const Core::Slang::Shader &shader) {
+        ZoneScopedN("Renderer::build_material_template_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(material_error("Cannot build a material template without an RHI device."));
@@ -306,6 +309,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<MaterialTemplateHandle> Renderer::create_material_template(
         const Core::Slang::Shader &shader, const char *label) {
+        ZoneScopedN("Renderer::create_material_template");
         MaterialTemplateResource resource{};
         resource.handle = MaterialTemplateHandle{static_cast<u64>(material_templates_.size() + 1)};
         resource.label = label ? label : "";
@@ -326,6 +330,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<MaterialTemplateHandle> Renderer::create_material_template_from_source(
         const Core::Slang::ShaderSource &source, const Core::Slang::ShaderCompileOptions &options, const char *label) {
+        ZoneScopedN("Renderer::create_material_template_from_source");
         if (rhi_device() == nullptr) {
             return unexpected(material_error("Cannot create a material template without an RHI device."));
         }
@@ -370,6 +375,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::reload_material_template(MaterialTemplateHandle handle) {
+        ZoneScopedN("Renderer::reload_material_template");
         MaterialTemplateResource *tmpl = material_template(handle);
         if (tmpl == nullptr) {
             return unexpected(material_error("Cannot reload an unknown material template."));
@@ -467,6 +473,7 @@ namespace SFT::Renderer {
     }
 
     usize Renderer::poll_shader_hot_reload() {
+        ZoneScopedN("Renderer::poll_shader_hot_reload");
         using namespace std::chrono_literals;
 
         // See shader_hot_reload_lock_'s own doc comment (RendererModule.hpp) — both render_frame()
@@ -519,6 +526,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
         bool standard_depth_test, RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::material_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
@@ -610,6 +618,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::depth_only_pipeline_for(
         MaterialTemplateResource &material_template, RHI::Format depth_format, bool shadow_map,
         f32 depth_bias, f32 slope_bias, RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::depth_only_pipeline_for");
         if (depth_format == RHI::Format::Undefined) {
             return unexpected(material_error("Cannot build a depth-only pipeline without a depth format."));
         }
@@ -683,6 +692,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<MaterialInstanceHandle> Renderer::create_material_instance(
         MaterialTemplateHandle material_template_handle, const char *label) {
+        ZoneScopedN("Renderer::create_material_instance");
         MaterialTemplateResource *tmpl = material_template(material_template_handle);
         if (tmpl == nullptr) {
             return unexpected(material_error("Cannot create a material instance from an unknown template."));
@@ -708,6 +718,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::initialize_material_instance_state(MaterialInstanceResource &instance,
                                                                       MaterialTemplateResource &tmpl) {
+        ZoneScopedN("Renderer::initialize_material_instance_state");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(material_error("Cannot initialize a material instance without an RHI device."));
@@ -755,6 +766,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<span<const RHI::BindGroupHandle>> Renderer::prepare_material_frame(
         MaterialInstanceResource &instance, u32 frame_slot) {
+        ZoneScopedN("Renderer::prepare_material_frame");
         MaterialTemplateResource *tmpl = material_template(instance.material_template);
         if (tmpl == nullptr) {
             return unexpected(material_error("Material instance references an unknown template."));
@@ -840,6 +852,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::set_material_parameter(MaterialInstanceHandle handle, string_view name,
                                                           span<const std::byte> value) {
+        ZoneScopedN("Renderer::set_material_parameter");
         MaterialInstanceResource *instance = material_instance(handle);
         if (instance == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "Unknown material instance.");
@@ -872,17 +885,20 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::set_material_float(MaterialInstanceHandle handle, string_view name, f32 value) {
+        ZoneScopedN("Renderer::set_material_float");
         return set_material_parameter(handle, name, std::as_bytes(span<const f32>{&value, 1}));
     }
 
     Core::RendererResult Renderer::set_material_vec4(MaterialInstanceHandle handle, string_view name,
                                                      f32 x, f32 y, f32 z, f32 w) {
+        ZoneScopedN("Renderer::set_material_vec4");
         const array<f32, 4> v{x, y, z, w};
         return set_material_parameter(handle, name, std::as_bytes(span<const f32>{v.data(), v.size()}));
     }
 
     Core::RendererResult Renderer::set_material_texture(MaterialInstanceHandle handle, string_view slot,
                                                         TextureHandle texture_handle) {
+        ZoneScopedN("Renderer::set_material_texture");
         MaterialInstanceResource *instance = material_instance(handle);
         if (instance == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "Unknown material instance.");
@@ -914,6 +930,7 @@ namespace SFT::Renderer {
     }
 
     MaterialTemplateResource *Renderer::material_template(MaterialTemplateHandle handle) noexcept {
+        ZoneScopedN("Renderer::material_template");
         if (!handle || handle.value > material_templates_.size()) {
             return nullptr;
         }
@@ -922,6 +939,7 @@ namespace SFT::Renderer {
     }
 
     const MaterialTemplateResource *Renderer::material_template(MaterialTemplateHandle handle) const noexcept {
+        ZoneScopedN("Renderer::material_template");
         if (!handle || handle.value > material_templates_.size()) {
             return nullptr;
         }
@@ -930,6 +948,7 @@ namespace SFT::Renderer {
     }
 
     MaterialInstanceResource *Renderer::material_instance(MaterialInstanceHandle handle) noexcept {
+        ZoneScopedN("Renderer::material_instance");
         if (!handle || handle.value > material_instances_.size()) {
             return nullptr;
         }
@@ -938,6 +957,7 @@ namespace SFT::Renderer {
     }
 
     const MaterialInstanceResource *Renderer::material_instance(MaterialInstanceHandle handle) const noexcept {
+        ZoneScopedN("Renderer::material_instance");
         if (!handle || handle.value > material_instances_.size()) {
             return nullptr;
         }
@@ -946,6 +966,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_material_template_gpu(MaterialTemplateResource &resource) noexcept {
+        ZoneScopedN("Renderer::destroy_material_template_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return;
@@ -994,6 +1015,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_material_instance_gpu(MaterialInstanceResource &resource) noexcept {
+        ZoneScopedN("Renderer::destroy_material_instance_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return;
@@ -1011,6 +1033,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_material_template(MaterialTemplateHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_material_template");
         MaterialTemplateResource *resource = material_template(handle);
         if (resource == nullptr) {
             return;
@@ -1020,6 +1043,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_material_instance(MaterialInstanceHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_material_instance");
         MaterialInstanceResource *resource = material_instance(handle);
         if (resource == nullptr) {
             return;

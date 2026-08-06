@@ -16,6 +16,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -58,6 +60,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextureHandle> Renderer::create_texture(u32 width, u32 height, RHI::Format format,
                                                                    span<const std::byte> data, const char *label) {
+        ZoneScopedN("Renderer::create_texture");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
@@ -94,6 +97,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::create_owned_texture_gpu(TextureResource &resource) {
+        ZoneScopedN("Renderer::create_owned_texture_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -160,6 +164,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
                                                        RHI::Format format, span<const std::byte> data) {
+        ZoneScopedN("Renderer::upload_texture_rgba");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -270,6 +275,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<TextureHandle> Renderer::ensure_default_white_texture() {
+        ZoneScopedN("Renderer::ensure_default_white_texture");
         if (TextureResource *existing = texture(default_white_texture_)) {
             return existing->handle;
         }
@@ -285,6 +291,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextureHandle> Renderer::adopt_texture(RHI::TextureHandle texture, RHI::TextureViewHandle view,
                                                                    RHI::SamplerHandle sampler, const char *label) {
+        ZoneScopedN("Renderer::adopt_texture");
         if (!texture || !view) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Cannot adopt a texture without a valid texture and view."});
@@ -303,6 +310,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_texture(TextureHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_texture");
         TextureResource *resource = texture(handle);
         if (resource == nullptr || !resource->externally_destroyable) {
             return;
@@ -324,6 +332,7 @@ namespace SFT::Renderer {
     }
 
     TextureResource *Renderer::texture(TextureHandle handle) noexcept {
+        ZoneScopedN("Renderer::texture");
         if (!handle || handle.value > textures_.size()) {
             return nullptr;
         }
@@ -332,6 +341,7 @@ namespace SFT::Renderer {
     }
 
     const TextureResource *Renderer::texture(TextureHandle handle) const noexcept {
+        ZoneScopedN("Renderer::texture");
         if (!handle || handle.value > textures_.size()) {
             return nullptr;
         }

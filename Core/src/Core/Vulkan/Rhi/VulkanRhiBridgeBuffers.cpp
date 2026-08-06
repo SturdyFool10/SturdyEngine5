@@ -35,6 +35,8 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 
 namespace SFT::Core::Vulkan {
@@ -42,6 +44,7 @@ namespace SFT::Core::Vulkan {
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::BufferHandle> VulkanRhiDeviceBridge::create_buffer(const rhi::BufferDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_buffer");
         if (allocator_ == nullptr || logical_device_ == nullptr) {
             return device_not_ready<rhi::BufferHandle>("create_buffer");
         }
@@ -67,10 +70,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_buffer(rhi::BufferHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_buffer");
         buffers_.erase(handle);
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::write_buffer(rhi::BufferHandle buffer, u64 offset, span<const std::byte> data) {
+        ZoneScopedN("VulkanRhiDeviceBridge::write_buffer");
         BufferRecord *record = buffers_.find(buffer);
         if (record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "write_buffer: unknown buffer handle.");
@@ -87,6 +92,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<span<std::byte>> VulkanRhiDeviceBridge::map_buffer(rhi::BufferHandle buffer) {
+        ZoneScopedN("VulkanRhiDeviceBridge::map_buffer");
         BufferRecord *record = buffers_.find(buffer);
         if (record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "map_buffer: unknown buffer handle.");
@@ -104,12 +110,14 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::unmap_buffer(rhi::BufferHandle buffer) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::unmap_buffer");
         if (BufferRecord *record = buffers_.find(buffer)) {
             record->buffer.unmap();
         }
     }
 
     VulkanRhiDeviceBridge::UploadResources VulkanRhiDeviceBridge::acquire_upload_resources() {
+        ZoneScopedN("VulkanRhiDeviceBridge::acquire_upload_resources");
         {
             auto pool = upload_pool_.lock();
             if (!pool->empty()) {
@@ -130,6 +138,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::release_upload_resources(UploadResources resources) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::release_upload_resources");
         if (!resources.command_pool.is_valid() || !resources.fence.is_valid()) {
             return;
         }
@@ -137,6 +146,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::upload_via_staging(VulkanBuffer &destination, u64 offset, span<const std::byte> data) {
+        ZoneScopedN("VulkanRhiDeviceBridge::upload_via_staging");
         if (allocator_ == nullptr || logical_device_ == nullptr || graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run upload_via_staging: device resources are not ready.");

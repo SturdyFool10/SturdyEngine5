@@ -18,6 +18,8 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 using std::vector;
 
@@ -34,6 +36,7 @@ namespace SFT::Core::Vulkan {
     } // namespace
 
     rhi::RhiResult VulkanRhiDeviceBridge::submit(const rhi::SubmitDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::submit");
         if (graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run submit: device resources are not ready.");
@@ -124,6 +127,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::SemaphoreHandle> VulkanRhiDeviceBridge::create_semaphore(const rhi::SemaphoreDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_semaphore");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::SemaphoreHandle>("create_semaphore");
         }
@@ -135,10 +139,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_semaphore(rhi::SemaphoreHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_semaphore");
         semaphores_.erase(handle);
     }
 
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::semaphore_value(rhi::SemaphoreHandle handle) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::semaphore_value");
         const VulkanSemaphore *semaphore = semaphores_.find(handle);
         if (semaphore == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "semaphore_value: unknown semaphore handle.");
@@ -151,6 +157,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::wait_semaphore(rhi::SemaphoreHandle handle, u64 value, u64 timeout_ns) {
+        ZoneScopedN("VulkanRhiDeviceBridge::wait_semaphore");
         VulkanSemaphore *semaphore = semaphores_.find(handle);
         if (semaphore == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "wait_semaphore: unknown semaphore handle.");
@@ -162,6 +169,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::signal_semaphore(rhi::SemaphoreHandle handle, u64 value) {
+        ZoneScopedN("VulkanRhiDeviceBridge::signal_semaphore");
         VulkanSemaphore *semaphore = semaphores_.find(handle);
         if (semaphore == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "signal_semaphore: unknown semaphore handle.");
@@ -173,6 +181,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::FenceHandle> VulkanRhiDeviceBridge::create_fence(const rhi::FenceDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_fence");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::FenceHandle>("create_fence");
         }
@@ -184,10 +193,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_fence(rhi::FenceHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_fence");
         fences_.erase(handle);
     }
 
     rhi::RhiExpected<bool> VulkanRhiDeviceBridge::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all, u64 timeout_ns) {
+        ZoneScopedN("VulkanRhiDeviceBridge::wait_fences");
         if (logical_device_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run wait_fences: device resources are not ready.");
@@ -213,6 +224,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::reset_fences(span<const rhi::FenceHandle> fences) {
+        ZoneScopedN("VulkanRhiDeviceBridge::reset_fences");
         if (logical_device_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run reset_fences: device resources are not ready.");

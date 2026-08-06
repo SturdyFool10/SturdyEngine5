@@ -15,6 +15,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 using std::unexpected;
 
@@ -28,6 +30,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::prepare_scene_gpu_data(
         WindowSurfaceRecord &record, u64 frame_index, const FrameSubmission &submission) {
+        ZoneScopedN("Renderer::prepare_scene_gpu_data");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
@@ -167,6 +170,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_scene_gpu_resources(vector<SceneFrameGpuResources> &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_scene_gpu_resources");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             for (SceneFrameGpuResources &frame_resources : resources) {

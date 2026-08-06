@@ -1,5 +1,7 @@
 #include "PresentationCoordinator.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Renderer {
 
     PresentationCoordinator::PresentationCoordinator(std::string name)
@@ -7,6 +9,7 @@ namespace SFT::Renderer {
 
     Async::TaskHandle<RHI::RhiExpected<RHI::PresentOutcome>> PresentationCoordinator::enqueue(
         RHI::RhiDevice *device, const RHI::PresentDesc &desc, f64 *lock_wait_ms) {
+        ZoneScopedN("PresentationCoordinator::PresentationCoordinator");
         queue_depth_.fetch_add(1, std::memory_order_acq_rel);
         return thread_.run([this, device, desc, lock_wait_ms]() -> RHI::RhiExpected<RHI::PresentOutcome> {
             queue_depth_.fetch_sub(1, std::memory_order_acq_rel);

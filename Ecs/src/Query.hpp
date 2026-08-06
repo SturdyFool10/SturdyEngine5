@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     // A typed view over every entity whose archetype has (at least) every component in `Ts...`.
@@ -69,6 +71,7 @@ namespace SFT::Ecs {
 
             template <class F>
             void each(F &&fn) const noexcept {
+                ZoneScopedN("Query::Chunk::each");
                 static_assert(std::is_nothrow_invocable_v<F &, Entity, Ts &...>,
                               "ECS chunk callbacks must be noexcept and accept (Entity, Components&...).");
                 for (u32 row = begin_row_; row < end_row_; ++row) {
@@ -102,6 +105,7 @@ namespace SFT::Ecs {
         };
 
         [[nodiscard]] std::vector<Chunk> chunks(usize minimum_rows_per_chunk, usize target_parallelism) const {
+            ZoneScopedN("Query::chunks");
             minimum_rows_per_chunk = std::max<usize>(1, minimum_rows_per_chunk);
             target_parallelism = std::max<usize>(1, target_parallelism);
 

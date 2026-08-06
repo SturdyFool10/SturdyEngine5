@@ -3,9 +3,12 @@
 #include <cstring>
 #include <new>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
 Archetype::Archetype(Signature signature, const ComponentRegistry &registry) : signature_(std::move(signature)) {
+    ZoneScopedN("Archetype::Archetype");
     columns_.reserve(signature_.size());
     for (ComponentId id : signature_) {
         const ComponentInfo *info = registry.info(id);
@@ -19,6 +22,7 @@ Archetype::Archetype(Signature signature, const ComponentRegistry &registry) : s
 }
 
 Archetype::~Archetype() {
+    ZoneScopedN("Archetype::~Archetype");
     for (Column &column : columns_) {
         if (column.data == nullptr) {
             continue;
@@ -33,6 +37,7 @@ Archetype::~Archetype() {
 }
 
 [[nodiscard]] u32 Archetype::column_index_of(ComponentId id) const noexcept {
+    ZoneScopedN("Archetype::column_index_of");
     for (usize i = 0; i < columns_.size(); ++i) {
         if (columns_[i].id == id) {
             return static_cast<u32>(i);
@@ -42,16 +47,19 @@ Archetype::~Archetype() {
 }
 
 [[nodiscard]] void *Archetype::row_pointer(u32 column_index, u32 row) noexcept {
+    ZoneScopedN("Archetype::row_pointer");
     Column &column = columns_[column_index];
     return column.data + static_cast<usize>(row) * column.info.size;
 }
 
 [[nodiscard]] const void *Archetype::row_pointer(u32 column_index, u32 row) const noexcept {
+    ZoneScopedN("Archetype::row_pointer");
     const Column &column = columns_[column_index];
     return column.data + static_cast<usize>(row) * column.info.size;
 }
 
 void Archetype::grow(usize new_capacity) {
+    ZoneScopedN("Archetype::grow");
     for (Column &column : columns_) {
         std::byte *new_data = static_cast<std::byte *>(
             ::operator new(new_capacity * column.info.size, std::align_val_t(column.info.align)));
@@ -76,6 +84,7 @@ void Archetype::grow(usize new_capacity) {
 }
 
 [[nodiscard]] u32 Archetype::add_row(Entity entity) {
+    ZoneScopedN("Archetype::add_row");
     const usize row = entities_.size();
     if (row >= capacity_) {
         grow(capacity_ == 0 ? 8 : capacity_ * 2);
@@ -85,6 +94,7 @@ void Archetype::grow(usize new_capacity) {
 }
 
 Entity Archetype::remove_row(u32 row) {
+    ZoneScopedN("Archetype::remove_row");
     for (Column &column : columns_) {
         std::byte *row_ptr = column.data + static_cast<usize>(row) * column.info.size;
         if (column.info.destroy != nullptr) {
@@ -95,6 +105,7 @@ Entity Archetype::remove_row(u32 row) {
 }
 
 Entity Archetype::move_row_into(u32 row, Archetype &destination, u32 destination_row) {
+    ZoneScopedN("Archetype::move_row_into");
     for (Column &column : columns_) {
         std::byte *source = column.data + static_cast<usize>(row) * column.info.size;
         const u32 destination_column = destination.column_index_of(column.id);
@@ -114,6 +125,7 @@ Entity Archetype::move_row_into(u32 row, Archetype &destination, u32 destination
 }
 
 Entity Archetype::compact_removed_row(u32 row) noexcept {
+    ZoneScopedN("Archetype::compact_removed_row");
     const usize last = entities_.size() - 1;
     Entity moved{};
     if (row != last) {

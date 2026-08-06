@@ -1,5 +1,7 @@
 #include "VulkanBuffer.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanBuffer::~VulkanBuffer() { destroy(); }
@@ -7,6 +9,7 @@ VulkanBuffer::~VulkanBuffer() { destroy(); }
 VulkanBuffer::VulkanBuffer(VulkanBuffer &&o) noexcept
             : device_(o.device_), allocator_(o.allocator_), buffer_(o.buffer_), allocation_(o.allocation_),
               size_(o.size_), usage_(o.usage_) {
+            ZoneScopedN("VulkanBuffer::VulkanBuffer");
             o.device_ = VK_NULL_HANDLE;
             o.allocator_ = VK_NULL_HANDLE;
             o.buffer_ = VK_NULL_HANDLE;
@@ -15,6 +18,7 @@ VulkanBuffer::VulkanBuffer(VulkanBuffer &&o) noexcept
         }
 
 VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
+            ZoneScopedN("VulkanBuffer::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -38,6 +42,7 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
             VkBufferUsageFlags usage,
             VkBufferCreateFlags flags,
             VkSharingMode sharing) noexcept {
+            ZoneScopedN("VulkanBuffer::create");
             VkBufferCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .pNext = nullptr,
@@ -62,6 +67,7 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
             VmaAllocator allocator,
             const VkBufferCreateInfo &buffer_info,
             const VmaAllocationCreateInfo &allocation_info) noexcept {
+            ZoneScopedN("VulkanBuffer::create");
             VkBuffer buf = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
             if (vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buf, &allocation, nullptr) != VK_SUCCESS)
@@ -89,6 +95,7 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
 [[nodiscard]] VkBufferUsageFlags VulkanBuffer::usage() const noexcept { return usage_; }
 
 [[nodiscard]] RendererResult VulkanBuffer::upload(const void *data, VkDeviceSize bytes, VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanBuffer::upload");
             void *mapped = nullptr;
             if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
@@ -106,6 +113,7 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
         }
 
 [[nodiscard]] RendererResult VulkanBuffer::download(void *dst, VkDeviceSize bytes, VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanBuffer::download");
             void *mapped = nullptr;
             if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
@@ -115,6 +123,7 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
         }
 
 [[nodiscard]] RendererExpected<void *> VulkanBuffer::map() noexcept {
+            ZoneScopedN("VulkanBuffer::map");
             void *mapped = nullptr;
             if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
@@ -122,30 +131,35 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
         }
 
 void VulkanBuffer::unmap() noexcept {
+            ZoneScopedN("VulkanBuffer::unmap");
             if (allocation_ != VK_NULL_HANDLE) {
                 vmaUnmapMemory(allocator_, allocation_);
             }
         }
 
 [[nodiscard]] RendererResult VulkanBuffer::flush(VkDeviceSize offset, VkDeviceSize size) noexcept {
+            ZoneScopedN("VulkanBuffer::flush");
             if (vmaFlushAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaFlushAllocation failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanBuffer::invalidate(VkDeviceSize offset, VkDeviceSize size) noexcept {
+            ZoneScopedN("VulkanBuffer::invalidate");
             if (vmaInvalidateAllocation(allocator_, allocation_, offset, size) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaInvalidateAllocation failed.");
             return {};
         }
 
 [[nodiscard]] VkMemoryRequirements VulkanBuffer::memory_requirements() const noexcept {
+            ZoneScopedN("VulkanBuffer::memory_requirements");
             VkMemoryRequirements req{};
             vkGetBufferMemoryRequirements(device_, buffer_, &req);
             return req;
         }
 
 [[nodiscard]] VkMemoryRequirements2 VulkanBuffer::memory_requirements2() const noexcept {
+            ZoneScopedN("VulkanBuffer::memory_requirements2");
             VkBufferMemoryRequirementsInfo2 query{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2,
                 .pNext = nullptr,
@@ -158,12 +172,14 @@ void VulkanBuffer::unmap() noexcept {
 
 [[nodiscard]] RendererResult VulkanBuffer::bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanBuffer::bind_memory");
             if (vkBindBufferMemory(device_, buffer_, memory, offset) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindBufferMemory failed.");
             return {};
         }
 
 [[nodiscard]] VkDeviceAddress VulkanBuffer::device_address() const noexcept {
+            ZoneScopedN("VulkanBuffer::device_address");
             VkBufferDeviceAddressInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
                 .pNext = nullptr,
@@ -173,6 +189,7 @@ void VulkanBuffer::unmap() noexcept {
         }
 
 void VulkanBuffer::destroy() noexcept {
+            ZoneScopedN("VulkanBuffer::destroy");
             if (buffer_ == VK_NULL_HANDLE)
                 return;
 
@@ -194,11 +211,13 @@ VulkanBufferView::~VulkanBufferView() { destroy(); }
 
 VulkanBufferView::VulkanBufferView(VulkanBufferView &&o) noexcept
             : device_(o.device_), view_(o.view_), format_(o.format_) {
+            ZoneScopedN("VulkanBufferView::VulkanBufferView");
             o.device_ = VK_NULL_HANDLE;
             o.view_ = VK_NULL_HANDLE;
         }
 
 VulkanBufferView &VulkanBufferView::operator=(VulkanBufferView &&o) noexcept {
+            ZoneScopedN("VulkanBufferView::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -216,6 +235,7 @@ VulkanBufferView &VulkanBufferView::operator=(VulkanBufferView &&o) noexcept {
             VkFormat format,
             VkDeviceSize offset,
             VkDeviceSize range) noexcept {
+            ZoneScopedN("VulkanBufferView::create");
             VkBufferViewCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
                 .pNext = nullptr,
@@ -242,6 +262,7 @@ VulkanBufferView &VulkanBufferView::operator=(VulkanBufferView &&o) noexcept {
 [[nodiscard]] VkFormat VulkanBufferView::format() const noexcept { return format_; }
 
 void VulkanBufferView::destroy() noexcept {
+            ZoneScopedN("VulkanBufferView::destroy");
             if (view_ == VK_NULL_HANDLE)
                 return;
             vkDestroyBufferView(device_, view_, nullptr);

@@ -17,6 +17,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 using std::vector;
 
@@ -50,6 +52,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::RayTracingPipelineHandle> VulkanRhiDeviceBridge::create_ray_tracing_pipeline(
         const rhi::RayTracingPipelineDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_ray_tracing_pipeline");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::RayTracingPipelineHandle>("create_ray_tracing_pipeline");
         }
@@ -162,11 +165,13 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_ray_tracing_pipeline(rhi::RayTracingPipelineHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_ray_tracing_pipeline");
         ray_tracing_pipelines_.erase(handle);
     }
 
     rhi::RhiResult VulkanRhiDeviceBridge::write_ray_tracing_shader_group_handles(
         rhi::RayTracingPipelineHandle pipeline, u32 first_group, u32 group_count, span<std::byte> dst) {
+        ZoneScopedN("VulkanRhiDeviceBridge::write_ray_tracing_shader_group_handles");
         if (!enabled_features_.has(rhi::Feature::RayTracingPipeline)) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                   "write_ray_tracing_shader_group_handles: requires enabled Feature::RayTracingPipeline.");

@@ -17,11 +17,14 @@
 #include <Core/Vulkan/VulkanSampler.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::SamplerHandle> VulkanRhiDeviceBridge::create_sampler(const rhi::SamplerDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_sampler");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::SamplerHandle>("create_sampler");
         }
@@ -65,6 +68,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_sampler(rhi::SamplerHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_sampler");
         samplers_.erase(handle);
     }
 

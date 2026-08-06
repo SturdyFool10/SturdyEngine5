@@ -22,6 +22,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::vector;
 
@@ -64,6 +66,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::BindGroupLayoutHandle> VulkanRhiDeviceBridge::create_bind_group_layout(
         const rhi::BindGroupLayoutDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_bind_group_layout");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::BindGroupLayoutHandle>("create_bind_group_layout");
         }
@@ -119,10 +122,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_bind_group_layout(rhi::BindGroupLayoutHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_bind_group_layout");
         bind_group_layouts_.erase(handle);
     }
 
     rhi::RhiExpected<rhi::BindGroupHandle> VulkanRhiDeviceBridge::create_bind_group(const rhi::BindGroupDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_bind_group");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::BindGroupHandle>("create_bind_group");
         }
@@ -352,6 +357,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_bind_group");
         BindGroupRecord *record = bind_groups_.find(handle);
         if (record == nullptr) {
             return;
@@ -367,6 +373,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::PipelineLayoutHandle> VulkanRhiDeviceBridge::create_pipeline_layout(
         const rhi::PipelineLayoutDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_pipeline_layout");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::PipelineLayoutHandle>("create_pipeline_layout");
         }
@@ -400,6 +407,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_pipeline_layout(rhi::PipelineLayoutHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_pipeline_layout");
         pipeline_layouts_.erase(handle);
     }
 

@@ -18,6 +18,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -85,6 +87,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_tonemap_resources() {
+        ZoneScopedN("Renderer::ensure_tonemap_resources");
         auto guard = tonemap_.lock();
         if (guard->ready) {
             return {};
@@ -203,6 +206,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::tonemap_pipeline_for(RHI::Format color_format) {
+        ZoneScopedN("Renderer::tonemap_pipeline_for");
         if (Core::RendererResult ready = ensure_tonemap_resources(); !ready) {
             return unexpected(ready.error());
         }
@@ -243,6 +247,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_tonemap(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                   RHI::Format color_format, const RenderGraphSettings &settings,
                                                   vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_tonemap");
         auto pipeline = tonemap_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -346,11 +351,13 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_tonemap_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_tonemap_resources");
         auto guard = tonemap_.lock();
         destroy_tonemap_resources_locked(*guard);
     }
 
     void Renderer::destroy_tonemap_resources_locked(TonemapResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_tonemap_resources_locked");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             resources = {};

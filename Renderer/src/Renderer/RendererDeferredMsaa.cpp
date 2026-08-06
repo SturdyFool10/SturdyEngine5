@@ -18,6 +18,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -50,6 +52,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_deferred_msaa_resources() {
+        ZoneScopedN("Renderer::ensure_deferred_msaa_resources");
         auto guard = deferred_msaa_.lock();
         if (guard->ready) {
             return {};
@@ -175,6 +178,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::deferred_msaa_pipeline_for(
         RHI::Format color_format) {
+        ZoneScopedN("Renderer::deferred_msaa_pipeline_for");
         if (Core::RendererResult ready = ensure_deferred_msaa_resources(); !ready) {
             return unexpected(ready.error());
         }
@@ -237,6 +241,7 @@ namespace SFT::Renderer {
         f32 near_plane,
         f32 far_plane,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_deferred_msaa_reconstruction");
         auto pipeline = deferred_msaa_pipeline_for(color_format);
         if (!pipeline) {
             return unexpected(pipeline.error());
@@ -297,11 +302,13 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_deferred_msaa_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_deferred_msaa_resources");
         auto guard = deferred_msaa_.lock();
         destroy_deferred_msaa_resources_locked(*guard);
     }
 
     void Renderer::destroy_deferred_msaa_resources_locked(DeferredMsaaResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_deferred_msaa_resources_locked");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             for (const DeferredMsaaPipelineVariant &variant : resources.pipeline_variants) {

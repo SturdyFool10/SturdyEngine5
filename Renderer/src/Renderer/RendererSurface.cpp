@@ -7,6 +7,8 @@
 #include <RHI/RHI.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::unexpected;
 
 namespace SFT::Renderer {
@@ -14,6 +16,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::create_window_surface(
         Platform::Windowing::Window &window,
         u32 desired_frames_in_flight) {
+        ZoneScopedN("Renderer::create_window_surface");
         if (!graphics_backend_ || !initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Renderer must be initialized before adding a window."});
@@ -59,6 +62,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
+        ZoneScopedN("Renderer::destroy_window_surface");
         // Move the record out of window_surfaces_ (and off the vector) under the lock, then do the
         // actual GPU teardown unlocked — this window's teardown is real driver work (swapchain/depth/
         // scene-buffer/Hi-Z destruction), and holding the lock across it would block every other
@@ -92,6 +96,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
+        ZoneScopedN("Renderer::on_surface_resize_needed");
         if (graphics_backend_) {
             graphics_backend_->on_surface_resize_needed(surface, extent);
         }
@@ -102,6 +107,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::set_presentation_settings(Core::RenderSurfaceHandle surface,
                                                              const Core::PresentationSettings &settings) {
+        ZoneScopedN("Renderer::set_presentation_settings");
         WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -114,6 +120,7 @@ namespace SFT::Renderer {
 
     RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Renderer::query_hdr_capabilities(
         Core::RenderSurfaceHandle surface) const {
+        ZoneScopedN("Renderer::query_hdr_capabilities");
         const WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr) {
             return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
@@ -131,6 +138,7 @@ namespace SFT::Renderer {
 
     RHI::RhiResult Renderer::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
                                                              const RHI::HdrContentLightLevelUpdate &update) {
+        ZoneScopedN("Renderer::update_hdr_content_light_level");
         const WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr) {
             return RHI::rhi_error(RHI::RhiErrorCode::InvalidArgument, "Renderer surface is not registered.");
@@ -147,6 +155,7 @@ namespace SFT::Renderer {
     }
 
     RHI::PresentationResolution Renderer::presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept {
+        ZoneScopedN("Renderer::presentation_resolution");
         const WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr || !record->rhi_swapchain) {
             // No swapchain yet (first frame not rendered) - default (Fifo/TearFreeOrdered) is the
@@ -162,11 +171,13 @@ namespace SFT::Renderer {
     }
 
     FrameTimingSnapshot Renderer::last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept {
+        ZoneScopedN("Renderer::last_frame_timings");
         const WindowSurfaceRecord *record = window_surface(surface);
         return record != nullptr ? record->last_frame_timings : FrameTimingSnapshot{};
     }
 
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
+        ZoneScopedN("Renderer::window_surface");
         auto guard = window_surfaces_.lock();
         for (auto &record : *guard) {
             if (record->surface == surface) {
@@ -177,6 +188,7 @@ namespace SFT::Renderer {
     }
 
     const Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) const noexcept {
+        ZoneScopedN("Renderer::window_surface");
         auto guard = window_surfaces_.lock();
         for (auto &record : *guard) {
             if (record->surface == surface) {

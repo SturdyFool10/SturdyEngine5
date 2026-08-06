@@ -11,6 +11,8 @@
 #include <RHI/RHI.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::string;
 using std::unexpected;
 using std::vector;
@@ -18,6 +20,7 @@ using std::vector;
 namespace SFT::Renderer {
 
     Core::RendererResult Renderer::recover_from_device_loss() {
+        ZoneScopedN("Renderer::recover_from_device_loss");
         if (recovering_from_device_loss_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Renderer is already recovering from GPU device loss.");
@@ -26,6 +29,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::reconfigure_backend(const Core::RendererCreateInfo &create_info) {
+        ZoneScopedN("Renderer::reconfigure_backend");
         if (recovering_from_device_loss_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer is already rebuilding its graphics backend.");
@@ -35,6 +39,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                     const char *reason) {
+        ZoneScopedN("Renderer::rebuild_backend_from_create_info");
         if (!initialized_ || create_info.window == nullptr || window_surfaces_.lock()->empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Cannot rebuild graphics backend before renderer initialization state is available.");
@@ -121,6 +126,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::invalidate_gpu_resource_handles_no_destroy() noexcept {
+        ZoneScopedN("Renderer::invalidate_gpu_resource_handles_no_destroy");
         // The old device (and every buffer it owned, including the shared vertex/index arenas) is
         // gone — reset the arenas to empty so restore_gpu_resources_after_recovery()'s per-mesh
         // try_upload_mesh() replay rebuilds them from scratch via the ordinary growth path.
@@ -202,6 +208,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {
+        ZoneScopedN("Renderer::restore_gpu_resources_after_recovery");
         for (MeshResource &mesh : meshes_) {
             if (!mesh.alive) {
                 continue;

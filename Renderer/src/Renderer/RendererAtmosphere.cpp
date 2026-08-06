@@ -29,6 +29,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -76,6 +78,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_frame_atmosphere_targets(FrameInFlight &slot) {
+        ZoneScopedN("Renderer::ensure_frame_atmosphere_targets");
         if (slot.atmosphere_targets.constants_buffer) {
             return {};
         }
@@ -97,6 +100,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_atmosphere_targets(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_atmosphere_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr && slot.atmosphere_targets.constants_buffer) {
             device->destroy_buffer(slot.atmosphere_targets.constants_buffer);
@@ -106,6 +110,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::prepare_atmosphere_frame(const FrameSubmission &submission,
                                                              RHI::BufferHandle constants_buffer) {
+        ZoneScopedN("Renderer::prepare_atmosphere_frame");
         static_assert(sizeof(AtmosphereGpuData) == 160);
         static_assert(offsetof(AtmosphereGpuData, planet_center_world) == 96);
         static_assert(offsetof(AtmosphereGpuData, sun_illuminance) == 144);
@@ -160,6 +165,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_atmosphere_lut_resources() {
+        ZoneScopedN("Renderer::ensure_atmosphere_lut_resources");
         auto guard = atmosphere_lut_.lock();
         if (guard->ready) {
             return {};
@@ -282,6 +288,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_atmosphere_lut_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_atmosphere_lut_resources");
         RHI::RhiDevice *device = rhi_device();
         auto guard = atmosphere_lut_.lock();
         if (device != nullptr) {
@@ -310,6 +317,7 @@ namespace SFT::Renderer {
         RenderGraph &graph, RHI::BufferHandle atmosphere_buffer,
         RenderGraphTextureHandle &out_transmittance_lut, RenderGraphTextureHandle &out_multi_scattering_lut,
         RenderGraphTextureHandle &out_sky_view_lut, vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_atmosphere_lut_bakes");
         if (Core::RendererResult ready = ensure_atmosphere_lut_resources(); !ready.has_value()) {
             return ready;
         }

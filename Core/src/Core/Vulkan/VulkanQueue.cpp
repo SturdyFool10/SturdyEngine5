@@ -14,10 +14,12 @@ VulkanQueue::VulkanQueue(VkQueue handle, u32 family_index) noexcept
 
 VulkanQueue::VulkanQueue(VulkanQueue &&o) noexcept
             : handle_(o.handle_), family_index_(o.family_index_) {
+            ZoneScopedN("VulkanQueue::VulkanQueue");
             o.handle_ = VK_NULL_HANDLE;
         }
 
 VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
+            ZoneScopedN("VulkanQueue::operator=");
             if (this != &o) {
                 handle_ = o.handle_;
                 family_index_ = o.family_index_;
@@ -34,6 +36,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanQueue::submit(span<const VkSubmitInfo2> submits,
                                             VkFence fence) noexcept {
+            ZoneScopedN("VulkanQueue::submit");
             auto lock = submission_lock_.lock();
             const VkResult result = vkQueueSubmit2(handle_, static_cast<u32>(submits.size()), submits.data(), fence);
             if (result == VK_ERROR_DEVICE_LOST)
@@ -48,6 +51,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             span<const VkSemaphoreSubmitInfo> waits,
             span<const VkSemaphoreSubmitInfo> signals,
             VkFence fence) noexcept {
+            ZoneScopedN("VulkanQueue::submit");
             VkSubmitInfo2 submit_info{
                 .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
                 .pNext = nullptr,
@@ -63,6 +67,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
         }
 
 [[nodiscard]] RendererExpected<PresentOutcome> VulkanQueue::present(const VkPresentInfoKHR &info, f64 *lock_wait_ms) noexcept {
+            ZoneScopedN("VulkanQueue::present");
             const auto before_lock = steady_clock::now();
             auto lock = submission_lock_.lock();
             if (lock_wait_ms != nullptr) {
@@ -90,6 +95,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
         }
 
 [[nodiscard]] RendererResult VulkanQueue::wait_idle() noexcept {
+            ZoneScopedN("VulkanQueue::wait_idle");
             auto lock = submission_lock_.lock();
             const VkResult result = vkQueueWaitIdle(handle_);
             if (result == VK_ERROR_DEVICE_LOST)
@@ -101,6 +107,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanQueue::bind_sparse(span<const VkBindSparseInfo> infos,
                                                  VkFence fence) noexcept {
+            ZoneScopedN("VulkanQueue::bind_sparse");
             auto lock = submission_lock_.lock();
             const VkResult result = vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence);
             if (result == VK_ERROR_DEVICE_LOST)

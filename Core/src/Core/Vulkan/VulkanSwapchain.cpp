@@ -1,5 +1,7 @@
 #include "VulkanSwapchain.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanSwapchain::~VulkanSwapchain() { destroy(); }
@@ -11,11 +13,13 @@ VulkanSwapchain::VulkanSwapchain(VulkanSwapchain &&o) noexcept
               render_finished_semaphores_(std::move(o.render_finished_semaphores_)),
               format_(o.format_), color_space_(o.color_space_),
               extent_(o.extent_), present_mode_(o.present_mode_) {
+            ZoneScopedN("VulkanSwapchain::VulkanSwapchain");
             o.device_ = VK_NULL_HANDLE;
             o.swapchain_ = VK_NULL_HANDLE;
         }
 
 VulkanSwapchain &VulkanSwapchain::operator=(VulkanSwapchain &&o) noexcept {
+            ZoneScopedN("VulkanSwapchain::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -38,6 +42,7 @@ VulkanSwapchain &VulkanSwapchain::operator=(VulkanSwapchain &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanSwapchain> VulkanSwapchain::create(
             VkDevice device,
             const VkSwapchainCreateInfoKHR &info) noexcept {
+            ZoneScopedN("VulkanSwapchain::create");
             VkSwapchainKHR sc = VK_NULL_HANDLE;
             if (vkCreateSwapchainKHR(device, &info, nullptr, &sc) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateSwapchainKHR failed.");
@@ -89,6 +94,7 @@ void VulkanSwapchain::set_image_views(vector<VulkanImageView> views) noexcept { 
 [[nodiscard]] VkImageView VulkanSwapchain::image_view(u32 i) const noexcept { return image_views_[i].vk_handle(); }
 
 void VulkanSwapchain::set_depth_attachment(VulkanImage image, VulkanImageView view) noexcept {
+            ZoneScopedN("VulkanSwapchain::set_depth_attachment");
             depth_image_view_ = std::move(view);
             depth_image_ = std::move(image);
         }
@@ -100,18 +106,22 @@ void VulkanSwapchain::set_depth_attachment(VulkanImage image, VulkanImageView vi
 [[nodiscard]] VkImageView VulkanSwapchain::depth_image_view_handle() const noexcept { return depth_image_view_.vk_handle(); }
 
 void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> semaphores) noexcept {
+            ZoneScopedN("VulkanSwapchain::set_render_finished_semaphores");
             render_finished_semaphores_ = std::move(semaphores);
         }
 
 [[nodiscard]] const vector<VulkanSemaphore> &VulkanSwapchain::render_finished_semaphores() const noexcept {
+            ZoneScopedN("VulkanSwapchain::render_finished_semaphores");
             return render_finished_semaphores_;
         }
 
 [[nodiscard]] VkSemaphore VulkanSwapchain::render_finished_semaphore(u32 image_index) const noexcept {
+            ZoneScopedN("VulkanSwapchain::render_finished_semaphore");
             return render_finished_semaphores_[image_index].vk_handle();
         }
 
 [[nodiscard]] VkRenderingInfo VulkanSwapchain::RenderingAttachments::rendering_info(VkRect2D render_area) const noexcept {
+                ZoneScopedN("RenderingAttachments::rendering_info");
                 return VkRenderingInfo{
                     .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
                     .pNext = nullptr,
@@ -130,6 +140,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
             u32 image_index,
             VkClearColorValue clear_color,
             VkClearDepthStencilValue clear_depth) const noexcept {
+            ZoneScopedN("VulkanSwapchain::rendering_attachments");
             return RenderingAttachments{
                 .color{
                     .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -151,6 +162,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
         }
 
 [[nodiscard]] vector<VkImageMemoryBarrier2> VulkanSwapchain::undefined_to_attachment_barriers(u32 image_index) const noexcept {
+            ZoneScopedN("VulkanSwapchain::undefined_to_attachment_barriers");
             return {
                 VkImageMemoryBarrier2{
                     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -190,6 +202,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
         }
 
 [[nodiscard]] vector<VkImageMemoryBarrier2> VulkanSwapchain::attachment_to_present_barrier(u32 image_index) const noexcept {
+            ZoneScopedN("VulkanSwapchain::attachment_to_present_barrier");
             return {
                 VkImageMemoryBarrier2{
                     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -212,6 +225,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
         }
 
 [[nodiscard]] VkPresentInfoKHR VulkanSwapchain::PresentRequest::present_info() const noexcept {
+                ZoneScopedN("PresentRequest::present_info");
                 return VkPresentInfoKHR{
                     .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                     .pNext = nullptr,
@@ -225,6 +239,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
             }
 
 [[nodiscard]] VulkanSwapchain::PresentRequest VulkanSwapchain::present_request(u32 image_index) const noexcept {
+            ZoneScopedN("VulkanSwapchain::present_request");
             return PresentRequest{
                 .swapchain = swapchain_,
                 .image_index = image_index,
@@ -236,6 +251,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
             VkSemaphore signal_semaphore,
             VkFence fence,
             u64 timeout_ns) noexcept {
+            ZoneScopedN("VulkanSwapchain::acquire_next_image");
             VkAcquireNextImageInfoKHR info{
                 .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
                 .pNext = nullptr,
@@ -255,6 +271,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
         }
 
 void VulkanSwapchain::destroy() noexcept {
+            ZoneScopedN("VulkanSwapchain::destroy");
             // Views reference images, so tear them down before their images/swapchain.
             image_views_.clear();
             depth_image_view_.destroy();

@@ -13,6 +13,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::unexpected;
@@ -43,6 +45,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_object_history_resources() {
+        ZoneScopedN("Renderer::ensure_object_history_resources");
         auto guard = object_history_.lock();
         if (guard->ready) {
             return {};
@@ -103,6 +106,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::history_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
         RHI::Format depth_format, bool standard_depth_test, RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::history_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(object_history_error("Cannot build a history pipeline without at least one color target."));
         }
@@ -219,6 +223,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<RHI::BindGroupHandle> Renderer::ensure_object_history_bind_group(
         SceneFrameGpuResources &resources, vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::ensure_object_history_bind_group");
         if (Core::RendererResult ready = ensure_object_history_resources(); !ready.has_value()) {
             return unexpected(ready.error());
         }
@@ -252,6 +257,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_object_history_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_object_history_resources");
         RHI::RhiDevice *device = rhi_device();
         auto templates = object_history_pipeline_variants_.lock();
         if (device != nullptr) {

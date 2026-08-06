@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     class Commands;
@@ -26,6 +28,7 @@ namespace SFT::Ecs {
             [[nodiscard]] Commands view() noexcept;
 
             void apply(World &world) noexcept {
+                ZoneScopedN("CommandBuffer::apply");
                 for (DeferredCommand &operation : operations) {
                     operation(world);
                 }
@@ -43,6 +46,7 @@ namespace SFT::Ecs {
         Commands &operator=(Commands &&) noexcept = default;
 
         void destroy(Entity entity) noexcept {
+            ZoneScopedN("Commands::destroy");
             buffer_->operations.emplace_back([entity](World &world) noexcept {
                 Detail::WorldAccess::destroy(world, entity);
             });
@@ -52,6 +56,7 @@ namespace SFT::Ecs {
         // owned by the command until the stage boundary and moved into the new archetype row there.
         template <class... Ts>
         void spawn(Ts &&...components) noexcept {
+            ZoneScopedN("Commands::spawn");
             static_assert(sizeof...(Ts) > 0, "Commands::spawn requires at least one component.");
             static_assert((std::is_nothrow_constructible_v<std::decay_t<Ts>, Ts &&> && ...),
                           "Commands::spawn must capture each component without throwing.");
@@ -74,6 +79,7 @@ namespace SFT::Ecs {
         // (at apply time) if `entity` is dead or already has T by then.
         template <class T>
         void add_component(Entity entity, T component) noexcept {
+            ZoneScopedN("Commands::add_component");
             static_assert(std::is_nothrow_move_constructible_v<std::decay_t<T>>,
                           "Commands::add_component must capture the component without throwing.");
             buffer_->operations.emplace_back(
@@ -86,6 +92,7 @@ namespace SFT::Ecs {
         // violation (at apply time) if `entity` is dead or doesn't have T by then.
         template <class T>
         void remove_component(Entity entity) noexcept {
+            ZoneScopedN("Commands::remove_component");
             buffer_->operations.emplace_back([entity](World &world) noexcept {
                 Detail::WorldAccess::remove_component<T>(world, entity);
             });

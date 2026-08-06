@@ -29,6 +29,8 @@
 #include <RHI/RHI.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::chrono::duration;
 using std::chrono::steady_clock;
@@ -172,12 +174,14 @@ namespace SFT::Renderer {
     Renderer::Renderer() = default;
 
     Renderer::~Renderer() {
+        ZoneScopedN("Renderer::~Renderer");
         wait_idle();
         destroy_all_resources();
     }
 
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::initialize(
         const Core::RendererCreateInfo &create_info) {
+        ZoneScopedN("Renderer::initialize");
         if (initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Renderer is already initialized."});
@@ -228,6 +232,7 @@ namespace SFT::Renderer {
 
 
     Core::RendererResult Renderer::submit_draw(MeshHandle mesh_handle, MaterialInstanceHandle material_handle) {
+        ZoneScopedN("Renderer::submit_draw");
         if (mesh(mesh_handle) == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot submit a draw for an unknown mesh.");
@@ -241,6 +246,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
+        ZoneScopedN("Renderer::render_frame");
         // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
         // templates before recording. Cheap when nothing changed (a directory stat); the reload path
         // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
@@ -310,6 +316,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
+        ZoneScopedN("Renderer::render_frame");
         // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
         // templates before recording. Cheap when nothing changed (a directory stat); the reload path
         // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
@@ -327,6 +334,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::render_frame_dispatch(Core::RenderSurfaceHandle surface,
                                                           const Core::FrameInput &frame,
                                                           FrameSubmission &submission) {
+        ZoneScopedN("Renderer::render_frame_dispatch");
         WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -378,6 +386,7 @@ namespace SFT::Renderer {
 
 
     Core::RendererResult Renderer::ensure_rhi_presentation_resources(WindowSurfaceRecord &record) {
+        ZoneScopedN("Renderer::ensure_rhi_presentation_resources");
         if (record.rhi_surface && record.rhi_swapchain) {
             return {};
         }
@@ -408,6 +417,7 @@ namespace SFT::Renderer {
     }
 
     bool Renderer::render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept {
+        ZoneScopedN("Renderer::render_item_visible");
         const MeshResource *mesh_resource = mesh(item.mesh);
         if (mesh_resource == nullptr) {
             return true;
@@ -437,6 +447,7 @@ namespace SFT::Renderer {
                                                       RHI::SampleCount samples,
                                                       bool with_object_history,
                                                       RHI::BindGroupHandle object_history_group) {
+        ZoneScopedN("Renderer::record_render_item");
         MeshResource *mesh_resource = mesh(item.mesh);
         if (mesh_resource == nullptr || !mesh_resource->gpu_resident || !vertex_arena_.buffer) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -563,6 +574,7 @@ namespace SFT::Renderer {
                                                                RHI::SampleCount samples,
                                                                bool with_object_history,
                                                                RHI::BindGroupHandle object_history_group) {
+        ZoneScopedN("Renderer::record_render_items_culled");
         vector<const RenderItem *> visible;
         visible.reserve(items.size());
         for (const RenderItem &item : items) {
@@ -729,6 +741,7 @@ namespace SFT::Renderer {
                                                              u64 frame_index,
                                                              f32 shadow_depth_bias,
                                                              f32 shadow_slope_bias) {
+        ZoneScopedN("Renderer::record_shadow_view_chunk");
         RenderItemBindingState binding_state{};
         for (const ShadowRenderView &view : views) {
             encoder.set_viewport(RHI::Viewport{
@@ -758,6 +771,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_rhi_depth_resources(WindowSurfaceRecord &record) {
+        ZoneScopedN("Renderer::ensure_rhi_depth_resources");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -802,6 +816,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::drain_pending_present(WindowSurfaceRecord &record,
                                                          vector<std::pair<string, f64>> *stage_timings_ms) {
+        ZoneScopedN("Renderer::drain_pending_present");
         if (!record.pending_present) {
             return {};
         }
@@ -842,6 +857,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index,
                                                           optional<Core::Extent2D> known_extent) {
+        ZoneScopedN("Renderer::recreate_rhi_swapchain");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -938,6 +954,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::render_frame_rhi(WindowSurfaceRecord &record,
                                                     const Core::FrameInput &frame,
                                                     FrameSubmission &submission) {
+        ZoneScopedN("Renderer::render_frame_rhi");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -2930,6 +2947,7 @@ namespace SFT::Renderer {
                                                                   Core::Extent2D extent,
                                                                   const DeferredTargetFormats &formats,
                                                                   RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::ensure_frame_deferred_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -3095,6 +3113,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_deferred_targets(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_deferred_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             auto destroy_target = [device](RHI::TextureHandle texture, RHI::TextureViewHandle view) noexcept {
@@ -3121,6 +3140,7 @@ namespace SFT::Renderer {
                                                                Core::Extent2D extent,
                                                                u32 requested_levels,
                                                                f32 downsample_ratio) {
+        ZoneScopedN("Renderer::ensure_frame_bloom_targets");
         requested_levels = std::clamp(requested_levels, 1u, 12u);
         downsample_ratio = std::isfinite(downsample_ratio)
             ? std::clamp(downsample_ratio, 1.25f, 2.0f)
@@ -3255,6 +3275,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_bloom_targets(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_bloom_targets");
         if (RHI::RhiDevice *device = rhi_device()) {
             for (RHI::BindGroupHandle group : slot.bloom_targets.downsample_bind_groups) {
                 if (group) device->destroy_bind_group(group);
@@ -3275,6 +3296,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::ensure_frame_composite_target(FrameInFlight &slot,
                                                                   Core::Extent2D extent,
                                                                   RHI::Format format) {
+        ZoneScopedN("Renderer::ensure_frame_composite_target");
         const bool matches = slot.composite_target.extent.width == extent.width &&
             slot.composite_target.extent.height == extent.height &&
             slot.composite_target.format == format &&
@@ -3319,6 +3341,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_composite_target(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_composite_target");
         if (RHI::RhiDevice *device = rhi_device()) {
             if (slot.composite_target.view) {
                 device->destroy_texture_view(slot.composite_target.view);
@@ -3331,6 +3354,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_frame_gpu_timing_target(FrameInFlight &slot, u32 required_pass_count) {
+        ZoneScopedN("Renderer::ensure_frame_gpu_timing_target");
         const u32 required_capacity = required_pass_count * 2;
         if (required_capacity == 0 || slot.gpu_timing.capacity >= required_capacity) {
             return {};
@@ -3362,6 +3386,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_gpu_timing_target(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_gpu_timing_target");
         if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.gpu_timing.query_set) {
             device->destroy_query_set(slot.gpu_timing.query_set);
         }
@@ -3369,6 +3394,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_frame_pregraph_gpu_timing_target(FrameInFlight &slot) {
+        ZoneScopedN("Renderer::ensure_frame_pregraph_gpu_timing_target");
         if (slot.pregraph_gpu_timing_query_set) {
             return {};
         }
@@ -3390,6 +3416,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_pregraph_gpu_timing_target(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_pregraph_gpu_timing_target");
         if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.pregraph_gpu_timing_query_set) {
             device->destroy_query_set(slot.pregraph_gpu_timing_query_set);
         }
@@ -3398,6 +3425,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
+        ZoneScopedN("Renderer::reclaim_frame_slot");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {
             for (RHI::BindGroupHandle group : slot.transient_bind_groups) {
@@ -3483,6 +3511,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::drain_frames_in_flight(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::drain_frames_in_flight");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return;
@@ -3508,6 +3537,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept {
+        ZoneScopedN("Renderer::maybe_flush_retired_swapchains");
         usize retired_count = 0;
         for (const FrameInFlight &slot : record.frames_in_flight) {
             retired_count += slot.retired_swapchains.size();
@@ -3526,6 +3556,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::destroy_rhi_presentation_resources");
         if (RHI::RhiDevice *device = rhi_device()) {
             // Must happen before drain_frames_in_flight()'s wait_idle() / anything that destroys this
             // record's swapchain -- an outstanding presentation-coordinator job that hasn't actually
@@ -3581,17 +3612,20 @@ namespace SFT::Renderer {
     }
 
     void Renderer::wait_idle() noexcept {
+        ZoneScopedN("Renderer::wait_idle");
         if (graphics_backend_) {
             graphics_backend_->wait_idle();
         }
     }
 
     const RHI::FeatureNegotiationReport *Renderer::feature_negotiation_report() const noexcept {
+        ZoneScopedN("Renderer::feature_negotiation_report");
         const RHI::RhiDevice *device = rhi_device();
         return device != nullptr ? &device->feature_negotiation_report() : nullptr;
     }
 
     optional<Core::GpuInfo> Renderer::gpu_info() const {
+        ZoneScopedN("Renderer::gpu_info");
         if (!graphics_backend_) {
             return std::nullopt;
         }
@@ -3599,10 +3633,12 @@ namespace SFT::Renderer {
     }
 
     RHI::RhiDevice *Renderer::rhi_device() noexcept {
+        ZoneScopedN("Renderer::rhi_device");
         return graphics_backend_ ? graphics_backend_->rhi_device() : nullptr;
     }
 
     const RHI::RhiDevice *Renderer::rhi_device() const noexcept {
+        ZoneScopedN("Renderer::rhi_device");
         return graphics_backend_ ? graphics_backend_->rhi_device() : nullptr;
     }
 

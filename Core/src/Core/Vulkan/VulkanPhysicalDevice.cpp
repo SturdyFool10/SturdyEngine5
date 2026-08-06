@@ -1,8 +1,11 @@
 #include "VulkanPhysicalDevice.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanPhysicalDevice::VulkanPhysicalDevice(VkPhysicalDevice device) : device_(device) {
+            ZoneScopedN("VulkanPhysicalDevice::VulkanPhysicalDevice");
             if (device_ == VK_NULL_HANDLE)
                 return;
             vkGetPhysicalDeviceProperties(device_, &properties_);
@@ -16,6 +19,7 @@ VulkanPhysicalDevice::VulkanPhysicalDevice(VkPhysicalDevice device) : device_(de
         }
 
 [[nodiscard]] RendererExpected<vector<VulkanPhysicalDevice>> VulkanPhysicalDevice::enumerate(VkInstance instance) {
+            ZoneScopedN("VulkanPhysicalDevice::enumerate");
             u32 count = 0;
             if (vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || count == 0) {
                 return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
@@ -40,6 +44,7 @@ VulkanPhysicalDevice::VulkanPhysicalDevice(VkPhysicalDevice device) : device_(de
 [[nodiscard]] const VkPhysicalDeviceFeatures &VulkanPhysicalDevice::features() const noexcept { return features_; }
 
 void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::query_features2");
             vkGetPhysicalDeviceFeatures2(device_, &features);
         }
 
@@ -60,12 +65,14 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 [[nodiscard]] u32 VulkanPhysicalDevice::driver_version() const noexcept { return properties_.driverVersion; }
 
 [[nodiscard]] UString VulkanPhysicalDevice::driver_version_string() const {
+            ZoneScopedN("VulkanPhysicalDevice::driver_version_string");
             return format_driver_version(properties_.vendorID, properties_.driverVersion);
         }
 
 [[nodiscard]] u32 VulkanPhysicalDevice::api_version() const noexcept { return properties_.apiVersion; }
 
 [[nodiscard]] UString VulkanPhysicalDevice::api_version_string() const {
+            ZoneScopedN("VulkanPhysicalDevice::api_version_string");
             return std::format("{}.{}.{}",
                                VK_API_VERSION_MAJOR(properties_.apiVersion),
                                VK_API_VERSION_MINOR(properties_.apiVersion),
@@ -73,16 +80,19 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] f32 VulkanPhysicalDevice::timestamp_period() const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::timestamp_period");
             return properties_.limits.timestampPeriod;
         }
 
 [[nodiscard]] u32 VulkanPhysicalDevice::timestamp_valid_bits(u32 queue_family_index) const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::timestamp_valid_bits");
             if (queue_family_index >= static_cast<u32>(queue_families_.size()))
                 return 0;
             return queue_families_[queue_family_index].timestampValidBits;
         }
 
 [[nodiscard]] RendererExpected<vector<VkTimeDomainKHR>> VulkanPhysicalDevice::calibrateable_time_domains() const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::calibrateable_time_domains");
             u32 count = 0;
             if (vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(device_, &count, nullptr) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -95,6 +105,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::findGraphicsQueue(VkSurfaceKHR surface) noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::findGraphicsQueue");
             if (gfxQueueFamIdx.has_value())
                 return gfxQueueFamIdx;
             u32 queueFamCount = 0;
@@ -114,6 +125,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_present_queue_family(VkSurfaceKHR surface) noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_present_queue_family");
             if (presentQueueFamIdx.has_value())
                 return presentQueueFamIdx;
             auto indices = std::views::iota(0u, static_cast<u32>(queue_families_.size()));
@@ -128,54 +140,63 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] bool VulkanPhysicalDevice::queue_family_supports_present(u32 family_index, VkSurfaceKHR surface) const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::queue_family_supports_present");
             VkBool32 supported = VK_FALSE;
             return vkGetPhysicalDeviceSurfaceSupportKHR(device_, family_index, surface, &supported) == VK_SUCCESS &&
                    supported == VK_TRUE;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_compute_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_compute_queue_family");
             if (!computeQueueFamIdx.has_value())
                 computeQueueFamIdx = find_queue_family_with(VK_QUEUE_COMPUTE_BIT);
             return computeQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_transfer_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_transfer_queue_family");
             if (!transferQueueFamIdx.has_value())
                 transferQueueFamIdx = find_queue_family_with(VK_QUEUE_TRANSFER_BIT);
             return transferQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_sparse_binding_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_sparse_binding_queue_family");
             if (!sparseBindingQueueFamIdx.has_value())
                 sparseBindingQueueFamIdx = find_queue_family_with(VK_QUEUE_SPARSE_BINDING_BIT);
             return sparseBindingQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_protected_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_protected_queue_family");
             if (!protectedQueueFamIdx.has_value())
                 protectedQueueFamIdx = find_queue_family_with(VK_QUEUE_PROTECTED_BIT);
             return protectedQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_video_decode_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_video_decode_queue_family");
             if (!videoDecodeQueueFamIdx.has_value())
                 videoDecodeQueueFamIdx = find_queue_family_with(VK_QUEUE_VIDEO_DECODE_BIT_KHR);
             return videoDecodeQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_video_encode_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_video_encode_queue_family");
             if (!videoEncodeQueueFamIdx.has_value())
                 videoEncodeQueueFamIdx = find_queue_family_with(VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
             return videoEncodeQueueFamIdx;
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_optical_flow_queue_family() noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_optical_flow_queue_family");
             if (!opticalFlowQueueFamIdx.has_value())
                 opticalFlowQueueFamIdx = find_queue_family_with(VK_QUEUE_OPTICAL_FLOW_BIT_NV);
             return opticalFlowQueueFamIdx;
         }
 
 [[nodiscard]] RendererExpected<vector<VkExtensionProperties>> VulkanPhysicalDevice::enumerate_extensions() const {
+            ZoneScopedN("VulkanPhysicalDevice::enumerate_extensions");
             u32 count = 0;
             if (vkEnumerateDeviceExtensionProperties(device_, nullptr, &count, nullptr) != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -190,6 +211,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] bool VulkanPhysicalDevice::supports_extension(string_view name) const {
+            ZoneScopedN("VulkanPhysicalDevice::supports_extension");
             auto extensions = enumerate_extensions();
             if (!extensions) return false;
             return std::ranges::any_of(*extensions, [&](const VkExtensionProperties &ext) {
@@ -199,6 +221,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 
 [[nodiscard]] RendererExpected<VkSurfaceCapabilitiesKHR>
         VulkanPhysicalDevice::surface_capabilities(VkSurfaceKHR surface) const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::surface_capabilities");
             VkSurfaceCapabilitiesKHR caps{};
             if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_, surface, &caps) != VK_SUCCESS) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -209,6 +232,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 
 [[nodiscard]] RendererExpected<vector<VkSurfaceFormatKHR>>
         VulkanPhysicalDevice::surface_formats(VkSurfaceKHR surface) const {
+            ZoneScopedN("VulkanPhysicalDevice::surface_formats");
             u32 count = 0;
             if (vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -224,6 +248,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 
 [[nodiscard]] RendererExpected<vector<VkPresentModeKHR>>
         VulkanPhysicalDevice::surface_present_modes(VkSurfaceKHR surface) const {
+            ZoneScopedN("VulkanPhysicalDevice::surface_present_modes");
             u32 count = 0;
             if (vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -238,6 +263,7 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 [[nodiscard]] optional<u32> VulkanPhysicalDevice::find_queue_family_with(VkQueueFlags flags) const noexcept {
+            ZoneScopedN("VulkanPhysicalDevice::find_queue_family_with");
             auto match = std::ranges::find_if(queue_families_, [flags](const VkQueueFamilyProperties &qf) {
                 return (qf.queueFlags & flags) == flags;
             });

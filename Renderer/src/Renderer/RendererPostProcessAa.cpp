@@ -5,6 +5,8 @@
 
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 
 namespace SFT::Renderer {
@@ -39,6 +41,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::ensure_post_process_aa_resources(
         const RenderGraphSettings &settings,
         RHI::Format color_format) {
+        ZoneScopedN("Renderer::ensure_post_process_aa_resources");
         if (settings.post_process_aa == 0) {
             return {};
         }
@@ -51,6 +54,7 @@ namespace SFT::Renderer {
         RHI::Format color_format,
         const RenderGraphSettings &settings,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_post_process_aa");
         if (settings.post_process_aa == 0) {
             return {};
         }

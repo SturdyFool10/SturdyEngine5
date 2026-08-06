@@ -26,11 +26,14 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::TextureHandle> VulkanRhiDeviceBridge::create_texture(const rhi::TextureDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_texture");
         if (allocator_ == nullptr || logical_device_ == nullptr) {
             return device_not_ready<rhi::TextureHandle>("create_texture");
         }
@@ -92,10 +95,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_texture(rhi::TextureHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_texture");
         textures_.erase(handle);
     }
 
     rhi::RhiExpected<rhi::TextureViewHandle> VulkanRhiDeviceBridge::create_texture_view(const rhi::TextureViewDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_texture_view");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::TextureViewHandle>("create_texture_view");
         }
@@ -135,6 +140,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_texture_view(rhi::TextureViewHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_texture_view");
         texture_views_.erase(handle);
     }
 

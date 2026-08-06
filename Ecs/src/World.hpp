@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     namespace Detail {
@@ -84,6 +86,7 @@ namespace SFT::Ecs {
         // deduce to the decayed argument types (pass components by value or as rvalues).
         template <class... Ts>
         [[nodiscard]] Entity spawn(Ts &&...components) {
+            ZoneScopedN("World::spawn");
             ensure_not_scheduled("spawn entities");
             auto access = acquire_direct_mutation("spawn entities");
             ensure_not_scheduled("spawn entities");
@@ -91,6 +94,7 @@ namespace SFT::Ecs {
         }
 
         void destroy(Entity entity) noexcept {
+            ZoneScopedN("World::destroy");
             ensure_not_scheduled("destroy entities directly; use Commands::destroy() inside a system");
             auto access = acquire_direct_mutation("destroy entities");
             ensure_not_scheduled("destroy entities directly; use Commands::destroy() inside a system");
@@ -102,6 +106,7 @@ namespace SFT::Ecs {
         // remove_component<T>() first if the intent is to replace it.
         template <class T>
         void add_component(Entity entity, T component) {
+            ZoneScopedN("World::add_component");
             ensure_not_scheduled("add a component");
             auto access = acquire_direct_mutation("add a component");
             ensure_not_scheduled("add a component");
@@ -112,6 +117,7 @@ namespace SFT::Ecs {
         // column. Contract violation if `entity` is dead or doesn't have T.
         template <class T>
         void remove_component(Entity entity) {
+            ZoneScopedN("World::remove_component");
             ensure_not_scheduled("remove a component");
             auto access = acquire_direct_mutation("remove a component");
             ensure_not_scheduled("remove a component");
@@ -119,6 +125,7 @@ namespace SFT::Ecs {
         }
 
         [[nodiscard]] bool is_alive(Entity entity) const noexcept {
+            ZoneScopedN("World::is_alive");
             ensure_not_scheduled("inspect entity liveness directly");
             std::shared_lock access{direct_access_mutex_};
             ensure_not_scheduled("inspect entity liveness directly");
@@ -127,6 +134,7 @@ namespace SFT::Ecs {
 
         template <class T>
         [[nodiscard]] ComponentBorrow<T> get_component(Entity entity) noexcept {
+            ZoneScopedN("World::get_component");
             static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "get_component<T>() expects an unqualified T.");
             ensure_not_scheduled("access components directly; declare access through a scheduled system instead");
             std::shared_lock access{direct_access_mutex_};
@@ -149,6 +157,7 @@ namespace SFT::Ecs {
 
         template <class T>
         [[nodiscard]] ComponentBorrow<const T> get_component(Entity entity) const noexcept {
+            ZoneScopedN("World::get_component_const");
             static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "get_component<T>() expects an unqualified T.");
             ensure_not_scheduled("access components directly; declare access through a scheduled system instead");
             std::shared_lock access{direct_access_mutex_};
@@ -177,6 +186,7 @@ namespace SFT::Ecs {
         // documented, not-yet-needed optimization (see plans/ecs-design.md).
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query() {
+            ZoneScopedN("World::query");
             ensure_not_scheduled("create a direct query; scheduled systems receive safe query chunks automatically");
             std::shared_lock access{direct_access_mutex_};
             ensure_not_scheduled("create a direct query; scheduled systems receive safe query chunks automatically");
@@ -191,6 +201,7 @@ namespace SFT::Ecs {
         // WriteResource<T>, allowing the scheduler to include resources in conflict analysis.
         template <class T>
         void bind_resource(T &resource) {
+            ZoneScopedN("World::bind_resource");
             using ResourceT = std::remove_cv_t<T>;
             static_assert(std::is_same_v<T, ResourceT>, "World::bind_resource requires a mutable, unqualified T.");
             ensure_not_scheduled("bind an ECS resource");
@@ -223,6 +234,7 @@ namespace SFT::Ecs {
 
         template <class T>
         void unbind_resource() noexcept {
+            ZoneScopedN("World::unbind_resource");
             using ResourceT = std::remove_cv_t<T>;
             ensure_not_scheduled("unbind an ECS resource");
             auto access = acquire_direct_mutation("unbind an ECS resource");
@@ -232,6 +244,7 @@ namespace SFT::Ecs {
 
         template <class T>
         [[nodiscard]] bool has_resource() const noexcept {
+            ZoneScopedN("World::has_resource");
             using ResourceT = std::remove_cv_t<T>;
             ensure_not_scheduled("inspect ECS resources directly");
             std::shared_lock access{direct_access_mutex_};
@@ -271,6 +284,7 @@ namespace SFT::Ecs {
 
         template <class... Ts>
         [[nodiscard]] Entity spawn_unchecked(Ts &&...components) {
+            ZoneScopedN("World::spawn_unchecked");
             static_assert(sizeof...(Ts) > 0, "World::spawn requires at least one component for now.");
             static_assert((std::is_nothrow_constructible_v<std::decay_t<Ts>, Ts &&> && ...),
                           "World::spawn component construction must be noexcept.");
@@ -309,6 +323,7 @@ namespace SFT::Ecs {
 
         template <class T>
         void add_component_unchecked(Entity entity, T component) {
+            ZoneScopedN("World::add_component_unchecked");
             static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "World::add_component<T>() expects an unqualified T.");
             static_assert(std::is_nothrow_move_constructible_v<T>,
                           "World::add_component<T>() requires a nothrow move-constructible T.");
@@ -348,6 +363,7 @@ namespace SFT::Ecs {
 
         template <class T>
         void remove_component_unchecked(Entity entity) {
+            ZoneScopedN("World::remove_component_unchecked");
             static_assert(std::is_same_v<T, std::remove_cv_t<T>>, "World::remove_component<T>() expects an unqualified T.");
             if (!is_alive_unchecked(entity)) {
                 Detail::contract_violation(
@@ -383,6 +399,7 @@ namespace SFT::Ecs {
         }
 
         void ensure_not_scheduled(string_view action) const noexcept {
+            ZoneScopedN("World::ensure_not_scheduled");
             if (scheduled_execution_.load(std::memory_order_acquire)) {
                 Detail::contract_violation(
                     "Unsafe ECS World access while an async schedule is active: cannot {}.",
@@ -391,6 +408,7 @@ namespace SFT::Ecs {
         }
 
         [[nodiscard]] std::unique_lock<std::shared_mutex> acquire_direct_mutation(string_view action) noexcept {
+            ZoneScopedN("World::acquire_direct_mutation");
             std::unique_lock access{direct_access_mutex_, std::try_to_lock};
             if (!access.owns_lock()) {
                 Detail::contract_violation(
@@ -401,6 +419,7 @@ namespace SFT::Ecs {
         }
 
         [[nodiscard]] std::unique_lock<std::shared_mutex> begin_scheduled_execution() noexcept {
+            ZoneScopedN("World::begin_scheduled_execution");
             ensure_not_scheduled("start another schedule");
             std::unique_lock access{direct_access_mutex_, std::try_to_lock};
             if (!access.owns_lock()) {
@@ -415,15 +434,18 @@ namespace SFT::Ecs {
         }
 
         void end_scheduled_execution() noexcept {
+            ZoneScopedN("World::end_scheduled_execution");
             scheduled_execution_.store(false, std::memory_order_release);
         }
 
         [[nodiscard]] bool is_alive_unchecked(Entity entity) const noexcept {
+            ZoneScopedN("World::is_alive_unchecked");
             return entity.generation != 0 && entity.index < entity_records_.size() &&
                    entity_records_[entity.index].generation == entity.generation;
         }
 
         void destroy_unchecked(Entity entity) noexcept {
+            ZoneScopedN("World::destroy_unchecked");
             if (!is_alive_unchecked(entity)) {
                 return;
             }
@@ -439,6 +461,7 @@ namespace SFT::Ecs {
 
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query_impl(std::shared_lock<std::shared_mutex> direct_access_lock = {}) {
+            ZoneScopedN("World::query_impl");
             const auto resolve = [this]<class T>() -> ComponentId {
                 auto component = registry_->try_register<std::remove_const_t<T>>();
                 if (!component) {
@@ -476,6 +499,7 @@ namespace SFT::Ecs {
 
         template <class T>
         [[nodiscard]] T &resource_unchecked() noexcept {
+            ZoneScopedN("World::resource_unchecked");
             using ResourceT = std::remove_cv_t<T>;
             const auto resource = resources_.find(resource_key<ResourceT>());
             if (resource == resources_.end() || resource->second.object == nullptr) {
@@ -487,6 +511,7 @@ namespace SFT::Ecs {
         }
 
         [[nodiscard]] Entity allocate_entity() {
+            ZoneScopedN("World::allocate_entity");
             if (!free_indices_.empty()) {
                 const u32 index = free_indices_.back();
                 free_indices_.pop_back();
@@ -498,6 +523,7 @@ namespace SFT::Ecs {
         }
 
         [[nodiscard]] u32 archetype_index_for(const Signature &signature) {
+            ZoneScopedN("World::archetype_index_for");
             for (usize i = 0; i < archetypes_.size(); ++i) {
                 if (archetypes_[i].signature() == signature) {
                     return static_cast<u32>(i);
@@ -559,6 +585,7 @@ namespace SFT::Ecs {
             // Empties every bound Events<T> resource. Called once at the top of Schedule::run(),
             // before the stage loop, so consumers never need a per-event-type begin_frame() call.
             static void clear_event_resources(World &world) noexcept {
+                ZoneScopedN("WorldAccess::clear_event_resources");
                 for (auto &[key, record] : world.resources_) {
                     if (record.clear != nullptr) {
                         record.clear(record.object);

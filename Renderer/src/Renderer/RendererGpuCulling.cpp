@@ -17,6 +17,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::unexpected;
@@ -57,6 +59,7 @@ namespace SFT::Renderer {
     } // namespace
 
     vector<Renderer::InstancedBatch> Renderer::detect_instanced_batches(span<const RenderItem> sorted_draws) const {
+        ZoneScopedN("Renderer::detect_instanced_batches");
         vector<InstancedBatch> batches;
         usize i = 0;
         while (i < sorted_draws.size()) {
@@ -80,6 +83,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_instance_cull_resources() {
+        ZoneScopedN("Renderer::ensure_instance_cull_resources");
         auto guard = instance_cull_.lock();
         if (guard->ready) {
             return {};
@@ -218,6 +222,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::instanced_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
         RHI::Format depth_format, RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::instanced_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(instance_cull_error("Cannot build an instanced pipeline without at least one color target."));
         }
@@ -326,6 +331,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::prepare_instance_cull_gpu_data(span<const InstancedBatch> batches,
                                                                    SceneFrameGpuResources &resources) {
+        ZoneScopedN("Renderer::prepare_instance_cull_gpu_data");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(instance_cull_error("Cannot prepare instance-cull GPU data without an RHI device."));
@@ -410,6 +416,7 @@ namespace SFT::Renderer {
                                                          const glm::mat4 &view_projection, const glm::vec3 &camera_world_position,
                                                          const HiZCullInput &hiz, SceneFrameGpuResources &resources,
                                                          vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_instance_cull");
         if (batches.empty()) {
             return {};
         }
@@ -504,6 +511,7 @@ namespace SFT::Renderer {
                                                              SceneFrameGpuResources &resources,
                                                              vector<RHI::BindGroupHandle> &transient_bind_groups,
                                                              RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::record_instanced_batches");
         if (batches.empty()) {
             return {};
         }
@@ -588,6 +596,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_instance_cull_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_instance_cull_resources");
         RHI::RhiDevice *device = rhi_device();
         auto templates = instanced_pipeline_variants_.lock();
         if (device != nullptr) {

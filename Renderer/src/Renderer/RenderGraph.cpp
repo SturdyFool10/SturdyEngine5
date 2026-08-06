@@ -16,6 +16,7 @@ namespace SFT::Renderer {
     } // namespace
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphRenderPassBuilder &pass) {
+            ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
             for (const RenderGraphColorAttachmentDesc &attachment : pass.color_attachments_) {
                 usage.writes.push_back(attachment.texture);
@@ -54,6 +55,7 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphBlitDesc &pass) {
+            ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
             usage.writes.push_back(pass.destination);
             usage.reads.push_back(pass.source);
@@ -61,6 +63,7 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphComputePassBuilder &pass) {
+            ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
             for (RenderGraphTextureHandle read : pass.sampled_texture_reads_) {
                 usage.reads.push_back(read);
@@ -89,6 +92,7 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphCopyDesc &pass) {
+            ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
             usage.writes.push_back(pass.destination);
             usage.reads.push_back(pass.source);
@@ -96,6 +100,7 @@ namespace SFT::Renderer {
         }
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::usage_of_ordered(const OrderedPass &ordered) const {
+            ZoneScopedN("RenderGraph::usage_of_ordered");
             switch (ordered.kind) {
                 case PassKind::Render: return pass_usage_of(render_passes_[ordered.index]);
                 case PassKind::Blit: return pass_usage_of(blit_passes_[ordered.index]);
@@ -108,47 +113,56 @@ namespace SFT::Renderer {
 RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(string label) : label_(std::move(label)) {}
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_color_attachment(const RenderGraphColorAttachmentDesc &attachment) {
+            ZoneScopedN("RenderGraphRenderPassBuilder::add_color_attachment");
             color_attachments_.push_back(attachment);
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_depth_stencil_attachment(const RenderGraphDepthStencilAttachmentDesc &attachment) {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_depth_stencil_attachment");
             depth_stencil_attachment_ = attachment;
             has_depth_stencil_attachment_ = true;
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_sampled_texture(const RenderGraphSampledTextureReadDesc &read) {
+            ZoneScopedN("RenderGraphRenderPassBuilder::add_sampled_texture");
             sampled_texture_reads_.push_back(read);
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
+            ZoneScopedN("RenderGraphRenderPassBuilder::add_buffer");
             buffers_.push_back(access);
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_render_area(const RHI::Rect2D &render_area) noexcept {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_render_area");
             render_area_ = render_area;
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_view_mask(u32 view_mask) noexcept {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_view_mask");
             view_mask_ = view_mask;
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_allow_bundles(bool allow_bundles) noexcept {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_allow_bundles");
             allow_bundles_ = allow_bundles;
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_side_effect(bool side_effect) noexcept {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_side_effect");
             side_effect_ = side_effect;
             return *this;
         }
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGraphExecuteFn execute) noexcept {
+            ZoneScopedN("RenderGraphRenderPassBuilder::set_execute");
             execute_ = std::move(execute);
             return *this;
         }
@@ -156,31 +170,37 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGr
 RenderGraphComputePassBuilder::RenderGraphComputePassBuilder(string label) : label_(std::move(label)) {}
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_sampled_texture(RenderGraphTextureHandle texture) {
+            ZoneScopedN("RenderGraphComputePassBuilder::add_sampled_texture");
             sampled_texture_reads_.push_back(texture);
             return *this;
         }
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_storage_texture(const RenderGraphStorageTextureAccessDesc &access) {
+            ZoneScopedN("RenderGraphComputePassBuilder::add_storage_texture");
             storage_textures_.push_back(access);
             return *this;
         }
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
+            ZoneScopedN("RenderGraphComputePassBuilder::add_buffer");
             buffers_.push_back(access);
             return *this;
         }
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_side_effect(bool side_effect) noexcept {
+            ZoneScopedN("RenderGraphComputePassBuilder::set_side_effect");
             side_effect_ = side_effect;
             return *this;
         }
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(RenderGraphComputeExecuteFn execute) noexcept {
+            ZoneScopedN("RenderGraphComputePassBuilder::set_execute");
             execute_ = std::move(execute);
             return *this;
         }
 
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::import_texture(const RenderGraphImportedTextureDesc &desc) {
+            ZoneScopedN("RenderGraph::import_texture");
             const u32 slot_index = static_cast<u32>(physical_slots_.size());
             physical_slots_.push_back(PhysicalSlot{
                 .texture = desc.texture,
@@ -212,6 +232,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
         }
 
 [[nodiscard]] RenderGraphBufferHandle RenderGraph::import_buffer(const RenderGraphImportedBufferDesc &desc) {
+            ZoneScopedN("RenderGraph::import_buffer");
             const RenderGraphBufferHandle handle{static_cast<u32>(buffers_.size())};
             buffers_.push_back(BufferRecord{
                 .imported = desc,
@@ -223,6 +244,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
         }
 
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::create_texture(const RenderGraphTextureDesc &desc) {
+            ZoneScopedN("RenderGraph::create_texture");
             // No physical_slot yet — aliasing assigns one per compiled-graph lifetime analysis inside
             // create_transient_resources(), which runs once execute() knows every pass in the frame.
             const RenderGraphTextureHandle handle{static_cast<u32>(textures_.size())};
@@ -244,6 +266,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
         }
 
 [[nodiscard]] RenderGraphRenderPassBuilder &RenderGraph::add_render_pass(string_view label) {
+            ZoneScopedN("RenderGraph::add_render_pass");
             const u32 index = static_cast<u32>(render_passes_.size());
             render_passes_.emplace_back(string{label});
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Render, .index = index});
@@ -251,12 +274,14 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
         }
 
 void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
+            ZoneScopedN("RenderGraph::add_blit_pass");
             const u32 index = static_cast<u32>(blit_passes_.size());
             blit_passes_.push_back(desc);
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Blit, .index = index});
         }
 
 [[nodiscard]] RenderGraphComputePassBuilder &RenderGraph::add_compute_pass(string_view label) {
+            ZoneScopedN("RenderGraph::add_compute_pass");
             const u32 index = static_cast<u32>(compute_passes_.size());
             compute_passes_.emplace_back(string{label});
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Compute, .index = index});
@@ -264,18 +289,21 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
         }
 
 void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
+            ZoneScopedN("RenderGraph::add_copy_pass");
             const u32 index = static_cast<u32>(copy_passes_.size());
             copy_passes_.push_back(desc);
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Copy, .index = index});
         }
 
 void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
+            ZoneScopedN("RenderGraph::mark_output");
             if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
                 outputs_.push_back(texture);
             }
         }
 
 [[nodiscard]] RenderGraphTextureAccess RenderGraph::texture_access(RenderGraphTextureHandle handle) const noexcept {
+            ZoneScopedN("RenderGraph::texture_access");
             const TextureRecord *record = texture_record(handle);
             const PhysicalSlot *slot = physical_slot_for(handle);
             if (record == nullptr || slot == nullptr) {
@@ -291,6 +319,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 [[nodiscard]] RenderGraphBufferAccess RenderGraph::buffer_access(RenderGraphBufferHandle handle) const noexcept {
+            ZoneScopedN("RenderGraph::buffer_access");
             const BufferRecord *record = buffer_record(handle);
             return record != nullptr
                 ? RenderGraphBufferAccess{.buffer = record->imported.buffer, .size = record->imported.size}
@@ -327,6 +356,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 //    adds passes out of dependency order would
 //    still get correctly reordered instead of silently misrendering.
 [[nodiscard]] RenderGraph::CompileResult RenderGraph::compile() const {
+            ZoneScopedN("RenderGraph::compile");
             const usize pass_count = ordered_passes_.size();
             vector<PassUsage> usage(pass_count);
             for (usize i = 0; i < pass_count; ++i) {
@@ -584,6 +614,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                          RHI::QuerySetHandle timestamp_query_set,
                                                          vector<GpuPassTiming> *out_pass_timings,
                                                          vector<CpuPassTiming> *out_cpu_pass_timings) {
+            ZoneScopedN("RenderGraph::execute");
             // Order first: aliasing needs the culled, topo-sorted order to compute accurate lifetimes,
             // and compile() never touches physical resource state, so this is safe to run before any
             // GPU texture exists yet.
@@ -706,6 +737,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 [[nodiscard]] vector<u32> RenderGraph::compute_execution_levels(const vector<OrderedPass> &execution_order) const {
+            ZoneScopedN("RenderGraph::compute_execution_levels");
             vector<PassUsage> usage(execution_order.size());
             for (usize i = 0; i < execution_order.size(); ++i) {
                 usage[i] = usage_of_ordered(execution_order[i]);
@@ -729,6 +761,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 // transient receives its own logical fallback key; execute_parallel recomputes levels after aliasing so
 // physical-slot conflicts are then included as well.
 [[nodiscard]] vector<u32> RenderGraph::compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const {
+            ZoneScopedN("RenderGraph::compute_levels_from_usage");
             const usize count = usage_by_position.size();
             const usize logical_key_offset = physical_slots_.size();
             vector<i64> last_touch_pos(physical_slots_.size() + textures_.size(), -1);
@@ -1060,6 +1093,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
+            ZoneScopedN("RenderGraph::destroy_transient_resources");
             // Iterates physical_slots_, not textures_: aliasing means several virtual transient textures
             // can share one slot, so destroying per-virtual-texture would double-destroy.
             for (PhysicalSlot &slot : physical_slots_) {
@@ -1079,6 +1113,7 @@ void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
 
 void RenderGraph::take_transient_resources(vector<RHI::TextureHandle> &textures,
                                       vector<RHI::TextureViewHandle> &views) {
+            ZoneScopedN("RenderGraph::take_transient_resources");
             for (PhysicalSlot &slot : physical_slots_) {
                 if (!slot.owns_resource) {
                     continue;
@@ -1095,6 +1130,7 @@ void RenderGraph::take_transient_resources(vector<RHI::TextureHandle> &textures,
         }
 
 void RenderGraph::reset() noexcept {
+            ZoneScopedN("RenderGraph::reset");
             ordered_passes_.clear();
             render_passes_.clear();
             blit_passes_.clear();
@@ -1107,6 +1143,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) noexcept {
+            ZoneScopedN("RenderGraph::texture_record");
             if (!handle || handle.index >= textures_.size()) {
                 return nullptr;
             }
@@ -1114,6 +1151,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] const RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) const noexcept {
+            ZoneScopedN("RenderGraph::texture_record");
             if (!handle || handle.index >= textures_.size()) {
                 return nullptr;
             }
@@ -1121,6 +1159,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) noexcept {
+            ZoneScopedN("RenderGraph::buffer_record");
             if (!handle || handle.index >= buffers_.size()) {
                 return nullptr;
             }
@@ -1128,6 +1167,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] const RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) const noexcept {
+            ZoneScopedN("RenderGraph::buffer_record");
             if (!handle || handle.index >= buffers_.size()) {
                 return nullptr;
             }
@@ -1135,6 +1175,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) noexcept {
+            ZoneScopedN("RenderGraph::physical_slot_for");
             TextureRecord *record = texture_record(handle);
             if (record == nullptr || record->physical_slot >= physical_slots_.size()) {
                 return nullptr;
@@ -1143,6 +1184,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] const RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) const noexcept {
+            ZoneScopedN("RenderGraph::physical_slot_for");
             const TextureRecord *record = texture_record(handle);
             if (record == nullptr || record->physical_slot >= physical_slots_.size()) {
                 return nullptr;
@@ -1152,6 +1194,7 @@ void RenderGraph::reset() noexcept {
 
 [[nodiscard]] Core::RendererResult RenderGraph::transition_buffer(
             RHI::CommandEncoder &encoder, const RenderGraphBufferAccessDesc &access) {
+            ZoneScopedN("RenderGraph::transition_buffer");
             BufferRecord *record = buffer_record(access.buffer);
             if (record == nullptr || !record->imported.buffer) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1183,6 +1226,7 @@ void RenderGraph::reset() noexcept {
                                                               RHI::PipelineStage next_stage,
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources) {
+            ZoneScopedN("RenderGraph::transition_texture");
             // No lock needed here — see physical_slots_'s own doc comment (RenderGraph.hpp) for why
             // two passes running concurrently under execute_parallel() can never reach this function
             // for the same physical slot at the same time.
@@ -1231,6 +1275,7 @@ void RenderGraph::reset() noexcept {
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass) {
+            ZoneScopedN("RenderGraph::execute_render_pass");
             for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
                 if (Core::RendererResult transition = transition_buffer(encoder, access); !transition.has_value()) {
                     return transition;
@@ -1375,6 +1420,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_blit_pass(RHI::CommandEncoder &encoder, const RenderGraphBlitDesc &pass) {
+            ZoneScopedN("RenderGraph::execute_blit_pass");
             const TextureRecord *source_record = texture_record(pass.source);
             const TextureRecord *destination_record = texture_record(pass.destination);
             PhysicalSlot *source = physical_slot_for(pass.source);
@@ -1419,6 +1465,7 @@ void RenderGraph::reset() noexcept {
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_compute_pass(RHI::CommandEncoder &encoder,
                                                                  RenderGraphComputePassBuilder &pass) {
+            ZoneScopedN("RenderGraph::execute_compute_pass");
             for (const RenderGraphBufferAccessDesc &access : pass.buffers_) {
                 if (Core::RendererResult transition = transition_buffer(encoder, access); !transition.has_value()) {
                     return transition;
@@ -1474,6 +1521,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_copy_pass(RHI::CommandEncoder &encoder, const RenderGraphCopyDesc &pass) {
+            ZoneScopedN("RenderGraph::execute_copy_pass");
             const TextureRecord *source_record = texture_record(pass.source);
             PhysicalSlot *source = physical_slot_for(pass.source);
             PhysicalSlot *destination = physical_slot_for(pass.destination);
@@ -1511,6 +1559,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] vector<RenderGraph::TextureLifetime> RenderGraph::compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const {
+            ZoneScopedN("RenderGraph::compute_transient_lifetimes");
             vector<TextureLifetime> lifetimes(textures_.size());
             for (usize order_index = 0; order_index < execution_order.size(); ++order_index) {
                 const PassUsage usage = usage_of_ordered(execution_order[order_index]);
@@ -1548,6 +1597,7 @@ void RenderGraph::reset() noexcept {
 // aliased allocation requiring its own hazard tracking.
 [[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device,
                                                                       const vector<OrderedPass> &execution_order) {
+            ZoneScopedN("RenderGraph::create_transient_resources");
             const vector<TextureLifetime> lifetimes = compute_transient_lifetimes(execution_order);
 
             struct PendingSlot {
@@ -1663,6 +1713,7 @@ void RenderGraph::reset() noexcept {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::transition_to_final_states(RHI::CommandEncoder &encoder) {
+            ZoneScopedN("RenderGraph::transition_to_final_states");
             for (usize i = 0; i < buffers_.size(); ++i) {
                 BufferRecord &record = buffers_[i];
                 if (record.imported.final_stage == RHI::PipelineStage::None &&
@@ -1710,18 +1761,22 @@ RenderGraphContext::RenderGraphContext(RenderGraph &graph,
         : graph_(&graph), command_encoder_(&command_encoder), render_pass_(&render_pass) {}
 
 RHI::CommandEncoder &RenderGraphContext::command_encoder() const noexcept {
+        ZoneScopedN("RenderGraphContext::RenderGraphContext");
         return *command_encoder_;
     }
 
 RHI::RenderPassEncoder &RenderGraphContext::render_pass() const noexcept {
+        ZoneScopedN("RenderGraphContext::render_pass");
         return *render_pass_;
     }
 
 RenderGraphTextureAccess RenderGraphContext::texture(RenderGraphTextureHandle handle) const noexcept {
+        ZoneScopedN("RenderGraphContext::texture");
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 
 RenderGraphBufferAccess RenderGraphContext::buffer(RenderGraphBufferHandle handle) const noexcept {
+        ZoneScopedN("RenderGraphContext::buffer");
         return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};
     }
 
@@ -1731,18 +1786,22 @@ RenderGraphComputeContext::RenderGraphComputeContext(RenderGraph &graph,
         : graph_(&graph), command_encoder_(&command_encoder), compute_pass_(&compute_pass) {}
 
 RHI::CommandEncoder &RenderGraphComputeContext::command_encoder() const noexcept {
+        ZoneScopedN("RenderGraphComputeContext::RenderGraphComputeContext");
         return *command_encoder_;
     }
 
 RHI::ComputePassEncoder &RenderGraphComputeContext::compute_pass() const noexcept {
+        ZoneScopedN("RenderGraphComputeContext::compute_pass");
         return *compute_pass_;
     }
 
 RenderGraphTextureAccess RenderGraphComputeContext::texture(RenderGraphTextureHandle handle) const noexcept {
+        ZoneScopedN("RenderGraphComputeContext::texture");
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 
 RenderGraphBufferAccess RenderGraphComputeContext::buffer(RenderGraphBufferHandle handle) const noexcept {
+        ZoneScopedN("RenderGraphComputeContext::buffer");
         return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};
     }
 

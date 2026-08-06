@@ -24,6 +24,8 @@
 #include <Core/Core.hpp>
 #include <Text/Text.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::unexpected;
@@ -103,6 +105,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextCanvas> TextCanvas::create(RHI::RhiDevice &device, const Config &config, TextAtlas &atlas,
                                                            TextPipeline &pipeline) {
+        ZoneScopedN("TextCanvas::create");
         TextCanvas canvas;
         canvas.config_ = config;
         canvas.tile_size_ = clamp_tile_size(config.desired_tile_size, device.limits());
@@ -116,6 +119,7 @@ namespace SFT::Renderer {
     }
 
     void TextCanvas::draw_run(span<const GlyphPlacement> glyphs) {
+        ZoneScopedN("TextCanvas::draw_run");
         for (const GlyphPlacement &glyph : glyphs) {
             const std::optional<PlacementBounds> bounds = placement_bounds(glyph);
             if (!bounds) {
@@ -148,6 +152,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextCanvas::render_tile(RHI::RhiDevice &device, TileCoord coord, TileRecord &tile) {
+        ZoneScopedN("TextCanvas::render_tile");
         const glm::vec2 tile_origin{static_cast<f32>(coord.x) * static_cast<f32>(tile_size_),
                                     static_cast<f32>(coord.y) * static_cast<f32>(tile_size_)};
 
@@ -314,6 +319,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextCanvas::evict_if_over_budget(RHI::RhiDevice &device, span<const TileCoord> keep) {
+        ZoneScopedN("TextCanvas::evict_if_over_budget");
         while (resident_tiles_.size() > config_.max_resident_tiles) {
             std::optional<TileCoord> victim = lru_.evict_one();
             if (!victim) {
@@ -342,6 +348,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<vector<ResidentCanvasTile>> TextCanvas::ensure_viewport_resident(RHI::RhiDevice &device,
                                                                                             RHI::Rect2D viewport) {
+        ZoneScopedN("TextCanvas::ensure_viewport_resident");
         const vector<TileCoord> coords = tiles_overlapping(viewport.x, viewport.y, viewport.width, viewport.height, tile_size_);
         vector<ResidentCanvasTile> result;
         result.reserve(coords.size());
@@ -400,6 +407,7 @@ namespace SFT::Renderer {
     }
 
     void TextCanvas::destroy(RHI::RhiDevice &device) noexcept {
+        ZoneScopedN("TextCanvas::destroy");
         for (auto &[coord, tile] : resident_tiles_) {
             destroy_text_frame_resources(device, tile.text_resources);
             if (tile.view) {

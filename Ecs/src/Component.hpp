@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     using ComponentId = u32;
@@ -231,6 +233,7 @@ namespace SFT::Ecs {
 
         template <class T>
         [[nodiscard]] ComponentRegistryExpected<ComponentId> try_register() {
+            ZoneScopedN("ComponentRegistry::try_register");
             if (const auto existing = find(component_key<std::remove_cv_t<T>>())) {
                 if (const ComponentInfo *descriptor = info(*existing);
                     descriptor != nullptr && Detail::matches_native_component<std::remove_cv_t<T>>(*descriptor)) {
@@ -245,6 +248,7 @@ namespace SFT::Ecs {
         // it terminates instead of injecting expected-handling into every spawn/query hot path.
         template <class T>
         [[nodiscard]] ComponentId component() {
+            ZoneScopedN("ComponentRegistry::component");
             auto registered = try_register<std::remove_cv_t<T>>();
             if (!registered) {
                 Detail::contract_violation(

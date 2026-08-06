@@ -18,6 +18,8 @@
 #include <Core/Core.hpp>
 #include <Text/Text.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::unexpected;
@@ -26,6 +28,7 @@ using std::vector;
 namespace SFT::Renderer {
 
     Core::RendererExpected<TextRenderTarget> TextRenderTarget::create(RHI::RhiDevice &device, const Config &config) {
+        ZoneScopedN("TextRenderTarget::create");
         if (config.width == 0 || config.height == 0) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Text render target size must be non-zero."});
@@ -80,6 +83,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult TextRenderTarget::render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
                                                   span<const GlyphPlacement> glyphs) {
+        ZoneScopedN("TextRenderTarget::render");
         // Standalone one-shot render (not part of any per-frame render graph), so — unlike the
         // main frame's shared encoder — it owns and submits/waits on its own command encoder for
         // its whole lifetime, atlas upload included.
@@ -237,6 +241,7 @@ namespace SFT::Renderer {
     }
 
     void TextRenderTarget::destroy(RHI::RhiDevice &device) noexcept {
+        ZoneScopedN("TextRenderTarget::destroy");
         destroy_text_frame_resources(device, text_resources_);
         if (sampler_) {
             device.destroy_sampler(sampler_);

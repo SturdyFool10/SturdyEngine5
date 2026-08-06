@@ -1,8 +1,11 @@
 #include "VulkanRenderTargets.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 [[nodiscard]] VkImageViewCreateInfo VulkanImageViewDesc::to_vk(VkImage image) const noexcept {
+            ZoneScopedN("VulkanImageViewDesc::to_vk");
             return VkImageViewCreateInfo{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .pNext = nullptr,
@@ -22,10 +25,12 @@ namespace SFT::Core::Vulkan {
         }
 
 [[nodiscard]] bool VulkanAttachmentRef::is_valid() const noexcept {
+            ZoneScopedN("VulkanAttachmentRef::is_valid");
             return image != VK_NULL_HANDLE && view != VK_NULL_HANDLE;
         }
 
 [[nodiscard]] VkExtent2D VulkanAttachmentRef::extent_2d() const noexcept {
+            ZoneScopedN("VulkanAttachmentRef::extent_2d");
             return VkExtent2D{.width = extent.width, .height = extent.height};
         }
 
@@ -33,6 +38,7 @@ namespace SFT::Core::Vulkan {
             VkDevice device,
             VmaAllocator allocator,
             const VulkanAttachmentImageDesc &desc) noexcept {
+            ZoneScopedN("VulkanAttachmentImage::create");
             const VkImageAspectFlags aspects = desc.aspects != 0 ? desc.aspects : default_aspect_for_format(desc.format);
             VkImageCreateInfo image_info{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -101,6 +107,7 @@ namespace SFT::Core::Vulkan {
             VkImageUsageFlags extra_usage,
             VkSampleCountFlagBits samples,
             u32 mip_levels) noexcept {
+            ZoneScopedN("VulkanAttachmentImage::create_color");
             return create(device, allocator, VulkanAttachmentImageDesc{
                 .format = format,
                 .extent = {.width = extent.width, .height = extent.height, .depth = 1},
@@ -120,16 +127,19 @@ namespace SFT::Core::Vulkan {
 [[nodiscard]] bool VulkanAttachmentImage::is_valid() const noexcept { return ref_.is_valid(); }
 
 VulkanRenderTarget &VulkanRenderTarget::set_extent(VkExtent2D extent) noexcept {
+            ZoneScopedN("VulkanRenderTarget::set_extent");
             extent_ = extent;
             return *this;
         }
 
 VulkanRenderTarget &VulkanRenderTarget::set_samples(VkSampleCountFlagBits samples) noexcept {
+            ZoneScopedN("VulkanRenderTarget::set_samples");
             samples_ = samples;
             return *this;
         }
 
 VulkanRenderTarget &VulkanRenderTarget::add_color(const VulkanAttachmentRef &attachment) {
+            ZoneScopedN("VulkanRenderTarget::add_color");
             color_.push_back(attachment);
             if (extent_.width == 0 || extent_.height == 0) {
                 extent_ = attachment.extent_2d();
@@ -139,6 +149,7 @@ VulkanRenderTarget &VulkanRenderTarget::add_color(const VulkanAttachmentRef &att
         }
 
 VulkanRenderTarget &VulkanRenderTarget::set_colors(span<const VulkanAttachmentRef> attachments) {
+            ZoneScopedN("VulkanRenderTarget::set_colors");
             color_.assign(attachments.begin(), attachments.end());
             if (!color_.empty()) {
                 extent_ = color_.front().extent_2d();
@@ -148,6 +159,7 @@ VulkanRenderTarget &VulkanRenderTarget::set_colors(span<const VulkanAttachmentRe
         }
 
 VulkanRenderTarget &VulkanRenderTarget::set_depth_stencil(const VulkanAttachmentRef &attachment) noexcept {
+            ZoneScopedN("VulkanRenderTarget::set_depth_stencil");
             depth_stencil_ = attachment;
             has_depth_stencil_ = attachment.is_valid();
             if (extent_.width == 0 || extent_.height == 0) {
@@ -160,12 +172,14 @@ VulkanRenderTarget &VulkanRenderTarget::set_depth_stencil(const VulkanAttachment
 [[nodiscard]] span<const VulkanAttachmentRef> VulkanRenderTarget::colors() const noexcept { return color_; }
 
 [[nodiscard]] const VulkanAttachmentRef *VulkanRenderTarget::depth_stencil() const noexcept {
+            ZoneScopedN("VulkanRenderTarget::depth_stencil");
             return has_depth_stencil_ ? &depth_stencil_ : nullptr;
         }
 
 [[nodiscard]] VkExtent2D VulkanRenderTarget::extent() const noexcept { return extent_; }
 
 [[nodiscard]] VkRect2D VulkanRenderTarget::render_area() const noexcept {
+            ZoneScopedN("VulkanRenderTarget::render_area");
             return VkRect2D{.offset = {.x = 0, .y = 0}, .extent = extent_};
         }
 

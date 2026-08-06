@@ -13,6 +13,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -28,6 +30,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::ensure_custom_post_process(const CustomPostProcessEffect &effect,
                                                                RHI::Format color_format) {
+        ZoneScopedN("Renderer::ensure_custom_post_process");
         if (effect.shader_path.empty() || effect.module_name.empty() || effect.fragment_entry_point.empty()) {
             return unexpected(custom_effect_error("Custom post-process requires shader_path, module_name, and fragment_entry_point."));
         }
@@ -196,6 +199,7 @@ namespace SFT::Renderer {
                                                                RHI::Format color_format,
                                                                const CustomPostProcessEffect &effect,
                                                                vector<RHI::BindGroupHandle> &transient_bind_groups) {
+        ZoneScopedN("Renderer::record_custom_post_process");
         if (Core::RendererResult ready = ensure_custom_post_process(effect, color_format); !ready) return ready;
         RHI::BindGroupLayoutHandle bind_group_layout{};
         RHI::SamplerHandle sampler{};
@@ -247,6 +251,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_custom_post_process_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_custom_post_process_resources");
         auto resources = custom_post_process_resources_.lock();
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr) {

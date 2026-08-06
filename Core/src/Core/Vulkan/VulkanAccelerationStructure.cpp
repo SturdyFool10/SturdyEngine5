@@ -1,16 +1,20 @@
 #include "VulkanAccelerationStructure.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanAccelerationStructure::~VulkanAccelerationStructure() { destroy(); }
 
 VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanAccelerationStructure &&o) noexcept
             : device_(o.device_), acceleration_structure_(o.acceleration_structure_), type_(o.type_) {
+            ZoneScopedN("VulkanAccelerationStructure::VulkanAccelerationStructure");
             o.device_ = VK_NULL_HANDLE;
             o.acceleration_structure_ = VK_NULL_HANDLE;
         }
 
 VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccelerationStructure &&o) noexcept {
+            ZoneScopedN("VulkanAccelerationStructure::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -28,6 +32,7 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             VkDeviceSize offset,
             VkDeviceSize size,
             VkAccelerationStructureTypeKHR type) noexcept {
+            ZoneScopedN("VulkanAccelerationStructure::create");
             if (vkCreateAccelerationStructureKHR == nullptr)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkCreateAccelerationStructureKHR is not loaded (acceleration structure extension not enabled).");
@@ -55,6 +60,7 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             VkDevice device,
             const VkAccelerationStructureBuildGeometryInfoKHR &build_info,
             span<const u32> max_primitive_counts) noexcept {
+            ZoneScopedN("VulkanAccelerationStructure::build_sizes");
             VkAccelerationStructureBuildSizesInfoKHR sizes{
                 .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
                 .pNext = nullptr,
@@ -73,6 +79,7 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
 [[nodiscard]] VkAccelerationStructureTypeKHR VulkanAccelerationStructure::type() const noexcept { return type_; }
 
 [[nodiscard]] VkDeviceAddress VulkanAccelerationStructure::device_address() const noexcept {
+            ZoneScopedN("VulkanAccelerationStructure::device_address");
             if (vkGetAccelerationStructureDeviceAddressKHR == nullptr) {
                 return 0;
             }
@@ -85,6 +92,7 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
         }
 
 void VulkanAccelerationStructure::destroy() noexcept {
+            ZoneScopedN("VulkanAccelerationStructure::destroy");
             if (acceleration_structure_ == VK_NULL_HANDLE)
                 return;
             if (vkDestroyAccelerationStructureKHR != nullptr) {

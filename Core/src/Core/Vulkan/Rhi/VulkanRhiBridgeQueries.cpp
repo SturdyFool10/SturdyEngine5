@@ -14,6 +14,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 
 namespace SFT::Core::Vulkan {
@@ -21,6 +23,7 @@ namespace SFT::Core::Vulkan {
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::QuerySetHandle> VulkanRhiDeviceBridge::create_query_set(const rhi::QuerySetDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_query_set");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::QuerySetHandle>("create_query_set");
         }
@@ -37,6 +40,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_query_set(rhi::QuerySetHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_query_set");
         query_sets_.erase(handle);
     }
 
@@ -46,6 +50,7 @@ namespace SFT::Core::Vulkan {
                                                                 span<std::byte> dst,
                                                                 u64 stride,
                                                                 rhi::QueryResultFlags flags) {
+        ZoneScopedN("VulkanRhiDeviceBridge::get_query_set_results");
         VulkanQueryPool *pool = query_sets_.find(query_set);
         if (pool == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
@@ -59,6 +64,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::reset_query_set(rhi::QuerySetHandle query_set, u32 first, u32 count) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::reset_query_set");
         if (VulkanQueryPool *pool = query_sets_.find(query_set)) {
             pool->reset(first, count);
         }

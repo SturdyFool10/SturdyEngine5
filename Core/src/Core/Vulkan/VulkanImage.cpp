@@ -1,16 +1,20 @@
 #include "VulkanImage.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanImageView::~VulkanImageView() { destroy(); }
 
 VulkanImageView::VulkanImageView(VulkanImageView &&o) noexcept
             : device_(o.device_), view_(o.view_), format_(o.format_), view_type_(o.view_type_) {
+            ZoneScopedN("VulkanImageView::VulkanImageView");
             o.device_ = VK_NULL_HANDLE;
             o.view_ = VK_NULL_HANDLE;
         }
 
 VulkanImageView &VulkanImageView::operator=(VulkanImageView &&o) noexcept {
+            ZoneScopedN("VulkanImageView::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -26,6 +30,7 @@ VulkanImageView &VulkanImageView::operator=(VulkanImageView &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanImageView> VulkanImageView::create(
             VkDevice device,
             const VkImageViewCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanImageView::create");
             VkImageView view = VK_NULL_HANDLE;
             if (vkCreateImageView(device, &info, nullptr, &view) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImageView failed.");
@@ -46,6 +51,7 @@ VulkanImageView &VulkanImageView::operator=(VulkanImageView &&o) noexcept {
 [[nodiscard]] VkImageViewType VulkanImageView::view_type() const noexcept { return view_type_; }
 
 void VulkanImageView::destroy() noexcept {
+            ZoneScopedN("VulkanImageView::destroy");
             if (view_ == VK_NULL_HANDLE)
                 return;
             vkDestroyImageView(device_, view_, nullptr);
@@ -60,6 +66,7 @@ VulkanImage::VulkanImage(VulkanImage &&o) noexcept
               format_(o.format_), extent_(o.extent_), mip_levels_(o.mip_levels_),
               array_layers_(o.array_layers_), image_type_(o.image_type_),
               usage_(o.usage_), owns_image_(o.owns_image_) {
+            ZoneScopedN("VulkanImage::VulkanImage");
             o.device_ = VK_NULL_HANDLE;
             o.allocator_ = VK_NULL_HANDLE;
             o.image_ = VK_NULL_HANDLE;
@@ -67,6 +74,7 @@ VulkanImage::VulkanImage(VulkanImage &&o) noexcept
         }
 
 VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
+            ZoneScopedN("VulkanImage::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -91,6 +99,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanImage> VulkanImage::create(
             VkDevice device,
             const VkImageCreateInfo &info) noexcept {
+            ZoneScopedN("VulkanImage::create");
             VkImage image = VK_NULL_HANDLE;
             if (vkCreateImage(device, &info, nullptr, &image) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkCreateImage failed.");
@@ -115,6 +124,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
             u32 mip_levels,
             u32 array_layers,
             VkImageType image_type) noexcept {
+            ZoneScopedN("VulkanImage::borrow");
             VulkanImage out;
             out.device_ = device;
             out.image_ = image;
@@ -133,6 +143,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
             VmaAllocator allocator,
             const VkImageCreateInfo &image_info,
             const VmaAllocationCreateInfo &allocation_info) noexcept {
+            ZoneScopedN("VulkanImage::create");
             VkImage image = VK_NULL_HANDLE;
             VmaAllocation allocation = VK_NULL_HANDLE;
             if (vmaCreateImage(allocator, &image_info, &allocation_info, &image, &allocation, nullptr) != VK_SUCCESS)
@@ -172,12 +183,14 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
 [[nodiscard]] VkImageUsageFlags VulkanImage::usage() const noexcept { return usage_; }
 
 [[nodiscard]] VkMemoryRequirements VulkanImage::memory_requirements() const noexcept {
+            ZoneScopedN("VulkanImage::memory_requirements");
             VkMemoryRequirements req{};
             vkGetImageMemoryRequirements(device_, image_, &req);
             return req;
         }
 
 [[nodiscard]] VkMemoryRequirements2 VulkanImage::memory_requirements2() const noexcept {
+            ZoneScopedN("VulkanImage::memory_requirements2");
             VkImageMemoryRequirementsInfo2 query{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
                 .pNext = nullptr,
@@ -190,6 +203,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
 
 [[nodiscard]] RendererResult VulkanImage::bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset) noexcept {
+            ZoneScopedN("VulkanImage::bind_memory");
             if (vkBindImageMemory(device_, image_, memory, offset) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkBindImageMemory failed.");
             return {};
@@ -197,6 +211,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
 
 [[nodiscard]] VkSubresourceLayout VulkanImage::subresource_layout(
             const VkImageSubresource &subresource) const noexcept {
+            ZoneScopedN("VulkanImage::subresource_layout");
             VkSubresourceLayout layout{};
             vkGetImageSubresourceLayout(device_, image_, &subresource, &layout);
             return layout;
@@ -209,6 +224,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
             u32 mip_count,
             u32 base_layer,
             u32 layer_count) const noexcept {
+            ZoneScopedN("VulkanImage::create_view");
             VkImageViewCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .pNext = nullptr,
@@ -234,6 +250,7 @@ VulkanImage &VulkanImage::operator=(VulkanImage &&o) noexcept {
         }
 
 void VulkanImage::destroy() noexcept {
+            ZoneScopedN("VulkanImage::destroy");
             if (image_ == VK_NULL_HANDLE)
                 return;
 

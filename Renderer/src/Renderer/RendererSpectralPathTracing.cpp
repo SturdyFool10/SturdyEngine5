@@ -18,6 +18,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -163,6 +165,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_spectral_path_tracing_resources(SpectralRenderMode mode) {
+        ZoneScopedN("Renderer::ensure_spectral_path_tracing_resources");
         if (mode == SpectralRenderMode::RasterDeferred) {
             return {};
         }
@@ -576,6 +579,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::ensure_spectral_mesh_acceleration_structures(span<const RenderItem> draws) {
+        ZoneScopedN("Renderer::ensure_spectral_mesh_acceleration_structures");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -711,6 +715,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::prepare_spectral_scene_acceleration_structure(
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission) {
+        ZoneScopedN("Renderer::prepare_spectral_scene_acceleration_structure");
         if (submission.render_graph.spectral_path_tracing.mode == SpectralRenderMode::RasterDeferred) {
             return {};
         }
@@ -979,6 +984,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::ensure_spectral_accumulation_target(
         WindowSurfaceRecord &record, Core::Extent2D extent) {
+        ZoneScopedN("Renderer::ensure_spectral_accumulation_target");
         const bool matches = record.spectral_accumulation.texture && record.spectral_accumulation.view &&
             record.spectral_accumulation.extent.width == extent.width &&
             record.spectral_accumulation.extent.height == extent.height;
@@ -1027,6 +1033,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_spectral_accumulation_target(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::destroy_spectral_accumulation_target");
         if (RHI::RhiDevice *device = rhi_device()) {
             if (record.spectral_accumulation.view) {
                 device->destroy_texture_view(record.spectral_accumulation.view);
@@ -1040,6 +1047,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::ensure_frame_spectral_photon_targets(
         FrameInFlight &slot, u32 requested_photon_capacity) {
+        ZoneScopedN("Renderer::ensure_frame_spectral_photon_targets");
         const u32 photon_capacity = std::max(requested_photon_capacity, 1u);
         u32 hash_capacity = 1u;
         const u64 required_hash_entries = static_cast<u64>(photon_capacity) * 2u;
@@ -1104,6 +1112,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_frame_spectral_photon_targets(FrameInFlight &slot) noexcept {
+        ZoneScopedN("Renderer::destroy_frame_spectral_photon_targets");
         if (RHI::RhiDevice *device = rhi_device()) {
             if (slot.spectral_photon_targets.hash_heads) {
                 device->destroy_buffer(slot.spectral_photon_targets.hash_heads);
@@ -1121,6 +1130,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::prepare_spectral_photon_mapping(
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission,
         bool emission_needed, u64 photon_signature) {
+        ZoneScopedN("Renderer::prepare_spectral_photon_mapping");
         const SpectralRenderMode mode = submission.render_graph.spectral_path_tracing.mode;
         if (mode == SpectralRenderMode::RasterDeferred) {
             return {};
@@ -1201,6 +1211,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_spectral_photon_pass(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
         usize pipeline_index, const char *label) {
+        ZoneScopedN("Renderer::record_spectral_photon_pass");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !slot.spectral_tlas || !slot.spectral_photon_constants ||
             pipeline_index >= photon_entry_points.size()) {
@@ -1279,17 +1290,20 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::record_spectral_photon_emission(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission) {
+        ZoneScopedN("Renderer::record_spectral_photon_emission");
         return record_spectral_photon_pass(pass, slot, submission, 0u, "spectral photon emission bind group");
     }
 
     Core::RendererResult Renderer::record_spectral_photon_hash(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission) {
+        ZoneScopedN("Renderer::record_spectral_photon_hash");
         return record_spectral_photon_pass(pass, slot, submission, 1u, "spectral photon hash bind group");
     }
 
     Core::RendererResult Renderer::record_spectral_integrator(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
         Core::Extent2D extent, const SpectralIntegratorViews &views, bool accumulation_reset) {
+        ZoneScopedN("Renderer::record_spectral_integrator");
         const SpectralRenderMode mode = submission.render_graph.spectral_path_tracing.mode;
         if (mode == SpectralRenderMode::RasterDeferred) return {};
         RHI::RhiDevice *device = rhi_device();
@@ -1445,6 +1459,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::record_spectral_depth_commit(
         RHI::RenderPassEncoder &pass, FrameInFlight &slot, RHI::TextureViewHandle primary_depth_view,
         Core::Extent2D extent) {
+        ZoneScopedN("Renderer::record_spectral_depth_commit");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !primary_depth_view) {
             return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1479,6 +1494,7 @@ namespace SFT::Renderer {
 
     void Renderer::destroy_spectral_path_tracing_resources_locked(
         SpectralPathTracingResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_spectral_path_tracing_resources_locked");
         if (RHI::RhiDevice *device = rhi_device()) {
             if (resources.depth_commit_pipeline) device->destroy_render_pipeline(resources.depth_commit_pipeline);
             if (resources.depth_commit_pipeline_layout) device->destroy_pipeline_layout(resources.depth_commit_pipeline_layout);
@@ -1509,6 +1525,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_spectral_path_tracing_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_spectral_path_tracing_resources");
         auto resources = spectral_path_tracing_.lock();
         destroy_spectral_path_tracing_resources_locked(*resources);
     }

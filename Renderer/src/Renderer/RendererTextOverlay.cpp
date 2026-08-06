@@ -22,6 +22,8 @@
 #include <Platform/Platform.hpp>
 #include <Text/Text.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::optional;
 using std::span;
@@ -110,6 +112,7 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererResult Renderer::ensure_text_overlay_resources() {
+        ZoneScopedN("Renderer::ensure_text_overlay_resources");
         auto guard = text_overlay_.lock();
         if (guard->ready) {
             return {};
@@ -188,6 +191,7 @@ namespace SFT::Renderer {
                                                         vector<RHI::BufferHandle> &transient_buffers,
                                                         TextAtlasRetiredResources &retired_atlas_resources,
                                                         vector<TextDrawBatch> &out_batches) {
+        ZoneScopedN("Renderer::prepare_text_overlay");
         out_batches.clear();
         if (Core::RendererResult ensured = ensure_text_overlay_resources(); !ensured.has_value()) {
             return ensured;
@@ -413,6 +417,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,
                                                       glm::vec2 viewport_size_px) {
+        ZoneScopedN("Renderer::draw_text_overlay");
         if (batches.empty()) {
             return {};
         }
@@ -432,6 +437,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept {
+        ZoneScopedN("Renderer::destroy_text_overlay_resources_locked");
         if (RHI::RhiDevice *device = rhi_device()) {
             resources.pipeline.destroy(*device);
             resources.atlas.destroy(*device);
@@ -444,6 +450,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_text_overlay_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_text_overlay_resources");
         auto guard = text_overlay_.lock();
         destroy_text_overlay_resources_locked(*guard);
     }

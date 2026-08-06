@@ -1,8 +1,11 @@
 #include "VulkanRendering.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 [[nodiscard]] VkRenderingAttachmentInfo ColorAttachment::to_vk() const noexcept {
+            ZoneScopedN("ColorAttachment::to_vk");
             VkClearValue cv{};
             cv.color = clear_color;
             return {
@@ -20,6 +23,7 @@ namespace SFT::Core::Vulkan {
         }
 
 [[nodiscard]] VkRenderingAttachmentInfo DepthAttachment::to_vk() const noexcept {
+            ZoneScopedN("DepthAttachment::to_vk");
             VkClearValue cv{};
             cv.depthStencil.depth = clear_depth;
             return {
@@ -37,6 +41,7 @@ namespace SFT::Core::Vulkan {
         }
 
 [[nodiscard]] VkRenderingAttachmentInfo StencilAttachment::to_vk() const noexcept {
+            ZoneScopedN("StencilAttachment::to_vk");
             VkClearValue cv{};
             cv.depthStencil.stencil = clear_stencil;
             return {
@@ -54,51 +59,61 @@ namespace SFT::Core::Vulkan {
         }
 
 RenderingInfo &RenderingInfo::set_render_area(VkRect2D area) noexcept {
+            ZoneScopedN("RenderingInfo::set_render_area");
             render_area_ = area;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_layer_count(u32 count) noexcept {
+            ZoneScopedN("RenderingInfo::set_layer_count");
             layer_count_ = count;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_view_mask(u32 mask) noexcept {
+            ZoneScopedN("RenderingInfo::set_view_mask");
             view_mask_ = mask;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_flags(VkRenderingFlags flags) noexcept {
+            ZoneScopedN("RenderingInfo::set_flags");
             flags_ = flags;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::add_flags(VkRenderingFlags flags) noexcept {
+            ZoneScopedN("RenderingInfo::add_flags");
             flags_ |= flags;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_next(const void *next) noexcept {
+            ZoneScopedN("RenderingInfo::set_next");
             pnext_ = next;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::suspend() noexcept {
+            ZoneScopedN("RenderingInfo::suspend");
             flags_ |= VK_RENDERING_SUSPENDING_BIT;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::resume() noexcept {
+            ZoneScopedN("RenderingInfo::resume");
             flags_ |= VK_RENDERING_RESUMING_BIT;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::add_color(ColorAttachment att) {
+            ZoneScopedN("RenderingInfo::add_color");
             color_attachments_vk_.push_back(att.to_vk());
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_color(u32 location, ColorAttachment att) {
+            ZoneScopedN("RenderingInfo::set_color");
             if (color_attachments_vk_.size() <= location) {
                 color_attachments_vk_.resize(static_cast<usize>(location) + 1, unused_rendering_attachment());
             }
@@ -107,6 +122,7 @@ RenderingInfo &RenderingInfo::set_color(u32 location, ColorAttachment att) {
         }
 
 RenderingInfo &RenderingInfo::set_unused_color(u32 location) {
+            ZoneScopedN("RenderingInfo::set_unused_color");
             if (color_attachments_vk_.size() <= location) {
                 color_attachments_vk_.resize(static_cast<usize>(location) + 1, unused_rendering_attachment());
             }
@@ -115,6 +131,7 @@ RenderingInfo &RenderingInfo::set_unused_color(u32 location) {
         }
 
 RenderingInfo &RenderingInfo::set_colors(span<const ColorAttachment> attachments) {
+            ZoneScopedN("RenderingInfo::set_colors");
             color_attachments_vk_.clear();
             color_attachments_vk_.reserve(attachments.size());
             for (const ColorAttachment &attachment : attachments) {
@@ -124,18 +141,21 @@ RenderingInfo &RenderingInfo::set_colors(span<const ColorAttachment> attachments
         }
 
 RenderingInfo &RenderingInfo::set_depth(DepthAttachment att) noexcept {
+            ZoneScopedN("RenderingInfo::set_depth");
             depth_vk_ = att.to_vk();
             has_depth_ = true;
             return *this;
         }
 
 RenderingInfo &RenderingInfo::set_stencil(StencilAttachment att) noexcept {
+            ZoneScopedN("RenderingInfo::set_stencil");
             stencil_vk_ = att.to_vk();
             has_stencil_ = true;
             return *this;
         }
 
 [[nodiscard]] VkRenderingInfo RenderingInfo::build() noexcept {
+            ZoneScopedN("RenderingInfo::build");
             return {
                 .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
                 .pNext = pnext_,
@@ -153,6 +173,7 @@ RenderingInfo &RenderingInfo::set_stencil(StencilAttachment att) noexcept {
 
 ScopedRenderingPass::ScopedRenderingPass(VkCommandBuffer command_buffer, const VkRenderingInfo &info) noexcept
             : command_buffer_(command_buffer), active_(command_buffer != VK_NULL_HANDLE) {
+            ZoneScopedN("ScopedRenderingPass::ScopedRenderingPass");
             if (active_) {
                 vkCmdBeginRendering(command_buffer_, &info);
             }
@@ -162,11 +183,13 @@ ScopedRenderingPass::~ScopedRenderingPass() { end(); }
 
 ScopedRenderingPass::ScopedRenderingPass(ScopedRenderingPass &&other) noexcept
             : command_buffer_(other.command_buffer_), active_(other.active_) {
+            ZoneScopedN("ScopedRenderingPass::ScopedRenderingPass");
             other.command_buffer_ = VK_NULL_HANDLE;
             other.active_ = false;
         }
 
 ScopedRenderingPass &ScopedRenderingPass::operator=(ScopedRenderingPass &&other) noexcept {
+            ZoneScopedN("ScopedRenderingPass::operator=");
             if (this != &other) {
                 end();
                 command_buffer_ = other.command_buffer_;
@@ -178,6 +201,7 @@ ScopedRenderingPass &ScopedRenderingPass::operator=(ScopedRenderingPass &&other)
         }
 
 void ScopedRenderingPass::end() noexcept {
+            ZoneScopedN("ScopedRenderingPass::end");
             if (!active_) {
                 return;
             }
@@ -188,6 +212,7 @@ void ScopedRenderingPass::end() noexcept {
 [[nodiscard]] bool ScopedRenderingPass::active() const noexcept { return active_; }
 
 [[nodiscard]] bool DynamicRenderingSignature::has_depth_stencil() const noexcept {
+            ZoneScopedN("DynamicRenderingSignature::has_depth_stencil");
             return depth_format != VK_FORMAT_UNDEFINED || stencil_format != VK_FORMAT_UNDEFINED;
         }
 
@@ -196,11 +221,13 @@ PipelineRenderingInfo::PipelineRenderingInfo(const DynamicRenderingSignature &si
               stencil_format_(signature.stencil_format), view_mask_(signature.view_mask) {}
 
 PipelineRenderingInfo &PipelineRenderingInfo::add_color_format(VkFormat fmt) {
+            ZoneScopedN("PipelineRenderingInfo::PipelineRenderingInfo");
             color_formats_.push_back(fmt);
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_color_format(u32 location, VkFormat fmt) {
+            ZoneScopedN("PipelineRenderingInfo::set_color_format");
             if (color_formats_.size() <= location) {
                 color_formats_.resize(static_cast<usize>(location) + 1, VK_FORMAT_UNDEFINED);
             }
@@ -209,37 +236,44 @@ PipelineRenderingInfo &PipelineRenderingInfo::set_color_format(u32 location, VkF
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_color_formats(span<const VkFormat> formats) {
+            ZoneScopedN("PipelineRenderingInfo::set_color_formats");
             color_formats_.assign(formats.begin(), formats.end());
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_depth_format(VkFormat fmt) noexcept {
+            ZoneScopedN("PipelineRenderingInfo::set_depth_format");
             depth_format_ = fmt;
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_stencil_format(VkFormat fmt) noexcept {
+            ZoneScopedN("PipelineRenderingInfo::set_stencil_format");
             stencil_format_ = fmt;
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_depth_stencil_format(VkFormat fmt) noexcept {
+            ZoneScopedN("PipelineRenderingInfo::set_depth_stencil_format");
             depth_format_ = fmt;
             stencil_format_ = fmt;
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_next(const void *next) noexcept {
+            ZoneScopedN("PipelineRenderingInfo::set_next");
             pnext_ = next;
             return *this;
         }
 
 PipelineRenderingInfo &PipelineRenderingInfo::set_view_mask(u32 mask) noexcept {
+            ZoneScopedN("PipelineRenderingInfo::set_view_mask");
             view_mask_ = mask;
             return *this;
         }
 
 [[nodiscard]] DynamicRenderingSignature PipelineRenderingInfo::signature(VkSampleCountFlagBits samples) const {
+            ZoneScopedN("PipelineRenderingInfo::signature");
             return DynamicRenderingSignature{
                 .color_formats = color_formats_,
                 .depth_format = depth_format_,
@@ -250,6 +284,7 @@ PipelineRenderingInfo &PipelineRenderingInfo::set_view_mask(u32 mask) noexcept {
         }
 
 [[nodiscard]] VkPipelineRenderingCreateInfo PipelineRenderingInfo::to_vk() const noexcept {
+            ZoneScopedN("PipelineRenderingInfo::to_vk");
             return {
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
                 .pNext = pnext_,

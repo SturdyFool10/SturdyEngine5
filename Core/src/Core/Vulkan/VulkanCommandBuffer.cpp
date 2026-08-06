@@ -1,11 +1,14 @@
 #include "VulkanCommandBuffer.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanCommandBuffer::~VulkanCommandBuffer() { destroy(); }
 
 VulkanCommandBuffer::VulkanCommandBuffer(VulkanCommandBuffer &&o) noexcept
             : device_(o.device_), command_pool_(o.command_pool_), buffer_(o.buffer_), level_(o.level_) {
+            ZoneScopedN("VulkanCommandBuffer::VulkanCommandBuffer");
             o.device_ = VK_NULL_HANDLE;
             o.command_pool_ = VK_NULL_HANDLE;
             o.buffer_ = VK_NULL_HANDLE;
@@ -13,6 +16,7 @@ VulkanCommandBuffer::VulkanCommandBuffer(VulkanCommandBuffer &&o) noexcept
         }
 
 VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noexcept {
+            ZoneScopedN("VulkanCommandBuffer::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -31,6 +35,7 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
             VkDevice device,
             VkCommandPool command_pool,
             VkCommandBufferLevel level) noexcept {
+            ZoneScopedN("VulkanCommandBuffer::allocate");
             VkCommandBufferAllocateInfo info{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
                 .pNext = nullptr,
@@ -54,6 +59,7 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
 [[nodiscard]] VkCommandBuffer VulkanCommandBuffer::vk_handle() const noexcept { return buffer_; }
 
 [[nodiscard]] VkCommandBufferSubmitInfo VulkanCommandBuffer::submit_info() const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::submit_info");
             return VkCommandBufferSubmitInfo{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
                 .pNext = nullptr,
@@ -69,12 +75,14 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
 [[nodiscard]] VkCommandBufferLevel VulkanCommandBuffer::level() const noexcept { return level_; }
 
 [[nodiscard]] RendererResult VulkanCommandBuffer::begin(VkCommandBufferUsageFlags flags) noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin");
             return begin_inherited(flags, nullptr, nullptr);
         }
 
 [[nodiscard]] RendererResult VulkanCommandBuffer::begin_inherited(VkCommandBufferUsageFlags flags,
                                                      const VkCommandBufferInheritanceInfo *inheritance,
                                                      const void *pnext) noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin_inherited");
             VkCommandBufferBeginInfo info{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                 .pNext = pnext,
@@ -87,18 +95,21 @@ VulkanCommandBuffer &VulkanCommandBuffer::operator=(VulkanCommandBuffer &&o) noe
         }
 
 [[nodiscard]] RendererResult VulkanCommandBuffer::end() noexcept {
+            ZoneScopedN("VulkanCommandBuffer::end");
             if (vkEndCommandBuffer(buffer_) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkEndCommandBuffer failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanCommandBuffer::reset(VkCommandBufferResetFlags flags) noexcept {
+            ZoneScopedN("VulkanCommandBuffer::reset");
             if (vkResetCommandBuffer(buffer_, flags) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkResetCommandBuffer failed.");
             return {};
         }
 
 void VulkanCommandBuffer::pipeline_barrier2(const VkDependencyInfo &dependency_info) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::pipeline_barrier2");
             vkCmdPipelineBarrier2(buffer_, &dependency_info);
         }
 
@@ -106,6 +117,7 @@ void VulkanCommandBuffer::pipeline_barrier2(span<const VkMemoryBarrier2> memory_
                                span<const VkBufferMemoryBarrier2> buffer_barriers,
                                span<const VkImageMemoryBarrier2> image_barriers,
                                VkDependencyFlags flags) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::pipeline_barrier2");
             VkDependencyInfo dependency_info{
                 .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
                 .pNext = nullptr,
@@ -121,54 +133,67 @@ void VulkanCommandBuffer::pipeline_barrier2(span<const VkMemoryBarrier2> memory_
         }
 
 void VulkanCommandBuffer::pipeline_barrier2(span<const VkImageMemoryBarrier2> image_barriers) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::pipeline_barrier2");
             pipeline_barrier2({}, {}, image_barriers);
         }
 
 void VulkanCommandBuffer::pipeline_barrier2(const vector<VkImageMemoryBarrier2> &image_barriers) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::pipeline_barrier2");
             pipeline_barrier2(span<const VkImageMemoryBarrier2>{image_barriers.data(), image_barriers.size()});
         }
 
 void VulkanCommandBuffer::set_event2(VkEvent event, const VkDependencyInfo &dependency) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_event2");
             vkCmdSetEvent2(buffer_, event, &dependency);
         }
 
 void VulkanCommandBuffer::reset_event2(VkEvent event, VkPipelineStageFlags2 stage) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::reset_event2");
             vkCmdResetEvent2(buffer_, event, stage);
         }
 
 void VulkanCommandBuffer::wait_events2(span<const VkEvent> events, span<const VkDependencyInfo> dependencies) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::wait_events2");
             vkCmdWaitEvents2(buffer_, static_cast<u32>(events.size()), events.data(), dependencies.data());
         }
 
 void VulkanCommandBuffer::begin_rendering(const VkRenderingInfo &info) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin_rendering");
             vkCmdBeginRendering(buffer_, &info);
         }
 
 void VulkanCommandBuffer::end_rendering() const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::end_rendering");
             vkCmdEndRendering(buffer_);
         }
 
 void VulkanCommandBuffer::set_viewport(const VkViewport &viewport) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_viewport");
             vkCmdSetViewport(buffer_, 0, 1, &viewport);
         }
 
 void VulkanCommandBuffer::set_scissor(const VkRect2D &scissor) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_scissor");
             vkCmdSetScissor(buffer_, 0, 1, &scissor);
         }
 
 void VulkanCommandBuffer::set_viewports(span<const VkViewport> viewports, u32 first_viewport) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_viewports");
             vkCmdSetViewport(buffer_, first_viewport, static_cast<u32>(viewports.size()), viewports.data());
         }
 
 void VulkanCommandBuffer::set_scissors(span<const VkRect2D> scissors, u32 first_scissor) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_scissors");
             vkCmdSetScissor(buffer_, first_scissor, static_cast<u32>(scissors.size()), scissors.data());
         }
 
 void VulkanCommandBuffer::set_viewport_with_count(span<const VkViewport> viewports) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_viewport_with_count");
             vkCmdSetViewportWithCount(buffer_, static_cast<u32>(viewports.size()), viewports.data());
         }
 
 void VulkanCommandBuffer::set_scissor_with_count(span<const VkRect2D> scissors) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_scissor_with_count");
             vkCmdSetScissorWithCount(buffer_, static_cast<u32>(scissors.size()), scissors.data());
         }
 
@@ -177,72 +202,88 @@ void VulkanCommandBuffer::set_cull_mode(VkCullModeFlags mode) const noexcept { v
 void VulkanCommandBuffer::set_front_face(VkFrontFace face) const noexcept { vkCmdSetFrontFace(buffer_, face); }
 
 void VulkanCommandBuffer::set_primitive_topology(VkPrimitiveTopology topology) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_primitive_topology");
             vkCmdSetPrimitiveTopology(buffer_, topology);
         }
 
 void VulkanCommandBuffer::set_primitive_restart_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_primitive_restart_enable");
             vkCmdSetPrimitiveRestartEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_rasterizer_discard_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_rasterizer_discard_enable");
             vkCmdSetRasterizerDiscardEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_depth_test_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_test_enable");
             vkCmdSetDepthTestEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_depth_write_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_write_enable");
             vkCmdSetDepthWriteEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_depth_compare_op(VkCompareOp op) const noexcept { vkCmdSetDepthCompareOp(buffer_, op); }
 
 void VulkanCommandBuffer::set_depth_bounds_test_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_bounds_test_enable");
             vkCmdSetDepthBoundsTestEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_depth_bias_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_bias_enable");
             vkCmdSetDepthBiasEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_stencil_test_enable(bool enable) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_stencil_test_enable");
             vkCmdSetStencilTestEnable(buffer_, enable ? VK_TRUE : VK_FALSE);
         }
 
 void VulkanCommandBuffer::set_stencil_op(VkStencilFaceFlags faces, VkStencilOp fail_op, VkStencilOp pass_op,
                             VkStencilOp depth_fail_op, VkCompareOp compare_op) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_stencil_op");
             vkCmdSetStencilOp(buffer_, faces, fail_op, pass_op, depth_fail_op, compare_op);
         }
 
 void VulkanCommandBuffer::set_line_width(float width) const noexcept { vkCmdSetLineWidth(buffer_, width); }
 
 void VulkanCommandBuffer::set_depth_bias(float constant, float clamp, float slope) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_bias");
             vkCmdSetDepthBias(buffer_, constant, clamp, slope);
         }
 
 void VulkanCommandBuffer::set_depth_bounds(float min_depth, float max_depth) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_depth_bounds");
             vkCmdSetDepthBounds(buffer_, min_depth, max_depth);
         }
 
 void VulkanCommandBuffer::set_blend_constants(const float constants[4]) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_blend_constants");
             vkCmdSetBlendConstants(buffer_, constants);
         }
 
 void VulkanCommandBuffer::set_stencil_reference(VkStencilFaceFlags faces, u32 reference) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_stencil_reference");
             vkCmdSetStencilReference(buffer_, faces, reference);
         }
 
 void VulkanCommandBuffer::set_stencil_compare_mask(VkStencilFaceFlags faces, u32 mask) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_stencil_compare_mask");
             vkCmdSetStencilCompareMask(buffer_, faces, mask);
         }
 
 void VulkanCommandBuffer::set_stencil_write_mask(VkStencilFaceFlags faces, u32 mask) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_stencil_write_mask");
             vkCmdSetStencilWriteMask(buffer_, faces, mask);
         }
 
 void VulkanCommandBuffer::set_fragment_shading_rate(VkExtent2D fragment_size,
                                        const VkFragmentShadingRateCombinerOpKHR combiners[2]) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_fragment_shading_rate");
             if (vkCmdSetFragmentShadingRateKHR == nullptr) {
                 return;
             }
@@ -250,6 +291,7 @@ void VulkanCommandBuffer::set_fragment_shading_rate(VkExtent2D fragment_size,
         }
 
 void VulkanCommandBuffer::bind_pipeline(VkPipelineBindPoint bind_point, VkPipeline pipeline) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::bind_pipeline");
             vkCmdBindPipeline(buffer_, bind_point, pipeline);
         }
 
@@ -258,6 +300,7 @@ void VulkanCommandBuffer::bind_descriptor_sets(VkPipelineBindPoint bind_point,
                                   u32 first_set,
                                   span<const VkDescriptorSet> sets,
                                   span<const u32> dynamic_offsets) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::bind_descriptor_sets");
             vkCmdBindDescriptorSets(buffer_, bind_point, layout, first_set,
                                     static_cast<u32>(sets.size()), sets.empty() ? nullptr : sets.data(),
                                     static_cast<u32>(dynamic_offsets.size()),
@@ -269,53 +312,64 @@ void VulkanCommandBuffer::push_constants(VkPipelineLayout layout,
                             u32 offset,
                             u32 size,
                             const void *data) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::push_constants");
             vkCmdPushConstants(buffer_, layout, stages, offset, size, data);
         }
 
 void VulkanCommandBuffer::draw(u32 vertex_count, u32 instance_count, u32 first_vertex, u32 first_instance) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw");
             vkCmdDraw(buffer_, vertex_count, instance_count, first_vertex, first_instance);
         }
 
 void VulkanCommandBuffer::bind_vertex_buffer(VkBuffer buffer, VkDeviceSize offset, u32 binding) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::bind_vertex_buffer");
             vkCmdBindVertexBuffers(buffer_, binding, 1, &buffer, &offset);
         }
 
 void VulkanCommandBuffer::bind_vertex_buffers(span<const VkBuffer> buffers,
                                  span<const VkDeviceSize> offsets,
                                  u32 first_binding) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::bind_vertex_buffers");
             vkCmdBindVertexBuffers(buffer_, first_binding, static_cast<u32>(buffers.size()),
                                    buffers.data(), offsets.data());
         }
 
 void VulkanCommandBuffer::bind_index_buffer(VkBuffer buffer, VkIndexType index_type, VkDeviceSize offset) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::bind_index_buffer");
             vkCmdBindIndexBuffer(buffer_, buffer, offset, index_type);
         }
 
 void VulkanCommandBuffer::draw_indexed(u32 index_count, u32 instance_count, u32 first_index, i32 vertex_offset, u32 first_instance) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_indexed");
             vkCmdDrawIndexed(buffer_, index_count, instance_count, first_index, vertex_offset, first_instance);
         }
 
 void VulkanCommandBuffer::draw_indirect(VkBuffer indirect_buffer, VkDeviceSize offset, u32 draw_count, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_indirect");
             vkCmdDrawIndirect(buffer_, indirect_buffer, offset, draw_count, stride);
         }
 
 void VulkanCommandBuffer::draw_indexed_indirect(VkBuffer indirect_buffer, VkDeviceSize offset, u32 draw_count, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_indexed_indirect");
             vkCmdDrawIndexedIndirect(buffer_, indirect_buffer, offset, draw_count, stride);
         }
 
 void VulkanCommandBuffer::draw_indirect_count(VkBuffer indirect_buffer, VkDeviceSize indirect_offset,
                                  VkBuffer count_buffer, VkDeviceSize count_offset,
                                  u32 max_draws, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_indirect_count");
             vkCmdDrawIndirectCount(buffer_, indirect_buffer, indirect_offset, count_buffer, count_offset, max_draws, stride);
         }
 
 void VulkanCommandBuffer::draw_indexed_indirect_count(VkBuffer indirect_buffer, VkDeviceSize indirect_offset,
                                          VkBuffer count_buffer, VkDeviceSize count_offset,
                                          u32 max_draws, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_indexed_indirect_count");
             vkCmdDrawIndexedIndirectCount(buffer_, indirect_buffer, indirect_offset, count_buffer, count_offset, max_draws, stride);
         }
 
 void VulkanCommandBuffer::draw_mesh_tasks(u32 group_count_x, u32 group_count_y, u32 group_count_z) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_mesh_tasks");
             if (vkCmdDrawMeshTasksEXT == nullptr) {
                 return;
             }
@@ -323,6 +377,7 @@ void VulkanCommandBuffer::draw_mesh_tasks(u32 group_count_x, u32 group_count_y, 
         }
 
 void VulkanCommandBuffer::draw_mesh_tasks_indirect(VkBuffer indirect_buffer, VkDeviceSize offset, u32 draw_count, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_mesh_tasks_indirect");
             if (vkCmdDrawMeshTasksIndirectEXT == nullptr) {
                 return;
             }
@@ -332,6 +387,7 @@ void VulkanCommandBuffer::draw_mesh_tasks_indirect(VkBuffer indirect_buffer, VkD
 void VulkanCommandBuffer::draw_mesh_tasks_indirect_count(VkBuffer indirect_buffer, VkDeviceSize indirect_offset,
                                             VkBuffer count_buffer, VkDeviceSize count_offset,
                                             u32 max_draws, u32 stride) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::draw_mesh_tasks_indirect_count");
             if (vkCmdDrawMeshTasksIndirectCountEXT == nullptr) {
                 return;
             }
@@ -339,27 +395,33 @@ void VulkanCommandBuffer::draw_mesh_tasks_indirect_count(VkBuffer indirect_buffe
         }
 
 void VulkanCommandBuffer::dispatch(u32 group_count_x, u32 group_count_y, u32 group_count_z) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::dispatch");
             vkCmdDispatch(buffer_, group_count_x, group_count_y, group_count_z);
         }
 
 void VulkanCommandBuffer::dispatch_indirect(VkBuffer indirect_buffer, VkDeviceSize offset) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::dispatch_indirect");
             vkCmdDispatchIndirect(buffer_, indirect_buffer, offset);
         }
 
 void VulkanCommandBuffer::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size, VkDeviceSize src_offset, VkDeviceSize dst_offset) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_buffer");
             VkBufferCopy region{.srcOffset = src_offset, .dstOffset = dst_offset, .size = size};
             vkCmdCopyBuffer(buffer_, src, dst, 1, &region);
         }
 
 void VulkanCommandBuffer::copy_buffer(VkBuffer src, VkBuffer dst, span<const VkBufferCopy> regions) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_buffer");
             vkCmdCopyBuffer(buffer_, src, dst, static_cast<u32>(regions.size()), regions.data());
         }
 
 void VulkanCommandBuffer::fill_buffer(VkBuffer dst, VkDeviceSize offset, VkDeviceSize size, u32 value) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::fill_buffer");
             vkCmdFillBuffer(buffer_, dst, offset, size, value);
         }
 
 void VulkanCommandBuffer::update_buffer(VkBuffer dst, VkDeviceSize offset, VkDeviceSize size, const void *data) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::update_buffer");
             vkCmdUpdateBuffer(buffer_, dst, offset, size, data);
         }
 
@@ -367,6 +429,7 @@ void VulkanCommandBuffer::copy_buffer_to_image(VkBuffer src,
                                   VkImage dst,
                                   VkImageLayout dst_layout,
                                   span<const VkBufferImageCopy> regions) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_buffer_to_image");
             vkCmdCopyBufferToImage(buffer_, src, dst, dst_layout, static_cast<u32>(regions.size()), regions.data());
         }
 
@@ -374,6 +437,7 @@ void VulkanCommandBuffer::copy_image_to_buffer(VkImage src,
                                   VkImageLayout src_layout,
                                   VkBuffer dst,
                                   span<const VkBufferImageCopy> regions) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_image_to_buffer");
             vkCmdCopyImageToBuffer(buffer_, src, src_layout, dst, static_cast<u32>(regions.size()), regions.data());
         }
 
@@ -382,6 +446,7 @@ void VulkanCommandBuffer::copy_image(VkImage src,
                         VkImage dst,
                         VkImageLayout dst_layout,
                         span<const VkImageCopy> regions) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_image");
             vkCmdCopyImage(buffer_, src, src_layout, dst, dst_layout, static_cast<u32>(regions.size()), regions.data());
         }
 
@@ -391,6 +456,7 @@ void VulkanCommandBuffer::blit_image(VkImage src,
                         VkImageLayout dst_layout,
                         span<const VkImageBlit> regions,
                         VkFilter filter) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::blit_image");
             vkCmdBlitImage(buffer_, src, src_layout, dst, dst_layout, static_cast<u32>(regions.size()), regions.data(), filter);
         }
 
@@ -399,6 +465,7 @@ void VulkanCommandBuffer::resolve_image(VkImage src,
                            VkImage dst,
                            VkImageLayout dst_layout,
                            span<const VkImageResolve> regions) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::resolve_image");
             vkCmdResolveImage(buffer_, src, src_layout, dst, dst_layout, static_cast<u32>(regions.size()), regions.data());
         }
 
@@ -406,6 +473,7 @@ void VulkanCommandBuffer::clear_color_image(VkImage image,
                                VkImageLayout layout,
                                const VkClearColorValue &color,
                                span<const VkImageSubresourceRange> ranges) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::clear_color_image");
             vkCmdClearColorImage(buffer_, image, layout, &color, static_cast<u32>(ranges.size()), ranges.data());
         }
 
@@ -413,37 +481,45 @@ void VulkanCommandBuffer::clear_depth_stencil_image(VkImage image,
                                        VkImageLayout layout,
                                        const VkClearDepthStencilValue &clear,
                                        span<const VkImageSubresourceRange> ranges) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::clear_depth_stencil_image");
             vkCmdClearDepthStencilImage(buffer_, image, layout, &clear, static_cast<u32>(ranges.size()), ranges.data());
         }
 
 void VulkanCommandBuffer::reset_query_pool(VkQueryPool pool, u32 first_query, u32 query_count) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::reset_query_pool");
             vkCmdResetQueryPool(buffer_, pool, first_query, query_count);
         }
 
 void VulkanCommandBuffer::write_timestamp2(VkPipelineStageFlagBits2 stage, VkQueryPool pool, u32 query) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::write_timestamp2");
             vkCmdWriteTimestamp2(buffer_, stage, pool, query);
         }
 
 void VulkanCommandBuffer::begin_query(VkQueryPool pool, u32 query, VkQueryControlFlags flags) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin_query");
             vkCmdBeginQuery(buffer_, pool, query, flags);
         }
 
 void VulkanCommandBuffer::end_query(VkQueryPool pool, u32 query) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::end_query");
             vkCmdEndQuery(buffer_, pool, query);
         }
 
 void VulkanCommandBuffer::copy_query_pool_results(VkQueryPool pool, u32 first_query, u32 query_count,
                                      VkBuffer dst, VkDeviceSize dst_offset, VkDeviceSize stride,
                                      VkQueryResultFlags flags) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_query_pool_results");
             vkCmdCopyQueryPoolResults(buffer_, pool, first_query, query_count, dst, dst_offset, stride, flags);
         }
 
 void VulkanCommandBuffer::execute_commands(span<const VkCommandBuffer> secondaries) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::execute_commands");
             vkCmdExecuteCommands(buffer_, static_cast<u32>(secondaries.size()), secondaries.data());
         }
 
 void VulkanCommandBuffer::begin_conditional_rendering(VkBuffer buffer, VkDeviceSize offset,
                                          VkConditionalRenderingFlagsEXT flags) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin_conditional_rendering");
             if (vkCmdBeginConditionalRenderingEXT == nullptr) {
                 return;
             }
@@ -458,6 +534,7 @@ void VulkanCommandBuffer::begin_conditional_rendering(VkBuffer buffer, VkDeviceS
         }
 
 void VulkanCommandBuffer::end_conditional_rendering() const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::end_conditional_rendering");
             if (vkCmdEndConditionalRenderingEXT != nullptr) {
                 vkCmdEndConditionalRenderingEXT(buffer_);
             }
@@ -466,6 +543,7 @@ void VulkanCommandBuffer::end_conditional_rendering() const noexcept {
 void VulkanCommandBuffer::build_acceleration_structures(
             span<const VkAccelerationStructureBuildGeometryInfoKHR> builds,
             span<const VkAccelerationStructureBuildRangeInfoKHR *const> ranges) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::build_acceleration_structures");
             if (vkCmdBuildAccelerationStructuresKHR == nullptr) {
                 return;
             }
@@ -473,6 +551,7 @@ void VulkanCommandBuffer::build_acceleration_structures(
         }
 
 void VulkanCommandBuffer::copy_acceleration_structure(const VkCopyAccelerationStructureInfoKHR &info) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::copy_acceleration_structure");
             if (vkCmdCopyAccelerationStructureKHR != nullptr) {
                 vkCmdCopyAccelerationStructureKHR(buffer_, &info);
             }
@@ -483,6 +562,7 @@ void VulkanCommandBuffer::trace_rays(const VkStridedDeviceAddressRegionKHR &rayg
                         const VkStridedDeviceAddressRegionKHR &hit,
                         const VkStridedDeviceAddressRegionKHR &callable,
                         u32 width, u32 height, u32 depth) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::trace_rays");
             if (vkCmdTraceRaysKHR == nullptr) {
                 return;
             }
@@ -494,6 +574,7 @@ void VulkanCommandBuffer::trace_rays_indirect(const VkStridedDeviceAddressRegion
                                  const VkStridedDeviceAddressRegionKHR &hit,
                                  const VkStridedDeviceAddressRegionKHR &callable,
                                  VkDeviceAddress indirect_device_address) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::trace_rays_indirect");
             if (vkCmdTraceRaysIndirectKHR == nullptr) {
                 return;
             }
@@ -505,6 +586,7 @@ void VulkanCommandBuffer::begin_debug_label(const char *label,
                                float g,
                                float b,
                                float a) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::begin_debug_label");
             if (vkCmdBeginDebugUtilsLabelEXT == nullptr || label == nullptr) {
                 return;
             }
@@ -518,6 +600,7 @@ void VulkanCommandBuffer::begin_debug_label(const char *label,
         }
 
 void VulkanCommandBuffer::end_debug_label() const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::end_debug_label");
             if (vkCmdEndDebugUtilsLabelEXT != nullptr) {
                 vkCmdEndDebugUtilsLabelEXT(buffer_);
             }
@@ -528,6 +611,7 @@ void VulkanCommandBuffer::insert_debug_label(const char *label,
                                 float g,
                                 float b,
                                 float a) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::insert_debug_label");
             if (vkCmdInsertDebugUtilsLabelEXT == nullptr || label == nullptr) {
                 return;
             }
@@ -541,6 +625,7 @@ void VulkanCommandBuffer::insert_debug_label(const char *label,
         }
 
 void VulkanCommandBuffer::destroy() noexcept {
+            ZoneScopedN("VulkanCommandBuffer::destroy");
             if (buffer_ == VK_NULL_HANDLE)
                 return;
             vkFreeCommandBuffers(device_, command_pool_, 1, &buffer_);

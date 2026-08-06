@@ -8,6 +8,8 @@
 #include <RHI/RHI.hpp>
 #include <Renderer/RendererModule.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::string;
 using std::unexpected;
 
@@ -24,6 +26,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<Renderer::OffscreenRenderTargetGpuResources>
     Renderer::create_offscreen_render_target_gpu_resources(
         const OffscreenRenderTargetDescription &description) {
+        ZoneScopedN("Renderer::create_offscreen_render_target_gpu_resources");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return unexpected(offscreen_target_error(
@@ -88,6 +91,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<OffscreenRenderTargetHandle> Renderer::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
+        ZoneScopedN("Renderer::create_offscreen_render_target");
         if (description.extent.is_zero()) {
             return unexpected(offscreen_target_error(
                 "Off-screen render targets require a non-zero absolute extent."));
@@ -137,6 +141,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_offscreen_render_target(OffscreenRenderTargetHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_offscreen_render_target");
         if (!handle) {
             return;
         }
@@ -169,6 +174,7 @@ namespace SFT::Renderer {
 
     optional<OffscreenRenderTargetDescription> Renderer::offscreen_render_target_description(
         OffscreenRenderTargetHandle handle) const {
+        ZoneScopedN("Renderer::offscreen_render_target_description");
         auto targets = offscreen_render_targets_.lock();
         if (!handle || handle.value > targets->size()) {
             return std::nullopt;
@@ -178,6 +184,7 @@ namespace SFT::Renderer {
     }
 
     TextureHandle Renderer::offscreen_render_target_texture(OffscreenRenderTargetHandle handle) const noexcept {
+        ZoneScopedN("Renderer::offscreen_render_target_texture");
         auto targets = offscreen_render_targets_.lock();
         if (!handle || handle.value > targets->size()) {
             return {};
@@ -188,6 +195,7 @@ namespace SFT::Renderer {
 
     optional<Renderer::ResolvedOffscreenRenderTarget> Renderer::resolve_offscreen_render_target(
         OffscreenRenderTargetHandle handle) const noexcept {
+        ZoneScopedN("Renderer::resolve_offscreen_render_target");
         auto targets = offscreen_render_targets_.lock();
         if (!handle || handle.value > targets->size()) {
             return std::nullopt;
@@ -205,6 +213,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::mark_offscreen_render_target_initialized(OffscreenRenderTargetHandle handle) noexcept {
+        ZoneScopedN("Renderer::mark_offscreen_render_target_initialized");
         auto targets = offscreen_render_targets_.lock();
         if (!handle || handle.value > targets->size()) {
             return;
@@ -216,6 +225,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::invalidate_offscreen_render_targets_after_device_loss() noexcept {
+        ZoneScopedN("Renderer::invalidate_offscreen_render_targets_after_device_loss");
         auto targets = offscreen_render_targets_.lock();
         for (OffscreenRenderTargetRecord &target : *targets) {
             if (!target.alive) {
@@ -229,6 +239,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::restore_offscreen_render_targets_after_recovery() {
+        ZoneScopedN("Renderer::restore_offscreen_render_targets_after_recovery");
         auto targets = offscreen_render_targets_.lock();
         for (OffscreenRenderTargetRecord &target : *targets) {
             if (!target.alive) {
@@ -273,6 +284,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_all_offscreen_render_targets() noexcept {
+        ZoneScopedN("Renderer::destroy_all_offscreen_render_targets");
         auto targets = offscreen_render_targets_.lock();
         RHI::RhiDevice *device = rhi_device();
         for (OffscreenRenderTargetRecord &target : *targets) {

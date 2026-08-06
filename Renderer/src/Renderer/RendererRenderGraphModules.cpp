@@ -4,6 +4,8 @@
 
 #include <Renderer/Renderer.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Renderer {
 
     namespace {
@@ -20,6 +22,7 @@ namespace SFT::Renderer {
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
         RHI::SampleCount samples) {
+        ZoneScopedN("Renderer::build_deferred_msaa_module");
         using namespace RenderGraphSemantics;
 
         const RenderGraphTextureHandle scene_color = context.resources.texture<SceneHdrColor>();
@@ -97,6 +100,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::build_post_process_aa_module(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission) {
+        ZoneScopedN("Renderer::build_post_process_aa_module");
         using namespace RenderGraphSemantics;
 
         if (submission.render_graph.post_process_aa == 0) {
@@ -164,6 +168,7 @@ namespace SFT::Renderer {
         FrameSubmission &submission,
         PostProcessStage stage,
         span<RenderGraphTextureHandle> logical_textures) {
+        ZoneScopedN("Renderer::build_custom_graph_stage");
         using namespace RenderGraphSemantics;
 
         RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
@@ -356,6 +361,7 @@ namespace SFT::Renderer {
         FrameInFlight &frame_slot,
         bool enabled,
         RHI::Format bloom_format) {
+        ZoneScopedN("Renderer::build_bloom_module");
         using namespace RenderGraphSemantics;
 
         if (!enabled) {
@@ -573,6 +579,7 @@ namespace SFT::Renderer {
         RHI::Format presentation_format,
         bool hdr_output,
         Core::HdrColorSpaceMode hdr_color_space) {
+        ZoneScopedN("Renderer::build_tonemap_module");
         using namespace RenderGraphSemantics;
 
         const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();

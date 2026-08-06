@@ -1,16 +1,20 @@
 #define VMA_IMPLEMENTATION
 #include "VulkanAllocator.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanAllocator::~VulkanAllocator() { destroy(); }
 
 VulkanAllocator::VulkanAllocator(VulkanAllocator &&o) noexcept
             : allocator_(o.allocator_) {
+            ZoneScopedN("VulkanAllocator::VulkanAllocator");
             o.allocator_ = VK_NULL_HANDLE;
         }
 
 VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
+            ZoneScopedN("VulkanAllocator::operator=");
             if (this != &o) {
                 destroy();
                 allocator_ = o.allocator_;
@@ -20,6 +24,7 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
         }
 
 [[nodiscard]] RendererExpected<VulkanAllocator> VulkanAllocator::create(const VulkanAllocator::CreateDesc &desc) noexcept {
+            ZoneScopedN("VulkanAllocator::create");
             VmaVulkanFunctions functions{};
             VmaAllocatorCreateInfo info{
                 .flags = desc.flags,
@@ -48,6 +53,7 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             VkDevice device,
             const VkImageCreateInfo &image_info,
             const VmaAllocationCreateInfo &allocation_info) const noexcept {
+            ZoneScopedN("VulkanAllocator::create_image");
             return VulkanImage::create(device, allocator_, image_info, allocation_info);
         }
 
@@ -55,10 +61,12 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             VkDevice device,
             const VkBufferCreateInfo &buffer_info,
             const VmaAllocationCreateInfo &allocation_info) const noexcept {
+            ZoneScopedN("VulkanAllocator::create_buffer");
             return VulkanBuffer::create(device, allocator_, buffer_info, allocation_info);
         }
 
 void VulkanAllocator::destroy() noexcept {
+            ZoneScopedN("VulkanAllocator::destroy");
             if (allocator_ == VK_NULL_HANDLE)
                 return;
             vmaDestroyAllocator(allocator_);

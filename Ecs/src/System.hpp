@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Ecs {
 
     // Derived from a safe per-entity system's component-reference parameters. Stable keys make the
@@ -42,6 +44,7 @@ namespace SFT::Ecs {
                                                    const std::vector<Key> &a_writes,
                                                    const std::vector<Key> &b_reads,
                                                    const std::vector<Key> &b_writes) noexcept {
+        ZoneScopedN("access_sets_conflict");
         for (Key write : a_writes) {
             for (Key read : b_reads) {
                 if (read == write) {
@@ -65,6 +68,7 @@ namespace SFT::Ecs {
     }
 
     [[nodiscard]] inline bool system_access_conflicts(const SystemAccess &a, const SystemAccess &b) noexcept {
+        ZoneScopedN("system_access_conflicts");
         return access_sets_conflict(a.reads, a.writes, b.reads, b.writes) ||
                access_sets_conflict(a.resource_reads, a.resource_writes, b.resource_reads, b.resource_writes);
     }
@@ -295,6 +299,7 @@ namespace SFT::Ecs {
         // deliberately skips Async::Scheduler::initialize() under this policy.
         template <class F>
         void dispatch_task(ExecutorPolicy policy, AsyncTaskList &tasks, F &&fn) {
+            ZoneScopedN("dispatch_task");
             if (policy == ExecutorPolicy::Synchronous) {
                 std::forward<F>(fn)();
             } else {
@@ -357,6 +362,7 @@ namespace SFT::Ecs {
                                             ExecutorPolicy policy,
                                             AsyncTaskList &tasks,
                                             CommandBufferList &command_buffers) mutable {
+                    ZoneScopedN("EntitySystemRunner::dispatch");
                     auto query = WorldAccess::query<Ts...>(world);
                     auto chunks = query.chunks(minimum_rows_per_task, target_parallelism);
                     auto resources = resolve_resource_arguments<ResourceArgs...>(world);
@@ -499,6 +505,7 @@ namespace SFT::Ecs {
                                             ExecutorPolicy policy,
                                             AsyncTaskList &tasks,
                                             CommandBufferList &command_buffers) mutable {
+                    ZoneScopedN("GlobalSystemRunner::dispatch");
                     auto resources = resolve_resource_arguments<ResourceArgs...>(world);
                     CommandBuffer *command_buffer = nullptr;
                     if constexpr (HasCommands) {
@@ -556,6 +563,7 @@ namespace SFT::Ecs {
         // it" rule elsewhere (query const-ness, resource access).
         template <class F>
         void add_system(F fn) {
+            ZoneScopedN("Schedule::add_system");
             using Function = std::decay_t<F>;
             static_assert(std::copy_constructible<Function>,
                           "Automatically parallel ECS systems must be copy-constructible.");

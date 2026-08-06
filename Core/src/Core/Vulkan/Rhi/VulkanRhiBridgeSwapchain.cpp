@@ -62,6 +62,8 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::optional;
 using std::span;
 using std::string;
@@ -314,6 +316,7 @@ namespace SFT::Core::Vulkan {
 
     VulkanRhiDeviceBridge::SurfaceRecord VulkanRhiDeviceBridge::make_surface_record(VkSurfaceKHR surface, bool owns_surface,
                                                                                     const rhi::SurfaceDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::make_surface_record");
         SurfaceRecord record{.surface = surface, .owns_surface = owns_surface};
         record.stored_label = desc.label != nullptr ? std::string{desc.label} : std::string{};
         record.desc = rhi::SurfaceDesc{
@@ -326,6 +329,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::create_surface(const rhi::SurfaceDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_surface");
         if (instance_ == VK_NULL_HANDLE) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run create_surface: instance resources are not ready.");
@@ -399,6 +403,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface, const rhi::SurfaceDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::import_surface");
         if (surface == VK_NULL_HANDLE) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                   "import_surface: cannot import a null VkSurfaceKHR.");
@@ -407,6 +412,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_surface(rhi::SurfaceHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_surface");
         SurfaceRecord *record = surfaces_.find(handle);
         if (record != nullptr && record->surface != VK_NULL_HANDLE && record->owns_surface) {
             vkDestroySurfaceKHR(instance_, record->surface, nullptr);
@@ -415,6 +421,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::SwapchainHandle> VulkanRhiDeviceBridge::create_swapchain(const rhi::SwapchainDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_swapchain");
         if (logical_device_ == nullptr || physical_device_ == nullptr) {
             return device_not_ready<rhi::SwapchainHandle>("create_swapchain");
         }
@@ -657,6 +664,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::SurfaceHdrCapabilityQuery> VulkanRhiDeviceBridge::query_hdr_capabilities(
         rhi::SurfaceHandle handle) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::query_hdr_capabilities");
         const SurfaceRecord *surface = surfaces_.find(handle);
         if (surface == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "query_hdr_capabilities: unknown surface handle.");
@@ -666,6 +674,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiResult VulkanRhiDeviceBridge::update_hdr_content_light_level(
         rhi::SwapchainHandle handle, const rhi::HdrContentLightLevelUpdate &update) {
+        ZoneScopedN("VulkanRhiDeviceBridge::update_hdr_content_light_level");
         SwapchainRecord *record = swapchains_.find(handle);
         if (record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
@@ -684,6 +693,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_swapchain(rhi::SwapchainHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_swapchain");
         SwapchainRecord *record = swapchains_.find(handle);
         if (record != nullptr) {
             for (rhi::TextureViewHandle view : record->views) {
@@ -697,11 +707,13 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::PresentationResolution VulkanRhiDeviceBridge::presentation_resolution(rhi::SwapchainHandle handle) const noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::presentation_resolution");
         const SwapchainRecord *record = swapchains_.find(handle);
         return record != nullptr ? record->presentation_resolution : rhi::PresentationResolution{};
     }
 
     rhi::RhiExpected<rhi::SurfaceTexture> VulkanRhiDeviceBridge::acquire_next_texture(rhi::SwapchainHandle handle, u32 frame_slot_index) {
+        ZoneScopedN("VulkanRhiDeviceBridge::acquire_next_texture");
         SwapchainRecord *record = swapchains_.find(handle);
         if (record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "acquire_next_texture: unknown swapchain handle.");
@@ -761,6 +773,7 @@ namespace SFT::Core::Vulkan {
     }
 
     rhi::RhiExpected<rhi::PresentOutcome> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
+        ZoneScopedN("VulkanRhiDeviceBridge::present");
         if (graphics_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run present: device resources are not ready.");

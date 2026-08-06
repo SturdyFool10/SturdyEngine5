@@ -85,6 +85,7 @@ namespace SFT::Core::Vulkan {
     } // namespace
 
     RendererResult VulkanBackend::findPhysicalDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
+        ZoneScopedN("VulkanBackend::findPhysicalDevice");
         (void)init;
         auto devices_result = VulkanPhysicalDevice::enumerate(vulkan_instance);
         if (!devices_result.has_value()) [[unlikely]] {
@@ -127,6 +128,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererResult VulkanBackend::discoverGraphicsQueue(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
+        ZoneScopedN("VulkanBackend::discoverGraphicsQueue");
         (void)init;
         if (auto res = this->physicalDevice.findGraphicsQueue(primary_surface); !res.has_value()) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "Your GPU is apparently not Vulkan Compliant!! the Vulkan spec guarantees one graphics queue and we found zero");
@@ -136,6 +138,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererResult VulkanBackend::createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
+        ZoneScopedN("VulkanBackend::createDevice");
         (void)init;
 
         // Query which features the physical device actually supports.
@@ -666,6 +669,7 @@ namespace SFT::Core::Vulkan {
     }
 
     RendererResult VulkanBackend::initializeVMA(const RendererCreateInfo &init) {
+        ZoneScopedN("VulkanBackend::initializeVMA");
         (void)init;
 
         VulkanAllocator::CreateDesc desc{

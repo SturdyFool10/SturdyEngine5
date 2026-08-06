@@ -29,6 +29,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::span;
 using std::vector;
 
@@ -147,6 +149,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::AccelerationStructureBuildSizes> VulkanRhiDeviceBridge::acceleration_structure_build_sizes(
         const rhi::AccelerationStructureBuildDesc &desc) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::acceleration_structure_build_sizes");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::AccelerationStructureBuildSizes>("acceleration_structure_build_sizes");
         }
@@ -194,6 +197,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::AccelerationStructureHandle> VulkanRhiDeviceBridge::create_acceleration_structure(
         const rhi::AccelerationStructureDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_acceleration_structure");
         if (allocator_ == nullptr || logical_device_ == nullptr) {
             return device_not_ready<rhi::AccelerationStructureHandle>("create_acceleration_structure");
         }
@@ -234,10 +238,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_acceleration_structure(rhi::AccelerationStructureHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_acceleration_structure");
         acceleration_structures_.erase(handle);
     }
 
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::buffer_device_address(rhi::BufferHandle handle) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::buffer_device_address");
         if (!enabled_features_.has(rhi::Feature::BufferDeviceAddress)) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                   "buffer_device_address: requires enabled Feature::BufferDeviceAddress.");
@@ -252,6 +258,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::acceleration_structure_device_address(
         rhi::AccelerationStructureHandle handle) const {
+        ZoneScopedN("VulkanRhiDeviceBridge::acceleration_structure_device_address");
         if (!enabled_features_.has(rhi::Feature::AccelerationStructures)) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                   "acceleration_structure_device_address: requires enabled Feature::AccelerationStructures.");

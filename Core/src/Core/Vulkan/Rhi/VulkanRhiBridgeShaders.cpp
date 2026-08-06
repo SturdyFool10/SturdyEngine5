@@ -15,11 +15,14 @@
 #include <Core/Vulkan/Rhi/VulkanRhiBridge.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::ShaderModuleHandle> VulkanRhiDeviceBridge::create_shader_module(const rhi::ShaderModuleDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_shader_module");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::ShaderModuleHandle>("create_shader_module");
         }
@@ -46,6 +49,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_shader_module(rhi::ShaderModuleHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_shader_module");
         if (VkShaderModule *module = shader_modules_.find(handle)) {
             if (logical_device_ != nullptr) {
                 logical_device_->destroy_shader_module(*module);

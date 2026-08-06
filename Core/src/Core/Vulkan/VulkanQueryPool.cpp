@@ -1,5 +1,7 @@
 #include "VulkanQueryPool.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Core::Vulkan {
 
 VulkanQueryPool::~VulkanQueryPool() { destroy(); }
@@ -7,11 +9,13 @@ VulkanQueryPool::~VulkanQueryPool() { destroy(); }
 VulkanQueryPool::VulkanQueryPool(VulkanQueryPool &&o) noexcept
             : device_(o.device_), pool_(o.pool_),
               query_type_(o.query_type_), query_count_(o.query_count_) {
+            ZoneScopedN("VulkanQueryPool::VulkanQueryPool");
             o.device_ = VK_NULL_HANDLE;
             o.pool_ = VK_NULL_HANDLE;
         }
 
 VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
+            ZoneScopedN("VulkanQueryPool::operator=");
             if (this != &o) {
                 destroy();
                 device_ = o.device_;
@@ -29,6 +33,7 @@ VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
             VkQueryType type,
             u32 count,
             VkQueryPipelineStatisticFlags pipeline_stats) noexcept {
+            ZoneScopedN("VulkanQueryPool::create");
             VkQueryPoolCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
                 .pNext = nullptr,
@@ -62,6 +67,7 @@ VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
             span<u8> data,
             VkDeviceSize stride,
             VkQueryResultFlags flags) noexcept {
+            ZoneScopedN("VulkanQueryPool::get_results");
             VkResult res = vkGetQueryPoolResults(device_, pool_, first_query, count, data.size_bytes(), data.data(), stride, flags);
             if (res != VK_SUCCESS && res != VK_NOT_READY)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkGetQueryPoolResults failed.");
@@ -69,10 +75,12 @@ VulkanQueryPool &VulkanQueryPool::operator=(VulkanQueryPool &&o) noexcept {
         }
 
 void VulkanQueryPool::reset(u32 first_query, u32 count) noexcept {
+            ZoneScopedN("VulkanQueryPool::reset");
             vkResetQueryPool(device_, pool_, first_query, count == 0 ? query_count_ : count);
         }
 
 void VulkanQueryPool::destroy() noexcept {
+            ZoneScopedN("VulkanQueryPool::destroy");
             if (pool_ == VK_NULL_HANDLE)
                 return;
             vkDestroyQueryPool(device_, pool_, nullptr);

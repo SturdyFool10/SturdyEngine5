@@ -1,5 +1,7 @@
 #include "TileGrid.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Renderer {
 
 Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, const char *operation) {
@@ -31,6 +33,7 @@ u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept {
     }
 
 [[nodiscard]] usize TileCoordHash::operator()(TileCoord coord) const noexcept {
+            ZoneScopedN("TileCoordHash::operator");
             const u64 packed = (static_cast<u64>(static_cast<u32>(coord.x)) << 32) | static_cast<u32>(coord.y);
             u64 hashed = packed;
             hashed ^= hashed >> 33;

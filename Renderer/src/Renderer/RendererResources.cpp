@@ -16,6 +16,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::array;
 using std::span;
 using std::string;
@@ -26,6 +28,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<MeshHandle> Renderer::create_mesh(span<const GeometryVertex> vertices,
                                                              span<const u32> indices,
                                                              const char *label) {
+        ZoneScopedN("Renderer::create_mesh");
         if (vertices.empty()) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a mesh with no vertices."});
@@ -54,6 +57,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh) {
+        ZoneScopedN("Renderer::upload");
         if (mesh.is_gpu_resident()) {
             return mesh.gpu_handle();
         }
@@ -69,6 +73,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_mesh(MeshHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_mesh");
         MeshResource *resource = mesh(handle);
         if (!resource) {
             return;
@@ -100,6 +105,7 @@ namespace SFT::Renderer {
     }
 
     MeshResource *Renderer::mesh(MeshHandle handle) noexcept {
+        ZoneScopedN("Renderer::mesh");
         if (!handle || handle.value > meshes_.size()) {
             return nullptr;
         }
@@ -108,6 +114,7 @@ namespace SFT::Renderer {
     }
 
     const MeshResource *Renderer::mesh(MeshHandle handle) const noexcept {
+        ZoneScopedN("Renderer::mesh");
         if (!handle || handle.value > meshes_.size()) {
             return nullptr;
         }
@@ -116,6 +123,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererExpected<MaterialHandle> Renderer::create_material(const char *label) {
+        ZoneScopedN("Renderer::create_material");
         MaterialResource material{};
         material.handle = MaterialHandle{static_cast<u64>(materials_.size() + 1)};
         material.label = label ? label : "";
@@ -125,6 +133,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_material(MaterialHandle handle) noexcept {
+        ZoneScopedN("Renderer::destroy_material");
         MaterialResource *resource = material(handle);
         if (!resource) {
             return;
@@ -134,6 +143,7 @@ namespace SFT::Renderer {
     }
 
     MaterialResource *Renderer::material(MaterialHandle handle) noexcept {
+        ZoneScopedN("Renderer::material");
         if (!handle || handle.value > materials_.size()) {
             return nullptr;
         }
@@ -142,6 +152,7 @@ namespace SFT::Renderer {
     }
 
     const MaterialResource *Renderer::material(MaterialHandle handle) const noexcept {
+        ZoneScopedN("Renderer::material");
         if (!handle || handle.value > materials_.size()) {
             return nullptr;
         }
@@ -150,6 +161,7 @@ namespace SFT::Renderer {
     }
 
     void Renderer::destroy_all_resources() noexcept {
+        ZoneScopedN("Renderer::destroy_all_resources");
         if (shader_hot_reload_poll_) {
             (void)shader_hot_reload_poll_->wait();
             shader_hot_reload_poll_.reset();
@@ -261,6 +273,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::grow_geometry_arena(GeometryArena &arena, u64 required_bytes, const char *label) {
+        ZoneScopedN("Renderer::grow_geometry_arena");
         RHI::RhiDevice *device = rhi_device();
         if (!device) {
             return {};
@@ -352,6 +365,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::try_upload_mesh(MeshResource &mesh) {
+        ZoneScopedN("Renderer::try_upload_mesh");
         RHI::RhiDevice *device = rhi_device();
         if (!device) {
             return {};
@@ -438,6 +452,7 @@ namespace SFT::Renderer {
 
     Core::GraphicsBackendError Renderer::graphics_error_from_rhi(const RHI::RhiError &error,
                                                                  const char *operation) {
+        ZoneScopedN("Renderer::graphics_error_from_rhi");
         Core::GraphicsBackendErrorCode code = Core::GraphicsBackendErrorCode::OperationFailed;
         switch (error.code) {
             case RHI::RhiErrorCode::Unsupported: code = Core::GraphicsBackendErrorCode::Unsupported; break;

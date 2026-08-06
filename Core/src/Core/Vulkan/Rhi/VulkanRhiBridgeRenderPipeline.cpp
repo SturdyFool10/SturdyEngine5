@@ -18,6 +18,8 @@
 #include <Core/Vulkan/VulkanRhiConvert.hpp>
 #include <RHI/RHI.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::vector;
 
 namespace SFT::Core::Vulkan {
@@ -25,6 +27,7 @@ namespace SFT::Core::Vulkan {
     namespace rhi = SFT::RHI;
 
     rhi::RhiExpected<rhi::RenderPipelineHandle> VulkanRhiDeviceBridge::create_render_pipeline(const rhi::RenderPipelineDesc &desc) {
+        ZoneScopedN("VulkanRhiDeviceBridge::create_render_pipeline");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::RenderPipelineHandle>("create_render_pipeline");
         }
@@ -193,6 +196,7 @@ namespace SFT::Core::Vulkan {
     }
 
     void VulkanRhiDeviceBridge::destroy_render_pipeline(rhi::RenderPipelineHandle handle) noexcept {
+        ZoneScopedN("VulkanRhiDeviceBridge::destroy_render_pipeline");
         render_pipelines_.erase(handle);
     }
 
