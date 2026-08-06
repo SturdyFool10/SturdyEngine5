@@ -89,12 +89,16 @@ namespace SFT::Core::Vulkan {
                 return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                       "submit: presented texture references an unknown swapchain.");
             }
-            if (texture.image_index >= swapchain->image_available_semaphores.size() ||
+            if (texture.image_index >= swapchain->image_available_signal_indices.size() ||
                 texture.image_index >= swapchain->render_finished_semaphores.size()) {
                 return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                       "submit: presented texture image index is out of range.");
             }
             const u32 image_available_index = swapchain->image_available_signal_indices[texture.image_index];
+            if (image_available_index >= swapchain->image_available_semaphores.size()) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "submit: presented texture's acquisition semaphore slot is out of range.");
+            }
             waits.push_back(swapchain->image_available_semaphores[image_available_index].submit_info(
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0));
             signals.push_back(swapchain->render_finished_semaphores[texture.image_index].submit_info(
