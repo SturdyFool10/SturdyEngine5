@@ -75,6 +75,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
         ecs_world_.bind_resource(window_state_);
+        ecs_world_.bind_resource(input_state_);
         ecs_world_.bind_resource(window_requests_);
         ecs_world_.bind_resource(frame_time_);
         ecs_world_.bind_resource(time_scale_);
@@ -161,6 +162,35 @@ namespace SFT::Engine {
                 }
                 for (const MouseWheelEvent &event : mouse_wheel.read()) {
                     pointer->add_scroll_delta({event.wheel.x, event.wheel.y});
+                }
+            });
+
+        // Keeps InputState current for every ECS app (plans/ecs-engine-subsystem-access.md's Phase
+        // 2) — the built-in "fold this tick's typed event streams into persistent, queryable state"
+        // system, same shape as the UiPointerState one above but covering the full keyboard/mouse
+        // surface rather than just pointer position/left-click/scroll.
+        update_schedule_.add_system(
+            [](Ecs::WriteResource<InputState> input,
+               Ecs::EventReader<KeyboardEvent> keyboard,
+               Ecs::EventReader<TextInputEvent> text,
+               Ecs::EventReader<MouseMoveEvent> mouse_move,
+               Ecs::EventReader<MouseButtonEvent> mouse_button,
+               Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
+                input->begin_tick();
+                for (const KeyboardEvent &event : keyboard.read()) {
+                    input->apply(event);
+                }
+                for (const TextInputEvent &event : text.read()) {
+                    input->apply(event);
+                }
+                for (const MouseMoveEvent &event : mouse_move.read()) {
+                    input->apply(event);
+                }
+                for (const MouseButtonEvent &event : mouse_button.read()) {
+                    input->apply(event);
+                }
+                for (const MouseWheelEvent &event : mouse_wheel.read()) {
+                    input->apply(event);
                 }
             });
     }

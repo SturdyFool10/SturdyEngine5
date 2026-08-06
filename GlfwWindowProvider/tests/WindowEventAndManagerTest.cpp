@@ -2,6 +2,7 @@
 #include <Platform/Window/SDL3/Window.hpp>
 #include <Platform/Window/WindowManager.hpp>
 
+#include <chrono>
 #include <deque>
 #include <iostream>
 #include <new>
@@ -183,11 +184,26 @@ namespace {
             return false;
         }
 
+        // In DedicatedEventThread mode pump() is now non-blocking: it just swaps out whatever the
+        // background poll_loop() has accumulated so far, which may still be nothing on the very first
+        // call (spawn_window()'s own dispatch() only waits for the window to be registered, not for a
+        // subsequent poll pass to have run against it yet — real callers must not assume synchronous
+        // ordering between spawning a window and its first events showing up). Retry pump() for a
+        // short bounded window rather than asserting on a single call; CallerThread mode's pump() is
+        // still fully synchronous and satisfies this on the very first iteration.
         vector<ManagedWindowEvents> packets;
-        const auto pumped = manager.pump(packets);
-        passed &= check(pumped.has_value(), "WindowManager::pump failed");
-        passed &= check(packets.size() == 1, "pump did not return exactly one window packet");
-        if (packets.size() == 1) {
+        bool observed_event = false;
+        for (int attempt = 0; attempt < 200 && !observed_event; ++attempt) {
+            const auto pumped = manager.pump(packets);
+            passed &= check(pumped.has_value(), "WindowManager::pump failed");
+            if (!packets.empty() && !packets[0].events.empty()) {
+                observed_event = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        passed &= check(!packets.empty(), "pump never returned a window packet");
+        if (!packets.empty()) {
             passed &= check(packets[0].events.size() == 1, "translated event queue was not drained");
             if (packets[0].events.size() == 1) {
                 const WindowMouseButtonEvent &mouse = packets[0].events[0].mouse_button;

@@ -86,6 +86,64 @@ namespace SFT::Platform::Windowing {
         RightAlt,
         RightSuper,
         Menu,
+
+        // New blocks get their own base offset (well clear of the ~25-entry 0x100 block above) rather
+        // than continuing that sequence, so future insertions into either block never renumber this one.
+        F1 = 0x200,
+        F2,
+        F3,
+        F4,
+        F5,
+        F6,
+        F7,
+        F8,
+        F9,
+        F10,
+        F11,
+        F12,
+        F13,
+        F14,
+        F15,
+        F16,
+        F17,
+        F18,
+        F19,
+        F20,
+        F21,
+        F22,
+        F23,
+        F24, // GLFW defines F25 too; SDL3 caps at F24 (its scancode table stops there) — F24 is this
+             // enum's own ceiling so both backends can map onto the same range.
+
+        Numpad0 = 0x300,
+        Numpad1,
+        Numpad2,
+        Numpad3,
+        Numpad4,
+        Numpad5,
+        Numpad6,
+        Numpad7,
+        Numpad8,
+        Numpad9,
+        NumpadDecimal,
+        NumpadDivide,
+        NumpadMultiply,
+        NumpadSubtract,
+        NumpadAdd,
+        NumpadEnter,
+        NumpadEqual,
+
+        // GLFW has no media-key constants at all (checked its full keycode table) — these stay
+        // KeyboardKey::Unknown on that backend. Same honest architecture-limited-coverage stance
+        // already used elsewhere in this codebase (e.g. Foundation::Cpu's Arm SVE detection, always
+        // false there for the same "the backend genuinely cannot report this" reason).
+        VolumeUp = 0x400,
+        VolumeDown,
+        Mute,
+        MediaPlayPause,
+        MediaNext,
+        MediaPrevious,
+        MediaStop,
     };
 
     [[nodiscard]] constexpr KeyboardKey keyboard_key_from_ascii(i32 key) noexcept {
@@ -129,6 +187,69 @@ namespace SFT::Platform::Windowing {
                 return true;
             default:
                 return false;
+        }
+    }
+
+    // Normalized modifier bitmask — WindowKeyboardEvent::modifiers carries this (SDL3/GLFW backends
+    // translate their own native modifier bits into it), so a consumer never has to know whether an
+    // event came from SDL's SDL_Keymod or GLFW's mods bitfield to check "is Shift held." Left/right
+    // side is deliberately *not* distinguished here (that's what the left/right KeyboardKey
+    // enumerators above are for, via is_modifier_key()/direct key_down() checks) — this is the
+    // coarse "any Shift" convenience the way every other engine's modifier mask works.
+    enum class KeyModifiers : u32 {
+        None = 0,
+        Shift = 1u << 0,
+        Control = 1u << 1,
+        Alt = 1u << 2,
+        Super = 1u << 3,
+        CapsLock = 1u << 4,
+        NumLock = 1u << 5,
+    };
+
+    [[nodiscard]] constexpr KeyModifiers operator|(KeyModifiers a, KeyModifiers b) noexcept {
+        return static_cast<KeyModifiers>(static_cast<u32>(a) | static_cast<u32>(b));
+    }
+
+    [[nodiscard]] constexpr KeyModifiers operator&(KeyModifiers a, KeyModifiers b) noexcept {
+        return static_cast<KeyModifiers>(static_cast<u32>(a) & static_cast<u32>(b));
+    }
+
+    [[nodiscard]] constexpr KeyModifiers operator~(KeyModifiers a) noexcept {
+        return static_cast<KeyModifiers>(~static_cast<u32>(a));
+    }
+
+    constexpr KeyModifiers &operator|=(KeyModifiers &a, KeyModifiers b) noexcept { return a = a | b; }
+    constexpr KeyModifiers &operator&=(KeyModifiers &a, KeyModifiers b) noexcept { return a = a & b; }
+
+    [[nodiscard]] constexpr bool has_modifier(KeyModifiers value, KeyModifiers flag) noexcept {
+        return (value & flag) != KeyModifiers::None;
+    }
+
+    // The modifier a given left/right KeyboardKey contributes to the coarse KeyModifiers mask, or
+    // KeyModifiers::None for every non-modifier key. Backends use this to fold their per-side key
+    // state into one mask; InputState (Engine/src/Engine/InputState.hpp) reuses it the same way when
+    // deriving modifiers() from the raw pressed-key set rather than trusting a second, driftable
+    // source of truth.
+    [[nodiscard]] constexpr KeyModifiers modifier_for_key(KeyboardKey key) noexcept {
+        switch (key) {
+            case KeyboardKey::LeftShift:
+            case KeyboardKey::RightShift:
+                return KeyModifiers::Shift;
+            case KeyboardKey::LeftControl:
+            case KeyboardKey::RightControl:
+                return KeyModifiers::Control;
+            case KeyboardKey::LeftAlt:
+            case KeyboardKey::RightAlt:
+                return KeyModifiers::Alt;
+            case KeyboardKey::LeftSuper:
+            case KeyboardKey::RightSuper:
+                return KeyModifiers::Super;
+            case KeyboardKey::CapsLock:
+                return KeyModifiers::CapsLock;
+            case KeyboardKey::NumLock:
+                return KeyModifiers::NumLock;
+            default:
+                return KeyModifiers::None;
         }
     }
 

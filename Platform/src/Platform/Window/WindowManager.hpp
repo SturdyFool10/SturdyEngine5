@@ -4,8 +4,12 @@
 #include <Async/src/Async.hpp>
 
 #pragma region Imports
+#include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -101,6 +105,10 @@ namespace SFT::Platform::Windowing {
                     primary_window_id_ = id;
                 }
                 windows_.push_back(std::move(*created));
+                {
+                    auto guard = accumulated_.lock();
+                    guard->push_back(ManagedWindowEvents{.window_id = id, .events = {}, .framebuffer_size = {}});
+                }
                 return id;
             });
         }
@@ -127,6 +135,10 @@ namespace SFT::Platform::Windowing {
                     primary_window_id_ = id;
                 }
                 windows_.push_back(std::move(*created));
+                {
+                    auto guard = accumulated_.lock();
+                    guard->push_back(ManagedWindowEvents{.window_id = id, .events = {}, .framebuffer_size = {}});
+                }
                 return id;
             });
         }
@@ -161,37 +173,81 @@ namespace SFT::Platform::Windowing {
             return dispatch([this, &fn]() { return fn(windows_); });
         }
 
-        // Coordinator pump: drain backend/OS events, each translated per-window queue, and current
-        // window state entirely on the window-owner path. If the managed set is empty, the caller gets
-        // an empty event list and can conclude execution.
+        // Coordinator pump: hands back whatever's accumulated since the last call. In DedicatedEventThread
+        // mode this is non-blocking — the event thread polls continuously and independently in the
+        // background (see poll_loop() below), so an OS input queue never backs up waiting on this
+        // tick's frame time, which matters for a high-polling-rate device (an 8kHz mouse) — this call
+        // just swaps out whatever the background loop has already collected. In CallerThread mode
+        // (macOS/Web, or wherever the platform disallows threads) this instead does the original
+        // synchronous poll-and-drain inline, exactly as before. If the managed set is empty, the caller
+        // gets an empty event list and can conclude execution.
         [[nodiscard]] expected<void, WindowError> pump(vector<ManagedWindowEvents> &out_events) noexcept;
 
       private:
-        // Core dispatch primitive: runs fn() on event_thread_ and blocks for the result if a dedicated
-        // event thread is active, otherwise runs it inline on the caller. Every windows_-touching method
-        // above goes through this — it is the only place windows_ is ever accessed.
+        // Core dispatch primitive for one-shot windows_-touching operations (spawn/destroy/with_window/
+        // with_windows) — every one of them still runs on the thread that owns the windows and the
+        // caller still blocks for the result, exactly like before. What changed is *how* it gets there:
+        // event_thread_ (when active) is permanently busy running poll_loop() below, not idle waiting
+        // for DedicatedThread::run() calls, so a one-shot op is instead queued into pending_ops_ (the
+        // same TaskState/ConcreteTask/TaskHandle machinery DedicatedThread::run() itself is built on —
+        // Async/src/Task.hpp) for poll_loop() to drain and execute on its own next iteration.
         template <typename F>
         auto dispatch(F &&fn) -> std::invoke_result_t<F &> {
-            if (event_thread_) {
-                auto handle = event_thread_->run(std::forward<F>(fn));
-                return handle.wait();
+            using R = std::invoke_result_t<F &>;
+            if (!event_thread_) {
+                return fn();
             }
-            return fn();
+            auto state = std::make_shared<Async::Detail::TaskState<R>>();
+            auto task = std::make_unique<Async::Detail::ConcreteTask<std::decay_t<F>, R>>(std::forward<F>(fn), state);
+            {
+                auto guard = pending_ops_.lock();
+                guard->push_back(std::move(task));
+            }
+            wake_poll_loop();
+            return Async::TaskHandle<R>(std::move(state)).wait();
         }
 
         template <typename F>
         auto dispatch(F &&fn) const -> std::invoke_result_t<F &> {
-            if (event_thread_) {
-                auto handle = event_thread_->run(std::forward<F>(fn));
-                return handle.wait();
-            }
-            return fn();
+            // const-qualified callers (primary_window_id(), window_count()) only ever read windows_ —
+            // safe to funnel through the same non-const queue-and-wait path via const_cast, matching
+            // the const-outer/non-const-body shape the original implementation already used with
+            // DedicatedThread::run() (which took the same closure-by-value approach regardless of
+            // constness).
+            return const_cast<WindowManager *>(this)->dispatch(std::forward<F>(fn));
         }
+
+        // poll_loop() is the single long-running task event_thread_ ever runs (submitted once, from
+        // the constructor) — continuous background polling replaces the old "one DedicatedThread::run()
+        // per pump() call" shape, which only ever polled when the main thread asked, once per tick.
+        void poll_loop() noexcept;
+        void wake_poll_loop() noexcept;
+
+        // Per-window accumulator poll_loop() folds newly-polled events into every iteration; pump()
+        // swaps it out (matching Async::MainThread's run_on_main_thread()/pump_main_thread() shape:
+        // swap under lock, use the swapped-out copy outside it). Entries are added when
+        // dispatch()-driven spawn_window() adds a window and removed when destroy_window() removes
+        // one, both from inside poll_loop() itself (see WindowManager.cpp) so windows_ and this stay
+        // in lockstep without a second lock ordering to reason about.
+        Async::Mutex<vector<ManagedWindowEvents>> accumulated_;
 
         WindowManagerPolicy policy_{};
         vector<unique_ptr<Window>> windows_;
         optional<WindowId> primary_window_id_;
         unique_ptr<Async::DedicatedThread> event_thread_;
+
+        // Queued one-shot dispatch() closures for poll_loop() to run on its own thread — see dispatch()'s
+        // doc comment. Reuses Async::Detail::TaskBase rather than a bespoke closure type so dispatch()
+        // can hand the caller a real Async::TaskHandle<R> to wait() on, identical to what
+        // DedicatedThread::run() itself already returns.
+        Async::Mutex<std::deque<std::unique_ptr<Async::Detail::TaskBase>>> pending_ops_;
+
+        // running_ gates poll_loop()'s own while-condition; wake_mutex_/wake_cv_ let dispatch() and
+        // the destructor interrupt its idle sleep immediately instead of waiting out a full idle
+        // interval (same shape Async::Scheduler's own worker idle-wait uses).
+        std::atomic<bool> running_{false};
+        std::mutex wake_mutex_;
+        std::condition_variable wake_cv_;
     };
 
 } // namespace SFT::Platform::Windowing

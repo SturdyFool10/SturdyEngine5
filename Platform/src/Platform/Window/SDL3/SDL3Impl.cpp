@@ -316,6 +316,14 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Invalid SDL3 window configuration."});
         }
 
+        // Explicit, not relying on SDL3's own default: low-latency/competitive-game mouse input
+        // (relative mode, engaged via set_relative_mouse_mode()/set_mouse_locked() below) must not
+        // have the OS pointer-acceleration curve applied, and a cursor warp must never synthesize a
+        // spurious motion event a game would have to filter back out. Both hints can be set anytime,
+        // before SDL_InitSubSystem included, and are idempotent to set repeatedly.
+        SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
+        SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_WARP_MOTION, "0");
+
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
             Foundation::log_error("SDL3 video subsystem init failed: message='{}'", error.message);

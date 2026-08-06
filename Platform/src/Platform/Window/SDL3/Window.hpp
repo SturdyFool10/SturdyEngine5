@@ -34,9 +34,19 @@ namespace SFT::Platform::Windowing::SDL3 {
                 case SDL_BUTTON_RIGHT: return MouseButton::Right;
                 case SDL_BUTTON_X1: return MouseButton::Extra1;
                 case SDL_BUTTON_X2: return MouseButton::Extra2;
+                // SDL reports anything past X1/X2 as a plain raw index with no further naming (a
+                // high-button-count gaming mouse) — MouseButton::Extra3.. is this engine's own
+                // numbering for that range, not an SDL one.
                 case 6: return MouseButton::Extra3;
                 case 7: return MouseButton::Extra4;
                 case 8: return MouseButton::Extra5;
+                case 9: return MouseButton::Extra6;
+                case 10: return MouseButton::Extra7;
+                case 11: return MouseButton::Extra8;
+                case 12: return MouseButton::Extra9;
+                case 13: return MouseButton::Extra10;
+                case 14: return MouseButton::Extra11;
+                case 15: return MouseButton::Extra12;
                 default: return MouseButton::Unknown;
             }
         }

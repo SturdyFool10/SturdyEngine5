@@ -211,8 +211,8 @@ namespace SFT::Engine {
         void sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events);
 
         Platform::Windowing::WindowManager window_manager_{
-            Platform::Windowing::WindowManagerPolicy{.event_pump_mode = Platform::Windowing::WindowEventPumpMode::CallerThread,
-                                                     .platform_allows_threads = false}};
+            Platform::Windowing::WindowManagerPolicy{.event_pump_mode = Platform::Windowing::WindowEventPumpMode::DedicatedEventThread,
+                                                     .platform_allows_threads = true}};
         vector<unique_ptr<ManagedWindow>> windows_;
         unique_ptr<Engine> engine_;
         ApplicationClient *client_ = nullptr;

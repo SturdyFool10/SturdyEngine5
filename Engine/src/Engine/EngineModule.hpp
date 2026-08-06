@@ -15,6 +15,7 @@
 #include "TimeScale.hpp"
 #include "WindowState.hpp"
 #include "WindowRequests.hpp"
+#include "InputState.hpp"
 #include "AssetManager.hpp"
 #include "RenderTarget.hpp"
 #include <Core/Core.hpp>
@@ -160,6 +161,13 @@ namespace SFT::Engine {
         [[nodiscard]] WindowState &window_state() noexcept;
         [[nodiscard]] const WindowState &window_state() const noexcept;
 
+        // Accumulated per-tick input state for ECS consumers (Ecs::ReadResource<InputState>) — kept
+        // current automatically by a built-in system registered in Engine's own constructor, the same
+        // way ui_pointer_state() below is. See InputState.hpp for the key_down()-vs-text_this_tick()
+        // distinction.
+        [[nodiscard]] InputState &input_state() noexcept;
+        [[nodiscard]] const InputState &input_state() const noexcept;
+
         // Deferred host-control requests for spawning/closing managed OS windows. Application owns
         // execution; Engine/GameLogic/ECS own submission and completion consumption.
         [[nodiscard]] WindowRequests &window_requests() noexcept;
@@ -234,6 +242,7 @@ namespace SFT::Engine {
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
         WindowState window_state_{};
+        InputState input_state_{};
         WindowRequests window_requests_{};
         FrameTime frame_time_{};
         TimeScale time_scale_{};

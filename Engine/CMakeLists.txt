@@ -42,6 +42,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME EngineWindowRequestTest COMMAND EngineWindowRequestTest)
     set_tests_properties(EngineWindowRequestTest PROPERTIES TIMEOUT 10)
 
+    add_executable(EngineInputStateTest tests/InputStateTest.cpp)
+    target_link_libraries(EngineInputStateTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineInputStateTest)
+    add_test(NAME EngineInputStateTest COMMAND EngineInputStateTest)
+    set_tests_properties(EngineInputStateTest PROPERTIES TIMEOUT 10)
+
     add_executable(EngineDockWindowCoordinatorTest tests/DockWindowCoordinatorTest.cpp)
     target_link_libraries(EngineDockWindowCoordinatorTest PRIVATE Sturdy::Engine)
     sturdy_enable_warnings(EngineDockWindowCoordinatorTest)

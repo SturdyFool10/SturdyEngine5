@@ -61,6 +61,11 @@ namespace SFT::Platform::Windowing {
     // Stable mouse-button identity shared by every provider. Provider-native numbering is not
     // consistent (SDL uses 1 for left while GLFW uses 0), so consumers should prefer this over the
     // raw WindowMouseButtonEvent::button value whenever they do not need backend-specific details.
+    // Extra1..Extra12 covers real high-button-count gaming mice (e.g. a 12-side-button mouse) — SDL3
+    // reports raw button indices past X1/X2 as plain numbers with no further naming, so this is this
+    // engine's own extended numbering, not an SDL/GLFW one. GLFW itself caps at 8 total buttons
+    // (GLFW_MOUSE_BUTTON_LAST == GLFW_MOUSE_BUTTON_8), so only Extra1..Extra5 are ever reachable on
+    // that backend — same architecture-limited-coverage stance as KeyboardKey's media keys.
     enum class MouseButton : u8 {
         Unknown,
         Left,
@@ -71,6 +76,13 @@ namespace SFT::Platform::Windowing {
         Extra3,
         Extra4,
         Extra5,
+        Extra6,
+        Extra7,
+        Extra8,
+        Extra9,
+        Extra10,
+        Extra11,
+        Extra12,
     };
 
     struct WindowMouseButtonEvent {

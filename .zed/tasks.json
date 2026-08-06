@@ -327,5 +327,15 @@
     "hide": "never",
     "use_new_terminal": false,
     "allow_concurrent_runs": false
+  },
+  {
+    "label": "Code Stats (tokei)",
+    "command": "tokei",
+    "args": [".", "--exclude", "build", "--exclude", "out", "--exclude", ".cache", "--exclude", "thirdparty", "--exclude", "'cmake-build-*'"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
   }
 ]

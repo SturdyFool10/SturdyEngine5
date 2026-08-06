@@ -80,6 +80,20 @@ namespace SFT::Platform::Windowing::GLFW {
             }
         }
 
+        // Best-effort: GLFW_CURSOR_DISABLED alone still applies the OS pointer-acceleration curve to
+        // the deltas GLFW synthesizes from cursor position; GLFW_RAW_MOUSE_MOTION additionally pulls
+        // straight from the raw HID/evdev report where the platform supports it (SDL3's relative mode
+        // gets this by default — see SDL3Impl.cpp's SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE — this is the
+        // GLFW-backend equivalent). Silently skipped where unsupported, same "check before enabling
+        // a best-effort hardware feature" stance as other optional-capability code in this codebase.
+        void apply_raw_mouse_motion(GLFWwindow *window, bool enabled) noexcept {
+            if (enabled && glfwRawMouseMotionSupported()) {
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+            } else {
+                glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+            }
+        }
+
         WindowError glfw_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *description = nullptr;
             glfwGetError(&description);
@@ -1149,6 +1163,7 @@ namespace SFT::Platform::Windowing::GLFW {
             static_cast<void *>(window_),
             enabled);
         glfwSetInputMode(window_, GLFW_CURSOR, enabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        apply_raw_mouse_motion(window_, enabled);
         return glfw_success();
     }
 
@@ -1164,6 +1179,7 @@ namespace SFT::Platform::Windowing::GLFW {
             static_cast<void *>(window_),
             locked);
         glfwSetInputMode(window_, GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        apply_raw_mouse_motion(window_, locked);
         expected<void, WindowError> result = glfw_success();
         if (!result) [[unlikely]] {
             return result;
