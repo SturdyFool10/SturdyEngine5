@@ -460,20 +460,32 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     expected<void, WindowError> SDL3Window::pump_events() noexcept {
         ZoneScopedN("SDL3Window::pump_events");
-        auto lock = sdl_window_mutex().lock();
-        const auto maybe_window_id = live_window_id(window_, "pump_events");
-        if (!maybe_window_id) [[unlikely]] {
-            return unexpected(maybe_window_id.error());
+        SDL_WindowID window_id{};
+        {
+            auto lock = sdl_window_mutex().lock();
+            const auto maybe_window_id = live_window_id(window_, "pump_events");
+            if (!maybe_window_id) [[unlikely]] {
+                return unexpected(maybe_window_id.error());
+            }
+            window_id = *maybe_window_id;
         }
 
         SDL_Event event;
-        const SDL_WindowID window_id = *maybe_window_id;
         i32 event_count = 0;
         i32 close_event_count = 0;
         i32 queued_event_count = 0;
         constexpr i32 max_events_per_pump = 128;
 
+        // Deliberately NOT held across SDL_PollEvent itself (each iteration below takes its own
+        // lock only for the event-processing body) -- on Windows, SDL's blocked interactive
+        // move/resize modal loop reenters synchronously through sdl_repaint_watch during this
+        // exact call, on this same thread, and that watch's repaint_callback_ (set in
+        // ApplicationImpl.cpp) calls back into consume_resize()/framebuffer_size(), which lock
+        // sdl_window_mutex() themselves. sdl_window_mutex() is non-recursive (see its own doc
+        // comment), so holding it across SDL_PollEvent self-deadlocks -- observed as a crash
+        // (not just a hang) every time a repaint fires mid-drag on Windows.
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
+            auto lock = sdl_window_mutex().lock();
             ++event_count;
             if (event.type == SDL_EVENT_QUIT) [[unlikely]] {
                 for (auto &[registered_id, registered_window] : sdl_window_registry()) {
@@ -597,15 +609,18 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
-        Foundation::log_trace(
-            "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} queued_events={} close_events={} close_requested={}",
-            static_cast<void *>(this),
-            static_cast<void *>(window_),
-            window_id,
-            event_count,
-            queued_event_count,
-            close_event_count,
-            close_requested_.load());
+        {
+            auto lock = sdl_window_mutex().lock();
+            Foundation::log_trace(
+                "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} queued_events={} close_events={} close_requested={}",
+                static_cast<void *>(this),
+                static_cast<void *>(window_),
+                window_id,
+                event_count,
+                queued_event_count,
+                close_event_count,
+                close_requested_.load());
+        }
         return {};
     }
 

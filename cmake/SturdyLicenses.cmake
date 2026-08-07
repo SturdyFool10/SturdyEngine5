@@ -28,11 +28,22 @@ function(sturdy_register_license name source_dir)
         get_property(_sturdy_dep_repo GLOBAL PROPERTY STURDY_DEP_GIT_REPOSITORY_${name})
         get_property(_sturdy_dep_tag GLOBAL PROPERTY STURDY_DEP_GIT_TAG_${name})
         if(_sturdy_dep_repo AND _sturdy_dep_tag)
+            # GIT_SHALLOW TRUE is only safe when the tag names the remote's current branch/tag
+            # tip -- see sturdy_fetchcontent_declare()'s own doc comment for why an arbitrary
+            # historical commit SHA under shallow mode deterministically fails checkout instead
+            # of just being a network flake. (CMake's MATCHES regex dialect doesn't reliably
+            # support the `{40}` bounded-repeat form -- verified empirically -- so length and
+            # character-set are checked separately, matching sturdy_fetchcontent_declare().)
+            set(_license_shallow_args GIT_SHALLOW TRUE)
+            string(LENGTH "${_sturdy_dep_tag}" _sturdy_dep_tag_length)
+            if(_sturdy_dep_tag_length EQUAL 40 AND _sturdy_dep_tag MATCHES "^[0-9a-fA-F]+$")
+                set(_license_shallow_args)
+            endif()
             FetchContent_Populate("${name}_license_fetch"
                 QUIET
                 GIT_REPOSITORY "${_sturdy_dep_repo}"
                 GIT_TAG "${_sturdy_dep_tag}"
-                GIT_SHALLOW TRUE
+                ${_license_shallow_args}
                 GIT_PROGRESS FALSE
                 SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-license-src"
                 SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-license-subbuild"

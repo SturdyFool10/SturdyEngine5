@@ -141,10 +141,25 @@ function(sturdy_fetchcontent_declare name)
         )
     endif()
 
+    # GIT_SHALLOW is only safe when GIT_TAG names a branch/tag that IS the remote's current tip:
+    # CMake's generated clone script runs `git clone --depth 1` (fetching only that tip) as a
+    # separate step *before* `git checkout <tag>`, so pinning an arbitrary historical commit SHA
+    # under GIT_SHALLOW TRUE deterministically fails checkout with "unable to read tree" the
+    # object for that commit was simply never fetched, on every attempt, regardless of cache
+    # state (this bit stb/tracy, both pinned to a commit SHA that isn't their repo's current
+    # branch tip). Detect a raw 40-hex-char SHA and fall back to a full clone for it instead.
+    # (CMake's `MATCHES` regex dialect doesn't reliably support the `{40}` bounded-repeat form --
+    # verified empirically -- so length and character-set are checked separately.)
+    set(_shallow_args GIT_SHALLOW TRUE)
+    string(LENGTH "${STURDY_FETCH_GIT_TAG}" _sturdy_dep_tag_length)
+    if(_sturdy_dep_tag_length EQUAL 40 AND STURDY_FETCH_GIT_TAG MATCHES "^[0-9a-fA-F]+$")
+        set(_shallow_args)
+    endif()
+
     FetchContent_Declare(${name}
         GIT_REPOSITORY ${STURDY_FETCH_GIT_REPOSITORY}
         GIT_TAG ${STURDY_FETCH_GIT_TAG}
-        GIT_SHALLOW TRUE
+        ${_shallow_args}
         GIT_PROGRESS FALSE
         EXCLUDE_FROM_ALL
         SYSTEM
