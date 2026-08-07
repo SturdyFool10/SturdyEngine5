@@ -132,6 +132,14 @@ namespace SFT::Platform::Windowing::GLFW {
 
         GLFWWindow(ConstructorKey key, GLFWwindow *window) noexcept;
 
+        // Shared bodies of close_requested()/size()/native_window_handle(), callable from a caller
+        // that already holds glfw_window_mutex() (pump_events(), set_fullscreen(),
+        // enable_window_effect() respectively) without re-locking it — glfw_window_mutex() is a
+        // non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
+        [[nodiscard]] bool close_requested_locked() const noexcept;
+        [[nodiscard]] expected<WindowExtent, WindowError> size_locked() const noexcept;
+        [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle_locked() const noexcept;
+
         GLFWwindow *window_ = nullptr;
         deque<WindowEvent> events_;
         optional<WindowResize> pending_resize_;

@@ -9,26 +9,27 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 #pragma endregion
 
+#include <Async/src/Mutex.hpp>
 #include <Platform/Window/Window.hpp>
 #include <Platform/Window/SDL3/Window.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::bad_alloc;
 using std::expected;
-using std::lock_guard;
 using std::nullopt;
 using std::numeric_limits;
 using std::optional;
 using std::memcpy;
-using std::recursive_mutex;
 using std::unexpected;
 using std::unique_ptr;
 using std::unordered_map;
@@ -159,8 +160,15 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(error);
         }
 
-        recursive_mutex &sdl_window_mutex() noexcept {
-            static recursive_mutex mutex;
+        // Process-wide, not per-window: SDL3's own window/event APIs aren't safe to call
+        // concurrently across different SDL3Window instances (pump_events() walks the whole
+        // registry, e.g.), so one lock covers all of them. Async::Mutex<std::monostate> rather than
+        // a bare mutex for the same reason every other lock in this codebase prefers it — see
+        // Async::Mutex's own doc comment — and it's non-recursive, so callers must never lock it
+        // twice on the same thread (see enable_window_effect()'s use of native_window_handle_locked()
+        // instead of native_window_handle() for exactly that reason).
+        Async::Mutex<std::monostate> &sdl_window_mutex() noexcept {
+            static Async::Mutex<std::monostate> mutex;
             return mutex;
         }
 
@@ -200,6 +208,7 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     SDL3Window::SDL3Window(ConstructorKey key, SDL_Window *window) noexcept
         : Window(key), window_(window) {
+        ZoneScopedN("SDL3Window::SDL3Window");
         if (window_) [[likely]] {
             i32 width = 0;
             i32 height = 0;
@@ -219,6 +228,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     // this watch there can re-enter the renderer while pump_events() is still processing and can force a
     // swapchain rebuild for every intermediate resize event.
     bool SDLCALL SDL3Window::sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept {
+        ZoneScopedN("SDL3Window::sdl_repaint_watch");
 #if defined(_WIN32)
         if (event->type == SDL_EVENT_WINDOW_EXPOSED) {
             auto *self = static_cast<SDL3Window *>(userdata);
@@ -236,11 +246,12 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     SDL3Window::~SDL3Window() noexcept {
+        ZoneScopedN("SDL3Window::~SDL3Window");
         if (repaint_callback_) {
             SDL_RemoveEventWatch(sdl_repaint_watch, this);
         }
 
-        const lock_guard lock(sdl_window_mutex());
+        auto lock = sdl_window_mutex().lock();
 
         if (current_cursor_ != nullptr) {
             SDL_DestroyCursor(current_cursor_);
@@ -266,6 +277,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     void SDL3Window::set_repaint_callback(std::function<void()> callback) noexcept {
+        ZoneScopedN("SDL3Window::set_repaint_callback");
         if (repaint_callback_) {
             SDL_RemoveEventWatch(sdl_repaint_watch, this);
         }
@@ -276,6 +288,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     std::string SDL3Window::clipboard_text() const noexcept {
+        ZoneScopedN("SDL3Window::clipboard_text");
         if (!SDL_HasClipboardText()) {
             return {};
         }
@@ -289,6 +302,7 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_clipboard_text(std::string_view text) noexcept {
+        ZoneScopedN("SDL3Window::set_clipboard_text");
         // SDL_SetClipboardText requires a NUL-terminated C string; `text` (a view) isn't
         // guaranteed to be one, so it's copied into an owned buffer first.
         const std::string owned(text);
@@ -299,7 +313,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::construct");
+        auto lock = sdl_window_mutex().lock();
 
         Foundation::log_info("Opening window '{}' ({}x{}) via SDL3 [{}]",
                             config.title ? config.title : "<null>",
@@ -395,15 +410,18 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     WindowBackendKind SDL3Window::backend_kind() const noexcept {
+        ZoneScopedN("SDL3Window::backend_kind");
         return WindowBackendKind::SDL3;
     }
 
     WindowingSystem SDL3Window::type() const noexcept {
+        ZoneScopedN("SDL3Window::type");
         return WindowingSystem::SDL3;
     }
 
     expected<void *, WindowError> SDL3Window::native_backend_handle() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::native_backend_handle");
+        auto lock = sdl_window_mutex().lock();
         if (!window_) [[unlikely]] {
             Foundation::log_error("SDL3 native backend handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
             return unexpected(destroyed_window_error());
@@ -413,7 +431,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<NativeWindowHandle, WindowError> SDL3Window::native_window_handle() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::native_window_handle");
+        auto lock = sdl_window_mutex().lock();
+        return native_window_handle_locked();
+    }
+
+    expected<NativeWindowHandle, WindowError> SDL3Window::native_window_handle_locked() const noexcept {
+        ZoneScopedN("SDL3Window::native_window_handle_locked");
         if (!window_) [[unlikely]] {
             Foundation::log_error("SDL3 native window handle query rejected destroyed window: wrapper={}", static_cast<const void *>(this));
             return unexpected(destroyed_window_error());
@@ -435,7 +459,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::pump_events() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::pump_events");
+        auto lock = sdl_window_mutex().lock();
         const auto maybe_window_id = live_window_id(window_, "pump_events");
         if (!maybe_window_id) [[unlikely]] {
             return unexpected(maybe_window_id.error());
@@ -585,7 +610,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     optional<WindowEvent> SDL3Window::poll_event() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::poll_event");
+        auto lock = sdl_window_mutex().lock();
         if (events_.empty()) {
             return nullopt;
         }
@@ -596,11 +622,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     bool SDL3Window::close_requested() const noexcept {
+        ZoneScopedN("SDL3Window::close_requested");
         return close_requested_.load();
     }
 
     void SDL3Window::request_close() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::request_close");
+        auto lock = sdl_window_mutex().lock();
         close_requested_.store(true);
         const SDL_WindowID id = window_ ? SDL_GetWindowID(window_) : 0;
         events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
@@ -608,19 +636,22 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     bool SDL3Window::resized() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::resized");
+        auto lock = sdl_window_mutex().lock();
         return pending_resize_.has_value();
     }
 
     optional<WindowResize> SDL3Window::consume_resize() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::consume_resize");
+        auto lock = sdl_window_mutex().lock();
         optional<WindowResize> resize = pending_resize_;
         pending_resize_.reset();
         return resize;
     }
 
     expected<void, WindowError> SDL3Window::show() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::show");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "show"); !live) [[unlikely]] {
             return live;
         }
@@ -629,7 +660,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::hide() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::hide");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "hide"); !live) [[unlikely]] {
             return live;
         }
@@ -638,7 +670,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::focus() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::focus");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "focus"); !live) [[unlikely]] {
             return live;
         }
@@ -647,7 +680,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::raise() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::raise");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "raise"); !live) [[unlikely]] {
             return live;
         }
@@ -656,7 +690,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::maximize() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::maximize");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "maximize"); !live) [[unlikely]] {
             return live;
         }
@@ -665,7 +700,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::minimize() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::minimize");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "minimize"); !live) [[unlikely]] {
             return live;
         }
@@ -674,7 +710,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::restore() noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::restore");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "restore"); !live) [[unlikely]] {
             return live;
         }
@@ -683,7 +720,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_title(const char *title) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_title");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_title"); !live) [[unlikely]] {
             return live;
         }
@@ -696,7 +734,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<WindowPosition, WindowError> SDL3Window::position() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::position");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "position"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -714,7 +753,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_position(WindowPosition position) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_position");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_position"); !live) [[unlikely]] {
             return live;
         }
@@ -723,7 +763,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<WindowPosition, WindowError> SDL3Window::global_cursor_position() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::global_cursor_position");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "global_cursor_position"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -745,7 +786,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<WindowExtent, WindowError> SDL3Window::size() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::size");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "size"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -763,7 +805,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_size(WindowExtent extent) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_size");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_size"); !live) [[unlikely]] {
             return live;
         }
@@ -780,7 +823,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<WindowExtent, WindowError> SDL3Window::framebuffer_size() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::framebuffer_size");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "framebuffer_size"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -798,7 +842,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_minimum_size(WindowExtent extent) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_minimum_size");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_minimum_size"); !live) [[unlikely]] {
             return live;
         }
@@ -815,7 +860,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_maximum_size(WindowExtent extent) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_maximum_size");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_maximum_size"); !live) [[unlikely]] {
             return live;
         }
@@ -832,7 +878,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_resizable(bool enabled) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_resizable");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_resizable"); !live) [[unlikely]] {
             return live;
         }
@@ -841,7 +888,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_decorated(bool enabled) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_decorated");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_decorated"); !live) [[unlikely]] {
             return live;
         }
@@ -850,7 +898,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_fullscreen(WindowMode mode) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_fullscreen");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_fullscreen"); !live) [[unlikely]] {
             return live;
         }
@@ -859,7 +908,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_opacity(f32 opacity) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_opacity");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_opacity"); !live) [[unlikely]] {
             return live;
         }
@@ -872,7 +922,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<f32, WindowError> SDL3Window::opacity() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::opacity");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "opacity"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -888,7 +939,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_cursor_visible(bool visible) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_cursor_visible");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_visible"); !live) [[unlikely]] {
             return live;
         }
@@ -897,7 +949,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_cursor_icon(CursorIcon icon) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_cursor_icon");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
@@ -929,7 +982,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_cursor_grabbed(bool grabbed) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_cursor_grabbed");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_grabbed"); !live) [[unlikely]] {
             return live;
         }
@@ -938,7 +992,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_relative_mouse_mode(bool enabled) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_relative_mouse_mode");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_relative_mouse_mode"); !live) [[unlikely]] {
             return live;
         }
@@ -947,7 +1002,8 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_mouse_locked(bool locked) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::set_mouse_locked");
+        auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_mouse_locked"); !live) [[unlikely]] {
             return live;
         }
@@ -969,12 +1025,14 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     bool SDL3Window::mouse_locked() const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::mouse_locked");
+        auto lock = sdl_window_mutex().lock();
         return mouse_locked_;
     }
 
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::enable_window_effect");
+        auto lock = sdl_window_mutex().lock();
         if (!window_) [[unlikely]] {
             Foundation::log_error("SDL3 enable native window effect rejected destroyed window: wrapper={} kind={}", static_cast<void *>(this), static_cast<i32>(effect.kind));
             return WindowEffectResult::failed("SDL3 window has already been destroyed.");
@@ -988,7 +1046,9 @@ namespace SFT::Platform::Windowing::SDL3 {
             effect.enabled,
             effect.color_argb,
             static_cast<i32>(effect.linux_blur_protocol));
-        auto handle = native_window_handle();
+        // native_window_handle_locked(), not native_window_handle(): this lock is already held
+        // above, and sdl_window_mutex() is non-recursive — see its own doc comment.
+        auto handle = native_window_handle_locked();
         if (!handle) [[unlikely]] {
             return WindowEffectResult::failed("SDL3 native window handle is unavailable.");
         }
@@ -997,19 +1057,23 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     expected<void, WindowError> SDL3Window::set_effect(WindowEffect effect) noexcept {
+        ZoneScopedN("SDL3Window::set_effect");
         return window_result_from_effect_result(enable_window_effect(effect));
     }
 
     expected<void, WindowError> SDL3Window::set_blur_enabled(bool enabled) noexcept {
+        ZoneScopedN("SDL3Window::set_blur_enabled");
         return set_effect(WindowEffect::blur(enabled));
     }
 
     expected<void, WindowError> SDL3Window::set_transparent(bool enabled) noexcept {
+        ZoneScopedN("SDL3Window::set_transparent");
         return set_effect(WindowEffect::transparent(enabled));
     }
 
     expected<vector<const char *>, WindowError>
     SDL3Window::required_vulkan_instance_extensions() const noexcept {
+        ZoneScopedN("SDL3Window::required_vulkan_instance_extensions");
         u32 count = 0;
         const char *const *extensions = SDL_Vulkan_GetInstanceExtensions(&count);
         if (!extensions) {
@@ -1028,7 +1092,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         void *instance,
         const void *allocation_callbacks,
         void *surface_out) const noexcept {
-        const lock_guard lock(sdl_window_mutex());
+        ZoneScopedN("SDL3Window::create_vulkan_surface");
+        auto lock = sdl_window_mutex().lock();
         if (!window_ || instance == nullptr || surface_out == nullptr) {
             return unexpected(WindowError{
                 WindowErrorCode::InvalidArgument,

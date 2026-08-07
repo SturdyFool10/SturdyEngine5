@@ -275,7 +275,6 @@ namespace SFT::UiWorkbench {
 
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
-        render_graph_.set_execution_mode(Engine::RenderGraphExecutionMode::WaitForCompletion);
         // overlay_only() leaves debug_overlay.enabled true (it's the CPU/GPU timing collection this
         // workbench wants), but the burned-in on-screen text block it used to also draw is redundant
         // with the "Performance" dock panel below (build_metrics_panel), which reads the same numbers

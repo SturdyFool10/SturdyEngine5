@@ -514,7 +514,6 @@ namespace SFT::Renderer {
                                                      TextAtlasRetiredResources &out_retired_resources) {
         ZoneScopedN("TextAtlas::ensure_resident");
         out_slots.assign(requests.size(), GlyphSlot{});
-        vector<RasterPlan> raster_plans(requests.size());
         vector<GlyphKey> request_keys(requests.size());
         vector<PendingUpload> misses;
 
@@ -536,32 +535,82 @@ namespace SFT::Renderer {
             }
         }
 
-        // The call must keep every distinct requested glyph resident through the draw that follows
-        // it. Compute exact padded rectangles once, and reject batches whose aggregate area cannot
-        // possibly fit even if all unpinned entries are evicted.
+        // Pass 1 (read-only against resident_/format_lru): resolve each request using just its
+        // requested ppem — this matches the glyph's eventual atlas key in every case except an
+        // unusually large glyph that must be down-rasterized to fit a tile (the reference_ppem
+        // shrink raster_plan_for() below computes), so the overwhelming common case — a glyph
+        // already resident from an earlier frame — resolves as a plain hash lookup. raster_plan_for()
+        // is only called for requests that actually miss here: for outline-format (SDF/MSDF) glyphs
+        // it reconstructs a full msdfgen::Shape from the glyph's outline just to measure its ink
+        // bounds, which used to happen for every glyph on every frame regardless of residency — by
+        // far the single largest cost in the whole engine (see the FPS investigation this session).
+        //
+        // Deliberately does not mutate resident_/format_lru yet, so the aggregate-new-area capacity
+        // check below still runs before any mutation, matching this function's original
+        // zero-partial-mutation-on-error contract.
+        struct Resolved {
+            GlyphKey key{};
+            bool hit = false;
+            RectLocation resident_rect{};
+            RasterPlan raster_plan{};
+        };
+        vector<Resolved> resolved(requests.size());
+        // All unique keys this batch touches (hits and misses alike) — passed to allocate_rect as
+        // eviction-protection pins below, same guarantee the original single-pass version made:
+        // allocation can never evict a slot this same call's imminent draw still references.
         array<vector<GlyphKey>, 3> unique_batch_keys;
-        array<u64, 3> unique_batch_area{};
+        // New allocation area only (misses) — unlike unique_batch_keys above, an already-resident
+        // hit contributes no new area, so this is a tighter (and still safe) capacity check than
+        // summing every unique key's area regardless of residency.
+        array<u64, 3> unique_miss_area{};
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
-            const RasterPlan raster_plan = raster_plan_for(request, config_.padding_px, max_tile_size_);
-            const GlyphKey key{
+            const double rounded_ppem = std::round(static_cast<double>(std::max(request.pixel_size, 1.0f)));
+            const u32 requested_ppem = rounded_ppem >= static_cast<double>(std::numeric_limits<u32>::max())
+                                           ? std::numeric_limits<u32>::max()
+                                           : std::max(1u, static_cast<u32>(rounded_ppem));
+            GlyphKey key{
                 .font_id = request.font_id,
                 .glyph_id = request.glyph_id,
-                .reference_ppem = raster_plan.reference_ppem,
+                .reference_ppem = requested_ppem,
                 .format = request.format,
             };
-            raster_plans[i] = raster_plan;
-            request_keys[i] = key;
+
+            auto it = resident_.find(key);
+            RasterPlan raster_plan{};
+            bool have_raster_plan = false;
+            if (it == resident_.end()) {
+                raster_plan = raster_plan_for(request, config_.padding_px, max_tile_size_);
+                have_raster_plan = true;
+                if (raster_plan.reference_ppem != key.reference_ppem) {
+                    key.reference_ppem = raster_plan.reference_ppem;
+                    it = resident_.find(key);
+                }
+            }
+
             const usize index = format_index(request.format);
             vector<GlyphKey> &keys = unique_batch_keys[index];
-            if (std::ranges::find(keys, key) == keys.end()) {
-                keys.push_back(key);
-                unique_batch_area[index] += static_cast<u64>(raster_plan.width) * raster_plan.height;
+            const bool already_in_batch = std::ranges::find(keys, key) != keys.end();
+            if (it != resident_.end()) {
+                if (!already_in_batch) {
+                    keys.push_back(key);
+                }
+                resolved[i] = Resolved{.key = key, .hit = true, .resident_rect = it->second};
+                continue;
             }
+
+            if (!have_raster_plan) {
+                raster_plan = raster_plan_for(request, config_.padding_px, max_tile_size_);
+            }
+            if (!already_in_batch) {
+                keys.push_back(key);
+                unique_miss_area[index] += static_cast<u64>(raster_plan.width) * raster_plan.height;
+            }
+            resolved[i] = Resolved{.key = key, .hit = false, .raster_plan = raster_plan};
         }
-        for (usize i = 0; i < unique_batch_keys.size(); ++i) {
+        for (usize i = 0; i < unique_miss_area.size(); ++i) {
             const u64 capacity = static_cast<u64>(max_tile_size_) * max_tile_size_;
-            if (unique_batch_area[i] > capacity) {
+            if (unique_miss_area[i] > capacity) {
                 return Core::graphics_backend_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "One text batch has more glyph raster area than its atlas format can retain.");
@@ -580,29 +629,26 @@ namespace SFT::Renderer {
             }
         };
 
-        // Gather unique misses before allocating. Cached members of this batch are touched now and
-        // all batch keys are passed to allocate_rect as pins, so allocation can never evict a slot
-        // that the imminent draw still references.
+        // Pass 2 (mutation): apply hits (LRU touch + output) and gather unique misses.
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
-            const RasterPlan &raster_plan = raster_plans[i];
-            const GlyphKey &key = request_keys[i];
+            const Resolved &r = resolved[i];
+            request_keys[i] = r.key;
 
-            auto it = resident_.find(key);
-            if (it != resident_.end()) {
-                format_lru(request.format).touch(key);
-                out_slots[i] = slot_from_rect(request.format, it->second);
+            if (r.hit) {
+                format_lru(request.format).touch(r.key);
+                out_slots[i] = slot_from_rect(request.format, r.resident_rect);
                 continue;
             }
-            const auto already_pending = std::ranges::find(misses, key, &PendingUpload::key);
+            const auto already_pending = std::ranges::find(misses, r.key, &PendingUpload::key);
             if (already_pending == misses.end()) {
                 misses.push_back(PendingUpload{
                     .request_index = i,
-                    .key = key,
+                    .key = r.key,
                     .rect = RectLocation{
-                        .raster_width = raster_plan.width,
-                        .raster_height = raster_plan.height,
-                        .reference_ppem = static_cast<f32>(raster_plan.reference_ppem),
+                        .raster_width = r.raster_plan.width,
+                        .raster_height = r.raster_plan.height,
+                        .reference_ppem = static_cast<f32>(r.raster_plan.reference_ppem),
                     },
                 });
             }

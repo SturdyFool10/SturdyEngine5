@@ -86,7 +86,11 @@ set(STURDY_METALCPP_TAG "release/metal-cpp_macOS27_iOS27" CACHE STRING "apple/me
 # include; STURDY_ENABLE_TRACY instead controls TRACY_ENABLE, which decides whether its zone/frame
 # macros record anything or compile down to no-ops. Only the client is built here, not the separate
 # Tracy profiler GUI/server application.
-set(STURDY_TRACY_TAG "v0.13.1" CACHE STRING "Tracy Profiler git tag to fetch.")
+# No tagged release has ProtocolVersion 82 yet as of this writing (v0.13.1 is the latest tag, at
+# protocol 76) — only wolfpld/tracy@master does. Pinned to a specific master commit rather than the
+# floating branch name for build reproducibility; bump this (and re-verify protocol compatibility
+# with whatever Tracy Profiler GUI version is actually installed) once a tag catches up past it.
+set(STURDY_TRACY_TAG "92f0e0e9511164a21dfc25dd92b38bfb87598aa2" CACHE STRING "Tracy Profiler git tag/commit to fetch.")
 
 set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader library. Set this to a static loader library when available.")
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")

@@ -7,24 +7,25 @@
 #include <expected>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <new>
 #include <optional>
+#include <variant>
 #include <vector>
 #pragma endregion
 
+#include <Async/src/Mutex.hpp>
 #include <Platform/Window/Window.hpp>
 #include <Platform/Window/GLFW/Window.hpp>
 #include <Platform/Window/GLFW/GlfwWindowNative.hpp>
 #include <Platform/Platform.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::bad_alloc;
 using std::expected;
-using std::lock_guard;
 using std::nullopt;
 using std::numeric_limits;
 using std::optional;
-using std::recursive_mutex;
 using std::unexpected;
 using std::unique_ptr;
 using std::vector;
@@ -32,6 +33,7 @@ using std::vector;
 namespace SFT::Platform::Windowing::GLFW {
 
     expected<unique_ptr<Window>, WindowError> create_window(const WindowConfig &config) noexcept {
+        ZoneScopedN("GLFW::create_window");
         auto created = Window::create<GLFWWindow>(config);
         if (!created) {
             return unexpected(created.error());
@@ -146,8 +148,14 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(error);
         }
 
-        recursive_mutex &glfw_window_mutex() noexcept {
-            static recursive_mutex mutex;
+        // Process-wide, not per-window — see sdl_window_mutex()'s equivalent doc comment
+        // (SDL3Impl.cpp) for why one lock covers every GLFWWindow instance, and why this is
+        // Async::Mutex<std::monostate> rather than a bare mutex. Non-recursive: callers must never
+        // lock it twice on the same thread (see enable_window_effect()'s use of
+        // native_window_handle_locked() instead of native_window_handle(), and the equivalent
+        // *_locked() helpers pump_events()/set_fullscreen() use, for exactly that reason).
+        Async::Mutex<std::monostate> &glfw_window_mutex() noexcept {
+            static Async::Mutex<std::monostate> mutex;
             return mutex;
         }
 
@@ -214,12 +222,14 @@ namespace SFT::Platform::Windowing::GLFW {
     } // namespace
 
     void glfw_close_callback(GLFWwindow *window) {
+        ZoneScopedN("GLFW::glfw_close_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             target->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
         }
     }
 
     void glfw_window_pos_callback(GLFWwindow *window, int x, int y) {
+        ZoneScopedN("GLFW::glfw_window_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             WindowEvent event{WindowEventKind::Moved};
             event.position = WindowPosition{x, y};
@@ -228,6 +238,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_window_size_callback(GLFWwindow *window, int width, int height) {
+        ZoneScopedN("GLFW::glfw_window_size_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             const WindowExtent previous = target->last_size_;
             const WindowExtent previous_framebuffer = target->last_framebuffer_size_;
@@ -249,6 +260,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_framebuffer_size_callback(GLFWwindow *window, int width, int height) {
+        ZoneScopedN("GLFW::glfw_framebuffer_size_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             const WindowExtent previous = target->last_size_;
             const WindowExtent previous_framebuffer = target->last_framebuffer_size_;
@@ -270,6 +282,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_window_focus_callback(GLFWwindow *window, int focused) {
+        ZoneScopedN("GLFW::glfw_window_focus_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             target->events_.push_back(WindowEvent{
                 focused == GLFW_TRUE ? WindowEventKind::FocusGained
@@ -278,6 +291,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_cursor_enter_callback(GLFWwindow *window, int entered) {
+        ZoneScopedN("GLFW::glfw_cursor_enter_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             target->events_.push_back(WindowEvent{
                 entered == GLFW_TRUE ? WindowEventKind::MouseEntered
@@ -286,6 +300,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+        ZoneScopedN("GLFW::glfw_key_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             if (action != GLFW_PRESS && action != GLFW_RELEASE &&
                 action != GLFW_REPEAT) [[unlikely]] {
@@ -306,6 +321,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_char_callback(GLFWwindow *window, unsigned int codepoint) {
+        ZoneScopedN("GLFW::glfw_char_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             WindowEvent event{WindowEventKind::TextInput};
             if (codepoint <= 0x7FU) [[likely]] {
@@ -331,6 +347,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_cursor_pos_callback(GLFWwindow *window, f64 x, f64 y) {
+        ZoneScopedN("GLFW::glfw_cursor_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             const f64 previous_x = target->has_last_mouse_position_ ? target->last_mouse_x_ : x;
             const f64 previous_y = target->has_last_mouse_position_ ? target->last_mouse_y_ : y;
@@ -350,6 +367,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_mouse_button_callback(GLFWwindow *window, int button, int action, int) {
+        ZoneScopedN("GLFW::glfw_mouse_button_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             if (action != GLFW_PRESS && action != GLFW_RELEASE) [[unlikely]] {
                 return;
@@ -373,6 +391,7 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void glfw_scroll_callback(GLFWwindow *window, f64 x, f64 y) {
+        ZoneScopedN("GLFW::glfw_scroll_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             f64 mouse_x = 0.0;
             f64 mouse_y = 0.0;
@@ -391,6 +410,7 @@ namespace SFT::Platform::Windowing::GLFW {
 
     GLFWWindow::GLFWWindow(ConstructorKey key, GLFWwindow *window) noexcept
         : Window(key), window_(window) {
+        ZoneScopedN("GLFWWindow::GLFWWindow");
         if (window_) [[likely]] {
             int width = 0;
             int height = 0;
@@ -405,7 +425,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     GLFWWindow::~GLFWWindow() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::~GLFWWindow");
+        auto lock = glfw_window_mutex().lock();
 
         if (current_cursor_ != nullptr) {
             glfwDestroyCursor(current_cursor_);
@@ -442,7 +463,8 @@ namespace SFT::Platform::Windowing::GLFW {
 
     expected<unique_ptr<GLFWWindow>, WindowError>
     GLFWWindow::construct(ConstructorKey key, const WindowConfig &config) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::construct");
+        auto lock = glfw_window_mutex().lock();
 
         Foundation::log_info(
             "GLFW window create requested: title='{}' size={}x{} position=({}, {}) "
@@ -582,15 +604,18 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     WindowBackendKind GLFWWindow::backend_kind() const noexcept {
+        ZoneScopedN("GLFWWindow::backend_kind");
         return WindowBackendKind::GLFW;
     }
 
     WindowingSystem GLFWWindow::type() const noexcept {
+        ZoneScopedN("GLFWWindow::type");
         return WindowingSystem::GLFW;
     }
 
     expected<void *, WindowError> GLFWWindow::native_backend_handle() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::native_backend_handle");
+        auto lock = glfw_window_mutex().lock();
         if (!window_) [[unlikely]] {
             Foundation::log_error(
                 "GLFW native backend handle query rejected destroyed window: wrapper={}",
@@ -602,7 +627,13 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<NativeWindowHandle, WindowError> GLFWWindow::native_window_handle() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::native_window_handle");
+        auto lock = glfw_window_mutex().lock();
+        return native_window_handle_locked();
+    }
+
+    expected<NativeWindowHandle, WindowError> GLFWWindow::native_window_handle_locked() const noexcept {
+        ZoneScopedN("GLFWWindow::native_window_handle_locked");
         if (!window_) [[unlikely]] {
             Foundation::log_error(
                 "GLFW native window handle query rejected destroyed window: wrapper={}",
@@ -627,26 +658,30 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::pump_events() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::pump_events");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "pump_events"); !live) [[unlikely]] {
             return live;
         }
+        // close_requested_locked(), not close_requested(): this lock is already held above, and
+        // glfw_window_mutex() is non-recursive — see its own doc comment.
         Foundation::log_trace("GLFW poll events begin: wrapper={} native_ptr={} "
                              "close_requested_before={}",
                              static_cast<void *>(this),
                              static_cast<void *>(window_),
-                             close_requested());
+                             close_requested_locked());
         glfwPollEvents();
         Foundation::log_trace("GLFW poll events complete: wrapper={} native_ptr={} "
                              "close_requested_after={}",
                              static_cast<void *>(this),
                              static_cast<void *>(window_),
-                             close_requested());
+                             close_requested_locked());
         return {};
     }
 
     optional<WindowEvent> GLFWWindow::poll_event() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::poll_event");
+        auto lock = glfw_window_mutex().lock();
         if (events_.empty()) {
             return nullopt;
         }
@@ -657,7 +692,13 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     bool GLFWWindow::close_requested() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::close_requested");
+        auto lock = glfw_window_mutex().lock();
+        return close_requested_locked();
+    }
+
+    bool GLFWWindow::close_requested_locked() const noexcept {
+        ZoneScopedN("GLFWWindow::close_requested_locked");
         if (!window_) [[unlikely]] {
             Foundation::log_warn(
                 "GLFW close_requested queried after destroy: wrapper={}",
@@ -668,7 +709,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     void GLFWWindow::request_close() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::request_close");
+        auto lock = glfw_window_mutex().lock();
         if (!window_) [[unlikely]] {
             Foundation::log_warn(
                 "GLFW request close ignored destroyed window: wrapper={}",
@@ -684,19 +726,22 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     bool GLFWWindow::resized() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::resized");
+        auto lock = glfw_window_mutex().lock();
         return pending_resize_.has_value();
     }
 
     optional<WindowResize> GLFWWindow::consume_resize() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::consume_resize");
+        auto lock = glfw_window_mutex().lock();
         optional<WindowResize> resize = pending_resize_;
         pending_resize_.reset();
         return resize;
     }
 
     expected<void, WindowError> GLFWWindow::show() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::show");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "show"); !live) [[unlikely]] {
             return live;
         }
@@ -708,7 +753,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::hide() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::hide");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "hide"); !live) [[unlikely]] {
             return live;
         }
@@ -720,7 +766,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::focus() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::focus");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "focus"); !live) [[unlikely]] {
             return live;
         }
@@ -732,7 +779,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::raise() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::raise");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "raise"); !live) [[unlikely]] {
             return live;
         }
@@ -745,7 +793,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::maximize() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::maximize");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "maximize"); !live) [[unlikely]] {
             return live;
         }
@@ -757,7 +806,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::minimize() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::minimize");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "minimize"); !live) [[unlikely]] {
             return live;
         }
@@ -769,7 +819,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::restore() noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::restore");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "restore"); !live) [[unlikely]] {
             return live;
         }
@@ -781,7 +832,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_title(const char *title) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_title");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_title"); !live) [[unlikely]] {
             return live;
         }
@@ -799,7 +851,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<WindowPosition, WindowError> GLFWWindow::position() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::position");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "position"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -815,7 +868,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_position(WindowPosition position) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_position");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_position"); !live) [[unlikely]] {
             return live;
         }
@@ -829,7 +883,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<WindowPosition, WindowError> GLFWWindow::global_cursor_position() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::global_cursor_position");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "global_cursor_position"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -856,7 +911,13 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<WindowExtent, WindowError> GLFWWindow::size() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::size");
+        auto lock = glfw_window_mutex().lock();
+        return size_locked();
+    }
+
+    expected<WindowExtent, WindowError> GLFWWindow::size_locked() const noexcept {
+        ZoneScopedN("GLFWWindow::size_locked");
         if (auto live = require_live_window(window_, "size"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -874,7 +935,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_size(WindowExtent extent) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_size");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_size"); !live) [[unlikely]] {
             return live;
         }
@@ -901,7 +963,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<WindowExtent, WindowError> GLFWWindow::framebuffer_size() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::framebuffer_size");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "framebuffer_size"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -919,7 +982,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_minimum_size(WindowExtent extent) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_minimum_size");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_minimum_size"); !live) [[unlikely]] {
             return live;
         }
@@ -946,7 +1010,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_maximum_size(WindowExtent extent) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_maximum_size");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_maximum_size"); !live) [[unlikely]] {
             return live;
         }
@@ -973,7 +1038,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_resizable(bool enabled) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_resizable");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_resizable"); !live) [[unlikely]] {
             return live;
         }
@@ -987,7 +1053,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_decorated(bool enabled) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_decorated");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_decorated"); !live) [[unlikely]] {
             return live;
         }
@@ -1001,12 +1068,15 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_fullscreen(WindowMode mode) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_fullscreen");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_fullscreen"); !live) [[unlikely]] {
             return live;
         }
         if (mode == WindowMode::Windowed) [[likely]] {
-            auto current_size = size();
+            // size_locked(), not size(): this lock is already held above, and glfw_window_mutex() is
+            // non-recursive — see its own doc comment.
+            auto current_size = size_locked();
             const WindowExtent extent = current_size ? *current_size : WindowExtent{};
             Foundation::log_info(
                 "GLFW set fullscreen/windowed: wrapper={} native_ptr={} mode={} "
@@ -1058,7 +1128,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_opacity(f32 opacity) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_opacity");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_opacity"); !live) [[unlikely]] {
             return live;
         }
@@ -1081,7 +1152,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<f32, WindowError> GLFWWindow::opacity() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::opacity");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "opacity"); !live) [[unlikely]] {
             return unexpected(live.error());
         }
@@ -1094,7 +1166,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_cursor_visible(bool visible) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_cursor_visible");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_visible"); !live) [[unlikely]] {
             return live;
         }
@@ -1108,7 +1181,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_cursor_icon(CursorIcon icon) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_cursor_icon");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
@@ -1138,7 +1212,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_cursor_grabbed(bool grabbed) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_cursor_grabbed");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_grabbed"); !live) [[unlikely]] {
             return live;
         }
@@ -1152,7 +1227,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_relative_mouse_mode(bool enabled) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_relative_mouse_mode");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_relative_mouse_mode");
             !live) [[unlikely]] {
             return live;
@@ -1168,7 +1244,8 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_mouse_locked(bool locked) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::set_mouse_locked");
+        auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_mouse_locked"); !live) [[unlikely]] {
             return live;
         }
@@ -1194,13 +1271,15 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     bool GLFWWindow::mouse_locked() const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::mouse_locked");
+        auto lock = glfw_window_mutex().lock();
         return mouse_locked_;
     }
 
     WindowEffectResult
     GLFWWindow::enable_window_effect(WindowEffect effect) noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::enable_window_effect");
+        auto lock = glfw_window_mutex().lock();
         if (!window_) [[unlikely]] {
             Foundation::log_error("GLFW enable native window effect rejected destroyed "
                                  "window: wrapper={} kind={}",
@@ -1218,7 +1297,9 @@ namespace SFT::Platform::Windowing::GLFW {
             effect.enabled,
             effect.color_argb,
             static_cast<int>(effect.linux_blur_protocol));
-        auto handle = native_window_handle();
+        // native_window_handle_locked(), not native_window_handle(): this lock is already held
+        // above, and glfw_window_mutex() is non-recursive — see its own doc comment.
+        auto handle = native_window_handle_locked();
         if (!handle) [[unlikely]] {
             return WindowEffectResult::failed("GLFW native window handle is unavailable.");
         }
@@ -1227,19 +1308,23 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     expected<void, WindowError> GLFWWindow::set_effect(WindowEffect effect) noexcept {
+        ZoneScopedN("GLFWWindow::set_effect");
         return window_result_from_effect_result(enable_window_effect(effect));
     }
 
     expected<void, WindowError> GLFWWindow::set_blur_enabled(bool enabled) noexcept {
+        ZoneScopedN("GLFWWindow::set_blur_enabled");
         return set_effect(WindowEffect::blur(enabled));
     }
 
     expected<void, WindowError> GLFWWindow::set_transparent(bool enabled) noexcept {
+        ZoneScopedN("GLFWWindow::set_transparent");
         return set_effect(WindowEffect::transparent(enabled));
     }
 
     expected<vector<const char *>, WindowError>
     GLFWWindow::required_vulkan_instance_extensions() const noexcept {
+        ZoneScopedN("GLFWWindow::required_vulkan_instance_extensions");
         u32 count = 0;
         const char **extensions = glfwGetRequiredInstanceExtensions(&count);
         if (!extensions) {
@@ -1259,7 +1344,8 @@ namespace SFT::Platform::Windowing::GLFW {
         void *instance,
         const void *allocation_callbacks,
         void *surface_out) const noexcept {
-        const lock_guard lock(glfw_window_mutex());
+        ZoneScopedN("GLFWWindow::create_vulkan_surface");
+        auto lock = glfw_window_mutex().lock();
         if (!window_ || instance == nullptr || surface_out == nullptr) {
             return unexpected(WindowError{
                 WindowErrorCode::InvalidArgument,
@@ -1279,11 +1365,13 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
     std::string GLFWWindow::clipboard_text() const noexcept {
+        ZoneScopedN("GLFWWindow::clipboard_text");
         const char *text = glfwGetClipboardString(window_);
         return text ? std::string(text) : std::string();
     }
 
     expected<void, WindowError> GLFWWindow::set_clipboard_text(std::string_view text) noexcept {
+        ZoneScopedN("GLFWWindow::set_clipboard_text");
         // glfwSetClipboardString requires a NUL-terminated C string; `text` (a view) isn't
         // guaranteed to be one, so it's copied into an owned buffer first.
         const std::string owned(text);

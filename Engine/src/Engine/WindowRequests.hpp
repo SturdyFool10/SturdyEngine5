@@ -2,11 +2,11 @@
 
 #include <Foundation/src/Foundation.hpp>
 
+#include <Async/src/Mutex.hpp>
 #include <Core/Core.hpp>
 #include <Ecs/src/Resource.hpp>
 #include <Platform/Platform.hpp>
 
-#include <mutex>
 #include <optional>
 #include <string>
 #include <variant>
@@ -112,77 +112,79 @@ namespace SFT::Engine {
       public:
         [[nodiscard]] WindowRequestId spawn(const Platform::Windowing::WindowConfig &config,
                                             Platform::Windowing::WindowFactory factory = nullptr) {
-            const std::lock_guard lock{mutex_};
-            const WindowRequestId id{next_id_++};
-            pending_.emplace_back(SpawnWindowRequest{id, OwnedWindowConfig{config}, factory});
+            auto guard = state_.lock();
+            const WindowRequestId id{guard->next_id++};
+            guard->pending.emplace_back(SpawnWindowRequest{id, OwnedWindowConfig{config}, factory});
             return id;
         }
 
         [[nodiscard]] WindowRequestId close(Platform::Windowing::WindowId window) {
-            const std::lock_guard lock{mutex_};
-            const WindowRequestId id{next_id_++};
-            pending_.emplace_back(CloseWindowRequest{id, window});
+            auto guard = state_.lock();
+            const WindowRequestId id{guard->next_id++};
+            guard->pending.emplace_back(CloseWindowRequest{id, window});
             return id;
         }
 
         // See SetCursorIconRequest's own doc comment for why this has no id/completion.
         void set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon) {
-            const std::lock_guard lock{mutex_};
-            pending_.emplace_back(SetCursorIconRequest{window, icon});
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetCursorIconRequest{window, icon});
         }
 
         // Borderless-fullscreen on via WindowMode::BorderlessFullscreen, off via WindowMode::Windowed
         // (ExclusiveFullscreen is available too — same underlying enum as Window::set_fullscreen()).
         void set_fullscreen(Platform::Windowing::WindowId window, Platform::Windowing::WindowMode mode) {
-            const std::lock_guard lock{mutex_};
-            pending_.emplace_back(SetFullscreenRequest{window, mode});
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetFullscreenRequest{window, mode});
         }
 
         // decorated=false removes the OS title bar/border, e.g. so the app can draw its own.
         void set_decorated(Platform::Windowing::WindowId window, bool decorated) {
-            const std::lock_guard lock{mutex_};
-            pending_.emplace_back(SetDecoratedRequest{window, decorated});
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetDecoratedRequest{window, decorated});
         }
 
         void set_transparent(Platform::Windowing::WindowId window, bool transparent) {
-            const std::lock_guard lock{mutex_};
-            pending_.emplace_back(SetTransparentRequest{window, transparent});
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetTransparentRequest{window, transparent});
         }
 
         void set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled) {
-            const std::lock_guard lock{mutex_};
-            pending_.emplace_back(SetBlurRequest{window, kind, enabled});
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetBlurRequest{window, kind, enabled});
         }
 
         [[nodiscard]] std::vector<WindowRequest> drain() {
-            const std::lock_guard lock{mutex_};
+            auto guard = state_.lock();
             std::vector<WindowRequest> result;
-            result.swap(pending_);
+            result.swap(guard->pending);
             return result;
         }
 
         void complete(WindowRequestCompletion completion) {
-            const std::lock_guard lock{mutex_};
-            completions_.push_back(std::move(completion));
+            auto guard = state_.lock();
+            guard->completions.push_back(std::move(completion));
         }
 
         [[nodiscard]] std::vector<WindowRequestCompletion> take_completions() {
-            const std::lock_guard lock{mutex_};
+            auto guard = state_.lock();
             std::vector<WindowRequestCompletion> result;
-            result.swap(completions_);
+            result.swap(guard->completions);
             return result;
         }
 
         [[nodiscard]] bool has_pending() const {
-            const std::lock_guard lock{mutex_};
-            return !pending_.empty();
+            auto guard = state_.lock();
+            return !guard->pending.empty();
         }
 
       private:
-        mutable std::mutex mutex_;
-        u64 next_id_ = 1;
-        std::vector<WindowRequest> pending_;
-        std::vector<WindowRequestCompletion> completions_;
+        struct State {
+            u64 next_id = 1;
+            std::vector<WindowRequest> pending;
+            std::vector<WindowRequestCompletion> completions;
+        };
+        mutable Async::Mutex<State> state_;
     };
 
 } // namespace SFT::Engine

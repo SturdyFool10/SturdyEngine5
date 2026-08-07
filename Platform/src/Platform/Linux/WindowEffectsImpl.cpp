@@ -16,6 +16,8 @@
 #include <Platform/Window/WindowLog.hpp>
 #include <Platform/Window/WindowNative.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::expected;
 using std::unexpected;
 
@@ -27,6 +29,7 @@ namespace SFT::Platform::Windowing {
 
 #if defined(__linux__)
         WindowEffectResult try_ext_background_effect_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
+            ZoneScopedN("Windowing::try_ext_background_effect_blur");
             Detail::window_debug(
                 "Linux ext-background-effect-v1 blur attempt: system={} display={} window={} enabled={}",
                 static_cast<int>(handle.system),
@@ -42,6 +45,7 @@ namespace SFT::Platform::Windowing {
         }
 
         WindowEffectResult try_kde_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
+            ZoneScopedN("Windowing::try_kde_blur");
             Detail::window_debug(
                 "Linux KDE blur attempt: system={} display={} window={} enabled={}",
                 static_cast<int>(handle.system),
@@ -57,6 +61,7 @@ namespace SFT::Platform::Windowing {
         }
 
         WindowEffectResult try_linux_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
+            ZoneScopedN("Windowing::try_linux_blur");
             switch (effect.linux_blur_protocol) {
                 case LinuxBlurProtocol::ExtBackgroundEffect:
                     return try_ext_background_effect_blur(handle, effect);
@@ -109,6 +114,7 @@ namespace SFT::Platform::Windowing {
     }
 
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
+        ZoneScopedN("Windowing::enable_native_window_effect");
 #if defined(__linux__)
         if (!operating_system_may_support_window_effect(effect.kind)) [[unlikely]] {
             Detail::window_warn(
@@ -142,6 +148,7 @@ namespace SFT::Platform::Windowing::Detail {
 
 
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
+        ZoneScopedN("Windowing::Detail::native_window_handle_from_sdl");
 #if defined(__linux__)
         auto *window = static_cast<SDL_Window *>(window_handle);
         if (!window) [[unlikely]] {

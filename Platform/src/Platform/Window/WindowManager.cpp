@@ -2,6 +2,8 @@
 
 #include <chrono>
 
+#include <tracy/Tracy.hpp>
+
 namespace SFT::Platform::Windowing {
 
     namespace {
@@ -19,6 +21,7 @@ namespace SFT::Platform::Windowing {
 
     WindowManager::WindowManager(WindowManagerPolicy policy) noexcept
         : policy_(policy) {
+        ZoneScopedN("WindowManager::WindowManager");
         if (policy_.event_pump_mode == WindowEventPumpMode::DedicatedEventThread &&
             policy_.platform_allows_threads && compile_time_window_thread_allowed) {
             event_thread_ = std::make_unique<Async::DedicatedThread>("WindowEventThread");
@@ -31,6 +34,7 @@ namespace SFT::Platform::Windowing {
     }
 
     WindowManager::~WindowManager() {
+        ZoneScopedN("WindowManager::~WindowManager");
         if (event_thread_) {
             // Signals poll_loop() to finish its current iteration, clear windows_ (on the thread that
             // owns them — same drain-before-destroy discipline Application uses for render_thread_),
@@ -50,6 +54,7 @@ namespace SFT::Platform::Windowing {
     [[nodiscard]] bool WindowManager::has_dedicated_event_thread() const noexcept { return event_thread_ != nullptr; }
 
     void WindowManager::destroy_window(WindowId id) noexcept {
+        ZoneScopedN("WindowManager::destroy_window");
         dispatch([this, id]() {
             std::erase_if(windows_, [id](const unique_ptr<Window> &w) { return w->id() == id; });
             if (primary_window_id_ == id) {
@@ -63,10 +68,12 @@ namespace SFT::Platform::Windowing {
     }
 
     [[nodiscard]] optional<WindowId> WindowManager::primary_window_id() const noexcept {
+        ZoneScopedN("WindowManager::primary_window_id");
         return dispatch([this]() { return primary_window_id_; });
     }
 
     [[nodiscard]] usize WindowManager::window_count() noexcept {
+        ZoneScopedN("WindowManager::window_count");
         return dispatch([this]() { return windows_.size(); });
     }
 
@@ -79,6 +86,10 @@ namespace SFT::Platform::Windowing {
         constexpr auto idle_interval = std::chrono::microseconds(500);
 
         while (running_.load(std::memory_order_acquire)) {
+            // Per-iteration, not per-call: poll_loop() itself runs for the whole background thread's
+            // lifetime, so a single zone around the function body would show up as one enormous
+            // "frame" in Tracy instead of the actual per-pass cadence this loop runs at.
+            ZoneScopedN("WindowManager::poll_loop iteration");
             bool did_work = false;
 
             // 1. Drain and execute every one-shot op (spawn_window/destroy_window/with_window/
@@ -135,7 +146,18 @@ namespace SFT::Platform::Windowing {
 
             std::unique_lock<std::mutex> idle_lock(wake_mutex_);
             wake_cv_.wait_for(idle_lock, idle_interval, [this]() noexcept {
-                return !running_.load(std::memory_order_acquire);
+                // Must also check pending_ops_, not just running_: dispatch()'s wake_poll_loop() call
+                // (a bare notify_all(), no wake_mutex_ held) only actually cuts this wait short if the
+                // predicate can observe the new op. A shutdown-only predicate leaves every dispatch()/
+                // with_window() caller blocked for up to the full idle_interval even though the whole
+                // point of waking here was to run their queued op immediately — with_window() itself
+                // has no idea how the manager is pumped internally, so that latency silently lands on
+                // every per-frame caller (window state sync, cursor-icon updates, ...).
+                if (!running_.load(std::memory_order_acquire)) {
+                    return true;
+                }
+                auto guard = pending_ops_.lock();
+                return !guard->empty();
             });
         }
 
@@ -145,10 +167,12 @@ namespace SFT::Platform::Windowing {
     }
 
     void WindowManager::wake_poll_loop() noexcept {
+        ZoneScopedN("WindowManager::wake_poll_loop");
         wake_cv_.notify_all();
     }
 
     [[nodiscard]] expected<void, WindowError> WindowManager::pump(vector<ManagedWindowEvents> &out_events) noexcept {
+        ZoneScopedN("WindowManager::pump");
         if (event_thread_) {
             // Non-blocking: swap out whatever poll_loop() has accumulated in the background since the
             // last call. Reseed an empty entry per still-swapped-out window in the same locked

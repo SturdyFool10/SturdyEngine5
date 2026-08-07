@@ -26,6 +26,8 @@
 #include <Platform/Window/WindowLog.hpp>
 #include <Platform/Window/GLFW/GlfwWindowNative.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::expected;
 using std::unexpected;
 using std::uintptr_t;
@@ -33,6 +35,7 @@ using std::uintptr_t;
 namespace SFT::Platform::Windowing::GLFW::Detail {
 
     expected<NativeWindowHandle, WindowError> native_window_handle(void *window_handle) noexcept {
+        ZoneScopedN("Windowing::GLFW::Detail::native_window_handle");
 #if defined(__linux__)
         auto *window = static_cast<GLFWwindow *>(window_handle);
         if (!window) [[unlikely]] {

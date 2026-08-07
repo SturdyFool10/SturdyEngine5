@@ -70,7 +70,7 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
             ZoneScopedN("VulkanQueue::present");
             const auto before_lock = steady_clock::now();
             auto lock = submission_lock_.lock();
-            if (lock_wait_ms != nullptr) {
+            if (lock_wait_ms != nullptr) [[likely]] {
                 *lock_wait_ms = duration<f64>(steady_clock::now() - before_lock).count() * 1000.0;
             }
             VkResult res;
@@ -78,41 +78,47 @@ VulkanQueue &VulkanQueue::operator=(VulkanQueue &&o) noexcept {
                 ZoneScopedN("vkQueuePresentKHR");
                 res = vkQueuePresentKHR(handle_, &info);
             }
-            if (res == VK_SUCCESS)
+            if (res == VK_SUCCESS) [[unlikely]]
                 return PresentOutcome::Success;
-            if (res == VK_SUBOPTIMAL_KHR)
+            if (res == VK_SUBOPTIMAL_KHR) [[unlikely]]
                 return PresentOutcome::Suboptimal;
-            if (res == VK_ERROR_OUT_OF_DATE_KHR)
+            if (res == VK_ERROR_OUT_OF_DATE_KHR) [[unlikely]]
                 return PresentOutcome::OutOfDate;
-            if (res == VK_ERROR_DEVICE_LOST)
+            if (res == VK_ERROR_DEVICE_LOST) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueuePresentKHR reported device loss.");
-            if (res == VK_ERROR_SURFACE_LOST_KHR)
+            if (res == VK_ERROR_SURFACE_LOST_KHR) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::SurfaceLost, "vkQueuePresentKHR reported surface loss.");
-            if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
+            if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::FullScreenExclusiveLost,
                                               "vkQueuePresentKHR reported loss of exclusive-fullscreen ownership.");
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueuePresentKHR failed.");
         }
 
 [[nodiscard]] RendererResult VulkanQueue::wait_idle() noexcept {
-            ZoneScopedN("VulkanQueue::wait_idle");
-            auto lock = submission_lock_.lock();
-            const VkResult result = vkQueueWaitIdle(handle_);
-            if (result == VK_ERROR_DEVICE_LOST)
+            VkResult result;
+            {
+                ZoneScopedN("VulkanQueue::wait_idle");
+                auto lock = submission_lock_.lock();
+                result = vkQueueWaitIdle(handle_);
+            }
+            if (result == VK_ERROR_DEVICE_LOST) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueWaitIdle reported device loss.");
-            if (result != VK_SUCCESS)
+            if (result != VK_SUCCESS) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueWaitIdle failed.");
             return {};
         }
 
 [[nodiscard]] RendererResult VulkanQueue::bind_sparse(span<const VkBindSparseInfo> infos,
                                                  VkFence fence) noexcept {
-            ZoneScopedN("VulkanQueue::bind_sparse");
-            auto lock = submission_lock_.lock();
-            const VkResult result = vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence);
-            if (result == VK_ERROR_DEVICE_LOST)
+            VkResult result;
+            {
+                ZoneScopedN("VulkanQueue::bind_sparse");
+                auto lock = submission_lock_.lock();
+                result = vkQueueBindSparse(handle_, static_cast<u32>(infos.size()), infos.data(), fence);
+            }
+            if (result == VK_ERROR_DEVICE_LOST) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::DeviceLost, "vkQueueBindSparse reported device loss.");
-            if (result != VK_SUCCESS)
+            if (result != VK_SUCCESS) [[unlikely]]
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vkQueueBindSparse failed.");
             return {};
         }

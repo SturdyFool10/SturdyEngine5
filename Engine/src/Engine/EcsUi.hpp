@@ -4,6 +4,7 @@
 
 #include "AssetManager.hpp"
 
+#include <Async/src/Mutex.hpp>
 #include <Core/Core.hpp>
 #include <Ecs/src/Resource.hpp>
 #include <RHI/RHI.hpp>
@@ -12,7 +13,6 @@
 
 #include <filesystem>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -85,8 +85,7 @@ namespace SFT::Engine {
     // the two GPU-backed objects every UI consumer needs regardless of what it draws.
     class UiContext {
         struct UiRendererState {
-            std::mutex mutex;
-            std::optional<UI::UiRenderer> renderer;
+            Async::Mutex<std::optional<UI::UiRenderer>> renderer;
         };
 
       public:
@@ -96,8 +95,8 @@ namespace SFT::Engine {
         // to avoid retrying a hard failure every single frame).
         [[nodiscard]] bool ensure_ready(RHI::RhiDevice &device, RHI::Format color_format) {
             {
-                const std::lock_guard lock{renderer_state_->mutex};
-                if (renderer_state_->renderer.has_value()) {
+                auto guard = renderer_state_->renderer.lock();
+                if (guard->has_value()) {
                     return true;
                 }
             }
@@ -120,15 +119,15 @@ namespace SFT::Engine {
                 return false;
             }
             {
-                const std::lock_guard lock{renderer_state_->mutex};
-                renderer_state_->renderer = std::move(*renderer);
+                auto guard = renderer_state_->renderer.lock();
+                *guard = std::move(*renderer);
             }
             return true;
         }
 
         [[nodiscard]] bool ready() const {
-            const std::lock_guard lock{renderer_state_->mutex};
-            return renderer_state_->renderer.has_value();
+            auto guard = renderer_state_->renderer.lock();
+            return guard->has_value();
         }
         [[nodiscard]] UI::Context &context() noexcept { return context_; }
 
@@ -156,8 +155,8 @@ namespace SFT::Engine {
             Renderer::UiOverlayHooks hooks;
             const std::shared_ptr<UiRendererState> renderer_state = renderer_state_;
             {
-                const std::lock_guard lock{renderer_state->mutex};
-                if (!renderer_state->renderer.has_value() || !snapshot) {
+                auto guard = renderer_state->renderer.lock();
+                if (!guard->has_value() || !snapshot) {
                     return hooks;
                 }
             }
@@ -173,35 +172,35 @@ namespace SFT::Engine {
                         "UI snapshot extent does not match the selected render endpoint; call begin_layout() "
                         "with the off-screen target's absolute extent.");
                 }
-                const std::lock_guard lock{renderer_state->mutex};
-                if (!renderer_state->renderer) {
+                auto guard = renderer_state->renderer.lock();
+                if (!*guard) {
                     return Core::graphics_backend_error(
                         Core::GraphicsBackendErrorCode::OperationFailed,
                         "UI renderer was destroyed before overlay preparation.");
                 }
-                return renderer_state->renderer->prepare(
+                return (*guard)->prepare(
                     device, encoder, *snapshot, texture_resolver, transient_buffers,
                     retired_atlas_resources);
             };
             hooks.draw = [renderer_state](RHI::RenderPassEncoder &pass,
                                           glm::vec2 viewport_size) -> Core::RendererResult {
-                const std::lock_guard lock{renderer_state->mutex};
-                if (!renderer_state->renderer) {
+                auto guard = renderer_state->renderer.lock();
+                if (!*guard) {
                     return Core::graphics_backend_error(
                         Core::GraphicsBackendErrorCode::OperationFailed,
                         "UI renderer was destroyed before overlay drawing.");
                 }
-                return renderer_state->renderer->draw(pass, viewport_size);
+                return (*guard)->draw(pass, viewport_size);
             };
             return hooks;
         }
 
         void destroy(RHI::RhiDevice &device) noexcept {
             {
-                const std::lock_guard lock{renderer_state_->mutex};
-                if (renderer_state_->renderer) {
-                    renderer_state_->renderer->destroy(device);
-                    renderer_state_->renderer.reset();
+                auto guard = renderer_state_->renderer.lock();
+                if (*guard) {
+                    (*guard)->destroy(device);
+                    guard->reset();
                 }
             }
             context_.destroy();

@@ -124,6 +124,11 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         SDL3Window(ConstructorKey key, SDL_Window *window) noexcept;
 
+        // Shared body of native_window_handle(), callable from a caller that already holds
+        // sdl_window_mutex() (enable_window_effect()) without re-locking it — sdl_window_mutex() is
+        // a non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
+        [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle_locked() const noexcept;
+
         SDL_Window *window_ = nullptr;
         deque<WindowEvent> events_;
         optional<WindowResize> pending_resize_;

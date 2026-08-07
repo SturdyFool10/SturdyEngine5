@@ -22,6 +22,8 @@
 #include <Platform/Window/WindowConfig.hpp>
 #include <Platform/Window/WindowGeometry.hpp>
 
+#include <tracy/Tracy.hpp>
+
 using std::expected;
 using std::optional;
 using std::unexpected;
@@ -95,6 +97,7 @@ namespace SFT::Platform::Windowing {
         // (construction is marshaled the same as everything else).
         template <typename Backend>
         [[nodiscard]] expected<WindowId, WindowError> spawn_window(const WindowConfig &config) {
+            ZoneScopedN("WindowManager::spawn_window");
             return dispatch([this, &config]() -> expected<WindowId, WindowError> {
                 auto created = Window::create<Backend>(config);
                 if (!created) {
@@ -119,6 +122,7 @@ namespace SFT::Platform::Windowing {
         [[nodiscard]] expected<WindowId, WindowError> spawn_window(
             const WindowConfig &config,
             WindowFactory factory) {
+            ZoneScopedN("WindowManager::spawn_window(factory)");
             if (factory == nullptr) {
                 return unexpected(WindowError{
                     WindowErrorCode::InvalidArgument,
@@ -155,6 +159,7 @@ namespace SFT::Platform::Windowing {
         // effects, cursor mode, ...): callers should route through here rather than caching a Window*.
         template <typename F>
         auto with_window(WindowId id, F &&fn) -> optional<std::invoke_result_t<F &, Window &>> {
+            ZoneScopedN("WindowManager::with_window");
             using R = std::invoke_result_t<F &, Window &>;
             return dispatch([this, id, &fn]() -> optional<R> {
                 for (unique_ptr<Window> &w : windows_) {
@@ -170,6 +175,7 @@ namespace SFT::Platform::Windowing {
         // thread that owns them.
         template <typename F>
         auto with_windows(F &&fn) -> std::invoke_result_t<F &, vector<unique_ptr<Window>> &> {
+            ZoneScopedN("WindowManager::with_windows");
             return dispatch([this, &fn]() { return fn(windows_); });
         }
 
@@ -193,6 +199,7 @@ namespace SFT::Platform::Windowing {
         // Async/src/Task.hpp) for poll_loop() to drain and execute on its own next iteration.
         template <typename F>
         auto dispatch(F &&fn) -> std::invoke_result_t<F &> {
+            ZoneScopedN("WindowManager::dispatch");
             using R = std::invoke_result_t<F &>;
             if (!event_thread_) {
                 return fn();
@@ -204,7 +211,10 @@ namespace SFT::Platform::Windowing {
                 guard->push_back(std::move(task));
             }
             wake_poll_loop();
-            return Async::TaskHandle<R>(std::move(state)).wait();
+            {
+                ZoneScopedN("WindowManager::dispatch wait for poll_loop");
+                return Async::TaskHandle<R>(std::move(state)).wait();
+            }
         }
 
         template <typename F>
