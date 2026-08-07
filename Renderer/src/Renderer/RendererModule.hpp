@@ -164,13 +164,40 @@ namespace SFT::Renderer {
         // uncompressed formats, block-count*bytes_per_block for BC7/BC5/BC4 — see
         // texture_data_bytes in RendererTextures.cpp), or be empty to allocate an uninitialized
         // texture. Mirrors the mesh upload path (staged copy through the RHI).
+        // `concurrent_queue_classes`: forwarded to RHI::TextureDesc::concurrent_queue_classes (see its
+        // own doc comment) -- empty (the default) keeps today's VK_SHARING_MODE_EXCLUSIVE behavior for
+        // every existing caller. A streaming caller that will submit its pixel upload from the
+        // Transfer queue while this texture is bound/sampled via Graphics passes
+        // {QueueClass::Graphics, QueueClass::Transfer} here.
         [[nodiscard]] Core::RendererExpected<TextureHandle> create_texture(u32 width, u32 height,
                                                                            RHI::Format format,
                                                                            span<const std::byte> data,
-                                                                           const char *label = nullptr);
+                                                                           const char *label = nullptr,
+                                                                           span<const RHI::QueueClass> concurrent_queue_classes = {});
         void destroy_texture(TextureHandle handle) noexcept;
         [[nodiscard]] TextureResource *texture(TextureHandle handle) noexcept;
         [[nodiscard]] const TextureResource *texture(TextureHandle handle) const noexcept;
+
+        // ── Asynchronous texture streaming support (Engine::TextureStreamer) ──
+        // `create_texture(..., data = {}, ...)` above already mints an image/view/sampler without
+        // uploading anything (see its own doc comment: "empty to allocate an uninitialized texture"),
+        // which is what a streaming caller uses to get an immediately bindable handle before the real
+        // pixel data has arrived. The two methods below are the rest of that story:
+        //
+        // clear_placeholder_texture: fills a just-created, still-image-only texture with a solid color
+        // (Undefined→TransferDst→ClearColorImage→ShaderReadOnly, one-shot, waits — the whole thing is
+        // small enough that synchronous is fine and keeps a streamed texture from ever exposing
+        // uninitialized memory to a shader in the (short) window before its real pixels land).
+        [[nodiscard]] Core::RendererResult clear_placeholder_texture(TextureHandle handle, RHI::ClearColor color);
+        // submit_texture_upload: records + submits (WITHOUT waiting) the same barrier/copy/barrier
+        // sequence upload_texture_rgba uses internally, against an already-created texture and a
+        // caller-owned, caller-written staging buffer/offset. The caller (Engine::TextureStreamer)
+        // polls/waits on the returned submission's fence itself and owns cleanup of both the fence and
+        // command buffer once confirmed signaled; the staging buffer's lifetime is the caller's own
+        // responsibility (a ring-owned chunk, not a fresh allocation).
+        [[nodiscard]] Core::RendererExpected<TextureUploadSubmission> submit_texture_upload(
+            TextureResource &resource, u32 width, u32 height, RHI::Format format,
+            RHI::BufferHandle staging, u64 staging_offset = 0, RHI::QueueLane queue = {});
 
         [[nodiscard]] Core::RendererExpected<OffscreenRenderTargetHandle> create_offscreen_render_target(
             const OffscreenRenderTargetDescription &description);
@@ -1501,7 +1528,10 @@ namespace SFT::Renderer {
         // Uploads tightly-packed pixel `data` into `resource`'s already-created RHI texture via a
         // staged buffer copy + layout transitions (one-shot command buffer, waits — the pre-frame-graph
         // upload path, same shape as the mesh staging copy).
-        [[nodiscard]] Core::RendererResult create_owned_texture_gpu(TextureResource &resource);
+        [[nodiscard]] Core::RendererResult create_owned_texture_gpu(TextureResource &resource,
+                                                                     span<const RHI::QueueClass> concurrent_queue_classes = {});
+        // submit_texture_upload is declared public above (Engine::TextureStreamer needs it); its
+        // implementation and this synchronous wrapper live together in RendererTextures.cpp.
         [[nodiscard]] Core::RendererResult upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
                                                                RHI::Format format, span<const std::byte> data);
         // Lazily creates (once) a 1×1 opaque-white texture used to fill unbound material texture slots so

@@ -1,6 +1,7 @@
 #include "AssetManager.hpp"
 #include "ImageDecode.hpp"
 #include "TextureCompression.hpp"
+#include "TextureStreamer.hpp"
 
 #include <Core/Core.hpp>
 #include <Renderer/Renderer.hpp>
@@ -137,7 +138,8 @@ namespace SFT::Engine {
         };
 
         explicit Impl(SFT::Renderer::Renderer &renderer_ref)
-            : renderer(renderer_ref), owner(next_asset_manager_id.fetch_add(1, std::memory_order_relaxed)) {
+            : renderer(renderer_ref), owner(next_asset_manager_id.fetch_add(1, std::memory_order_relaxed)),
+              texture_streamer(renderer_ref) {
             if (owner == 0) {
                 owner = next_asset_manager_id.fetch_add(1, std::memory_order_relaxed);
             }
@@ -224,6 +226,7 @@ namespace SFT::Engine {
         u64 owner = 0;
         mutable std::shared_mutex mutex;
         std::vector<Record> records;
+        TextureStreamer texture_streamer;
 
         // In-memory dedup for load_texture/load_sound/load_file: loading the same source path twice in
         // one process previously re-did the full file read + decode both times (the BC7 compression
@@ -441,6 +444,34 @@ namespace SFT::Engine {
         }
         impl_->path_cache.emplace(dedup_key, *texture);
         return texture;
+    }
+
+    AssetExpected<Asset> AssetManager::load_texture_streamed(const std::filesystem::path &source,
+                                                              TextureColorSpace color_space, UString label) {
+        if (label.empty()) {
+            label = path_label(source, "texture");
+        }
+        const StreamedTextureHandle streamed = impl_->texture_streamer.request_texture_load(source, color_space, {}, label);
+        if (!streamed) {
+            return std::unexpected(error(AssetErrorCode::IoFailure,
+                                         "Failed to start streamed texture load for '" + source.string() + "'.", source));
+        }
+        const auto [width, height] = impl_->texture_streamer.dimensions(streamed);
+
+        std::unique_lock lock{impl_->mutex};
+        return impl_->insert(Impl::Record{
+            .type = AssetType::Texture,
+            .label = std::move(label),
+            .source = source,
+            .data = Impl::TextureData{
+                .texture = impl_->texture_streamer.texture_handle(streamed),
+                .info = TextureAssetInfo{.width = width, .height = height, .color_space = color_space},
+            },
+        });
+    }
+
+    void AssetManager::pump_texture_streaming() {
+        impl_->texture_streamer.pump();
     }
 
     AssetExpected<Asset> AssetManager::create_texture_from_encoded_bytes(

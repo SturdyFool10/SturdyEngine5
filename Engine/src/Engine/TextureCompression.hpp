@@ -24,4 +24,21 @@ namespace SFT::Engine::Detail {
     [[nodiscard]] std::optional<std::vector<std::byte>> compress_bc7(
         std::span<const std::byte> rgba8, u32 width, u32 height, bool srgb);
 
+    // GDeflate-compresses `bc7_blocks` (compress_bc7's own output) for the texture-streaming asset
+    // pipeline (Engine::TextureStreamer's GDeflate pipeline stage, Core::decompress_gdeflate on the
+    // read side): a real shipped/streamed texture asset can carry this smaller representation instead
+    // of raw BC7 blocks. Same disk-content-hash-cached shape as compress_bc7 (keyed off `bc7_blocks`
+    // itself, not the original RGBA8 source, so a cache hit needs only the BC7 bytes already in hand
+    // -- not the decoded image that produced them), same "returns nullopt, never a hard error"
+    // fallback contract on any GDeflate failure.
+    //
+    // Scope note: this is the WRITE/cache side only, validating the container shape end-to-end
+    // (compress -> disk cache -> Core::decompress_gdeflate round trip, see
+    // EngineTextureCompressionGDeflateTest). Wiring Engine::TextureStreamer to actually read a
+    // pre-baked GDeflate-compressed asset from disk (instead of decoding a PNG/JPEG at request time)
+    // needs a real offline asset-baking/import pipeline this engine does not have yet -- that's
+    // future work, not part of this pass.
+    [[nodiscard]] std::optional<std::vector<std::byte>> compress_gdeflate_sibling(
+        std::span<const std::byte> bc7_blocks, u32 width, u32 height, bool srgb);
+
 } // namespace SFT::Engine::Detail

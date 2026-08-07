@@ -74,9 +74,22 @@ set(STURDY_BC7ENC_TAG "f66c2e489b07138f2673a2fb3d27c1aa1d565c48" CACHE STRING "b
 # to exercise the glTF import path locally (STURDY_FETCH_SAMPLE_ASSETS). Not a build dependency, so
 # pinned to a commit like every other fetched source but never fetched unless explicitly requested.
 set(STURDY_GLTF_SAMPLE_ASSETS_TAG "2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf" CACHE STRING "glTF-Sample-Assets git commit to fetch.")
+# microsoft/DirectStorage (MIT) — only the GDeflate/ reference CPU decoder subfolder is vendored
+# (see sturdy_fetch_gdeflate()'s own comment for why the rest of this large repo, mostly the
+# DirectStorage SDK samples, is deliberately never built). Used by Core::decompress_gdeflate on
+# every platform (not just Windows) as the CPU-side GDeflate decompression fallback for the texture
+# streaming pipeline -- Windows' DirectStorage backend has its own separate, GPU-side decompressor
+# and does not go through this path at all. Pinned to "main" (a branch, not a commit) deliberately:
+# this repo has no stable release tags for the GDeflate subfolder specifically as of this writing.
+set(STURDY_GDEFLATE_TAG "main" CACHE STRING "microsoft/DirectStorage git tag/branch to fetch (for its GDeflate/ subfolder).")
 # Microsoft's official, MIT-licensed native D3D12/DXGI headers (no NuGet/.NET tooling involved —
 # plain C/C++ headers only). Only fetched when STURDY_OS is Windows.
 set(STURDY_DIRECTX_HEADERS_TAG "v1.721.2-preview" CACHE STRING "DirectX-Headers git tag to fetch.")
+# Microsoft.Direct3D.DirectStorage's NuGet package version (verified to exist via the live NuGet
+# v3 flat-container API for this package at https://api.nuget.org/v3-flatcontainer/
+# microsoft.direct3d.directstorage/index.json when this was written -- 1.3.0 was the newest
+# non-preview release). Only fetched when STURDY_OS is Windows.
+set(STURDY_DIRECTSTORAGE_VERSION "1.3.0" CACHE STRING "Microsoft.Direct3D.DirectStorage NuGet package version to fetch.")
 # Apple's official, Apache-2.0-licensed C++ bindings for Metal (headers only; Apple ships no
 # prebuilt binary, this just wraps the Objective-C API). Tags track macOS/iOS SDK releases. Only
 # fetched when STURDY_OS is MacOS.
@@ -220,11 +233,13 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_stb_image()
         sturdy_fetch_cgltf()
         sturdy_fetch_bc7enc()
+        sturdy_fetch_gdeflate()
 
         sturdy_fetch_tracy()
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
+            sturdy_fetch_directstorage()
         endif()
         if(STURDY_OS STREQUAL "MacOS")
             sturdy_fetch_metalcpp()
@@ -252,6 +267,7 @@ function(sturdy_configure_dependencies)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
         sturdy_find_bc7enc()
+        sturdy_find_gdeflate()
         find_package(Tracy CONFIG REQUIRED)
 
         if(STURDY_OS STREQUAL "Windows")
@@ -325,6 +341,38 @@ function(sturdy_find_directx)
     if(NOT TARGET Sturdy::DirectX)
         add_library(Sturdy::DirectX INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Sturdy::DirectX INTERFACE d3d12 dxgi dxguid)
+    endif()
+endfunction()
+
+# Microsoft.Direct3D.DirectStorage (MIT) -- ships as a NuGet package (a .nupkg is just a zip), not
+# git, so this can't reuse sturdy_fetchcontent_declare()'s git-based helper. Verified directly
+# against the real package contents (downloaded and inspected) when this was written, not assumed:
+# native/include/dstorage.h (+ dstorageerr.h), native/lib/x64/dstorage.lib, native/bin/x64/
+# {dstorage,dstoragecore}.dll -- both DLLs are required at runtime (dstoragecore.dll is
+# dstorage.dll's own dependency), so both get copied next to build output, not just dstorage.dll.
+# Only x64 is wired (this engine's desktop x86-64 target scope, matching sturdy_fetch_gdeflate's
+# same x86-only choice) -- ARM64/x86 exist in the package but aren't consumed.
+function(sturdy_fetch_directstorage)
+    set(_sturdy_directstorage_cache_dirs)
+    if(STURDY_SHARED_DEPS_CACHE)
+        set(_sturdy_directstorage_cache_dirs SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/directstorage-src")
+    endif()
+    FetchContent_Declare(directstorage
+        URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.DirectStorage/${STURDY_DIRECTSTORAGE_VERSION}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        ${_sturdy_directstorage_cache_dirs}
+    )
+    FetchContent_MakeAvailable(directstorage)
+    sturdy_register_license(directstorage "${directstorage_SOURCE_DIR}")
+
+    if(NOT TARGET Sturdy::DirectStorage)
+        add_library(Sturdy::DirectStorage INTERFACE IMPORTED GLOBAL)
+        target_include_directories(Sturdy::DirectStorage INTERFACE "${directstorage_SOURCE_DIR}/native/include")
+        target_link_libraries(Sturdy::DirectStorage INTERFACE "${directstorage_SOURCE_DIR}/native/lib/x64/dstorage.lib")
+        set_target_properties(Sturdy::DirectStorage PROPERTIES
+            STURDY_DIRECTSTORAGE_DLL "${directstorage_SOURCE_DIR}/native/bin/x64/dstorage.dll"
+            STURDY_DIRECTSTORAGE_CORE_DLL "${directstorage_SOURCE_DIR}/native/bin/x64/dstoragecore.dll"
+        )
     endif()
 endfunction()
 
@@ -1172,6 +1220,90 @@ function(sturdy_fetch_bc7enc)
     sturdy_register_license(bc7enc "${bc7enc_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_gdeflate)
+    # microsoft/DirectStorage's repo is mostly the DirectStorage SDK itself (NuGet packaging,
+    # samples, docs) -- this engine gets the real DirectStorage binaries from NuGet directly (see
+    # sturdy_fetch_directstorage()), so only this repo's GDeflate/ reference CPU decoder subfolder
+    # (plus the libdeflate git submodule it depends on, under GDeflate/3rdparty/libdeflate/) is
+    # actually wanted here. Deliberately FetchContent_Populate(), not MakeAvailable() -- same
+    # reasoning as sturdy_fetch_bc7enc() above: no add_subdirectory-ing a repo whose own build
+    # system builds unrelated things (a demo app, a test harness, vcpkg port manifests) this engine
+    # doesn't want. The exact source-file list and include layout below were verified directly
+    # against GDeflate/GDeflate/CMakeLists.txt and GDeflate/3rdparty/libdeflate.cmake in the fetched
+    # tree (not just assumed from the public API docs) -- those two upstream files are the ground
+    # truth if this ever needs re-verifying against a newer tag.
+    sturdy_fetchcontent_declare(gdeflate
+        GIT_REPOSITORY https://github.com/microsoft/DirectStorage.git
+        GIT_TAG ${STURDY_GDEFLATE_TAG}
+    )
+    cmake_policy(PUSH)
+    if(POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_GetProperties(gdeflate)
+    if(NOT gdeflate_POPULATED)
+        FetchContent_Populate(gdeflate)
+    endif()
+    cmake_policy(POP)
+
+    if(NOT TARGET gdeflate)
+        set(_sturdy_libdeflate_dir "${gdeflate_SOURCE_DIR}/GDeflate/3rdparty/libdeflate")
+        set(_sturdy_gdeflate_dir "${gdeflate_SOURCE_DIR}/GDeflate/GDeflate")
+        if(NOT EXISTS "${_sturdy_gdeflate_dir}/GDeflate.h")
+            message(FATAL_ERROR
+                "sturdy_fetch_gdeflate: expected '${_sturdy_gdeflate_dir}/GDeflate.h' to exist -- "
+                "the microsoft/DirectStorage tree layout may have changed. Inspect "
+                "${gdeflate_SOURCE_DIR} directly and update sturdy_fetch_gdeflate() to match.")
+        endif()
+
+        # libdeflate_static: the actual GDeflate/DEFLATE/zlib/gzip codec (a C library, this repo's
+        # own libdeflate.h is its public header). x86-only cpu_features.c for now, matching this
+        # engine's current desktop x86-64 target scope -- an ARM build would need
+        # lib/arm/cpu_features.c added here too, deliberately not done speculatively.
+        add_library(libdeflate_static STATIC
+            "${_sturdy_libdeflate_dir}/lib/adler32.c"
+            "${_sturdy_libdeflate_dir}/lib/crc32.c"
+            "${_sturdy_libdeflate_dir}/lib/deflate_compress.c"
+            "${_sturdy_libdeflate_dir}/lib/deflate_decompress.c"
+            "${_sturdy_libdeflate_dir}/lib/gdeflate_compress.c"
+            "${_sturdy_libdeflate_dir}/lib/gdeflate_decompress.c"
+            "${_sturdy_libdeflate_dir}/lib/gzip_compress.c"
+            "${_sturdy_libdeflate_dir}/lib/gzip_decompress.c"
+            "${_sturdy_libdeflate_dir}/lib/utils.c"
+            "${_sturdy_libdeflate_dir}/lib/zlib_compress.c"
+            "${_sturdy_libdeflate_dir}/lib/zlib_decompress.c"
+            "${_sturdy_libdeflate_dir}/lib/x86/cpu_features.c"
+        )
+        target_include_directories(libdeflate_static PUBLIC "${_sturdy_libdeflate_dir}")
+        # Upstream's own libdeflate.cmake disables these same warnings (see its own comment) to
+        # compile libdeflate without modifying the vendored source -- scoped to just this target via
+        # target_compile_options, not the global add_compile_options() upstream uses, so it can't
+        # leak into any other target in this build.
+        if(MSVC)
+            target_compile_options(libdeflate_static PRIVATE /wd4244 /wd4127 /wd4267 /wd4100 /wd4245 /wd4456 /wd4018 /wd4146 /wd4310)
+        else()
+            target_compile_options(libdeflate_static PRIVATE -Wno-conversion -Wno-unused-parameter -Wno-shadow)
+        endif()
+        sturdy_mark_dependency_targets_exclude_from_all(libdeflate_static)
+
+        # gdeflate: the thin C++ Compress()/Decompress() wrapper Core::decompress_gdeflate calls.
+        add_library(gdeflate STATIC
+            "${_sturdy_gdeflate_dir}/GDeflateCompress.cpp"
+            "${_sturdy_gdeflate_dir}/GDeflateDecompress.cpp"
+        )
+        target_include_directories(gdeflate PUBLIC "${_sturdy_gdeflate_dir}")
+        target_link_libraries(gdeflate PUBLIC libdeflate_static)
+        if(WIN32)
+            # GDeflateDecompress.cpp's multi-threaded decompress path uses the WinRT thread pool on
+            # Windows (matching upstream's own PRIVATE runtimeobject.lib link) -- not needed/available
+            # on Linux, where Core::decompress_gdeflate always requests numWorkerThreads=1 anyway.
+            target_link_libraries(gdeflate PRIVATE runtimeobject.lib)
+        endif()
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(gdeflate)
+    sturdy_register_license(gdeflate "${gdeflate_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_find_bc7enc)
     # No CMake config package or vcpkg port exists for this library — best-effort fallback mirrors
     # sturdy_find_stb_image/sturdy_find_cgltf's raw-header search, but bc7enc also needs its .c
@@ -1191,6 +1323,22 @@ function(sturdy_find_bc7enc)
     if(NOT TARGET bc7enc)
         add_library(bc7enc STATIC "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c")
         target_include_directories(bc7enc PUBLIC "${STURDY_BC7ENC_INCLUDE_DIR}")
+    endif()
+endfunction()
+
+function(sturdy_find_gdeflate)
+    # No CMake config package exists upstream (same situation as bc7enc) -- best-effort raw-source
+    # search. A manually-vendored copy must place the GDeflate reference decoder's .h/.cpp files
+    # together on the include path.
+    find_path(STURDY_GDEFLATE_INCLUDE_DIR NAMES GDeflate.h)
+    if(NOT STURDY_GDEFLATE_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not find GDeflate.h. Install the microsoft/DirectStorage "
+                            "GDeflate/ reference decoder or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+    if(NOT TARGET gdeflate)
+        file(GLOB _sturdy_gdeflate_sources "${STURDY_GDEFLATE_INCLUDE_DIR}/*.cpp" "${STURDY_GDEFLATE_INCLUDE_DIR}/*.c")
+        add_library(gdeflate STATIC ${_sturdy_gdeflate_sources})
+        target_include_directories(gdeflate PUBLIC "${STURDY_GDEFLATE_INCLUDE_DIR}")
     endif()
 endfunction()
 
@@ -1312,6 +1460,10 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::bc7enc
         bc7enc
+    )
+
+    sturdy_alias_existing_target(Sturdy::gdeflate
+        gdeflate
     )
 
     sturdy_alias_existing_target(Sturdy::Tracy

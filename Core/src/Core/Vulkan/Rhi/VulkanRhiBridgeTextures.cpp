@@ -14,7 +14,9 @@
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#include <algorithm>
 #include <utility>
+#include <vector>
 #pragma endregion
 
 #include <Foundation/src/Foundation.hpp>
@@ -27,6 +29,8 @@
 #include <RHI/RHI.hpp>
 
 #include <tracy/Tracy.hpp>
+
+using std::vector;
 
 namespace SFT::Core::Vulkan {
 
@@ -64,7 +68,21 @@ namespace SFT::Core::Vulkan {
             create_flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
         }
 
-        const VkImageCreateInfo image_info{
+        // Resolve requested queue classes to real family indices, deduplicated -- classes that alias
+        // onto the same family (or that this backend has no dedicated family for, collapsing onto
+        // whichever family queue_family_for_lane falls back to) collapse harmlessly to EXCLUSIVE.
+        // See TextureDesc::concurrent_queue_classes's own doc comment for the tradeoff this encodes.
+        vector<u32> concurrent_families;
+        for (const rhi::QueueClass queue_class : desc.concurrent_queue_classes) {
+            const u32 family = queue_family_for_lane(rhi::QueueLane{queue_class, 0});
+            if (family != VK_QUEUE_FAMILY_IGNORED &&
+                std::find(concurrent_families.begin(), concurrent_families.end(), family) == concurrent_families.end()) {
+                concurrent_families.push_back(family);
+            }
+        }
+        const bool use_concurrent = concurrent_families.size() > 1;
+
+        VkImageCreateInfo image_info{
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .flags = create_flags,
             .imageType = to_vk(desc.dimension),
@@ -75,9 +93,13 @@ namespace SFT::Core::Vulkan {
             .samples = to_vk(desc.samples),
             .tiling = VK_IMAGE_TILING_OPTIMAL,
             .usage = to_vk(desc.usage),
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .sharingMode = use_concurrent ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
         };
+        if (use_concurrent) {
+            image_info.queueFamilyIndexCount = static_cast<u32>(concurrent_families.size());
+            image_info.pQueueFamilyIndices = concurrent_families.data();
+        }
         const bool transient_attachment = rhi::has_any(desc.usage, rhi::TextureUsage::TransientAttachment);
         const VmaAllocationCreateInfo alloc_info{
             .usage = transient_attachment ? VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE : VMA_MEMORY_USAGE_AUTO,

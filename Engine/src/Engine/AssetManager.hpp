@@ -126,6 +126,25 @@ namespace SFT::Engine {
                                                         TextureColorSpace color_space = TextureColorSpace::Srgb,
                                                         UString label = {});
 
+        // Asynchronous counterpart to load_texture(): returns an Asset immediately, valid and
+        // bindable right away (create_model's texture-binding validation needs no changes to accept
+        // it -- see TextureStreamer's own class doc comment for the mechanism), whose GPU pixel data
+        // streams in over the following frames instead of blocking this call until upload completes.
+        // Deliberately NOT implemented in terms of load_texture() or vice versa: this path's decode/
+        // upload failures surface as a Failed streaming state (queryable via texture_info() reporting
+        // zero dimensions, or by holding onto the StreamedTextureHandle -- not currently exposed
+        // through AssetManager -- and querying TextureStreamer directly), not as this call's own
+        // return value, since the failure (if any) isn't known until after this function returns.
+        // No in-memory path_cache dedup (unlike load_texture): a second streamed request for the same
+        // path starts a second independent load rather than reusing an in-flight or completed one.
+        [[nodiscard]] AssetExpected<Asset> load_texture_streamed(const std::filesystem::path &source,
+                                                                  TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                                  UString label = {});
+        // Call once per frame (alongside, or instead of, calling it directly on your own
+        // TextureStreamer instance) so streamed textures requested via load_texture_streamed()
+        // actually transition Pending/Uploading -> Resident.
+        void pump_texture_streaming();
+
         // Decodes an already-in-memory encoded image (PNG/JPEG) and uploads it, for sources that
         // aren't a standalone file on disk — e.g. a glTF .glb's embedded buffer-view images or a
         // data: URI's decoded bytes. load_texture()'s file-based API can't reach these since it

@@ -11,6 +11,18 @@ if(STURDY_OS STREQUAL "Web")
     set(_sturdy_core_graphics_defines)
 endif()
 
+# Per-OS subtrees inside Core/src/Core/Vulkan/ for the texture-streaming fast-I/O backends
+# (DirectStorage on Windows, io_uring on Linux) — first use of a nested (not whole-package)
+# EXCLUDE_SOURCE_DIRS entry in this package; matches as a path segment anywhere under the source
+# root regardless of nesting depth (see SturdyPackage.cmake's own matching logic), so a bare
+# directory name is sufficient without spelling out the full "Vulkan/DirectStorage" path.
+if(NOT STURDY_OS STREQUAL "Windows")
+    list(APPEND _sturdy_core_excluded_source_dirs DirectStorage)
+endif()
+if(NOT STURDY_OS STREQUAL "Linux")
+    list(APPEND _sturdy_core_excluded_source_dirs IoUring)
+endif()
+
 # STURDY_LICENSES_EMBED_CPP is generated at configure time by sturdy_generate_license_embeds()
 # (see cmake/SturdyLicenses.cmake) — it implements the :Licenses partition declared in
 # Core/Licenses.cppm, #embed-ing every dependency's license text directly into the binary.
@@ -32,6 +44,7 @@ sturdy_add_package(Core
 
     PRIVATE_DEPS
         Sturdy::Tracy
+        Sturdy::gdeflate
 
     # volk provides dynamically-loaded entry points; VK_NO_PROTOTYPES keeps the Vulkan headers
     # from also declaring statically-linked prototypes. Set now so volk includes are correct as

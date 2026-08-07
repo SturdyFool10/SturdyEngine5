@@ -3,12 +3,18 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <optional>
+#include <span>
 #include <type_traits>
 #pragma endregion
 
 #include "Flags.hpp"
 #include "Types.hpp"
 #include "Handles.hpp"
+#include "Queues.hpp" // QueueClass, for TextureDesc::concurrent_queue_classes
+
+using std::optional;
+using std::span;
 
 namespace SFT::RHI {
 
@@ -85,6 +91,14 @@ namespace SFT::RHI {
         u32 mip_levels = 1;
         SampleCount samples = SampleCount::X1;
         TextureUsage usage = TextureUsage::None;
+        // Sharing this image across more than one queue family (e.g. a streamed texture written by
+        // Transfer, later sampled by Graphics) requires either VK_SHARING_MODE_CONCURRENT across the
+        // listed classes, or exclusive ownership plus an explicit queue-family-ownership-transfer
+        // barrier pair the caller records itself. Leave empty (the default) for the common
+        // single-queue-family case, which stays VK_SHARING_MODE_EXCLUSIVE. Backends resolve each
+        // QueueClass to its real queue family index (classes that alias onto the same family, or that
+        // this backend doesn't have a dedicated family for, collapse harmlessly).
+        span<const QueueClass> concurrent_queue_classes;
         const char *label = nullptr;
     };
 

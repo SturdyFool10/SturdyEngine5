@@ -59,7 +59,8 @@ namespace SFT::Renderer {
     } // namespace
 
     Core::RendererExpected<TextureHandle> Renderer::create_texture(u32 width, u32 height, RHI::Format format,
-                                                                   span<const std::byte> data, const char *label) {
+                                                                   span<const std::byte> data, const char *label,
+                                                                   span<const RHI::QueueClass> concurrent_queue_classes) {
         ZoneScopedN("Renderer::create_texture");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -89,14 +90,15 @@ namespace SFT::Renderer {
         resource.pixel_data.assign(data.begin(), data.end());
         resource.alive = true;
 
-        if (Core::RendererResult created = create_owned_texture_gpu(resource); !created.has_value()) {
+        if (Core::RendererResult created = create_owned_texture_gpu(resource, concurrent_queue_classes); !created.has_value()) {
             return unexpected(created.error());
         }
         textures_.push_back(std::move(resource));
         return textures_.back().handle;
     }
 
-    Core::RendererResult Renderer::create_owned_texture_gpu(TextureResource &resource) {
+    Core::RendererResult Renderer::create_owned_texture_gpu(TextureResource &resource,
+                                                            span<const RHI::QueueClass> concurrent_queue_classes) {
         ZoneScopedN("Renderer::create_owned_texture_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -116,6 +118,7 @@ namespace SFT::Renderer {
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst,
+            .concurrent_queue_classes = concurrent_queue_classes,
             .label = resource.label.empty() ? "renderer texture" : resource.label.c_str(),
         });
         if (!texture) {
@@ -162,35 +165,96 @@ namespace SFT::Renderer {
         return {};
     }
 
-    Core::RendererResult Renderer::upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
-                                                       RHI::Format format, span<const std::byte> data) {
-        ZoneScopedN("Renderer::upload_texture_rgba");
+    Core::RendererResult Renderer::clear_placeholder_texture(TextureHandle handle, RHI::ClearColor color) {
+        ZoneScopedN("Renderer::clear_placeholder_texture");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Cannot upload texture data without an RHI device.");
+                                                "Cannot clear a texture without an RHI device.");
+        }
+        TextureResource *resource = texture(handle);
+        if (resource == nullptr || !resource->texture) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "clear_placeholder_texture: unknown or not-yet-created texture handle.");
         }
 
-        // Stage the pixels in a host-visible buffer, then copy into the device-local texture through a
-        // one-shot command buffer (Undefined→TransferDst→ShaderReadOnly). Same shape as the mesh staging
-        // path; the frame graph will later route bulk uploads onto a dedicated transfer queue instead.
-        auto staging = device->create_buffer(RHI::BufferDesc{
-            .size = static_cast<u64>(data.size()),
-            .usage = RHI::BufferUsage::TransferSrc,
-            .memory = RHI::MemoryLocation::HostUpload,
-            .label = "renderer texture staging",
-        });
-        if (!staging) {
-            return unexpected(graphics_error_from_rhi(staging.error(), "create texture staging buffer"));
-        }
-        if (auto written = device->write_buffer(*staging, 0, data); !written) {
-            device->destroy_buffer(*staging);
-            return unexpected(graphics_error_from_rhi(written.error(), "write texture staging buffer"));
-        }
-
-        auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer texture upload"});
+        auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer texture placeholder clear"});
         if (!encoder) {
-            device->destroy_buffer(*staging);
+            return unexpected(graphics_error_from_rhi(encoder.error(), "create placeholder clear encoder"));
+        }
+
+        const RHI::TextureBarrier to_transfer{
+            .texture = resource->texture,
+            .src_stage = RHI::PipelineStage::None,
+            .src_access = RHI::AccessFlags::None,
+            .dst_stage = RHI::PipelineStage::Transfer,
+            .dst_access = RHI::AccessFlags::TransferWrite,
+            .old_layout = RHI::TextureLayout::Undefined,
+            .new_layout = RHI::TextureLayout::TransferDst,
+        };
+        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
+        (*encoder)->clear_color_texture(resource->texture, color, RHI::TextureSubresourceRange{});
+        const RHI::TextureBarrier to_sampled{
+            .texture = resource->texture,
+            .src_stage = RHI::PipelineStage::Transfer,
+            .src_access = RHI::AccessFlags::TransferWrite,
+            .dst_stage = RHI::PipelineStage::FragmentShader,
+            .dst_access = RHI::AccessFlags::ShaderRead,
+            .old_layout = RHI::TextureLayout::TransferDst,
+            .new_layout = RHI::TextureLayout::ShaderReadOnly,
+        };
+        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
+
+        auto command_buffer = (*encoder)->finish();
+        if (!command_buffer) {
+            return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish placeholder clear encoder"));
+        }
+        auto fence = device->create_fence(RHI::FenceDesc{.label = "renderer texture placeholder clear fence"});
+        if (!fence) {
+            device->destroy_command_buffer(*command_buffer);
+            return unexpected(graphics_error_from_rhi(fence.error(), "create placeholder clear fence"));
+        }
+        const array command_buffers{*command_buffer};
+        RHI::SubmitDesc submit_desc{
+            .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
+            .fence = *fence,
+            .flags = RHI::SubmitFlags::OneShot,
+            .label = "renderer texture placeholder clear submit",
+        };
+        if (auto submitted = device->submit(submit_desc); !submitted) {
+            device->destroy_fence(*fence);
+            device->destroy_command_buffer(*command_buffer);
+            return unexpected(graphics_error_from_rhi(submitted.error(), "submit placeholder clear"));
+        }
+        auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
+        device->destroy_fence(*fence);
+        device->destroy_command_buffer(*command_buffer);
+        if (!waited) {
+            return unexpected(graphics_error_from_rhi(waited.error(), "wait placeholder clear fence"));
+        }
+        if (!*waited) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "wait placeholder clear fence: vkWaitForFences timed out.");
+        }
+        return {};
+    }
+
+    Core::RendererExpected<TextureUploadSubmission> Renderer::submit_texture_upload(
+        TextureResource &resource, u32 width, u32 height, RHI::Format format, RHI::BufferHandle staging,
+        u64 staging_offset, RHI::QueueLane queue) {
+        ZoneScopedN("Renderer::submit_texture_upload");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
+                                                          "Cannot upload texture data without an RHI device."});
+        }
+
+        // Records the barrier/copy/barrier sequence that copies `staging`'s already-written bytes into
+        // the device-local texture through a one-shot command buffer (Undefined→TransferDst→
+        // ShaderReadOnly), and submits it on `queue` -- WITHOUT waiting. Same shape as the mesh staging
+        // path.
+        auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "renderer texture upload"});
+        if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create texture upload encoder"));
         }
 
@@ -206,7 +270,7 @@ namespace SFT::Renderer {
         (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
 
         const RHI::BufferTextureCopy copy{
-            .buffer_offset = 0,
+            .buffer_offset = staging_offset,
             .mip_level = 0,
             .base_array_layer = 0,
             .array_layer_count = 1,
@@ -214,7 +278,7 @@ namespace SFT::Renderer {
             .texture_extent = RHI::Extent3D{.width = width, .height = height, .depth_or_layers = 1},
         };
         (void)format;
-        (*encoder)->copy_buffer_to_texture(*staging, resource.texture, copy);
+        (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
 
         const RHI::TextureBarrier to_sampled{
             .texture = resource.texture,
@@ -229,19 +293,18 @@ namespace SFT::Renderer {
 
         auto command_buffer = (*encoder)->finish();
         if (!command_buffer) {
-            device->destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish texture upload encoder"));
         }
 
         auto fence = device->create_fence(RHI::FenceDesc{.label = "renderer texture upload fence"});
         if (!fence) {
             device->destroy_command_buffer(*command_buffer);
-            device->destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(fence.error(), "create texture upload fence"));
         }
 
         const array command_buffers{*command_buffer};
         RHI::SubmitDesc submit_desc{
+            .queue = queue,
             .command_buffers = span<const RHI::CommandBufferHandle>{command_buffers.data(), command_buffers.size()},
             .fence = *fence,
             .flags = RHI::SubmitFlags::OneShot,
@@ -250,13 +313,44 @@ namespace SFT::Renderer {
         if (auto submitted = device->submit(submit_desc); !submitted) {
             device->destroy_fence(*fence);
             device->destroy_command_buffer(*command_buffer);
-            device->destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(submitted.error(), "submit texture upload"));
         }
-        auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
+        return TextureUploadSubmission{*command_buffer, *fence};
+    }
+
+    Core::RendererResult Renderer::upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
+                                                       RHI::Format format, span<const std::byte> data) {
+        ZoneScopedN("Renderer::upload_texture_rgba");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot upload texture data without an RHI device.");
+        }
+
+        auto staging = device->create_buffer(RHI::BufferDesc{
+            .size = static_cast<u64>(data.size()),
+            .usage = RHI::BufferUsage::TransferSrc,
+            .memory = RHI::MemoryLocation::HostUpload,
+            .label = "renderer texture staging",
+        });
+        if (!staging) {
+            return unexpected(graphics_error_from_rhi(staging.error(), "create texture staging buffer"));
+        }
+        if (auto written = device->write_buffer(*staging, 0, data); !written) {
+            device->destroy_buffer(*staging);
+            return unexpected(graphics_error_from_rhi(written.error(), "write texture staging buffer"));
+        }
+
+        auto submitted = submit_texture_upload(resource, width, height, format, *staging);
+        if (!submitted) {
+            device->destroy_buffer(*staging);
+            return unexpected(submitted.error());
+        }
+
+        auto waited = device->wait_fences(span<const RHI::FenceHandle>{&submitted->fence, 1}, true);
         if (!waited) {
-            device->destroy_fence(*fence);
-            device->destroy_command_buffer(*command_buffer);
+            device->destroy_fence(submitted->fence);
+            device->destroy_command_buffer(submitted->command_buffer);
             device->destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(waited.error(), "wait texture upload fence"));
         }
@@ -268,8 +362,8 @@ namespace SFT::Renderer {
                                                 "wait texture upload fence: vkWaitForFences timed out.");
         }
 
-        device->destroy_fence(*fence);
-        device->destroy_command_buffer(*command_buffer);
+        device->destroy_fence(submitted->fence);
+        device->destroy_command_buffer(submitted->command_buffer);
         device->destroy_buffer(*staging);
         return {};
     }

@@ -54,6 +54,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME EngineDockWindowCoordinatorTest COMMAND EngineDockWindowCoordinatorTest)
     set_tests_properties(EngineDockWindowCoordinatorTest PROPERTIES TIMEOUT 10)
 
+    add_executable(EngineTextureStreamingCompressionTest tests/TextureStreamingCompressionTest.cpp)
+    target_link_libraries(EngineTextureStreamingCompressionTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineTextureStreamingCompressionTest)
+    add_test(NAME EngineTextureStreamingCompressionTest COMMAND EngineTextureStreamingCompressionTest)
+    set_tests_properties(EngineTextureStreamingCompressionTest PROPERTIES TIMEOUT 10)
+
     if(NOT STURDY_BUILD_SHARED_LIBS)
         add_executable(
             EngineStaticAggregateUnusedProbe

@@ -1,5 +1,7 @@
 #include "TextureCompression.hpp"
 
+#include <Core/src/Core/Decompression.hpp>
+
 #include <bc7enc.h>
 
 #include <algorithm>
@@ -137,6 +139,91 @@ namespace SFT::Engine::Detail {
             std::call_once(once, [] { bc7enc_compress_block_init(); });
         }
 
+        // Same "deliberately not a portable/versioned-forever format" caveat as CacheHeader above --
+        // a local regenerate-on-miss cache, not shipped data. `decompressed_size` (the original
+        // bc7_blocks size) is stored here because GDeflate's own container doesn't self-describe it
+        // (see Core::decompress_gdeflate's doc comment) -- without it, reading this cache back would
+        // have nothing to pass as decompress_gdeflate's required exact-size argument.
+        struct GDeflateCacheHeader {
+            std::array<char, 4> magic{'S', 'G', 'D', 'F'};
+            u32 version = 1;
+            u32 width = 0;
+            u32 height = 0;
+            u8 srgb = 0;
+            std::array<u8, 3> reserved{};
+            u64 decompressed_size = 0;
+            u64 compressed_size = 0;
+        };
+
+        [[nodiscard]] u64 content_hash_bytes(std::span<const std::byte> data, u32 width, u32 height,
+                                             bool srgb) noexcept {
+            u64 hash = kFnvOffsetBasis;
+            hash = fnv1a_append_pod(width, hash);
+            hash = fnv1a_append_pod(height, hash);
+            hash = fnv1a_append_pod(srgb, hash);
+            hash = fnv1a_append(data, hash);
+            return hash;
+        }
+
+        [[nodiscard]] std::filesystem::path gdeflate_cache_path_for(u64 hash) {
+            char hex[17];
+            std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(hash));
+            return std::filesystem::path{".cache"} / "compressed_textures" / (std::string{hex} + ".sgdf");
+        }
+
+        [[nodiscard]] std::optional<std::vector<std::byte>> read_gdeflate_cache(
+            const std::filesystem::path &path, u32 width, u32 height, bool srgb, u64 expected_decompressed_size) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file) {
+                return std::nullopt;
+            }
+            GDeflateCacheHeader header{};
+            file.read(reinterpret_cast<char *>(&header), sizeof(header));
+            if (!file || header.magic != std::array<char, 4>{'S', 'G', 'D', 'F'} || header.version != 1 ||
+                header.width != width || header.height != height || header.srgb != (srgb ? 1u : 0u) ||
+                header.decompressed_size != expected_decompressed_size) {
+                return std::nullopt;
+            }
+            std::vector<std::byte> compressed(static_cast<usize>(header.compressed_size));
+            file.read(reinterpret_cast<char *>(compressed.data()), static_cast<std::streamsize>(compressed.size()));
+            if (!file || file.peek() != std::char_traits<char>::eof()) {
+                return std::nullopt;
+            }
+            return compressed;
+        }
+
+        void write_gdeflate_cache(const std::filesystem::path &path, u32 width, u32 height, bool srgb,
+                                  u64 decompressed_size, std::span<const std::byte> compressed) noexcept {
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+            if (ec) {
+                return;
+            }
+            const std::filesystem::path temp_path = path.string() + ".tmp";
+            {
+                std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+                if (!file) {
+                    return;
+                }
+                const GDeflateCacheHeader header{
+                    .width = width,
+                    .height = height,
+                    .srgb = static_cast<u8>(srgb ? 1 : 0),
+                    .decompressed_size = decompressed_size,
+                    .compressed_size = compressed.size(),
+                };
+                file.write(reinterpret_cast<const char *>(&header), sizeof(header));
+                file.write(reinterpret_cast<const char *>(compressed.data()), static_cast<std::streamsize>(compressed.size()));
+                if (!file) {
+                    return;
+                }
+            }
+            std::filesystem::rename(temp_path, path, ec);
+            if (ec) {
+                std::filesystem::remove(temp_path, ec);
+            }
+        }
+
     } // namespace
 
     std::optional<std::vector<std::byte>> compress_bc7(std::span<const std::byte> rgba8, u32 width, u32 height,
@@ -183,6 +270,27 @@ namespace SFT::Engine::Detail {
 
         write_cache(path, width, height, srgb, blocks);
         return blocks;
+    }
+
+    std::optional<std::vector<std::byte>> compress_gdeflate_sibling(std::span<const std::byte> bc7_blocks,
+                                                                     u32 width, u32 height, bool srgb) {
+        if (bc7_blocks.empty()) {
+            return std::nullopt;
+        }
+
+        const u64 hash = content_hash_bytes(bc7_blocks, width, height, srgb);
+        const std::filesystem::path path = gdeflate_cache_path_for(hash);
+        if (std::optional<std::vector<std::byte>> cached =
+                read_gdeflate_cache(path, width, height, srgb, static_cast<u64>(bc7_blocks.size()))) {
+            return cached;
+        }
+
+        auto compressed = Core::compress_gdeflate(bc7_blocks);
+        if (!compressed) {
+            return std::nullopt;
+        }
+        write_gdeflate_cache(path, width, height, srgb, static_cast<u64>(bc7_blocks.size()), *compressed);
+        return std::move(*compressed);
     }
 
 } // namespace SFT::Engine::Detail

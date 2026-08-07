@@ -78,4 +78,15 @@ namespace SFT::Renderer {
         bool externally_destroyable = true;
     };
 
+    // Result of Renderer::submit_texture_upload(): a submitted-but-not-yet-waited-on pixel upload.
+    // The caller owns both handles until it confirms `fence` has signaled (RHI::RhiDevice::
+    // wait_fences) -- only then are `command_buffer`/`fence` safe to destroy. Deliberately does not
+    // track the staging buffer that fed the copy: that buffer's lifetime is entirely the caller's own
+    // responsibility (a one-off buffer for the synchronous path, a ring-owned chunk for the
+    // asynchronous streaming path).
+    struct TextureUploadSubmission {
+        RHI::CommandBufferHandle command_buffer{};
+        RHI::FenceHandle fence{};
+    };
+
 } // namespace SFT::Renderer
