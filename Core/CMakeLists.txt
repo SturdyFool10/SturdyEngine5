@@ -23,6 +23,11 @@ if(NOT STURDY_OS STREQUAL "Linux")
     list(APPEND _sturdy_core_excluded_source_dirs IoUring)
 endif()
 
+set(_sturdy_core_streaming_io_deps)
+if(STURDY_OS STREQUAL "Windows")
+    list(APPEND _sturdy_core_streaming_io_deps Sturdy::DirectStorage)
+endif()
+
 # STURDY_LICENSES_EMBED_CPP is generated at configure time by sturdy_generate_license_embeds()
 # (see cmake/SturdyLicenses.cmake) — it implements the :Licenses partition declared in
 # Core/Licenses.cppm, #embed-ing every dependency's license text directly into the binary.
@@ -45,6 +50,7 @@ sturdy_add_package(Core
     PRIVATE_DEPS
         Sturdy::Tracy
         Sturdy::gdeflate
+        ${_sturdy_core_streaming_io_deps}
 
     # volk provides dynamically-loaded entry points; VK_NO_PROTOTYPES keeps the Vulkan headers
     # from also declaring statically-linked prototypes. Set now so volk includes are correct as

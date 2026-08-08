@@ -6,6 +6,16 @@
 #include <Async/src/Mutex.hpp>
 #include <Renderer/Renderer.hpp>
 
+// Per-platform fast-file-read backends, both optimizations over the std::ifstream fallback below
+// -- see their own doc comments for what each does and doesn't touch. Every other platform (MacOS,
+// FreeBSD, Web) has no fast-path backend at all and always takes the std::ifstream tier, which is
+// this function's general compatibility fallback, not just Windows/Linux's own error path.
+#if defined(_WIN32)
+    #include <Core/src/Core/Vulkan/DirectStorage/DirectStorageBackend.hpp>
+#elif defined(__linux__)
+    #include <Core/src/Core/IoUring/IoUringBackend.hpp>
+#endif
+
 #include <array>
 #include <atomic>
 #include <fstream>
@@ -28,6 +38,28 @@ namespace SFT::Engine {
         // read_binary_file: both are small, self-contained, and pulling this into a shared header
         // purely to avoid ~15 duplicated lines isn't worth the coupling right now.
         [[nodiscard]] AssetExpected<vector<std::byte>> read_binary_file_streamed(const std::filesystem::path &source) {
+            // Try the platform fast-read backend first -- DirectStorage on Windows, io_uring on
+            // Linux (see their own doc comments for exactly what each does and does not touch); no
+            // backend exists for any other platform, and both backends' own *_available() checks
+            // are cheap after the first call (a cached flag), so this costs nothing in steady
+            // state. Any failure -- unavailable, or a per-request error -- falls straight through
+            // to the std::ifstream tier below rather than propagating: every backend here is
+            // strictly an optimization, never the only way to read a texture, and std::ifstream is
+            // the one path guaranteed to work everywhere (including a platform/backend combination
+            // that regresses or a sandbox that blocks the fast-path syscalls/APIs outright).
+#if defined(_WIN32)
+            if (Core::direct_storage_available()) {
+                if (auto bytes = Core::read_file_direct_storage(source)) {
+                    return std::move(*bytes);
+                }
+            }
+#elif defined(__linux__)
+            if (Core::io_uring_available()) {
+                if (auto bytes = Core::read_file_io_uring(source)) {
+                    return std::move(*bytes);
+                }
+            }
+#endif
             std::ifstream file(source, std::ios::binary | std::ios::ate);
             if (!file.is_open()) {
                 const AssetErrorCode code =

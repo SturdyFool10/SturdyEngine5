@@ -248,6 +248,25 @@ function(sturdy_add_package package_name)
             VERBATIM
         )
 
+    # DirectStorage ships as two DLLs (dstorage.dll + its own dstoragecore.dll dependency) that
+    # must sit next to any executable that transitively links Sturdy::Core on Windows -- see
+    # sturdy_fetch_directstorage()'s own doc comment for why both are required. Centralized here
+    # (rather than in every product's own CMakeLists.txt) so it automatically covers every demo/
+    # test executable this function builds, present or future.
+    if(STURDY_OS STREQUAL "Windows" AND TARGET Sturdy::DirectStorage)
+      get_target_property(_sturdy_dstorage_dll Sturdy::DirectStorage STURDY_DIRECTSTORAGE_DLL)
+      get_target_property(_sturdy_dstorage_core_dll Sturdy::DirectStorage STURDY_DIRECTSTORAGE_CORE_DLL)
+      if(_sturdy_dstorage_dll AND _sturdy_dstorage_core_dll)
+        add_custom_command(TARGET "${package_name}" POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                  "${_sturdy_dstorage_dll}"
+                  "${_sturdy_dstorage_core_dll}"
+                  "$<TARGET_FILE_DIR:${package_name}>"
+                VERBATIM
+            )
+      endif()
+    endif()
+
     set_target_properties("${package_name}" PROPERTIES
             VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
