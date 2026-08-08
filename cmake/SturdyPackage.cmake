@@ -267,20 +267,21 @@ function(sturdy_add_package package_name)
       endif()
     endif()
 
-    # Generic runtime-DLL copy for every SHARED library actually in this target's link graph --
-    # covers Slang, whose own CMake always produces real shared modules (slang-compiler.dll,
-    # slang-glslang.dll, slang-rt.dll, ...) even though Sturdy::Slang itself links in "static" mode
-    # (see sturdy_fetch_slang()'s own comment): the "static" target is a thin wrapper around those
-    # DLLs, not a fully self-contained static library, so they must ship next to any executable that
-    # calls into the compiler or a shader fails to load with no Shaders/ directory-missing message
-    # to explain why -- just a DLL-not-found failure at Slang call time. Unlike the DirectStorage
-    # copy above (a bare extracted NuGet .lib/.dll pair CMake has no target-level knowledge of),
-    # Slang's DLLs are real CMake SHARED targets pulled in via add_subdirectory(), so the generic
-    # $<TARGET_RUNTIME_DLLS:...> generator expression (CMake's own recommended mechanism for exactly
-    # this) finds them without hardcoding any Slang-internal target names that could rename across
-    # versions -- and for free, also covers any other shared dependency this build ever grows.
+    # Generic runtime-DLL copy for every SHARED library actually in this target's link graph. Not
+    # needed for Slang today -- sturdy_fetch_slang() forces SLANG_LIB_TYPE=STATIC precisely so no
+    # slang-compiler.dll exists to copy in the first place -- but kept as a general safety net for
+    # any dependency that does produce a real CMake SHARED target (unlike the DirectStorage copy
+    # above, a bare extracted NuGet .lib/.dll pair CMake has no target-level knowledge of): the
+    # generic $<TARGET_RUNTIME_DLLS:...> generator expression (CMake's own recommended mechanism
+    # for exactly this) finds those without hardcoding any dependency-internal target names.
+    #
+    # $<TARGET_RUNTIME_DLLS:...> is empty on an all-static build like this one's default, and
+    # `cmake -E copy_if_different <files...> <dest>` errors with no <files...> at all -- the
+    # $<IF:...> below swaps in the `true` no-op subcommand for that case (which, unlike
+    # copy_if_different, tolerates and ignores the dangling <dest> argument) rather than skipping
+    # the whole COMMAND, since COMMAND_EXPAND_LISTS does not drop an empty-list COMMAND for us.
     add_custom_command(TARGET "${package_name}" POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            COMMAND "${CMAKE_COMMAND}" -E "$<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:${package_name}>>,copy_if_different,true>"
               "$<TARGET_RUNTIME_DLLS:${package_name}>"
               "$<TARGET_FILE_DIR:${package_name}>"
             COMMAND_EXPAND_LISTS

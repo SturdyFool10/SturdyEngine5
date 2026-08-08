@@ -534,7 +534,17 @@ function(sturdy_fetch_slang)
         return()
     endif()
 
-    # BUILD_SHARED_LIBS=OFF (forced globally) makes the Slang build produce a static library.
+    # Slang does NOT respect the global BUILD_SHARED_LIBS=OFF (forced by this repo's own
+    # CMakeLists.txt) -- it gates its own compiler library's SHARED/STATIC choice through this
+    # separate SLANG_LIB_TYPE option instead (see slang's top-level CMakeLists.txt's enum_option()
+    # call), which defaults to SHARED regardless. Left at that default, Slang produces a real
+    # slang-compiler.dll (and, on Windows, a slang.dll proxy that forwards to it) that must ship
+    # next to any executable calling into the compiler -- forcing STATIC here instead bakes the
+    # whole compiler directly into Sturdy::Slang's static archive, so no such DLL exists at all.
+    # (slang-glslang.dll is unaffected either way -- it is always a MODULE, a lazily dlopen()'d
+    # downstream-compiler plugin Slang probes for at runtime, never a link-time dependency, and
+    # this engine's SPIR-V-only usage never needs it; its absence is a soft, non-fatal miss.)
+    set(SLANG_LIB_TYPE STATIC CACHE STRING "" FORCE)
     set(SLANG_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_REPLAYER OFF CACHE BOOL "" FORCE)
