@@ -4,6 +4,7 @@
 #include "TextureStreamer.hpp"
 
 #include <Core/Core.hpp>
+#include <Core/Slang/EmbeddedShaders.hpp>
 #include <Renderer/Renderer.hpp>
 
 #include <miniaudio.h>
@@ -255,9 +256,15 @@ namespace SFT::Engine {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A shader asset requires a source path."));
         }
-        if (!std::filesystem::exists(desc.source)) {
+        // A missing file on disk isn't fatal by itself -- Core::Slang::ShaderCompiler (via
+        // ShaderImpl.cpp's read_text_file()/EmbeddedFallbackFileSystem) falls back to the engine's
+        // own embedded copy of every Shaders/ file (see EmbeddedShaders.hpp's own doc comment), so
+        // only reject here if there's genuinely no source available from either place. `desc.source`
+        // is still threaded through as the File-kind ShaderSource's path below either way, so a
+        // ShaderWatcher later seeing the same file actually appear on disk still hot-reloads it.
+        if (!std::filesystem::exists(desc.source) && Core::Slang::find_embedded_shader(desc.source.string()) == nullptr) {
             return std::unexpected(error(AssetErrorCode::NotFound,
-                                         "Shader source does not exist: '" + desc.source.string() + "'.",
+                                         "Shader source does not exist on disk and has no embedded fallback: '" + desc.source.string() + "'.",
                                          desc.source));
         }
         if (desc.label.empty()) {

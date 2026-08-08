@@ -134,9 +134,13 @@ sturdy_configure_compiler_launcher()
 
 include(SturdyDependencies)
 include(SturdyLicenses)
+include(SturdyShaders)
 include(SturdyPackage)
 
 sturdy_configure_dependencies()
+# Must run before add_subdirectory(Core) below, since Core/CMakeLists.txt's sturdy_add_package()
+# call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
+sturdy_generate_shader_embeds()
 add_subdirectory(Foundation)
 add_subdirectory(Async)
 add_subdirectory(Ecs)

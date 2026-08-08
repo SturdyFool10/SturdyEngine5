@@ -19,6 +19,7 @@
 #pragma endregion
 
 #include <Async/src/Mutex.hpp>
+#include <Core/Slang/EmbeddedShaders.hpp>
 #include <Core/Slang/Shader.hpp>
 #include <Core/Slang/ShaderError.hpp>
 #include <Core/Slang/ShaderSource.hpp>
@@ -70,27 +71,151 @@ namespace SFT::Core::Slang {
             return "runtime_shader";
         }
 
+        // Falls back to Core::Slang::embedded_shaders() (see EmbeddedShaders.hpp's own doc comment)
+        // whenever `path` can't be opened/read from disk, so a File-kind ShaderSource -- what every
+        // hot-reloadable material template recompiles from, see Renderer::reload_material_template
+        // -- still resolves in a shipped build with no Shaders/ directory next to the executable at
+        // all. Disk always wins when the file is actually there, so live edits keep hot-reloading
+        // exactly as before; this only kicks in for a file that is genuinely missing/unreadable.
         [[nodiscard]] ShaderExpected<string> read_text_file(const string &path) {
             ifstream file(path, ios::binary);
-            if (!file) {
-                return shader_error(ShaderErrorCode::FileReadFailed, "Failed to open Slang shader file: " + path);
-            }
-
+            bool disk_ok = static_cast<bool>(file);
             string contents;
-            file.seekg(0, ios::end);
-            const streamoff size = file.tellg();
-            if (size > 0) {
-                contents.resize(static_cast<usize>(size));
-                file.seekg(0, ios::beg);
-                file.read(contents.data(), size);
+            if (disk_ok) {
+                file.seekg(0, ios::end);
+                const streamoff size = file.tellg();
+                if (size > 0) {
+                    contents.resize(static_cast<usize>(size));
+                    file.seekg(0, ios::beg);
+                    file.read(contents.data(), size);
+                }
+                disk_ok = static_cast<bool>(file) || file.eof();
+            }
+            if (disk_ok) {
+                return contents;
             }
 
-            if (!file && !file.eof()) {
-                return shader_error(ShaderErrorCode::FileReadFailed, "Failed to read Slang shader file: " + path);
+            if (const EmbeddedShaderSource *embedded = find_embedded_shader(path)) {
+                Foundation::log_info("Slang: '{}' not found on disk, using the embedded copy.", path);
+                return string{embedded->source};
             }
-
-            return contents;
+            return shader_error(ShaderErrorCode::FileReadFailed, "Failed to open Slang shader file: " + path);
         }
+
+        // Delegates `import`/`#include` resolution to the OS file system first, falling back to
+        // Core::Slang::embedded_shaders() on any failure -- same "disk always wins when present"
+        // contract as read_text_file() above, just for the files a shader pulls in rather than its
+        // own top-level source. Without this, a shader whose top-level text is already in hand (a
+        // SourceString-kind ShaderSource, e.g. everything discover_shaders() reflects) would still
+        // fail to compile in a Shaders/-less shipped build the instant it `import`s a shared module
+        // like sturdy_common.slang, since Slang resolves those through its own file system hook
+        // (SessionDesc::fileSystem below), never through ShaderSource/read_text_file() at all.
+        //
+        // A process-wide singleton, intentionally never destroyed: it is heap-allocated once and
+        // never release()d by this code, so Slang's own addRef()/release() pairs (one per session
+        // that references it) fluctuate the refcount above zero for the process's whole lifetime --
+        // release() below deliberately never deletes `this`, unlike a normal COM object, since this
+        // is not something any code (including Slang) actually owns.
+        class EmbeddedFallbackFileSystem final : public ISlangFileSystem {
+          public:
+            [[nodiscard]] static EmbeddedFallbackFileSystem &instance() noexcept {
+                static EmbeddedFallbackFileSystem *singleton = new EmbeddedFallbackFileSystem();
+                return *singleton;
+            }
+
+            SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(SlangUUID const &uuid, void **outObject) override {
+                ISlangUnknown *found = get_interface(uuid);
+                if (found == nullptr) {
+                    return SLANG_E_NO_INTERFACE;
+                }
+                *outObject = found;
+                return SLANG_OK;
+            }
+            SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override { return 1; }
+            SLANG_NO_THROW uint32_t SLANG_MCALL release() override { return 1; }
+
+            SLANG_NO_THROW void *SLANG_MCALL castAs(const SlangUUID &guid) override { return get_interface(guid); }
+
+            SLANG_NO_THROW SlangResult SLANG_MCALL loadFile(char const *path, ISlangBlob **outBlob) override {
+                if (path == nullptr || outBlob == nullptr) {
+                    return SLANG_E_INVALID_ARG;
+                }
+
+                ifstream file(path, ios::binary);
+                if (file) {
+                    string contents;
+                    file.seekg(0, ios::end);
+                    const streamoff size = file.tellg();
+                    if (size > 0) {
+                        contents.resize(static_cast<usize>(size));
+                        file.seekg(0, ios::beg);
+                        file.read(contents.data(), size);
+                    }
+                    if (file || file.eof()) {
+                        *outBlob = make_owned_blob(std::move(contents));
+                        return SLANG_OK;
+                    }
+                }
+
+                if (const EmbeddedShaderSource *embedded = find_embedded_shader(path)) {
+                    Foundation::log_info("Slang: import '{}' not found on disk, using the embedded copy.", path);
+                    *outBlob = make_owned_blob(string{embedded->source});
+                    return SLANG_OK;
+                }
+
+                return SLANG_E_CANNOT_OPEN;
+            }
+
+          private:
+            EmbeddedFallbackFileSystem() = default;
+
+            [[nodiscard]] ISlangUnknown *get_interface(const SlangUUID &uuid) noexcept {
+                if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangCastable::getTypeGuid() ||
+                    uuid == ISlangFileSystem::getTypeGuid()) {
+                    return this;
+                }
+                return nullptr;
+            }
+
+            // A small, self-contained ISlangBlob over an owned std::string -- one per loadFile()
+            // call, refcounted and destroyed normally by Slang once it's done with the content
+            // (unlike EmbeddedFallbackFileSystem itself, these are ordinary heap objects Slang
+            // really does own).
+            class OwnedTextBlob final : public ISlangBlob {
+              public:
+                explicit OwnedTextBlob(string text) : text_(std::move(text)) {}
+
+                SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(SlangUUID const &uuid, void **outObject) override {
+                    if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangBlob::getTypeGuid()) {
+                        addRef();
+                        *outObject = this;
+                        return SLANG_OK;
+                    }
+                    return SLANG_E_NO_INTERFACE;
+                }
+                SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override { return ++ref_count_; }
+                SLANG_NO_THROW uint32_t SLANG_MCALL release() override {
+                    const uint32_t remaining = --ref_count_;
+                    if (remaining == 0) {
+                        delete this;
+                    }
+                    return remaining;
+                }
+
+                SLANG_NO_THROW void const *SLANG_MCALL getBufferPointer() override { return text_.data(); }
+                SLANG_NO_THROW size_t SLANG_MCALL getBufferSize() override { return text_.size(); }
+
+              private:
+                string text_;
+                uint32_t ref_count_ = 0;
+            };
+
+            [[nodiscard]] static ISlangBlob *make_owned_blob(string text) {
+                auto *blob = new OwnedTextBlob(std::move(text));
+                blob->addRef();
+                return blob;
+            }
+        };
 
         [[nodiscard]] SlangCompileTarget to_slang_target(ShaderTargetFormat format) noexcept {
             switch (format) {
@@ -1007,6 +1132,10 @@ namespace SFT::Core::Slang {
             session_desc.allowGLSLSyntax = static_cast<bool>(options.allow_glsl_syntax);
             session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
             session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
+            // Lets `import`/`#include` resolution fall back to the embedded shader table when a
+            // pulled-in file is missing from disk -- see EmbeddedFallbackFileSystem's own doc
+            // comment above for why this is a separate hook from read_text_file()'s own fallback.
+            session_desc.fileSystem = &EmbeddedFallbackFileSystem::instance();
 
             auto shader_state = make_shared<ShaderState>();
             shader_state->module_name = module_name;

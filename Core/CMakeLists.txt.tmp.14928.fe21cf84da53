@@ -31,9 +31,6 @@ endif()
 # STURDY_LICENSES_EMBED_CPP is generated at configure time by sturdy_generate_license_embeds()
 # (see cmake/SturdyLicenses.cmake) — it implements the :Licenses partition declared in
 # Core/Licenses.cppm, #embed-ing every dependency's license text directly into the binary.
-# STURDY_SHADERS_EMBED_CPP is its sibling from cmake/SturdyShaders.cmake's
-# sturdy_generate_shader_embeds() — it implements Core::Slang::embedded_shaders() (see
-# Core/src/Core/Slang/EmbeddedShaders.hpp), #embed-ing every *.slang file under Shaders/.
 sturdy_add_package(Core
     SOURCES
         "${STURDY_LICENSES_EMBED_CPP}"

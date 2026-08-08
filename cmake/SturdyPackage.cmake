@@ -267,6 +267,26 @@ function(sturdy_add_package package_name)
       endif()
     endif()
 
+    # Generic runtime-DLL copy for every SHARED library actually in this target's link graph --
+    # covers Slang, whose own CMake always produces real shared modules (slang-compiler.dll,
+    # slang-glslang.dll, slang-rt.dll, ...) even though Sturdy::Slang itself links in "static" mode
+    # (see sturdy_fetch_slang()'s own comment): the "static" target is a thin wrapper around those
+    # DLLs, not a fully self-contained static library, so they must ship next to any executable that
+    # calls into the compiler or a shader fails to load with no Shaders/ directory-missing message
+    # to explain why -- just a DLL-not-found failure at Slang call time. Unlike the DirectStorage
+    # copy above (a bare extracted NuGet .lib/.dll pair CMake has no target-level knowledge of),
+    # Slang's DLLs are real CMake SHARED targets pulled in via add_subdirectory(), so the generic
+    # $<TARGET_RUNTIME_DLLS:...> generator expression (CMake's own recommended mechanism for exactly
+    # this) finds them without hardcoding any Slang-internal target names that could rename across
+    # versions -- and for free, also covers any other shared dependency this build ever grows.
+    add_custom_command(TARGET "${package_name}" POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "$<TARGET_RUNTIME_DLLS:${package_name}>"
+              "$<TARGET_FILE_DIR:${package_name}>"
+            COMMAND_EXPAND_LISTS
+            VERBATIM
+        )
+
     set_target_properties("${package_name}" PROPERTIES
             VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
