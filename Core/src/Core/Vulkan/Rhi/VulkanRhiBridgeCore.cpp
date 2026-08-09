@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -66,12 +67,33 @@ namespace SFT::Core::Vulkan {
             return std::filesystem::path{".cache/vulkan_pipeline_cache.bin"};
         }
 
+        // Pipeline-cache persistence is strictly opportunistic. Limit the local blob before
+        // allocating so a corrupt or externally modified cache cannot fail device initialization.
+        constexpr usize max_pipeline_cache_blob_bytes = 128ull * 1024ull * 1024ull;
+
         [[nodiscard]] std::vector<u8> load_pipeline_cache_blob() {
-            std::ifstream file(pipeline_cache_path(), std::ios::binary);
-            if (!file) {
+            try {
+                const std::filesystem::path cache_path = pipeline_cache_path();
+                std::error_code ec;
+                const auto size = std::filesystem::file_size(cache_path, ec);
+                if (ec || size > max_pipeline_cache_blob_bytes) {
+                    return {};
+                }
+
+                std::ifstream file(cache_path, std::ios::binary);
+                if (!file) {
+                    return {};
+                }
+
+                std::vector<u8> blob(static_cast<usize>(size));
+                if (!blob.empty() &&
+                    !file.read(reinterpret_cast<char *>(blob.data()), static_cast<std::streamsize>(blob.size()))) {
+                    return {};
+                }
+                return blob;
+            } catch (...) {
                 return {};
             }
-            return std::vector<u8>{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
         }
 
         // Best-effort, same "never fail the caller, just skip caching this run" convention as

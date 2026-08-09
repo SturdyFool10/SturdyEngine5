@@ -57,10 +57,11 @@ option(
 )
 option(STURDY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for SturdyEngine targets." OFF)
 # Controls Tracy's own TRACY_ENABLE (see sturdy_fetch_tracy() in cmake/SturdyDependencies.cmake).
-# The Tracy client library is always fetched and linked so instrumented source always compiles;
-# this only decides whether its zone/frame macros record anything or are no-ops. Turn OFF for Dist
-# (shipping) builds that should carry zero profiling overhead.
-option(STURDY_ENABLE_TRACY "Compile Tracy profiler instrumentation into Sturdy targets." OFF)
+# The Tracy 0.13.1 client library is always fetched and linked so instrumented source always
+# compiles; this only decides whether its zone/frame macros record anything or are no-ops. Turn
+# ON to capture with Tracy Profiler 0.13.1, and OFF for Dist (shipping) builds that should carry
+# zero profiling overhead.
+option(STURDY_ENABLE_TRACY "Compile Tracy 0.13.1 profiler instrumentation into Sturdy targets." OFF)
 option(STURDY_USE_COMPILER_LAUNCHER "Use sccache/ccache when available to speed repeated C/C++ builds." ON)
 set(STURDY_COMPILER_LAUNCHER "" CACHE FILEPATH "Explicit compiler launcher executable. Overrides auto-detected sccache/ccache when set.")
 option(STURDY_GLOB_CONFIGURE_DEPENDS "Re-check source globs during every build. Disable for faster incremental Ninja builds; re-run CMake after adding/removing files." OFF)

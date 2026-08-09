@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
@@ -19,10 +20,15 @@ namespace SFT::Async {
     class TcpConnection;
 
     namespace Detail {
+        struct TcpConnectionState;
+
         [[nodiscard]] std::expected<TcpConnection, IoError> connect_blocking(const std::string &host, u16 port);
-        [[nodiscard]] std::expected<usize, IoError> send_blocking(i64 handle, std::span<const std::byte> data);
-        [[nodiscard]] std::expected<std::vector<std::byte>, IoError> receive_blocking(i64 handle, usize max_bytes);
-        void close_blocking(i64 handle) noexcept;
+        [[nodiscard]] std::expected<usize, IoError> send_blocking(
+            const std::shared_ptr<TcpConnectionState> &state, std::span<const std::byte> data);
+        [[nodiscard]] std::expected<std::vector<std::byte>, IoError> receive_blocking(
+            const std::shared_ptr<TcpConnectionState> &state, usize max_bytes);
+        [[nodiscard]] bool connection_is_open(const std::shared_ptr<TcpConnectionState> &state) noexcept;
+        void close_blocking(const std::shared_ptr<TcpConnectionState> &state) noexcept;
     } // namespace Detail
 
     class TcpConnection {
@@ -47,25 +53,24 @@ namespace SFT::Async {
 
         template <AsyncRuntime Rt = DefaultRuntime>
         [[nodiscard]] auto send(std::vector<std::byte> data) {
-            return Rt::spawn([this, data = std::move(data)]() {
-                return Detail::send_blocking(handle_, data);
+            return Rt::spawn([state = state_, data = std::move(data)]() {
+                return Detail::send_blocking(state, data);
             });
         }
 
         template <AsyncRuntime Rt = DefaultRuntime>
         [[nodiscard]] auto receive(usize max_bytes) {
-            return Rt::spawn([this, max_bytes]() {
-                return Detail::receive_blocking(handle_, max_bytes);
+            return Rt::spawn([state = state_, max_bytes]() {
+                return Detail::receive_blocking(state, max_bytes);
             });
         }
 
       private:
         friend std::expected<TcpConnection, IoError> Detail::connect_blocking(const std::string &host, u16 port);
 
-        explicit TcpConnection(i64 native_handle) noexcept
-            : handle_(native_handle) {}
+        explicit TcpConnection(i64 native_handle);
 
-        i64 handle_ = -1;
+        std::shared_ptr<Detail::TcpConnectionState> state_;
     };
 
 } // namespace SFT::Async

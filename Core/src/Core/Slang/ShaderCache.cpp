@@ -5,7 +5,6 @@
 #include <cstring>
 #include <fstream>
 #include <ios>
-#include <iterator>
 #include <memory>
 #include <system_error>
 #include <type_traits>
@@ -31,12 +30,41 @@ namespace SFT::Core::Slang {
         constexpr u32 shader_reflection_cache_format_version = 1;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u; // "SHCR"
 
+        // Both cache formats are opportunistic local artifacts. Bound their resource use so a
+        // damaged or externally modified cache remains a cache miss rather than an engine failure.
+        constexpr usize max_shader_cache_file_bytes = 128ull * 1024ull * 1024ull;
+        constexpr u32 max_shader_cache_collection_items = 65'536;
+        constexpr usize max_shader_reflection_nesting_depth = 64;
+
+        [[nodiscard]] optional<string> read_cache_file(const path &file_path) {
+            std::error_code ec;
+            const auto size = std::filesystem::file_size(file_path, ec);
+            if (ec || size > max_shader_cache_file_bytes) {
+                return std::nullopt;
+            }
+
+            ifstream file(file_path, ios::binary);
+            if (!file) {
+                return std::nullopt;
+            }
+
+            string contents(static_cast<usize>(size), '\0');
+            if (!contents.empty() &&
+                !file.read(contents.data(), static_cast<std::streamsize>(contents.size()))) {
+                return std::nullopt;
+            }
+            return contents;
+        }
+
         // --- Binary writer/reader: flat, no alignment padding, little-endian (this cache never
         // crosses machines/processes with different endianness — it's a same-build local artifact). ---
 
         class ByteWriter {
           public:
             void write_bytes(const void *data, usize size) {
+                if (size == 0) {
+                    return;
+                }
                 const auto *bytes = static_cast<const byte *>(data);
                 buffer_.insert(buffer_.end(), bytes, bytes + size);
             }
@@ -70,9 +98,12 @@ namespace SFT::Core::Slang {
             ByteReader(const byte *data, usize size) : data_(data), size_(size) {}
 
             [[nodiscard]] bool ok() const noexcept { return !failed_; }
+            [[nodiscard]] usize remaining() const noexcept { return failed_ ? 0 : size_ - offset_; }
+
+            void fail() noexcept { failed_ = true; }
 
             void read_bytes(void *out, usize size) {
-                if (failed_ || offset_ + size > size_) {
+                if (failed_ || size > remaining()) {
                     failed_ = true;
                     return;
                 }
@@ -90,7 +121,7 @@ namespace SFT::Core::Slang {
 
             [[nodiscard]] string read_string() {
                 const u32 len = read<u32>();
-                if (failed_ || offset_ + len > size_) {
+                if (failed_ || len > remaining()) {
                     failed_ = true;
                     return {};
                 }
@@ -101,7 +132,7 @@ namespace SFT::Core::Slang {
 
             [[nodiscard]] vector<byte> read_bytes_vector() {
                 const u32 len = read<u32>();
-                if (failed_ || offset_ + len > size_) {
+                if (failed_ || len > remaining()) {
                     failed_ = true;
                     return {};
                 }
@@ -126,7 +157,7 @@ namespace SFT::Core::Slang {
         // building a dedup/back-reference table — simpler, and correct as long as that holds. ---
 
         void write_type_reflection(ByteWriter &w, const ShaderTypeReflection &type);
-        [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r);
+        [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r, usize depth = 0);
 
         void write_binding_range(ByteWriter &w, const ShaderBindingRangeReflection &range) {
             w.write(static_cast<u32>(range.type));
@@ -162,11 +193,20 @@ namespace SFT::Core::Slang {
             }
         }
 
+        [[nodiscard]] bool valid_collection_count(ByteReader &r, u32 count, usize minimum_item_bytes) {
+            if (!r.ok() || count > max_shader_cache_collection_items || minimum_item_bytes == 0 ||
+                static_cast<usize>(count) > r.remaining() / minimum_item_bytes) {
+                r.fail();
+                return false;
+            }
+            return true;
+        }
+
         template <typename T, typename ReadOne>
-        [[nodiscard]] vector<T> read_vector(ByteReader &r, ReadOne read_one) {
+        [[nodiscard]] vector<T> read_vector(ByteReader &r, usize minimum_item_bytes, ReadOne read_one) {
             const u32 count = r.read<u32>();
             vector<T> items;
-            if (!r.ok()) {
+            if (!valid_collection_count(r, count, minimum_item_bytes)) {
                 return items;
             }
             items.reserve(count);
@@ -187,11 +227,11 @@ namespace SFT::Core::Slang {
             w.write(field.stride);
         }
 
-        [[nodiscard]] ShaderFieldReflection read_field(ByteReader &r) {
+        [[nodiscard]] ShaderFieldReflection read_field(ByteReader &r, usize depth) {
             ShaderFieldReflection field{};
             field.name = r.read_string();
             if (r.read<u8>() != 0) {
-                field.type = read_type_reflection(r);
+                field.type = read_type_reflection(r, depth);
             }
             field.offset = r.read<u64>();
             field.size = r.read<u64>();
@@ -217,7 +257,12 @@ namespace SFT::Core::Slang {
             write_vector<ShaderBindingRangeReflection>(w, type.binding_ranges, write_binding_range);
         }
 
-        [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r) {
+        [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r, usize depth) {
+            if (!r.ok() || depth >= max_shader_reflection_nesting_depth) {
+                r.fail();
+                return {};
+            }
+
             auto type = make_shared<ShaderTypeReflection>();
             type->name = r.read_string();
             type->full_name = r.read_string();
@@ -232,8 +277,11 @@ namespace SFT::Core::Slang {
             type->size = r.read<u64>();
             type->stride = r.read<u64>();
             type->alignment = r.read<i32>();
-            type->fields = read_vector<ShaderFieldReflection>(r, read_field);
-            type->binding_ranges = read_vector<ShaderBindingRangeReflection>(r, read_binding_range);
+            type->fields = read_vector<ShaderFieldReflection>(
+                r, sizeof(u32) + sizeof(u8) + sizeof(u64) * 3,
+                [depth](ByteReader &reader) { return read_field(reader, depth + 1); });
+            type->binding_ranges = read_vector<ShaderBindingRangeReflection>(
+                r, sizeof(u32) * 8 + sizeof(u8), read_binding_range);
             return type;
         }
 
@@ -275,11 +323,15 @@ namespace SFT::Core::Slang {
             param.semantic_name = r.read_string();
             param.semantic_index = r.read<u32>();
             const u32 category_count = r.read<u32>();
+            if (!valid_collection_count(r, category_count, sizeof(u32))) {
+                return param;
+            }
             param.categories.reserve(category_count);
             for (u32 i = 0; i < category_count && r.ok(); ++i) {
                 param.categories.push_back(static_cast<ShaderParameterCategory>(r.read<u32>()));
             }
-            param.binding_ranges = read_vector<ShaderBindingRangeReflection>(r, read_binding_range);
+            param.binding_ranges = read_vector<ShaderBindingRangeReflection>(
+                r, sizeof(u32) * 8 + sizeof(u8), read_binding_range);
             return param;
         }
 
@@ -307,7 +359,7 @@ namespace SFT::Core::Slang {
         [[nodiscard]] ShaderDescriptorSetReflection read_descriptor_set(ByteReader &r) {
             ShaderDescriptorSetReflection set{};
             set.space = r.read<u32>();
-            set.ranges = read_vector<ShaderDescriptorRangeReflection>(r, read_descriptor_range);
+            set.ranges = read_vector<ShaderDescriptorRangeReflection>(r, sizeof(u32) * 4, read_descriptor_range);
             return set;
         }
 
@@ -336,8 +388,9 @@ namespace SFT::Core::Slang {
             entry_point.compute_wave_size = r.read<u32>();
             entry_point.uses_sample_rate_input = r.read<u8>() != 0;
             entry_point.has_default_constant_buffer = r.read<u8>() != 0;
-            entry_point.parameters = read_vector<ShaderParameterReflection>(r, read_parameter);
-            entry_point.result_parameters = read_vector<ShaderParameterReflection>(r, read_parameter);
+            constexpr usize minimum_parameter_bytes = sizeof(u32) * 9 + sizeof(u64) * 3 + sizeof(u8);
+            entry_point.parameters = read_vector<ShaderParameterReflection>(r, minimum_parameter_bytes, read_parameter);
+            entry_point.result_parameters = read_vector<ShaderParameterReflection>(r, minimum_parameter_bytes, read_parameter);
             return entry_point;
         }
 
@@ -357,10 +410,15 @@ namespace SFT::Core::Slang {
 
         [[nodiscard]] ShaderReflection read_reflection(ByteReader &r) {
             ShaderReflection reflection{};
-            reflection.global_parameters = read_vector<ShaderParameterReflection>(r, read_parameter);
-            reflection.entry_points = read_vector<ShaderEntryPointReflection>(r, read_entry_point);
-            reflection.descriptor_sets = read_vector<ShaderDescriptorSetReflection>(r, read_descriptor_set);
+            constexpr usize minimum_parameter_bytes = sizeof(u32) * 9 + sizeof(u64) * 3 + sizeof(u8);
+            constexpr usize minimum_entry_point_bytes = sizeof(u32) * 9 + sizeof(u8) * 2;
+            reflection.global_parameters = read_vector<ShaderParameterReflection>(r, minimum_parameter_bytes, read_parameter);
+            reflection.entry_points = read_vector<ShaderEntryPointReflection>(r, minimum_entry_point_bytes, read_entry_point);
+            reflection.descriptor_sets = read_vector<ShaderDescriptorSetReflection>(r, sizeof(u32) * 2, read_descriptor_set);
             const u32 hashed_string_count = r.read<u32>();
+            if (!valid_collection_count(r, hashed_string_count, sizeof(u32))) {
+                return reflection;
+            }
             reflection.hashed_strings.reserve(hashed_string_count);
             for (u32 i = 0; i < hashed_string_count && r.ok(); ++i) {
                 reflection.hashed_strings.push_back(r.read_string());
@@ -458,125 +516,137 @@ namespace SFT::Core::Slang {
 
     [[nodiscard]] optional<ShaderCacheEntry> load_shader_cache_entry(
         const path &directory, u64 key) {
-        ifstream file(cache_file_path(directory, key), ios::binary);
-        if (!file) {
-            return std::nullopt;
-        }
+        try {
+            const optional<string> contents = read_cache_file(cache_file_path(directory, key));
+            if (!contents || contents->size() < sizeof(u32) * 2) {
+                return std::nullopt;
+            }
 
-        string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-        if (contents.size() < sizeof(u32) * 2) {
-            return std::nullopt;
-        }
+            ByteReader r(reinterpret_cast<const byte *>(contents->data()), contents->size());
+            if (r.read<u32>() != shader_cache_magic || r.read<u32>() != shader_cache_format_version) {
+                return std::nullopt;
+            }
 
-        ByteReader r(reinterpret_cast<const byte *>(contents.data()), contents.size());
-        if (r.read<u32>() != shader_cache_magic || r.read<u32>() != shader_cache_format_version) {
+            ShaderCacheEntry entry{};
+            entry.module_name = r.read_string();
+            entry.targets = read_vector<ShaderTarget>(r, sizeof(u32) * 2, read_target);
+            entry.reflection = read_reflection(r);
+            entry.bytecode = read_vector<ShaderBytecode>(r, sizeof(u32) * 4, read_bytecode);
+            if (!r.ok()) {
+                return std::nullopt;
+            }
+            return entry;
+        } catch (...) {
             return std::nullopt;
         }
-
-        ShaderCacheEntry entry{};
-        entry.module_name = r.read_string();
-        entry.targets = read_vector<ShaderTarget>(r, read_target);
-        entry.reflection = read_reflection(r);
-        entry.bytecode = read_vector<ShaderBytecode>(r, read_bytecode);
-        if (!r.ok()) {
-            return std::nullopt;
-        }
-        return entry;
     }
 
     bool store_shader_cache_entry(
         const path &directory, u64 key, const ShaderCacheEntry &entry) {
-        std::error_code ec;
-        std::filesystem::create_directories(directory, ec);
-        if (ec) {
-            return false;
-        }
-
-        ByteWriter w;
-        w.write(shader_cache_magic);
-        w.write(shader_cache_format_version);
-        w.write_string(entry.module_name);
-        write_vector<ShaderTarget>(w, entry.targets, write_target);
-        write_reflection(w, entry.reflection);
-        write_vector<ShaderBytecode>(w, entry.bytecode, write_bytecode);
-
-        // Write to a temp file then rename, so a crash/power-loss mid-write never leaves a truncated
-        // .sc file that load_shader_cache_entry() could mistake for a valid (if corrupt) entry.
-        const path final_path = cache_file_path(directory, key);
-        const path temp_path = final_path.string() + ".tmp";
-        {
-            ofstream file(temp_path, ios::binary | ios::trunc);
-            if (!file) {
+        try {
+            std::error_code ec;
+            std::filesystem::create_directories(directory, ec);
+            if (ec) {
                 return false;
             }
-            file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
-            if (!file) {
+
+            ByteWriter w;
+            w.write(shader_cache_magic);
+            w.write(shader_cache_format_version);
+            w.write_string(entry.module_name);
+            write_vector<ShaderTarget>(w, entry.targets, write_target);
+            write_reflection(w, entry.reflection);
+            write_vector<ShaderBytecode>(w, entry.bytecode, write_bytecode);
+            if (w.buffer().size() > max_shader_cache_file_bytes) {
                 return false;
             }
-        }
-        std::filesystem::rename(temp_path, final_path, ec);
-        if (ec) {
-            std::filesystem::remove(temp_path, ec);
+
+            // Write to a temp file then rename, so a crash/power-loss mid-write never leaves a truncated
+            // .sc file that load_shader_cache_entry() could mistake for a valid (if corrupt) entry.
+            const path final_path = cache_file_path(directory, key);
+            const path temp_path = final_path.string() + ".tmp";
+            {
+                ofstream file(temp_path, ios::binary | ios::trunc);
+                if (!file) {
+                    return false;
+                }
+                file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
+                if (!file) {
+                    return false;
+                }
+            }
+            std::filesystem::rename(temp_path, final_path, ec);
+            if (ec) {
+                std::filesystem::remove(temp_path, ec);
+                return false;
+            }
+            return true;
+        } catch (...) {
             return false;
         }
-        return true;
     }
 
     [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
         const path &directory, u64 key) {
-        ifstream file(reflection_cache_file_path(directory, key), ios::binary);
-        if (!file) {
-            return std::nullopt;
-        }
+        try {
+            const optional<string> contents = read_cache_file(reflection_cache_file_path(directory, key));
+            if (!contents || contents->size() < sizeof(u32) * 2) {
+                return std::nullopt;
+            }
 
-        string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-        if (contents.size() < sizeof(u32) * 2) {
-            return std::nullopt;
-        }
+            ByteReader r(reinterpret_cast<const byte *>(contents->data()), contents->size());
+            if (r.read<u32>() != shader_reflection_cache_magic || r.read<u32>() != shader_reflection_cache_format_version) {
+                return std::nullopt;
+            }
 
-        ByteReader r(reinterpret_cast<const byte *>(contents.data()), contents.size());
-        if (r.read<u32>() != shader_reflection_cache_magic || r.read<u32>() != shader_reflection_cache_format_version) {
+            ShaderReflection reflection = read_reflection(r);
+            if (!r.ok()) {
+                return std::nullopt;
+            }
+            return reflection;
+        } catch (...) {
             return std::nullopt;
         }
-
-        ShaderReflection reflection = read_reflection(r);
-        if (!r.ok()) {
-            return std::nullopt;
-        }
-        return reflection;
     }
 
     bool store_shader_reflection_cache_entry(
         const path &directory, u64 key, const ShaderReflection &reflection) {
-        std::error_code ec;
-        std::filesystem::create_directories(directory, ec);
-        if (ec) {
-            return false;
-        }
-
-        ByteWriter w;
-        w.write(shader_reflection_cache_magic);
-        w.write(shader_reflection_cache_format_version);
-        write_reflection(w, reflection);
-
-        const path final_path = reflection_cache_file_path(directory, key);
-        const path temp_path = final_path.string() + ".tmp";
-        {
-            ofstream file(temp_path, ios::binary | ios::trunc);
-            if (!file) {
+        try {
+            std::error_code ec;
+            std::filesystem::create_directories(directory, ec);
+            if (ec) {
                 return false;
             }
-            file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
-            if (!file) {
+
+            ByteWriter w;
+            w.write(shader_reflection_cache_magic);
+            w.write(shader_reflection_cache_format_version);
+            write_reflection(w, reflection);
+            if (w.buffer().size() > max_shader_cache_file_bytes) {
                 return false;
             }
-        }
-        std::filesystem::rename(temp_path, final_path, ec);
-        if (ec) {
-            std::filesystem::remove(temp_path, ec);
+
+            const path final_path = reflection_cache_file_path(directory, key);
+            const path temp_path = final_path.string() + ".tmp";
+            {
+                ofstream file(temp_path, ios::binary | ios::trunc);
+                if (!file) {
+                    return false;
+                }
+                file.write(reinterpret_cast<const char *>(w.buffer().data()), static_cast<std::streamsize>(w.buffer().size()));
+                if (!file) {
+                    return false;
+                }
+            }
+            std::filesystem::rename(temp_path, final_path, ec);
+            if (ec) {
+                std::filesystem::remove(temp_path, ec);
+                return false;
+            }
+            return true;
+        } catch (...) {
             return false;
         }
-        return true;
     }
 
 } // namespace SFT::Core::Slang

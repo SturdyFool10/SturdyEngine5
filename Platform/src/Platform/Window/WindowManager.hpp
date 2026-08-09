@@ -59,6 +59,31 @@ namespace SFT::Platform::Windowing {
     struct WindowManagerPolicy {
         WindowEventPumpMode event_pump_mode = WindowEventPumpMode::CallerThread;
         bool platform_allows_threads = true;
+
+        // Merge a run of consecutive MouseMoved events into a single one as they're folded into the
+        // accumulator (see WindowManager.cpp's coalesce_mouse_motion()). A high-polling-rate mouse
+        // (8kHz) produces one motion event per HID report — ~133 per 60Hz frame — and every one of
+        // them is copied four more times downstream (accumulator -> pump() -> PlatformEventInbox ->
+        // both the lossless WindowEvent stream and the typed MouseMoveEvent stream, EcsEvents.hpp)
+        // before three separate built-in systems iterate it (InputState, UiPointerState, plus
+        // whatever the app registers). No information is lost by merging: absolute x/y is
+        // last-write-wins and delta_x/delta_y are *summed*, which is exactly what every consumer in
+        // this engine already does with them (InputState::apply(MouseMoveEvent) accumulates the
+        // delta and overwrites the position; UiPointerState only ever takes the latest position).
+        // Only *adjacent* events merge, so ordering against button/key/wheel events — and therefore
+        // the pointer position a click is attributed to — is untouched.
+        //
+        // Turn this off only for something that genuinely needs every raw sample point rather than
+        // the summed motion between frames (a pressure/stroke-capture drawing tool, an input-latency
+        // measurement harness); ordinary game and UI input wants it on.
+        bool coalesce_mouse_motion = true;
+
+        // Hard bound on how many events one window may accumulate between two pump() calls, so a
+        // stalled or blocked main thread (a long frame, a modal move/resize drag, a breakpoint)
+        // cannot grow the accumulator without limit while the OS keeps delivering input. Well above
+        // any real frame's worth: with coalesce_mouse_motion on, a 60Hz frame accumulates single
+        // digits, and even a full second of stalled 8kHz motion coalesces to one event.
+        usize max_accumulated_events_per_window = 16384;
     };
 
     struct ManagedWindowEvents {
@@ -233,6 +258,15 @@ namespace SFT::Platform::Windowing {
         void poll_loop() noexcept;
         void wake_poll_loop() noexcept;
 
+        // Folds one window's freshly-polled events into its accumulator entry, applying
+        // policy_.coalesce_mouse_motion and policy_.max_accumulated_events_per_window. Returns how
+        // many events it actually drained from the window (before coalescing/dropping), which
+        // poll_loop() uses to tell "a real backlog is queued up, keep draining" apart from "a
+        // trickle arrived, go back to sleep". Runs on whichever thread owns `window` — poll_loop()
+        // calls it with accumulated_ held (entry points into it); pump()'s CallerThread path calls
+        // it on a local entry it has not published yet.
+        [[nodiscard]] usize drain_window_into(Window &window, ManagedWindowEvents &entry) noexcept;
+
         // Per-window accumulator poll_loop() folds newly-polled events into every iteration; pump()
         // swaps it out (matching Async::MainThread's run_on_main_thread()/pump_main_thread() shape:
         // swap under lock, use the swapped-out copy outside it). Entries are added when
@@ -258,6 +292,12 @@ namespace SFT::Platform::Windowing {
         std::atomic<bool> running_{false};
         std::mutex wake_mutex_;
         std::condition_variable wake_cv_;
+
+        // Latches the one-time "accumulator hit its cap, dropping events" warning. Only ever touched
+        // from poll_loop()'s own thread, so it needs no synchronization — and it exists at all
+        // because the condition that trips it (a stalled consumer under a live input stream) is
+        // exactly the condition under which an unthrottled log_warn would itself become the stall.
+        bool accumulator_overflow_warned_ = false;
     };
 
 } // namespace SFT::Platform::Windowing

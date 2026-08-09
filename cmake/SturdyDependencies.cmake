@@ -99,11 +99,20 @@ set(STURDY_METALCPP_TAG "release/metal-cpp_macOS27_iOS27" CACHE STRING "apple/me
 # include; STURDY_ENABLE_TRACY instead controls TRACY_ENABLE, which decides whether its zone/frame
 # macros record anything or compile down to no-ops. Only the client is built here, not the separate
 # Tracy profiler GUI/server application.
-# No tagged release has ProtocolVersion 82 yet as of this writing (v0.13.1 is the latest tag, at
-# protocol 76) — only wolfpld/tracy@master does. Pinned to a specific master commit rather than the
-# floating branch name for build reproducibility; bump this (and re-verify protocol compatibility
-# with whatever Tracy Profiler GUI version is actually installed) once a tag catches up past it.
-set(STURDY_TRACY_TAG "92f0e0e9511164a21dfc25dd92b38bfb87598aa2" CACHE STRING "Tracy Profiler git tag/commit to fetch.")
+# Pinned to the v0.13.1 release commit, which speaks protocol 76 and is therefore wire-compatible
+# with the Tracy Profiler 0.13.1 GUI. Client and GUI must use the same protocol; do not update this
+# client independently of the profiler application.
+set(_sturdy_tracy_pre_0131_tag "92f0e0e9511164a21dfc25dd92b38bfb87598aa2")
+set(_sturdy_tracy_0131_tag "05cceee0df3b8d7c6fa87e9638af311dbabc63cb")
+if(NOT DEFINED STURDY_TRACY_TAG OR "${STURDY_TRACY_TAG}" STREQUAL "${_sturdy_tracy_pre_0131_tag}")
+    # Migrate build trees configured with the previous engine default. Explicit custom pins remain
+    # intact and are the caller's responsibility to keep protocol-compatible with their GUI.
+    set(STURDY_TRACY_TAG "${_sturdy_tracy_0131_tag}" CACHE STRING "Tracy Profiler git tag/commit to fetch." FORCE)
+else()
+    set(STURDY_TRACY_TAG "${STURDY_TRACY_TAG}" CACHE STRING "Tracy Profiler git tag/commit to fetch.")
+endif()
+unset(_sturdy_tracy_pre_0131_tag)
+unset(_sturdy_tracy_0131_tag)
 
 set(STURDY_VULKAN_LIBRARY "" CACHE FILEPATH "Optional explicit Vulkan loader library. Set this to a static loader library when available.")
 set(STURDY_SLANG_ROOT "" CACHE PATH "Root of a Slang SDK/install containing include/ and lib/ or a SlangConfig.cmake package.")
@@ -123,7 +132,7 @@ set(STURDY_DEPS_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache/deps" CACHE PATH "Director
 
 function(sturdy_fetchcontent_declare name)
     set(options)
-    set(one_value_args GIT_REPOSITORY GIT_TAG)
+    set(one_value_args GIT_REPOSITORY GIT_TAG CACHE_KEY)
     set(multi_value_args FIND_PACKAGE_ARGS)
     cmake_parse_arguments(STURDY_FETCH "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -143,15 +152,27 @@ function(sturdy_fetchcontent_declare name)
     set_property(GLOBAL PROPERTY STURDY_DEP_GIT_REPOSITORY_${_sturdy_dep_key} "${STURDY_FETCH_GIT_REPOSITORY}")
     set_property(GLOBAL PROPERTY STURDY_DEP_GIT_TAG_${_sturdy_dep_key} "${STURDY_FETCH_GIT_TAG}")
 
-    # Redirect only the source checkout and its download subbuild into the shared cache; the
-    # build dir is left to FetchContent's default (this tree's _deps/<name>-build), keeping
-    # per-configuration artifacts isolated.
+    # Redirect only the source checkout and its download subbuild into the shared cache; normal
+    # dependencies keep FetchContent's default per-build binary directory. CACHE_KEY lets a
+    # dependency intentionally start fresh source, subbuild, and per-build binary directories when
+    # its ABI/protocol compatibility boundary changes, without forcing update checks on every
+    # existing shared dependency checkout.
+    set(_cache_key "${name}")
+    if(STURDY_FETCH_CACHE_KEY)
+        set(_cache_key "${STURDY_FETCH_CACHE_KEY}")
+    endif()
+
     set(_cache_dirs)
     if(STURDY_SHARED_DEPS_CACHE)
         set(_cache_dirs
-            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-src"
-            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/${name}-subbuild"
+            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/${_cache_key}-src"
+            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/${_cache_key}-subbuild"
         )
+    endif()
+
+    set(_binary_dir)
+    if(STURDY_FETCH_CACHE_KEY)
+        set(_binary_dir BINARY_DIR "${CMAKE_BINARY_DIR}/_deps/${_cache_key}-build")
     endif()
 
     # GIT_SHALLOW is only safe when GIT_TAG names a branch/tag that IS the remote's current tip:
@@ -177,6 +198,7 @@ function(sturdy_fetchcontent_declare name)
         EXCLUDE_FROM_ALL
         SYSTEM
         ${_cache_dirs}
+        ${_binary_dir}
         ${_find_package_args}
     )
 endfunction()
@@ -268,7 +290,7 @@ function(sturdy_configure_dependencies)
         sturdy_find_cgltf()
         sturdy_find_bc7enc()
         sturdy_find_gdeflate()
-        find_package(Tracy CONFIG REQUIRED)
+        find_package(Tracy 0.13.1 EXACT CONFIG REQUIRED)
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
@@ -1158,7 +1180,8 @@ function(sturdy_fetch_tracy)
     sturdy_fetchcontent_declare(tracy
         GIT_REPOSITORY https://github.com/wolfpld/tracy.git
         GIT_TAG ${STURDY_TRACY_TAG}
-        FIND_PACKAGE_ARGS CONFIG QUIET
+        CACHE_KEY tracy-0131
+        FIND_PACKAGE_ARGS 0.13.1 EXACT CONFIG QUIET
     )
     FetchContent_MakeAvailable(tracy)
     sturdy_mark_dependency_targets_exclude_from_all(TracyClient Tracy::TracyClient)

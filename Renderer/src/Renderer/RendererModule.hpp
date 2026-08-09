@@ -1947,10 +1947,11 @@ namespace SFT::Renderer {
         // CPU-side history for real per-object motion vectors (SceneObjectGpuData::previous_model) —
         // keyed by RenderItem::stable_id, a persistent per-object identity (for real ECS content,
         // `(entity.generation << 32) | entity.index` — see EcsRendering.cpp), not object_index (which
-        // is only this frame's packing position). prepare_scene_gpu_data reads this map (safe to read
-        // concurrently from its async-chunked packing path — no concurrent writer during that window)
-        // then overwrites it serially with this frame's transforms once packing joins.
-        std::unordered_map<u64, glm::mat4> previous_world_transforms_;
+        // is only this frame's packing position). Window render threads can dispatch concurrently,
+        // so access is guarded while each submission snapshots its previous transform and after scene
+        // packing commits its current transforms. Packing itself reads the stamped RenderItem field,
+        // never this shared map.
+        Async::Mutex<std::unordered_map<u64, glm::mat4>> previous_world_transforms_;
         Async::Mutex<HiZBuildResources> hiz_build_;
         Async::Mutex<AtmosphereLutResources> atmosphere_lut_;
         bool initialized_ = false;

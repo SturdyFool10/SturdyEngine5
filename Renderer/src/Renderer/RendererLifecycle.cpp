@@ -355,13 +355,16 @@ namespace SFT::Renderer {
             });
             // Stamped after sorting (this draw's *final* position for the frame) so it matches
             // prepare_scene_gpu_data's object_buffer packing order exactly — see object_index's own
-            // doc comment (RendererModule.hpp).
+            // doc comment (RendererModule.hpp). This snapshot is the only history lookup on the
+            // frame's hot path; worker packing then reads the stamped value without contending on the
+            // renderer-wide map.
+            auto transform_history = previous_world_transforms_.lock();
             for (usize i = 0; i < submission.draws.size(); ++i) {
                 RenderItem &item = submission.draws[i];
                 item.object_index = static_cast<u32>(i);
-                const auto previous = item.stable_id != 0 ? previous_world_transforms_.find(item.stable_id)
-                                                          : previous_world_transforms_.end();
-                item.previous_world_transform = previous != previous_world_transforms_.end()
+                const auto previous = item.stable_id != 0 ? transform_history->find(item.stable_id)
+                                                          : transform_history->end();
+                item.previous_world_transform = previous != transform_history->end()
                                                     ? previous->second : item.world_transform;
             }
         }

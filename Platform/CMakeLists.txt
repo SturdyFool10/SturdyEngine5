@@ -52,6 +52,7 @@ message(STATUS "Platform built-in window provider: SDL3")
 
 sturdy_add_package(Platform
     EXCLUDE_SOURCE_DIRS
+        tests
         ${_sturdy_platform_excluded_source_dirs}
 
     PUBLIC_DEPS
@@ -68,6 +69,14 @@ if(WIN32 AND _sturdy_effective_platform STREQUAL "Windows")
 endif()
 
 target_compile_definitions(Platform PUBLIC ${_sturdy_platform_definitions})
+
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT _sturdy_effective_platform STREQUAL "Web")
+    add_executable(PlatformWindowManagerAccumulatorTest tests/WindowManagerAccumulatorTest.cpp)
+    target_link_libraries(PlatformWindowManagerAccumulatorTest PRIVATE Sturdy::Platform)
+    sturdy_enable_warnings(PlatformWindowManagerAccumulatorTest)
+    add_test(NAME PlatformWindowManagerAccumulatorTest COMMAND PlatformWindowManagerAccumulatorTest)
+    set_tests_properties(PlatformWindowManagerAccumulatorTest PROPERTIES TIMEOUT 10)
+endif()
 
 get_target_property(
     _sturdy_platform_link_interface
