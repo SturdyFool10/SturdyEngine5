@@ -1668,7 +1668,8 @@ namespace SFT::UiWorkbench {
         Renderer::Renderer *texture_resolver = engine.renderer();
         hooks.prepare = [renderer, snapshot, texture_resolver](
                             RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
-                            glm::vec2 viewport_size,
+                            glm::vec2 viewport_size, Core::RenderSurfaceHandle render_surface,
+                            u32 frame_resource_index,
                             std::vector<RHI::BufferHandle> &transient_buffers,
                             Renderer::TextAtlasRetiredResources &retired_resources)
             -> Core::RendererResult {
@@ -1679,12 +1680,13 @@ namespace SFT::UiWorkbench {
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "UiWorkbench snapshot extent does not match its render surface.");
             }
-            return renderer->prepare(device, encoder, *snapshot, texture_resolver,
+            return renderer->prepare(device, encoder, *snapshot, texture_resolver, render_surface, frame_resource_index,
                                      transient_buffers, retired_resources);
         };
-        hooks.draw = [renderer](RHI::RenderPassEncoder &pass,
-                                glm::vec2 viewport_size) -> Core::RendererResult {
-            return renderer->draw(pass, viewport_size);
+        hooks.draw = [renderer](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
+                                Core::RenderSurfaceHandle render_surface,
+                                u32 frame_resource_index) -> Core::RendererResult {
+            return renderer->draw(pass, viewport_size, render_surface, frame_resource_index);
         };
         return hooks;
     }

@@ -106,6 +106,16 @@ namespace SFT::Platform::Windowing {
 
     struct WindowEvent {
         WindowEventKind kind = WindowEventKind::CloseRequested;
+
+        // Monotonic capture time in nanoseconds (std::chrono::steady_clock epoch), used for
+        // input-to-consumption latency measurement. Populated as close to the original hardware/OS
+        // delivery as each backend allows: SDL3 events carry their own SDL_GetTicksNS()-based
+        // timestamp, which is converted to steady_clock's epoch once per pump_events() call; GLFW has
+        // no native per-event timestamp, so its callbacks stamp steady_clock::now() at the moment the
+        // callback fires. Synthetic engine-initiated events (request_close(), set_mouse_locked()) also
+        // stamp steady_clock::now() since they have no originating device event to inherit from.
+        u64 timestamp_ns = 0;
+
         WindowPosition position = {};
         WindowResize resize = {};
         WindowKeyboardEvent keyboard = {};

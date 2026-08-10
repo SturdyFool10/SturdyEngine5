@@ -1,4 +1,5 @@
 #include <Engine/TextureCompression.hpp>
+#include <Engine/TextureMipChain.hpp>
 
 #include <Core/src/Core/Decompression.hpp>
 
@@ -18,6 +19,50 @@ int main() {
     std::vector<std::byte> source(64 * 1024);
     for (usize i = 0; i < source.size(); ++i) {
         source[i] = static_cast<std::byte>((i / 37) % 251);
+    }
+
+    // Mip generation includes the complete chain and filters sRGB colors in linear light.
+    {
+        const std::vector<std::byte> checker{
+            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{255},
+            std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255},
+            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{255},
+            std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255},
+        };
+        auto srgb_mips = Engine::Detail::generate_rgba8_mip_chain(checker, 2, 2, true);
+        assert(srgb_mips.has_value());
+        assert(srgb_mips->mip_levels == 2);
+        assert(srgb_mips->data.size() == checker.size() + 4);
+        const u8 filtered = std::to_integer<u8>(srgb_mips->data[checker.size()]);
+        assert(filtered >= 187 && filtered <= 188);
+        assert(std::to_integer<u8>(srgb_mips->data.back()) == 255);
+
+        auto linear_mips = Engine::Detail::generate_rgba8_mip_chain(checker, 2, 2, false);
+        assert(linear_mips.has_value());
+        assert(std::to_integer<u8>(linear_mips->data[checker.size()]) == 128);
+        assert(Engine::Detail::texture_mip_level_count(3, 5) == 3);
+
+        std::vector<std::byte> non_power_of_two(5 * 4, std::byte{0});
+        for (usize pixel = 0; pixel < 5; ++pixel) {
+            non_power_of_two[pixel * 4 + 3] = std::byte{255};
+        }
+        non_power_of_two[2 * 4] = std::byte{255};
+        auto npot_mips = Engine::Detail::generate_rgba8_mip_chain(non_power_of_two, 5, 1, false);
+        assert(npot_mips.has_value());
+        assert(npot_mips->mip_levels == 3);
+        assert(npot_mips->data.size() == 32);
+        assert(std::to_integer<u8>(npot_mips->data[non_power_of_two.size() + 2 * 4]) == 51);
+        assert(std::to_integer<u8>(npot_mips->data.back()) == 255);
+    }
+
+    // Every mip, including sub-4x4 tail levels, remains BC7-compressed and tightly packed.
+    {
+        std::vector<std::byte> rgba(4 * 4 * 4, std::byte{127});
+        auto mips = Engine::Detail::generate_rgba8_mip_chain(rgba, 4, 4, false);
+        assert(mips.has_value());
+        auto bc7 = Engine::Detail::compress_bc7_mip_chain(mips->data, 4, 4, mips->mip_levels, false);
+        assert(bc7.has_value());
+        assert(bc7->size() == 3 * 16);
     }
 
     // Core::compress_gdeflate / Core::decompress_gdeflate direct round trip.

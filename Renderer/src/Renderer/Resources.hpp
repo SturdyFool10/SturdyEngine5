@@ -65,8 +65,12 @@ namespace SFT::Renderer {
         // creation because the caller's span is ephemeral; empty data preserves allocation-only textures.
         u32 width = 0;
         u32 height = 0;
+        u32 mip_levels = 1;
         RHI::Format format = RHI::Format::Undefined;
         vector<byte> pixel_data;
+        // Retained with the replay payload so device recovery recreates streamed textures with the
+        // same cross-queue sharing mode used by their transfer-queue upload.
+        vector<RHI::QueueClass> concurrent_queue_classes;
         bool alive = false;
         // False for a handle minted by Renderer::adopt_texture() — the caller created (and keeps
         // owning) `texture`/`view`/`sampler`, so destroy_texture() must release only this wrapper

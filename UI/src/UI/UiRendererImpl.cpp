@@ -20,15 +20,8 @@ namespace SFT::UI {
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         UiRenderer renderer;
 
-        auto atlas = Renderer::TextAtlas::create(device, Renderer::TextAtlas::Config{});
-        if (!atlas) {
-            return unexpected(atlas.error());
-        }
-        renderer.text_atlas_ = std::move(*atlas);
-
         auto text_pipeline = Renderer::TextPipeline::create(device, color_format, enable_shader_disk_cache);
         if (!text_pipeline) {
-            renderer.text_atlas_.destroy(device);
             return unexpected(text_pipeline.error());
         }
         renderer.text_pipeline_ = std::move(*text_pipeline);
@@ -36,7 +29,6 @@ namespace SFT::UI {
         auto quad_pipeline = UiQuadPipeline::create(device, color_format, enable_shader_disk_cache);
         if (!quad_pipeline) {
             renderer.text_pipeline_.destroy(device);
-            renderer.text_atlas_.destroy(device);
             return unexpected(quad_pipeline.error());
         }
         renderer.quad_pipeline_ = std::move(*quad_pipeline);
@@ -65,12 +57,9 @@ namespace SFT::UI {
 
     Core::RendererResult UiRenderer::prepare(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                              const FrameSnapshot &snapshot, Renderer::Renderer *texture_resolver,
+                                             Core::RenderSurfaceHandle surface, u32 frame_resource_index,
                                              vector<RHI::BufferHandle> &out_transient_buffers,
                                              Renderer::TextAtlasRetiredResources &out_retired_atlas_resources) {
-        text_batches_.clear();
-        quad_batches_.clear();
-        custom_draws_.clear();
-        custom_group_ids_.clear();
         if (!ready_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UiRenderer was not created.");
         }
@@ -79,6 +68,31 @@ namespace SFT::UI {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "UiRenderer::prepare requires a texture_resolver.");
         }
+        if (!surface.is_valid()) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "UiRenderer::prepare requires a valid render surface.");
+        }
+        auto surface_resources = std::ranges::find(
+            surface_frame_resources_, surface, &SurfaceFrameResources::surface);
+        if (surface_resources == surface_frame_resources_.end()) {
+            auto text_atlas = Renderer::TextAtlas::create(device, Renderer::TextAtlas::Config{});
+            if (!text_atlas) {
+                return unexpected(text_atlas.error());
+            }
+            surface_frame_resources_.push_back(SurfaceFrameResources{
+                .surface = surface,
+                .text_atlas = std::move(*text_atlas),
+            });
+            surface_resources = std::prev(surface_frame_resources_.end());
+        }
+        if (frame_resource_index >= surface_resources->frames.size()) {
+            surface_resources->frames.resize(static_cast<usize>(frame_resource_index) + 1u);
+        }
+        FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
+        frame_resources.text_batches.clear();
+        frame_resources.quad_batches.clear();
+        frame_resources.custom_draws.clear();
+        frame_resources.custom_group_ids.clear();
         if (!white_texture_) {
             // Renderer::ensure_default_white_texture() is private (Renderer's own material-fallback
             // internal, not part of its public surface) — UiRenderer creates its own 1x1 white
@@ -176,21 +190,23 @@ namespace SFT::UI {
                     break;
                 }
                 case PaintEntry::Kind::Custom: {
-                    custom_draws_.push_back(snapshot.custom_draws_[entry.index]);
-                    custom_group_ids_.push_back(group_id);
+                    frame_resources.custom_draws.push_back(snapshot.custom_draws_[entry.index]);
+                    frame_resources.custom_group_ids.push_back(group_id);
                     break;
                 }
             }
         }
 
         if (Core::RendererResult quad_prepared = quad_pipeline_.prepare(
-                device, quad_instances, quad_texture_views, quad_scissors, quad_groups, quad_frame_resources_, quad_batches_);
+                device, quad_instances, quad_texture_views, quad_scissors, quad_groups,
+                frame_resources.quads, frame_resources.quad_batches);
             !quad_prepared) {
             return quad_prepared;
         }
 
         if (Core::RendererResult custom_prepared =
-                custom_element_pipeline_.prepare(device, color_format_, custom_draws_, enable_shader_disk_cache_);
+                custom_element_pipeline_.prepare(
+                    device, color_format_, frame_resources.custom_draws, enable_shader_disk_cache_);
             !custom_prepared) {
             return custom_prepared;
         }
@@ -210,8 +226,8 @@ namespace SFT::UI {
                 });
             }
             vector<Renderer::GlyphSlot> slots;
-            if (auto resident = text_atlas_.ensure_resident(device, encoder, requests, slots, out_transient_buffers,
-                                                            out_retired_atlas_resources);
+            if (auto resident = surface_resources->text_atlas.ensure_resident(
+                    device, encoder, requests, slots, out_transient_buffers, out_retired_atlas_resources);
                 !resident) {
                 return unexpected(resident.error());
             }
@@ -220,11 +236,13 @@ namespace SFT::UI {
             instances.reserve(ordered_glyphs.size());
             for (usize i = 0; i < ordered_glyphs.size(); ++i) {
                 instances.push_back(
-                    Renderer::make_glyph_instance(ordered_glyphs[i].position, ordered_glyphs[i], slots[i], text_atlas_.pixel_range()));
+                    Renderer::make_glyph_instance(ordered_glyphs[i].position, ordered_glyphs[i], slots[i],
+                                                  surface_resources->text_atlas.pixel_range()));
             }
             if (Core::RendererResult text_prepared =
-                    text_pipeline_.prepare(device, text_atlas_, instances, slots, ordered_glyph_scissors, glyph_groups,
-                                           text_frame_resources_, text_batches_);
+                    text_pipeline_.prepare(device, surface_resources->text_atlas, instances, slots,
+                                           ordered_glyph_scissors, glyph_groups,
+                                           frame_resources.text, frame_resources.text_batches);
                 !text_prepared) {
                 return text_prepared;
             }
@@ -233,45 +251,59 @@ namespace SFT::UI {
         return {};
     }
 
-    Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size) {
-        // Walk quad_batches_/text_batches_/custom_draws_ back out in ascending paint-order-group
-        // lockstep (see prepare()'s own doc comment) — each pipeline's own draw() already sets its
-        // batch's scissor internally, so no blanket pass.set_scissor() is needed here, only
-        // whichever pipeline switch a group boundary happens to cross.
+    Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
+                                          Core::RenderSurfaceHandle surface, u32 frame_resource_index) {
+        auto surface_resources = std::ranges::find(
+            surface_frame_resources_, surface, &SurfaceFrameResources::surface);
+        if (surface_resources == surface_frame_resources_.end() ||
+            frame_resource_index >= surface_resources->frames.size()) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "UiRenderer::draw has no prepared resources for the requested surface/frame slot.");
+        }
+        FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
+
+        // Walk quad/text/custom batches back out in ascending paint-order-group lockstep. Each
+        // pipeline sets its batch's scissor internally, so only pipeline switches need coordinating.
         usize quad_cursor = 0;
         usize text_cursor = 0;
         usize custom_cursor = 0;
-        while (quad_cursor < quad_batches_.size() || text_cursor < text_batches_.size() || custom_cursor < custom_draws_.size()) {
+        while (quad_cursor < frame_resources.quad_batches.size() ||
+               text_cursor < frame_resources.text_batches.size() ||
+               custom_cursor < frame_resources.custom_draws.size()) {
             u32 next_group = std::numeric_limits<u32>::max();
-            if (quad_cursor < quad_batches_.size()) {
-                next_group = std::min(next_group, quad_batches_[quad_cursor].paint_group);
+            if (quad_cursor < frame_resources.quad_batches.size()) {
+                next_group = std::min(next_group, frame_resources.quad_batches[quad_cursor].paint_group);
             }
-            if (text_cursor < text_batches_.size()) {
-                next_group = std::min(next_group, text_batches_[text_cursor].paint_group);
+            if (text_cursor < frame_resources.text_batches.size()) {
+                next_group = std::min(next_group, frame_resources.text_batches[text_cursor].paint_group);
             }
-            if (custom_cursor < custom_draws_.size()) {
-                next_group = std::min(next_group, custom_group_ids_[custom_cursor]);
+            if (custom_cursor < frame_resources.custom_draws.size()) {
+                next_group = std::min(next_group, frame_resources.custom_group_ids[custom_cursor]);
             }
 
-            while (quad_cursor < quad_batches_.size() && quad_batches_[quad_cursor].paint_group == next_group) {
-                if (Core::RendererResult drawn =
-                        quad_pipeline_.draw(pass, span<const UiQuadDrawBatch>{&quad_batches_[quad_cursor], 1}, viewport_size);
+            while (quad_cursor < frame_resources.quad_batches.size() &&
+                   frame_resources.quad_batches[quad_cursor].paint_group == next_group) {
+                if (Core::RendererResult drawn = quad_pipeline_.draw(
+                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
                 ++quad_cursor;
             }
-            while (text_cursor < text_batches_.size() && text_batches_[text_cursor].paint_group == next_group) {
+            while (text_cursor < frame_resources.text_batches.size() &&
+                   frame_resources.text_batches[text_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = text_pipeline_.draw(
-                        pass, span<const Renderer::TextDrawBatch>{&text_batches_[text_cursor], 1}, viewport_size);
+                        pass, span<const Renderer::TextDrawBatch>{&frame_resources.text_batches[text_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
                 ++text_cursor;
             }
-            while (custom_cursor < custom_draws_.size() && custom_group_ids_[custom_cursor] == next_group) {
+            while (custom_cursor < frame_resources.custom_draws.size() &&
+                   frame_resources.custom_group_ids[custom_cursor] == next_group) {
                 if (Core::RendererResult drawn = custom_element_pipeline_.draw(
-                        pass, color_format_, span<const CustomDraw>{&custom_draws_[custom_cursor], 1}, viewport_size);
+                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
@@ -282,12 +314,17 @@ namespace SFT::UI {
     }
 
     void UiRenderer::destroy(RHI::RhiDevice &device) noexcept {
+        for (SurfaceFrameResources &surface_resources : surface_frame_resources_) {
+            for (FrameResources &resources : surface_resources.frames) {
+                destroy_ui_quad_frame_resources(device, resources.quads);
+                destroy_text_frame_resources(device, resources.text);
+            }
+            surface_resources.text_atlas.destroy(device);
+        }
+        surface_frame_resources_.clear();
         quad_pipeline_.destroy(device);
         custom_element_pipeline_.destroy(device);
         text_pipeline_.destroy(device);
-        text_atlas_.destroy(device);
-        destroy_ui_quad_frame_resources(device, quad_frame_resources_);
-        destroy_text_frame_resources(device, text_frame_resources_);
         ready_ = false;
     }
 

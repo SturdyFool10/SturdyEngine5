@@ -30,6 +30,10 @@ namespace SFT::Engine {
         KeyboardKey key_code = KeyboardKey::Unknown;
         ButtonAction action = ButtonAction::Pressed;
         bool repeat = false;
+        // Monotonic capture time (steady_clock epoch, ns) inherited from the originating
+        // Platform::Windowing::WindowEvent -- see that struct's doc comment for how each backend
+        // populates it.
+        u64 timestamp_ns = 0;
 
         [[nodiscard]] bool pressed() const noexcept { return action == ButtonAction::Pressed; }
         [[nodiscard]] bool released() const noexcept { return action == ButtonAction::Released; }
@@ -38,22 +42,26 @@ namespace SFT::Engine {
     struct TextInputEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowTextInputEvent text{};
+        u64 timestamp_ns = 0;
     };
 
     struct MouseMoveEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowMouseMoveEvent mouse{};
+        u64 timestamp_ns = 0;
     };
 
     struct MouseButtonEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowMouseButtonEvent mouse{};
         ButtonAction action = ButtonAction::Pressed;
+        u64 timestamp_ns = 0;
     };
 
     struct MouseWheelEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowMouseWheelEvent wheel{};
+        u64 timestamp_ns = 0;
     };
 
     struct WindowStateEvent {
@@ -61,6 +69,7 @@ namespace SFT::Engine {
         Platform::Windowing::WindowEventKind kind = Platform::Windowing::WindowEventKind::CloseRequested;
         Platform::Windowing::WindowPosition position{};
         Platform::Windowing::WindowResize resize{};
+        u64 timestamp_ns = 0;
     };
 
     // Ordinary resource populated by Application's platform pump. It deliberately is not Events<T>:
@@ -75,6 +84,11 @@ namespace SFT::Engine {
         [[nodiscard]] std::vector<WindowEvent> drain() noexcept {
             std::vector<WindowEvent> result;
             result.swap(pending_);
+            // Preserve this tick's high-water mark for pending_ rather than leaving it at the
+            // zero capacity a default-constructed vector swaps in -- a sustained high-polling-rate
+            // mouse would otherwise force a reallocation-from-empty cascade on every single tick's
+            // worth of push() calls (WindowManager::pump() has the same fix, same reasoning).
+            pending_.reserve(result.capacity());
             return result;
         }
 

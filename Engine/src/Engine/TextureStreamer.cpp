@@ -1,6 +1,7 @@
 #include "TextureStreamer.hpp"
 #include "ImageDecode.hpp"
 #include "TextureCompression.hpp"
+#include "TextureMipChain.hpp"
 
 #include <Async/src/Affinity.hpp>
 #include <Async/src/Mutex.hpp>
@@ -97,6 +98,9 @@ namespace SFT::Engine {
             vector<std::function<void(SFT::Renderer::TextureHandle)>> callbacks;
             std::optional<RHI::FenceHandle> upload_fence;
             RHI::CommandBufferHandle upload_command_buffer{};
+            // Non-null only when the upload exceeded the reusable ring-chunk size. Kept alive until
+            // pump() observes the upload fence, then destroyed alongside the command buffer.
+            RHI::BufferHandle owned_staging_buffer{};
         };
 
         // One reusable HostUpload staging buffer. `last_user_id` records which request's bytes are
@@ -205,17 +209,28 @@ namespace SFT::Engine {
 
         const bool srgb = color_space == TextureColorSpace::Srgb;
         RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
-        span<const std::byte> upload_bytes{decoded->pixels.data(), decoded->pixels.size()};
+        auto generated_mips = Detail::generate_rgba8_mip_chain(
+            decoded->pixels, decoded->width, decoded->height, srgb);
+        if (!generated_mips) {
+            Foundation::log_error("TextureStreamer: failed to generate mip levels for '{}'.", source.string());
+            return {};
+        }
+        Detail::TextureMipChain mip_chain = std::move(*generated_mips);
+        vector<std::byte>{}.swap(decoded->pixels);
+        const u32 mip_levels = mip_chain.mip_levels;
+        span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
-        // Same lossy BC7 win as AssetManager::create_texture, same disk-content-hash cache -- see
-        // Detail::compress_bc7's own doc comment. CPU-only work, safe on the calling thread here.
+        // Preserve the BC7 VRAM win by compressing every mip level rather than only the base image.
         vector<std::byte> compressed_storage;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        if (device != nullptr && device->limits().supports_bc_texture_compression) {
-            if (auto compressed = Detail::compress_bc7(upload_bytes, decoded->width, decoded->height, srgb)) {
+        if (decoded->width >= 4 && decoded->height >= 4 && device != nullptr &&
+            device->limits().supports_bc_texture_compression) {
+            if (auto compressed = Detail::compress_bc7_mip_chain(
+                    upload_bytes, decoded->width, decoded->height, mip_levels, srgb)) {
                 format = srgb ? RHI::Format::BC7UnormSrgb : RHI::Format::BC7Unorm;
                 compressed_storage = std::move(*compressed);
                 upload_bytes = span<const std::byte>{compressed_storage.data(), compressed_storage.size()};
+                vector<std::byte>{}.swap(mip_chain.data);
             }
         }
 
@@ -226,11 +241,20 @@ namespace SFT::Engine {
         // queue-family-ownership-transfer barrier pair for this streaming path).
         static constexpr array<RHI::QueueClass, 2> streamed_queue_classes{RHI::QueueClass::Graphics, RHI::QueueClass::Transfer};
         auto texture = impl_->renderer.create_texture(decoded->width, decoded->height, format, {}, label_c.c_str(),
-                                                       span<const RHI::QueueClass>{streamed_queue_classes});
+                                                       span<const RHI::QueueClass>{streamed_queue_classes}, mip_levels);
         if (!texture) {
             Foundation::log_error("TextureStreamer: failed to create GPU texture for '{}': {}", source.string(), texture.error().message);
             return {};
         }
+        SFT::Renderer::TextureResource *replay_resource = impl_->renderer.texture(*texture);
+        if (replay_resource == nullptr) {
+            impl_->renderer.destroy_texture(*texture);
+            return {};
+        }
+        // The allocation intentionally started empty to avoid a synchronous upload, but renderer-owned
+        // textures still need authoritative CPU data for device recovery. Publish it on this request
+        // thread before launching the worker rather than mutating Renderer::textures_ asynchronously.
+        replay_resource->pixel_data.assign(upload_bytes.begin(), upload_bytes.end());
         if (auto cleared = impl_->renderer.clear_placeholder_texture(*texture, placeholder); !cleared.has_value()) {
             Foundation::log_error("TextureStreamer: failed to clear placeholder for '{}': {}", source.string(), cleared.error().message);
             impl_->renderer.destroy_texture(*texture);
@@ -253,7 +277,7 @@ namespace SFT::Engine {
         // Fire-and-forget: this request's completion is observed via `entries`/`submitted` (polled by
         // state()/pump()), not via the TaskHandle -- discarded deliberately, not an oversight.
         (void)impl_->thread.run([this, id, width, height, format,
-                            pixels = compressed_storage.empty() ? std::move(decoded->pixels) : std::move(compressed_storage)]() mutable {
+                            pixels = compressed_storage.empty() ? std::move(mip_chain.data) : std::move(compressed_storage)]() mutable {
             ZoneScopedN("TextureStreamer::upload_worker");
             RHI::RhiDevice *worker_device = impl_->renderer.rhi_device();
             SFT::Renderer::TextureHandle texture_handle{};
@@ -285,37 +309,69 @@ namespace SFT::Engine {
                 return;
             }
 
-            auto chunk = impl_->acquire_chunk(static_cast<u64>(pixels.size()));
-            if (!chunk) {
-                mark_failed();
-                return;
+            Impl::StagingChunk *ring_chunk = nullptr;
+            RHI::BufferHandle staging_buffer{};
+            RHI::BufferHandle owned_staging_buffer{};
+            if (static_cast<u64>(pixels.size()) <= Impl::kChunkBytes) {
+                auto chunk = impl_->acquire_chunk(static_cast<u64>(pixels.size()));
+                if (!chunk) {
+                    mark_failed();
+                    return;
+                }
+                ring_chunk = *chunk;
+                staging_buffer = ring_chunk->buffer;
+            } else {
+                auto dedicated = worker_device->create_buffer(RHI::BufferDesc{
+                    .size = static_cast<u64>(pixels.size()),
+                    .usage = RHI::BufferUsage::TransferSrc,
+                    .memory = RHI::MemoryLocation::HostUpload,
+                    .label = "large streamed texture staging",
+                });
+                if (!dedicated) {
+                    mark_failed();
+                    return;
+                }
+                owned_staging_buffer = *dedicated;
+                staging_buffer = *dedicated;
             }
-            if (auto written = worker_device->write_buffer((*chunk)->buffer, 0,
+            if (auto written = worker_device->write_buffer(staging_buffer, 0,
                                                            span<const std::byte>{pixels.data(), pixels.size()});
                 !written) {
+                if (owned_staging_buffer) {
+                    worker_device->destroy_buffer(owned_staging_buffer);
+                }
                 mark_failed();
                 return;
             }
 
             SFT::Renderer::TextureResource *resource = impl_->renderer.texture(texture_handle);
             if (resource == nullptr) {
+                if (owned_staging_buffer) {
+                    worker_device->destroy_buffer(owned_staging_buffer);
+                }
                 mark_failed();
                 return;
             }
             const RHI::QueueLane transfer_lane{RHI::QueueClass::Transfer, 0};
             auto submitted = impl_->renderer.submit_texture_upload(*resource, width, height, format,
-                                                                    (*chunk)->buffer, 0, transfer_lane);
+                                                                    staging_buffer, 0, transfer_lane);
             if (!submitted) {
+                if (owned_staging_buffer) {
+                    worker_device->destroy_buffer(owned_staging_buffer);
+                }
                 mark_failed();
                 return;
             }
-            (*chunk)->last_user_id = id;
+            if (ring_chunk != nullptr) {
+                ring_chunk->last_user_id = id;
+            }
 
             {
                 auto guard = impl_->entries.lock();
                 if (auto it = guard->find(id); it != guard->end()) {
                     it->second.upload_fence = submitted->fence;
                     it->second.upload_command_buffer = submitted->command_buffer;
+                    it->second.owned_staging_buffer = owned_staging_buffer;
                 }
             }
             auto submitted_guard = impl_->submitted.lock();
@@ -414,8 +470,12 @@ namespace SFT::Engine {
                     if (entry.upload_command_buffer) {
                         device->destroy_command_buffer(entry.upload_command_buffer);
                     }
+                    if (entry.owned_staging_buffer) {
+                        device->destroy_buffer(entry.owned_staging_buffer);
+                    }
                     entry.upload_fence.reset();
                     entry.upload_command_buffer = {};
+                    entry.owned_staging_buffer = {};
                     retired = true;
                     if (!waited || !*waited) {
                         entry.state = StreamingState::Failed;

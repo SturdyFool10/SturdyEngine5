@@ -84,6 +84,15 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
 
+        // One-time reserve for the two streams a high-polling-rate mouse hits hardest -- every
+        // MouseMoved event lands in both the lossless window_events_ stream and the typed
+        // mouse_move_events_ stream. Events<T>::clear() (World::bind_resource's automatic per-tick
+        // reset) never releases capacity, so this reservation holds for the process's lifetime
+        // rather than needing to be repeated. 256 comfortably covers the ~133-events/60Hz-frame
+        // figure documented in WindowManagerPolicy::coalesce_mouse_motion's own comment.
+        window_events_.reserve(256);
+        mouse_move_events_.reserve(256);
+
         update_schedule_.add_system(
             [](Ecs::WriteResource<PlatformEventInbox> inbox,
                Ecs::EventWriter<WindowEvent> window_events,
@@ -110,13 +119,14 @@ namespace SFT::Engine {
                                               ? ButtonAction::Pressed
                                               : ButtonAction::Released,
                                 .repeat = event.keyboard.repeat,
+                                .timestamp_ns = event.timestamp_ns,
                             });
                             break;
                         case Platform::Windowing::WindowEventKind::TextInput:
-                            text_events.send(TextInputEvent{.window = queued.window, .text = event.text});
+                            text_events.send(TextInputEvent{.window = queued.window, .text = event.text, .timestamp_ns = event.timestamp_ns});
                             break;
                         case Platform::Windowing::WindowEventKind::MouseMoved:
-                            mouse_move_events.send(MouseMoveEvent{.window = queued.window, .mouse = event.mouse_move});
+                            mouse_move_events.send(MouseMoveEvent{.window = queued.window, .mouse = event.mouse_move, .timestamp_ns = event.timestamp_ns});
                             break;
                         case Platform::Windowing::WindowEventKind::MouseButtonPressed:
                         case Platform::Windowing::WindowEventKind::MouseButtonReleased:
@@ -126,10 +136,11 @@ namespace SFT::Engine {
                                 .action = event.kind == Platform::Windowing::WindowEventKind::MouseButtonPressed
                                               ? ButtonAction::Pressed
                                               : ButtonAction::Released,
+                                .timestamp_ns = event.timestamp_ns,
                             });
                             break;
                         case Platform::Windowing::WindowEventKind::MouseWheel:
-                            mouse_wheel_events.send(MouseWheelEvent{.window = queued.window, .wheel = event.mouse_wheel});
+                            mouse_wheel_events.send(MouseWheelEvent{.window = queued.window, .wheel = event.mouse_wheel, .timestamp_ns = event.timestamp_ns});
                             break;
                         default:
                             window_state_events.send(WindowStateEvent{
@@ -137,6 +148,7 @@ namespace SFT::Engine {
                                 .kind = event.kind,
                                 .position = event.position,
                                 .resize = event.resize,
+                                .timestamp_ns = event.timestamp_ns,
                             });
                             break;
                     }

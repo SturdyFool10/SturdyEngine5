@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
 
+#include <chrono>
 #include <cstring>
 #include <expected>
 #include <functional>
@@ -79,6 +80,23 @@ namespace SFT::Platform::Windowing::SDL3 {
         WindowError sdl_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *message = SDL_GetError();
             return WindowError{code, message && message[0] != '\0' ? message : fallback};
+        }
+
+        [[nodiscard]] u64 steady_now_ns() noexcept {
+            return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                         std::chrono::steady_clock::now().time_since_epoch())
+                                         .count());
+        }
+
+        // SDL events carry their own SDL_GetTicksNS()-based timestamp (nanoseconds since SDL init),
+        // not steady_clock's epoch. `offset_ns` (computed once per pump_events() call via
+        // sdl_to_steady_offset_ns() below) converts one into the other without a syscall per event.
+        [[nodiscard]] u64 sdl_event_timestamp_ns(Uint64 sdl_timestamp, i64 offset_ns) noexcept {
+            return static_cast<u64>(static_cast<i64>(sdl_timestamp) + offset_ns);
+        }
+
+        [[nodiscard]] i64 sdl_to_steady_offset_ns() noexcept {
+            return static_cast<i64>(steady_now_ns()) - static_cast<i64>(SDL_GetTicksNS());
         }
 
         [[nodiscard]] const char *graphics_api_name(WindowGraphicsApi api) noexcept {
@@ -475,6 +493,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         i32 close_event_count = 0;
         i32 queued_event_count = 0;
         constexpr i32 max_events_per_pump = 128;
+        // Computed once per pump rather than per event -- see sdl_to_steady_offset_ns()'s doc comment.
+        // A pump batch spans at most a few hundred microseconds, so drift within one batch is
+        // negligible next to the nanosecond-timestamp resolution being converted.
+        const i64 timestamp_offset_ns = sdl_to_steady_offset_ns();
 
         // Deliberately NOT held across SDL_PollEvent itself (each iteration below takes its own
         // lock only for the event-processing body) -- on Windows, SDL's blocked interactive
@@ -487,11 +509,15 @@ namespace SFT::Platform::Windowing::SDL3 {
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
             auto lock = sdl_window_mutex().lock();
             ++event_count;
+            // Cheap per-event arithmetic (no syscall) against the once-per-pump offset above.
+            const u64 event_timestamp_ns = sdl_event_timestamp_ns(event.common.timestamp, timestamp_offset_ns);
             if (event.type == SDL_EVENT_QUIT) [[unlikely]] {
                 for (auto &[registered_id, registered_window] : sdl_window_registry()) {
                     if (registered_window) [[likely]] {
                         registered_window->close_requested_.store(true);
-                        registered_window->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
+                        WindowEvent close_event{WindowEventKind::CloseRequested};
+                        close_event.timestamp_ns = event_timestamp_ns;
+                        registered_window->events_.push_back(close_event);
                         Foundation::log_warn("SDL3 global quit routed to window: target_wrapper={} target_id={}", static_cast<void *>(registered_window), registered_id);
                     }
                 }
@@ -500,7 +526,9 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     found->second->close_requested_.store(true);
-                    found->second->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
+                    WindowEvent close_event{WindowEventKind::CloseRequested};
+                    close_event.timestamp_ns = event_timestamp_ns;
+                    found->second->events_.push_back(close_event);
                     ++close_event_count;
                     ++queued_event_count;
                     Foundation::log_warn("SDL3 close requested event routed: pump_wrapper={} target_wrapper={} target_id={}", static_cast<void *>(this), static_cast<void *>(found->second), event.window.windowID);
@@ -513,6 +541,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                     const WindowExtent previous_size = target->last_size_;
                     const WindowExtent previous_framebuffer = target->last_framebuffer_size_;
                     WindowEvent window_event{event.type == SDL_EVENT_WINDOW_RESIZED ? WindowEventKind::Resized : WindowEventKind::FramebufferResized};
+                    window_event.timestamp_ns = event_timestamp_ns;
 
                     if (event.type == SDL_EVENT_WINDOW_RESIZED) {
                         target->last_size_ = WindowExtent{static_cast<u32>(event.window.data1), static_cast<u32>(event.window.data2)};
@@ -533,6 +562,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::Moved};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     window_event.position = WindowPosition{event.window.data1, event.window.data2};
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
@@ -547,12 +577,15 @@ namespace SFT::Platform::Windowing::SDL3 {
                     } else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
                         kind = WindowEventKind::MouseLeft;
                     }
-                    found->second->events_.push_back(WindowEvent{kind});
+                    WindowEvent state_event{kind};
+                    state_event.timestamp_ns = event_timestamp_ns;
+                    found->second->events_.push_back(state_event);
                     ++queued_event_count;
                 }
             } else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
                 if (auto found = sdl_window_registry().find(event.key.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{event.type == SDL_EVENT_KEY_DOWN ? WindowEventKind::KeyPressed : WindowEventKind::KeyReleased};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     window_event.keyboard = WindowKeyboardEvent{
                         .key = static_cast<i32>(event.key.key),
                         .scancode = static_cast<i32>(event.key.scancode),
@@ -566,6 +599,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_TEXT_INPUT) {
                 if (auto found = sdl_window_registry().find(event.text.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::TextInput};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     if (event.text.text) [[likely]] {
                         const usize copy_size = SDL_strnlen(event.text.text, sizeof(window_event.text.utf8) - 1);
                         memcpy(window_event.text.utf8, event.text.text, copy_size);
@@ -576,6 +610,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
                 if (auto found = sdl_window_registry().find(event.motion.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::MouseMoved};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     window_event.mouse_move = WindowMouseMoveEvent{
                         event.motion.x,
                         event.motion.y,
@@ -589,6 +624,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
                 if (auto found = sdl_window_registry().find(event.button.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? WindowEventKind::MouseButtonPressed : WindowEventKind::MouseButtonReleased};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     window_event.mouse_button = WindowMouseButtonEvent{
                         .button = event.button.button,
                         .clicks = event.button.clicks,
@@ -602,6 +638,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
                 if (auto found = sdl_window_registry().find(event.wheel.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::MouseWheel};
+                    window_event.timestamp_ns = event_timestamp_ns;
                     window_event.mouse_wheel = WindowMouseWheelEvent{event.wheel.x, event.wheel.y, event.wheel.mouse_x, event.wheel.mouse_y};
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
@@ -646,7 +683,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         auto lock = sdl_window_mutex().lock();
         close_requested_.store(true);
         const SDL_WindowID id = window_ ? SDL_GetWindowID(window_) : 0;
-        events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
+        WindowEvent close_event{WindowEventKind::CloseRequested};
+        close_event.timestamp_ns = steady_now_ns();
+        events_.push_back(close_event);
         Foundation::log_warn("SDL3 close requested by engine: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), id);
     }
 
@@ -1035,7 +1074,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
         mouse_locked_ = locked;
-        events_.push_back(WindowEvent{locked ? WindowEventKind::MouseLocked : WindowEventKind::MouseUnlocked});
+        WindowEvent lock_event{locked ? WindowEventKind::MouseLocked : WindowEventKind::MouseUnlocked};
+        lock_event.timestamp_ns = steady_now_ns();
+        events_.push_back(lock_event);
         return {};
     }
 

@@ -162,6 +162,7 @@ namespace SFT::Engine {
             }
             hooks.prepare = [renderer_state, snapshot, texture_resolver](
                                 RHI::RhiDevice &device, RHI::CommandEncoder &encoder, glm::vec2 viewport_size,
+                                Core::RenderSurfaceHandle surface, u32 frame_resource_index,
                                 std::vector<RHI::BufferHandle> &transient_buffers,
                                 Renderer::TextAtlasRetiredResources &retired_atlas_resources) -> Core::RendererResult {
                 const Core::Extent2D layout_extent = snapshot->viewport_extent();
@@ -179,18 +180,19 @@ namespace SFT::Engine {
                         "UI renderer was destroyed before overlay preparation.");
                 }
                 return (*guard)->prepare(
-                    device, encoder, *snapshot, texture_resolver, transient_buffers,
-                    retired_atlas_resources);
+                    device, encoder, *snapshot, texture_resolver, surface, frame_resource_index,
+                    transient_buffers, retired_atlas_resources);
             };
-            hooks.draw = [renderer_state](RHI::RenderPassEncoder &pass,
-                                          glm::vec2 viewport_size) -> Core::RendererResult {
+            hooks.draw = [renderer_state](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
+                                          Core::RenderSurfaceHandle surface,
+                                          u32 frame_resource_index) -> Core::RendererResult {
                 auto guard = renderer_state->renderer.lock();
                 if (!*guard) {
                     return Core::graphics_backend_error(
                         Core::GraphicsBackendErrorCode::OperationFailed,
                         "UI renderer was destroyed before overlay drawing.");
                 }
-                return (*guard)->draw(pass, viewport_size);
+                return (*guard)->draw(pass, viewport_size, surface, frame_resource_index);
             };
             return hooks;
         }

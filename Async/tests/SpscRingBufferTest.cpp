@@ -1,0 +1,147 @@
+#include <Async/src/SpscRingBuffer.hpp>
+
+#include <cstdint>
+#include <iostream>
+#include <thread>
+#include <vector>
+
+namespace {
+
+    using SFT::usize;
+    using SFT::u64;
+
+    bool check(bool condition, const char *message) {
+        if (!condition) {
+            std::cerr << "FAILED: " << message << '\n';
+        }
+        return condition;
+    }
+
+    bool push_and_drain_preserves_order() {
+        SFT::Async::SpscRingBuffer<int> ring(8);
+        bool passed = true;
+
+        passed &= check(ring.capacity() == 8, "capacity should round an exact power of two to itself");
+
+        for (int i = 0; i < 5; ++i) {
+            passed &= check(ring.try_push(i), "push should succeed while under capacity");
+        }
+
+        std::vector<int> out;
+        const usize drained = ring.drain_into(out);
+        passed &= check(drained == 5, "drain_into should report exactly what was pushed");
+        passed &= check(out.size() == 5, "drain_into should append exactly what was pushed");
+        for (int i = 0; i < 5; ++i) {
+            passed &= check(out[static_cast<usize>(i)] == i, "drain_into should preserve FIFO order");
+        }
+
+        std::vector<int> empty_drain;
+        passed &= check(ring.drain_into(empty_drain) == 0, "draining an already-empty ring should report zero");
+        passed &= check(empty_drain.empty(), "draining an already-empty ring should append nothing");
+
+        return passed;
+    }
+
+    bool capacity_rounds_up_to_next_power_of_two() {
+        SFT::Async::SpscRingBuffer<int> ring(5);
+        return check(ring.capacity() == 8, "non-power-of-two capacity should round up to the next power of two");
+    }
+
+    bool full_ring_rejects_further_pushes_without_corrupting_state() {
+        SFT::Async::SpscRingBuffer<int> ring(4);
+        bool passed = true;
+
+        for (int i = 0; i < 4; ++i) {
+            passed &= check(ring.try_push(i), "push should succeed up to capacity");
+        }
+        passed &= check(!ring.try_push(99), "push should fail once the ring is at capacity");
+
+        std::vector<int> out;
+        passed &= check(ring.drain_into(out) == 4, "a full ring should still drain everything that was pushed");
+        for (int i = 0; i < 4; ++i) {
+            passed &= check(out[static_cast<usize>(i)] == i, "rejected push must not have corrupted earlier slots");
+        }
+        return passed;
+    }
+
+    // Repeated push/drain cycles that cross the underlying index past its capacity many times over,
+    // to exercise wraparound of the masked buffer index (not just the monotonic head_/tail_ counters).
+    bool sustained_cycles_survive_index_wraparound() {
+        SFT::Async::SpscRingBuffer<int> ring(4);
+        bool passed = true;
+        int next_expected_value = 0;
+
+        for (int cycle = 0; cycle < 1000; ++cycle) {
+            for (int i = 0; i < 3; ++i) {
+                passed &= check(ring.try_push(next_expected_value + i), "push should succeed within one cycle's headroom");
+            }
+            std::vector<int> out;
+            passed &= check(ring.drain_into(out) == 3, "each cycle should drain exactly what it pushed");
+            for (int i = 0; i < 3; ++i) {
+                passed &= check(out[static_cast<usize>(i)] == next_expected_value + i,
+                                "wraparound should not reorder or corrupt values across many cycles");
+            }
+            next_expected_value += 3;
+            if (!passed) {
+                break;
+            }
+        }
+        return passed;
+    }
+
+    // Real two-thread producer/consumer stress: one thread pushes as fast as it can while another
+    // drains concurrently, verifying every pushed value is eventually observed exactly once, in
+    // order, with none lost or duplicated -- the actual concurrency guarantee this primitive exists
+    // to provide, not just its single-threaded bookkeeping.
+    bool concurrent_producer_consumer_loses_nothing() {
+        constexpr usize ring_capacity = 256;
+        constexpr u64 total_items = 2'000'000;
+
+        SFT::Async::SpscRingBuffer<u64> ring(ring_capacity);
+        bool passed = true;
+
+        std::thread producer([&]() {
+            for (u64 i = 0; i < total_items; ++i) {
+                while (!ring.try_push(i)) {
+                    std::this_thread::yield(); // ring momentarily full; consumer will catch up
+                }
+            }
+        });
+
+        std::vector<u64> received;
+        received.reserve(total_items);
+        std::vector<u64> batch;
+        while (received.size() < total_items) {
+            batch.clear();
+            ring.drain_into(batch);
+            if (batch.empty()) {
+                std::this_thread::yield(); // nothing available right now; let the producer make progress
+                continue;
+            }
+            received.insert(received.end(), batch.begin(), batch.end());
+        }
+
+        producer.join();
+
+        passed &= check(received.size() == total_items, "consumer should observe every item the producer pushed");
+        if (received.size() == total_items) {
+            for (u64 i = 0; i < total_items; ++i) {
+                if (received[i] != i) {
+                    passed &= check(false, "concurrent stress run lost, duplicated, or reordered an item");
+                    break;
+                }
+            }
+        }
+        return passed;
+    }
+
+} // namespace
+
+int main() {
+    bool passed = push_and_drain_preserves_order();
+    passed &= capacity_rounds_up_to_next_power_of_two();
+    passed &= full_ring_rejects_further_pushes_without_corrupting_state();
+    passed &= sustained_cycles_survive_index_wraparound();
+    passed &= concurrent_producer_consumer_loses_nothing();
+    return passed ? 0 : 1;
+}

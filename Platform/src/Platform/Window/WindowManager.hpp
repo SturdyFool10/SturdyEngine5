@@ -96,6 +96,15 @@ namespace SFT::Platform::Windowing {
         optional<WindowExtent> framebuffer_size;
     };
 
+    // Per-window lock-free event channel (ring buffer + small ancillary state) -- defined in
+    // WindowManager.cpp, deliberately kept an opaque type here so SpscRingBuffer.hpp (an
+    // implementation detail of the event handoff, not part of this class's public surface) never
+    // needs to be included by anything that just wants to include this header.
+    class WindowEventChannel;
+
+    // Directory entry for WindowManager::channels_ -- see that member's own doc comment.
+    using WindowEventChannelEntry = std::pair<WindowId, std::shared_ptr<WindowEventChannel>>;
+
     // Real owner of every window in the process: construction, destruction, pumping, and any bespoke
     // per-window access all funnel through dispatch() below, which is the single choke point enforcing
     // Window's own documented invariant ("drive pump_events() and the event/state queries from the
@@ -133,10 +142,7 @@ namespace SFT::Platform::Windowing {
                     primary_window_id_ = id;
                 }
                 windows_.push_back(std::move(*created));
-                {
-                    auto guard = accumulated_.lock();
-                    guard->push_back(ManagedWindowEvents{.window_id = id, .events = {}, .framebuffer_size = {}});
-                }
+                seed_channel(id);
                 return id;
             });
         }
@@ -164,10 +170,7 @@ namespace SFT::Platform::Windowing {
                     primary_window_id_ = id;
                 }
                 windows_.push_back(std::move(*created));
-                {
-                    auto guard = accumulated_.lock();
-                    guard->push_back(ManagedWindowEvents{.window_id = id, .events = {}, .framebuffer_size = {}});
-                }
+                seed_channel(id);
                 return id;
             });
         }
@@ -258,27 +261,42 @@ namespace SFT::Platform::Windowing {
         void poll_loop() noexcept;
         void wake_poll_loop() noexcept;
 
-        // Folds one window's freshly-polled events into its accumulator entry, applying
-        // policy_.coalesce_mouse_motion and policy_.max_accumulated_events_per_window. Returns how
-        // many events it actually drained from the window (before coalescing/dropping), which
-        // poll_loop() uses to tell "a real backlog is queued up, keep draining" apart from "a
-        // trickle arrived, go back to sleep". Runs on whichever thread owns `window` — poll_loop()
-        // calls it with accumulated_ held (entry points into it); pump()'s CallerThread path calls
-        // it on a local entry it has not published yet.
-        [[nodiscard]] usize drain_window_into(Window &window, ManagedWindowEvents &entry) noexcept;
+        // Registers a fresh channel for a newly spawned window. Only WindowManager.cpp (where
+        // WindowEventChannel is a complete type) can actually construct one — spawn_window()'s
+        // template body, defined in this header, cannot.
+        void seed_channel(WindowId id) noexcept;
 
-        // Per-window accumulator poll_loop() folds newly-polled events into every iteration; pump()
-        // swaps it out (matching Async::MainThread's run_on_main_thread()/pump_main_thread() shape:
-        // swap under lock, use the swapped-out copy outside it). Entries are added when
-        // dispatch()-driven spawn_window() adds a window and removed when destroy_window() removes
-        // one, both from inside poll_loop() itself (see WindowManager.cpp) so windows_ and this stay
-        // in lockstep without a second lock ordering to reason about.
-        Async::Mutex<vector<ManagedWindowEvents>> accumulated_;
+        // Producer-side: drains every currently-queued native event for `window`, coalescing
+        // adjacent MouseMoved runs (per policy_.coalesce_mouse_motion) into `channel`'s pending slot
+        // and pushing committed events into channel's lock-free ring (dropping — with the same
+        // one-time warning as before — only once the ring itself is full). Returns how many *raw*
+        // events were drained (before coalescing), which poll_loop() uses to tell "a real backlog is
+        // queued up, keep draining" apart from "a trickle arrived, go back to sleep". Runs on
+        // whichever thread owns `window` — poll_loop()'s background thread, or pump()'s CallerThread
+        // dispatch() path.
+        [[nodiscard]] usize drain_window_into(Window &window, WindowEventChannel &channel) noexcept;
+
+        // Publishes channel's pending coalesced run (if any) to its ring and clears it, so a
+        // long-running coalesced motion sequence never sits invisible to the consumer indefinitely.
+        void flush_pending(WindowEventChannel &channel) noexcept;
+
+        // Pushes `event` into channel's ring; logs (and one-time-latches) the same overflow warning
+        // drain_window_into() has always had if the ring is full.
+        void push_or_warn(WindowEventChannel &channel, const WindowEvent &event) noexcept;
+
+        // Per-window lock-free event channel directory. Unlike the mutex-guarded accumulator this
+        // replaced, this lock only ever guards the *directory* itself -- added to at spawn_window(),
+        // erased from at destroy_window() (window lifecycle, nowhere near 8kHz) -- never the
+        // per-event hot path, which flows through each channel's own lock-free
+        // Async::SpscRingBuffer. Both poll_loop() and pump() take a brief lock to copy out a
+        // snapshot (cheap: shared_ptr refcount bumps only) and then do all real work outside it; the
+        // shared_ptr snapshot also keeps a channel alive for the duration of a pump() call even if
+        // destroy_window() concurrently erases the live directory's own reference to it.
+        Async::Mutex<vector<WindowEventChannelEntry>> channels_;
 
         WindowManagerPolicy policy_{};
         vector<unique_ptr<Window>> windows_;
         optional<WindowId> primary_window_id_;
-        unique_ptr<Async::DedicatedThread> event_thread_;
 
         // Queued one-shot dispatch() closures for poll_loop() to run on its own thread — see dispatch()'s
         // doc comment. Reuses Async::Detail::TaskBase rather than a bespoke closure type so dispatch()
@@ -298,6 +316,18 @@ namespace SFT::Platform::Windowing {
         // because the condition that trips it (a stalled consumer under a live input stream) is
         // exactly the condition under which an unthrottled log_warn would itself become the stall.
         bool accumulator_overflow_warned_ = false;
+
+        // Declared *last* deliberately: members destruct in reverse declaration order, and
+        // event_thread_'s destructor is what joins poll_loop()'s background thread (~WindowManager()'s
+        // own explicit body only *signals* shutdown via running_/wake_poll_loop(), it doesn't wait).
+        // Every member poll_loop() can still touch during its post-loop tail (draining pending_ops_
+        // one last time, then windows_.clear() -- see poll_loop()'s own doc comment) must therefore be
+        // declared *before* this one, so it destructs *after* the join has already guaranteed the
+        // background thread has fully returned. Getting this wrong is a real, silent use-after-free:
+        // ASan caught pending_ops_ being freed on the main thread while poll_loop() was still reading
+        // it on its own thread, reliably reproducible under PlatformWindowManagerHighRateInputTest's
+        // sustained dispatch() load followed by prompt destruction.
+        unique_ptr<Async::DedicatedThread> event_thread_;
     };
 
 } // namespace SFT::Platform::Windowing

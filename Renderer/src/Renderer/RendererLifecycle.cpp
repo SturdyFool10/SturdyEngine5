@@ -998,7 +998,8 @@ namespace SFT::Renderer {
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
         }
-        FrameInFlight &slot = record.frames_in_flight[frame.frame_index % frame_count];
+        const u32 frame_slot_index = static_cast<u32>(frame.frame_index % frame_count);
+        FrameInFlight &slot = record.frames_in_flight[frame_slot_index];
         if (!slot.submitted && (!slot.transient_buffers.empty() || !slot.transient_bind_groups.empty() ||
                                 !slot.transient_acceleration_structures.empty())) {
             // A prior recording attempt failed before submission. Those resources were never visible to
@@ -1107,8 +1108,9 @@ namespace SFT::Renderer {
                 // Published independent of draw_overlay_text (Scene.hpp) — a caller building its own
                 // display via Renderer::last_frame_timings() needs this even when the on-screen text
                 // block further down is skipped.
-                record.last_frame_timings.gpu_pass_timings_ms = gpu_pass_timings_ms;
-                record.last_frame_timings.has_data = true;
+                auto published_timings = record.last_frame_timings->lock();
+                published_timings->gpu_pass_timings_ms = gpu_pass_timings_ms;
+                published_timings->has_data = true;
             }
             slot.gpu_timing.has_pending_results = false;
         }
@@ -1131,9 +1133,10 @@ namespace SFT::Renderer {
                      [](const auto &a, const auto &b) { return a.second > b.second; });
             cpu_stage_timings_ms = slot.cpu_timing.stage_timings;
             // See the matching GPU-side comment above: published regardless of draw_overlay_text.
-            record.last_frame_timings.cpu_pass_timings_ms = cpu_pass_timings_ms;
-            record.last_frame_timings.cpu_stage_timings_ms = cpu_stage_timings_ms;
-            record.last_frame_timings.has_data = true;
+            auto published_timings = record.last_frame_timings->lock();
+            published_timings->cpu_pass_timings_ms = cpu_pass_timings_ms;
+            published_timings->cpu_stage_timings_ms = cpu_stage_timings_ms;
+            published_timings->has_data = true;
             slot.cpu_timing.has_pending_results = false;
         }
 
@@ -1493,19 +1496,12 @@ namespace SFT::Renderer {
             }
         } acquired_image_guard;
 
-        // Everything from here down through graph_resources.reset() below is acquisition-independent
-        // -- none of it reads the acquired swapchain image/texture/view, only `submission`/`slot`/
-        // `record` state already established above -- so it runs *before* acquire_next_texture
-        // instead of after. This keeps the acquired image (and its acquisition semaphore) held for as
-        // short a time as possible, and means a failure in any of this work returns before an image
-        // was ever acquired at all, so acquired_image_guard never fires an unnecessary swapchain
-        // rebuild for a failure that has nothing to do with the swapchain (spec: "do not acquire so
-        // early that the image remains held through long CPU preparation" / "do not perform expensive
-        // image-specific work before knowing an image was acquired" -- the TLAS build below is the
-        // main example). The one exception is prepare_spectral_photon_mapping, deliberately left
-        // *after* acquire below despite also being acquisition-independent in principle -- see its own
-        // call site's comment for why (optimistic "populated" bookkeeping that must not run unless the
-        // encoder recording it is actually going to be submitted).
+        // The expensive acquisition-independent TLAS preparation below runs before acquire so an image
+        // is not held through that CPU/GPU-recording work. Stateful atlas preparation deliberately does
+        // not: TextAtlas publishes new residency/layout metadata as it records uploads, so a normal
+        // NotReady acquire must be resolved before those commands are recorded or a skipped frame would
+        // leave glyphs marked resident without ever uploading them. Spectral photon preparation follows
+        // the same post-acquire rule for its optimistic `populated` bookkeeping.
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
@@ -1548,6 +1544,31 @@ namespace SFT::Renderer {
         const bool spectral_photon_emission_needed = spectral_photon_mapping &&
             (!slot.spectral_photon_targets.populated ||
              slot.spectral_photon_targets.state_signature != spectral_photon_signature);
+
+        // Resolve the expected short-timeout NotReady path before text/UI atlas preparation mutates
+        // residency. Once acquired, every later early return is guarded by acquired_image_guard and
+        // treated as a real frame failure rather than an intentionally skipped frame.
+        optional<RHI::SurfaceTexture> acquired_surface;
+        if (!offscreen_output) {
+            auto acquired = [&]() {
+                ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
+                return device->acquire_next_texture(record.rhi_swapchain, frame_slot_index);
+            }();
+            if (!acquired) {
+                if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
+                    return {};
+                }
+                if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
+                    record.rhi_swapchain_dirty = true;
+                }
+                return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
+            }
+            acquired_surface = *acquired;
+            acquired_image_guard.record = &record;
+            if (acquired_surface->suboptimal) {
+                record.rhi_swapchain_dirty = true;
+            }
+        }
 
         vector<TextDrawBatch> text_overlay_batches;
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
@@ -1644,7 +1665,8 @@ namespace SFT::Renderer {
         if (submission.render_graph.ui_overlay) {
             const glm::vec2 ui_viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
             if (Core::RendererResult ui_prepared = submission.render_graph.ui_overlay.prepare(
-                    *device, **encoder, ui_viewport_size, submission.transient_buffers, submission.retired_text_atlas_resources);
+                    *device, **encoder, ui_viewport_size, record.surface, frame_slot_index,
+                    submission.transient_buffers, submission.retired_text_atlas_resources);
                 !ui_prepared.has_value()) {
                 return ui_prepared;
             }
@@ -1659,34 +1681,6 @@ namespace SFT::Renderer {
         RenderGraphBlackboard &graph_resources = record.graph_resources;
         graph_resources.reset();
 
-        // Genuinely image-dependent work starts here: acquiring which specific swapchain image this
-        // frame will render into, then importing exactly that image into the render graph just
-        // declared above as `final_output` below. See this function's earlier comment (right before
-        // encoder creation) for why everything above this point was deliberately placed before acquire.
-        optional<RHI::SurfaceTexture> acquired_surface;
-        if (!offscreen_output) {
-            auto acquired = [&]() {
-                ScopedRendererStageTimer timer{"acquire swapchain texture", &current_frame_cpu_stage_timings_ms};
-                // Same ring index as `slot` above (frame.frame_index % frame_count) -- this is what
-                // ties the acquisition semaphore's reuse safety to that slot's own "wait in-flight
-                // frame fence" stage having already proven its prior GPU work complete.
-                return device->acquire_next_texture(record.rhi_swapchain, frame.frame_index % frame_count);
-            }();
-            if (!acquired) {
-                if (acquired.error().code == RHI::RhiErrorCode::NotReady) {
-                    return {};
-                }
-                if (acquired.error().code == RHI::RhiErrorCode::SurfaceLost) {
-                    record.rhi_swapchain_dirty = true;
-                }
-                return unexpected(graphics_error_from_rhi(acquired.error(), "acquire RHI swapchain texture"));
-            }
-            acquired_surface = *acquired;
-            acquired_image_guard.record = &record;
-            if (acquired_surface->suboptimal) {
-                record.rhi_swapchain_dirty = true;
-            }
-        }
 
         const RHI::TextureHandle output_texture = offscreen_output
             ? resolved_offscreen->texture
@@ -1695,8 +1689,8 @@ namespace SFT::Renderer {
             ? resolved_offscreen->view
             : acquired_surface->view;
 
-        // Deliberately NOT hoisted above acquire with the rest of this function's pre-graph work
-        // (TLAS build, text/UI overlay prep, graph.reset()): prepare_spectral_photon_mapping marks
+        // Deliberately NOT hoisted above acquire with the TLAS work:
+        // prepare_spectral_photon_mapping marks
         // slot.spectral_photon_targets.populated = true (and updates its state_signature) as soon as
         // it *records* the emission dispatch, optimistically assuming the encoder recording it will
         // actually be submitted. Recording it before acquire would mean the routine, expected-to-
@@ -2774,7 +2768,8 @@ namespace SFT::Renderer {
                     .store_op = RHI::StoreOp::Store,
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
-                .set_execute([presentation_extent, &submission](RenderGraphContext &context) -> Core::RendererResult {
+                .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
+                              &submission](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f,
@@ -2786,7 +2781,7 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
                     const glm::vec2 viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
-                    return submission.render_graph.ui_overlay.draw(pass, viewport_size);
+                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
                 });
         }
 

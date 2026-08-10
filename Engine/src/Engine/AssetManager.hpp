@@ -63,6 +63,9 @@ namespace SFT::Engine {
         // a texture that must stay byte-exact — e.g. a data LUT sampled as non-visual data rather
         // than a color image, where BC7's lossy artifacts would corrupt the values.
         bool allow_compression = true;
+        // Visual textures default to a complete mip chain. Disable for data textures whose shader
+        // requires exact base-level sampling rather than filtered lower-resolution representations.
+        bool generate_mipmaps = true;
     };
 
     struct TextureAssetInfo {

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <limits>
 #include <span>
 #include <string>
 #include <utility>
@@ -27,11 +28,12 @@ namespace SFT::Renderer {
 
     namespace {
 
-        // Total pixel-data byte size for the (single-plane, single-mip) formats the renderer texture
-        // path accepts, given the format's own packing rules — per-texel for uncompressed formats,
-        // per-4x4-block for block-compressed ones (format_is_block_compressed). 0 for anything else —
-        // the caller rejects an unsupported format rather than guessing.
+        // Byte size of one tightly packed mip level for the formats accepted by this upload path.
+        // Returns 0 for unsupported formats or dimensions whose packed size would overflow u64.
         [[nodiscard]] u64 texture_data_bytes(RHI::Format format, u32 width, u32 height) noexcept {
+            if (width == 0 || height == 0) {
+                return 0;
+            }
             if (RHI::format_is_block_compressed(format)) {
                 u32 bytes_per_block = 0;
                 switch (format) {
@@ -41,9 +43,15 @@ namespace SFT::Renderer {
                     case RHI::Format::BC4Unorm: bytes_per_block = 8; break;
                     default: return 0;
                 }
-                const u64 blocks_wide = (static_cast<u64>(width) + 3) / 4;
-                const u64 blocks_high = (static_cast<u64>(height) + 3) / 4;
-                return blocks_wide * blocks_high * bytes_per_block;
+                const u64 blocks_wide = (static_cast<u64>(width) + 3u) / 4u;
+                const u64 blocks_high = (static_cast<u64>(height) + 3u) / 4u;
+                if (blocks_wide > std::numeric_limits<u64>::max() / blocks_high) {
+                    return 0;
+                }
+                const u64 block_count = blocks_wide * blocks_high;
+                return block_count <= std::numeric_limits<u64>::max() / bytes_per_block
+                    ? block_count * bytes_per_block
+                    : 0;
             }
 
             u32 texel_size = 0;
@@ -53,14 +61,77 @@ namespace SFT::Renderer {
                 case RHI::Format::RGBA8UnormSrgb: texel_size = 4; break;
                 default: return 0;
             }
-            return static_cast<u64>(width) * height * texel_size;
+            const u64 texels = static_cast<u64>(width) * height;
+            return texels <= std::numeric_limits<u64>::max() / texel_size ? texels * texel_size : 0;
+        }
+
+        [[nodiscard]] u64 texture_copy_offset_alignment(RHI::Format format) noexcept {
+            switch (format) {
+                case RHI::Format::BC7Unorm:
+                case RHI::Format::BC7UnormSrgb:
+                case RHI::Format::BC5Unorm: return 16;
+                case RHI::Format::BC4Unorm: return 8;
+                case RHI::Format::R8Unorm:
+                case RHI::Format::RGBA8Unorm:
+                case RHI::Format::RGBA8UnormSrgb: return 4;
+                default: return 0;
+            }
+        }
+
+        [[nodiscard]] u64 align_up(u64 value, u64 alignment) noexcept {
+            if (alignment == 0 || value > std::numeric_limits<u64>::max() - (alignment - 1u)) {
+                return 0;
+            }
+            return ((value + alignment - 1u) / alignment) * alignment;
+        }
+
+        [[nodiscard]] u32 texture_mip_level_count(u32 width, u32 height) noexcept {
+            u32 levels = 0;
+            while (width != 0 && height != 0) {
+                ++levels;
+                if (width == 1 && height == 1) {
+                    break;
+                }
+                width = std::max(width / 2u, 1u);
+                height = std::max(height / 2u, 1u);
+            }
+            return levels;
+        }
+
+        [[nodiscard]] u64 texture_mip_chain_bytes(
+            RHI::Format format, u32 width, u32 height, u32 mip_levels) noexcept {
+            if (mip_levels == 0 || mip_levels > texture_mip_level_count(width, height)) {
+                return 0;
+            }
+            const u64 alignment = texture_copy_offset_alignment(format);
+            if (alignment == 0) {
+                return 0;
+            }
+            u64 total = 0;
+            for (u32 level = 0; level < mip_levels; ++level) {
+                if (level != 0) {
+                    total = align_up(total, alignment);
+                    if (total == 0) {
+                        return 0;
+                    }
+                }
+                const u64 level_bytes = texture_data_bytes(format, width, height);
+                if (level_bytes == 0 || total > std::numeric_limits<u64>::max() - level_bytes) {
+                    return 0;
+                }
+                total += level_bytes;
+                width = std::max(width / 2u, 1u);
+                height = std::max(height / 2u, 1u);
+            }
+            return total;
         }
 
     } // namespace
 
     Core::RendererExpected<TextureHandle> Renderer::create_texture(u32 width, u32 height, RHI::Format format,
                                                                    span<const std::byte> data, const char *label,
-                                                                   span<const RHI::QueueClass> concurrent_queue_classes) {
+                                                                   span<const RHI::QueueClass> concurrent_queue_classes,
+                                                                   u32 mip_levels) {
         ZoneScopedN("Renderer::create_texture");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -71,10 +142,10 @@ namespace SFT::Renderer {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a texture with a zero dimension."});
         }
-        const u64 expected_bytes = texture_data_bytes(format, width, height);
+        const u64 expected_bytes = texture_mip_chain_bytes(format, width, height, mip_levels);
         if (expected_bytes == 0) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        "Unsupported texture format for renderer create_texture."});
+                                                        "Unsupported texture format or invalid mip count for renderer create_texture."});
         }
         if (!data.empty() && static_cast<u64>(data.size()) != expected_bytes) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
@@ -86,8 +157,10 @@ namespace SFT::Renderer {
         resource.label = label ? label : "";
         resource.width = width;
         resource.height = height;
+        resource.mip_levels = mip_levels;
         resource.format = format;
         resource.pixel_data.assign(data.begin(), data.end());
+        resource.concurrent_queue_classes.assign(concurrent_queue_classes.begin(), concurrent_queue_classes.end());
         resource.alive = true;
 
         if (Core::RendererResult created = create_owned_texture_gpu(resource, concurrent_queue_classes); !created.has_value()) {
@@ -105,20 +178,27 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot create an owned texture without an RHI device.");
         }
-        if (!resource.owns_gpu_resources || resource.width == 0 || resource.height == 0 ||
+        if (!resource.owns_gpu_resources || resource.width == 0 || resource.height == 0 || resource.mip_levels == 0 ||
             resource.format == RHI::Format::Undefined) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Owned texture is missing a valid CPU replay description.");
         }
 
+        if (!concurrent_queue_classes.empty()) {
+            resource.concurrent_queue_classes.assign(
+                concurrent_queue_classes.begin(), concurrent_queue_classes.end());
+        }
+        const span<const RHI::QueueClass> replay_queue_classes{
+            resource.concurrent_queue_classes.data(), resource.concurrent_queue_classes.size()};
+
         auto texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = resource.format,
             .extent = RHI::Extent3D{.width = resource.width, .height = resource.height, .depth_or_layers = 1},
-            .mip_levels = 1,
+            .mip_levels = resource.mip_levels,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferDst,
-            .concurrent_queue_classes = concurrent_queue_classes,
+            .concurrent_queue_classes = replay_queue_classes,
             .label = resource.label.empty() ? "renderer texture" : resource.label.c_str(),
         });
         if (!texture) {
@@ -138,7 +218,12 @@ namespace SFT::Renderer {
         }
         resource.view = *view;
 
-        auto sampler = device->create_sampler(RHI::SamplerDesc{.label = "renderer texture sampler"});
+        auto sampler = device->create_sampler(RHI::SamplerDesc{
+            .mipmap_mode = RHI::MipmapMode::Linear,
+            .max_lod = static_cast<f32>(resource.mip_levels - 1u),
+            .max_anisotropy = 8.0f,
+            .label = "renderer texture sampler",
+        });
         if (!sampler) {
             device->destroy_texture_view(resource.view);
             device->destroy_texture(resource.texture);
@@ -248,6 +333,12 @@ namespace SFT::Renderer {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Cannot upload texture data without an RHI device."});
         }
+        const u64 copy_alignment = texture_copy_offset_alignment(format);
+        if (resource.width != width || resource.height != height || resource.format != format ||
+            resource.mip_levels == 0 || copy_alignment == 0 || staging_offset % copy_alignment != 0) {
+            return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
+                                                          "Texture upload description does not match the destination resource."});
+        }
 
         // Records the barrier/copy/barrier sequence that copies `staging`'s already-written bytes into
         // the device-local texture through a one-shot command buffer (Undefined→TransferDst→
@@ -269,16 +360,26 @@ namespace SFT::Renderer {
         };
         (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_transfer, 1});
 
-        const RHI::BufferTextureCopy copy{
-            .buffer_offset = staging_offset,
-            .mip_level = 0,
-            .base_array_layer = 0,
-            .array_layer_count = 1,
-            .texture_offset = RHI::Offset3D{0, 0, 0},
-            .texture_extent = RHI::Extent3D{.width = width, .height = height, .depth_or_layers = 1},
-        };
-        (void)format;
-        (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
+        u64 level_offset = staging_offset;
+        u32 level_width = width;
+        u32 level_height = height;
+        for (u32 level = 0; level < resource.mip_levels; ++level) {
+            const RHI::BufferTextureCopy copy{
+                .buffer_offset = level_offset,
+                .mip_level = level,
+                .base_array_layer = 0,
+                .array_layer_count = 1,
+                .texture_offset = RHI::Offset3D{0, 0, 0},
+                .texture_extent = RHI::Extent3D{.width = level_width, .height = level_height, .depth_or_layers = 1},
+            };
+            (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
+            level_offset += texture_data_bytes(format, level_width, level_height);
+            if (level + 1u < resource.mip_levels) {
+                level_offset = align_up(level_offset, copy_alignment);
+            }
+            level_width = std::max(level_width / 2u, 1u);
+            level_height = std::max(level_height / 2u, 1u);
+        }
 
         const RHI::TextureBarrier to_sampled{
             .texture = resource.texture,

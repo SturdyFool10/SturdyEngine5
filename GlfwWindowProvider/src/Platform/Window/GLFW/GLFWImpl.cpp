@@ -4,6 +4,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <chrono>
 #include <expected>
 #include <limits>
 #include <memory>
@@ -204,6 +205,16 @@ namespace SFT::Platform::Windowing::GLFW {
                           : nullptr;
         }
 
+        // GLFW has no native per-event timestamp (unlike SDL3's SDL_GetTicksNS()-based one), so
+        // callbacks stamp steady_clock::now() at the moment each fires -- delivery time rather than
+        // hardware capture time, but callbacks run synchronously inside glfwPollEvents(), so the two
+        // are close.
+        [[nodiscard]] u64 steady_now_ns() noexcept {
+            return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                         std::chrono::steady_clock::now().time_since_epoch())
+                                         .count());
+        }
+
         u32 mouse_button_state(GLFWwindow *window) noexcept {
             if (!window) [[unlikely]] {
                 return 0;
@@ -224,7 +235,9 @@ namespace SFT::Platform::Windowing::GLFW {
     void glfw_close_callback(GLFWwindow *window) {
         ZoneScopedN("GLFW::glfw_close_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
-            target->events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
+            WindowEvent event{WindowEventKind::CloseRequested};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
         }
     }
 
@@ -232,6 +245,7 @@ namespace SFT::Platform::Windowing::GLFW {
         ZoneScopedN("GLFW::glfw_window_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             WindowEvent event{WindowEventKind::Moved};
+            event.timestamp_ns = steady_now_ns();
             event.position = WindowPosition{x, y};
             target->events_.push_back(event);
         }
@@ -247,6 +261,7 @@ namespace SFT::Platform::Windowing::GLFW {
                              static_cast<u32>(height)};
 
             WindowEvent event{WindowEventKind::Resized};
+            event.timestamp_ns = steady_now_ns();
             event.resize = WindowResize{
                 previous,
                 target->last_size_,
@@ -269,6 +284,7 @@ namespace SFT::Platform::Windowing::GLFW {
                              static_cast<u32>(height)};
 
             WindowEvent event{WindowEventKind::FramebufferResized};
+            event.timestamp_ns = steady_now_ns();
             event.resize = WindowResize{
                 previous,
                 target->last_size_,
@@ -284,18 +300,20 @@ namespace SFT::Platform::Windowing::GLFW {
     void glfw_window_focus_callback(GLFWwindow *window, int focused) {
         ZoneScopedN("GLFW::glfw_window_focus_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
-            target->events_.push_back(WindowEvent{
-                focused == GLFW_TRUE ? WindowEventKind::FocusGained
-                                     : WindowEventKind::FocusLost});
+            WindowEvent event{focused == GLFW_TRUE ? WindowEventKind::FocusGained
+                                                    : WindowEventKind::FocusLost};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
         }
     }
 
     void glfw_cursor_enter_callback(GLFWwindow *window, int entered) {
         ZoneScopedN("GLFW::glfw_cursor_enter_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
-            target->events_.push_back(WindowEvent{
-                entered == GLFW_TRUE ? WindowEventKind::MouseEntered
-                                     : WindowEventKind::MouseLeft});
+            WindowEvent event{entered == GLFW_TRUE ? WindowEventKind::MouseEntered
+                                                    : WindowEventKind::MouseLeft};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
         }
     }
 
@@ -309,6 +327,7 @@ namespace SFT::Platform::Windowing::GLFW {
 
             WindowEvent event{action == GLFW_RELEASE ? WindowEventKind::KeyReleased
                                                      : WindowEventKind::KeyPressed};
+            event.timestamp_ns = steady_now_ns();
             event.keyboard = WindowKeyboardEvent{
                 .key = key,
                 .scancode = scancode,
@@ -324,6 +343,7 @@ namespace SFT::Platform::Windowing::GLFW {
         ZoneScopedN("GLFW::glfw_char_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
             WindowEvent event{WindowEventKind::TextInput};
+            event.timestamp_ns = steady_now_ns();
             if (codepoint <= 0x7FU) [[likely]] {
                 event.text.utf8[0] = static_cast<char>(codepoint);
             } else if (codepoint <= 0x7FFU) {
@@ -352,6 +372,7 @@ namespace SFT::Platform::Windowing::GLFW {
             const f64 previous_x = target->has_last_mouse_position_ ? target->last_mouse_x_ : x;
             const f64 previous_y = target->has_last_mouse_position_ ? target->last_mouse_y_ : y;
             WindowEvent event{WindowEventKind::MouseMoved};
+            event.timestamp_ns = steady_now_ns();
             event.mouse_move = WindowMouseMoveEvent{
                 static_cast<f32>(x),
                 static_cast<f32>(y),
@@ -379,6 +400,7 @@ namespace SFT::Platform::Windowing::GLFW {
             WindowEvent event{action == GLFW_PRESS
                                   ? WindowEventKind::MouseButtonPressed
                                   : WindowEventKind::MouseButtonReleased};
+            event.timestamp_ns = steady_now_ns();
             event.mouse_button = WindowMouseButtonEvent{
                 .button = static_cast<u8>(button),
                 .clicks = 1,
@@ -398,6 +420,7 @@ namespace SFT::Platform::Windowing::GLFW {
             glfwGetCursorPos(window, &mouse_x, &mouse_y);
 
             WindowEvent event{WindowEventKind::MouseWheel};
+            event.timestamp_ns = steady_now_ns();
             event.mouse_wheel = WindowMouseWheelEvent{
                 static_cast<f32>(x),
                 static_cast<f32>(y),
@@ -722,7 +745,9 @@ namespace SFT::Platform::Windowing::GLFW {
             static_cast<void *>(this),
             static_cast<void *>(window_));
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
-        events_.push_back(WindowEvent{WindowEventKind::CloseRequested});
+        WindowEvent close_event{WindowEventKind::CloseRequested};
+        close_event.timestamp_ns = steady_now_ns();
+        events_.push_back(close_event);
     }
 
     bool GLFWWindow::resized() const noexcept {
@@ -1264,9 +1289,10 @@ namespace SFT::Platform::Windowing::GLFW {
 
         mouse_locked_ = locked;
         has_last_mouse_position_ = false;
-        events_.push_back(
-            WindowEvent{locked ? WindowEventKind::MouseLocked
-                               : WindowEventKind::MouseUnlocked});
+        WindowEvent lock_event{locked ? WindowEventKind::MouseLocked
+                                      : WindowEventKind::MouseUnlocked};
+        lock_event.timestamp_ns = steady_now_ns();
+        events_.push_back(lock_event);
         return {};
     }
 

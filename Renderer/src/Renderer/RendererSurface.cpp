@@ -173,7 +173,11 @@ namespace SFT::Renderer {
     FrameTimingSnapshot Renderer::last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept {
         ZoneScopedN("Renderer::last_frame_timings");
         const WindowSurfaceRecord *record = window_surface(surface);
-        return record != nullptr ? record->last_frame_timings : FrameTimingSnapshot{};
+        if (record == nullptr || !record->last_frame_timings) {
+            return {};
+        }
+        auto snapshot = record->last_frame_timings->lock();
+        return *snapshot;
     }
 
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {

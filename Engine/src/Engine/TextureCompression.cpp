@@ -228,9 +228,13 @@ namespace SFT::Engine::Detail {
 
     std::optional<std::vector<std::byte>> compress_bc7(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         bool srgb) {
-        const u64 source_bytes = static_cast<u64>(width) * height * 4;
+        const u64 source_texels = static_cast<u64>(width) * height;
+        if (width == 0 || height == 0 || source_texels > std::numeric_limits<u64>::max() / 4u) {
+            return std::nullopt;
+        }
+        const u64 source_bytes = source_texels * 4u;
         const std::optional<usize> block_bytes = bc7_data_size(width, height);
-        if (width < 4 || height < 4 || source_bytes > std::numeric_limits<usize>::max() ||
+        if (source_bytes > std::numeric_limits<usize>::max() ||
             rgba8.size() != static_cast<usize>(source_bytes) || !block_bytes) {
             return std::nullopt;
         }
@@ -269,6 +273,49 @@ namespace SFT::Engine::Detail {
         }
 
         write_cache(path, width, height, srgb, blocks);
+        return blocks;
+    }
+
+    std::optional<std::vector<std::byte>> compress_bc7_mip_chain(
+        std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, bool srgb) {
+        if (width == 0 || height == 0 || mip_levels == 0) {
+            return std::nullopt;
+        }
+
+        std::vector<std::byte> blocks;
+        usize rgba_offset = 0;
+        for (u32 level = 0; level < mip_levels; ++level) {
+            const u64 level_texels = static_cast<u64>(width) * height;
+            if (level_texels > std::numeric_limits<u64>::max() / 4u) {
+                return std::nullopt;
+            }
+            const u64 level_bytes_u64 = level_texels * 4u;
+            if (level_bytes_u64 > std::numeric_limits<usize>::max()) {
+                return std::nullopt;
+            }
+            const usize level_bytes = static_cast<usize>(level_bytes_u64);
+            if (rgba_offset > rgba8_mips.size() || level_bytes > rgba8_mips.size() - rgba_offset) {
+                return std::nullopt;
+            }
+
+            auto level_blocks = compress_bc7(rgba8_mips.subspan(rgba_offset, level_bytes), width, height, srgb);
+            if (!level_blocks) {
+                return std::nullopt;
+            }
+            blocks.insert(blocks.end(), level_blocks->begin(), level_blocks->end());
+            rgba_offset += level_bytes;
+
+            if (level + 1u < mip_levels) {
+                if (width == 1 && height == 1) {
+                    return std::nullopt;
+                }
+                width = std::max(width / 2u, 1u);
+                height = std::max(height / 2u, 1u);
+            }
+        }
+        if (rgba_offset != rgba8_mips.size()) {
+            return std::nullopt;
+        }
         return blocks;
     }
 

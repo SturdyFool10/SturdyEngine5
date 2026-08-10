@@ -76,6 +76,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT _sturdy_effective_platform
     sturdy_enable_warnings(PlatformWindowManagerAccumulatorTest)
     add_test(NAME PlatformWindowManagerAccumulatorTest COMMAND PlatformWindowManagerAccumulatorTest)
     set_tests_properties(PlatformWindowManagerAccumulatorTest PROPERTIES TIMEOUT 10)
+
+    # Sustained 8kHz synthetic mouse stream against the real DedicatedEventThread poll_loop() path;
+    # runs for ~0.75s of real wall time by design (see the test file's own doc comment), so it gets a
+    # much longer TIMEOUT than the deterministic accumulator test above.
+    add_executable(PlatformWindowManagerHighRateInputTest tests/WindowManagerHighRateInputTest.cpp)
+    target_link_libraries(PlatformWindowManagerHighRateInputTest PRIVATE Sturdy::Platform)
+    sturdy_enable_warnings(PlatformWindowManagerHighRateInputTest)
+    add_test(NAME PlatformWindowManagerHighRateInputTest COMMAND PlatformWindowManagerHighRateInputTest)
+    set_tests_properties(PlatformWindowManagerHighRateInputTest PROPERTIES TIMEOUT 30)
 endif()
 
 get_target_property(

@@ -1,6 +1,7 @@
 #include "AssetManager.hpp"
 #include "ImageDecode.hpp"
 #include "TextureCompression.hpp"
+#include "TextureMipChain.hpp"
 #include "TextureStreamer.hpp"
 
 #include <Core/Core.hpp>
@@ -356,24 +357,34 @@ namespace SFT::Engine {
 
         const bool srgb = desc.color_space == TextureColorSpace::Srgb;
         RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
-        std::span<const std::byte> upload_bytes{desc.rgba8.data(), desc.rgba8.size()};
 
-        // Lossy BC7 compression for a real VRAM win (~4x smaller), with zero shader changes
-        // anywhere — BC7 stores full RGBA, so it's a drop-in replacement for
-        // RGBA8Unorm/RGBA8UnormSrgb wherever a texture is sampled. Falls back to the uncompressed
-        // upload above on any ineligibility (caller opted out, texture too small for one 4x4
-        // block, or the device doesn't support BC compression) or encoder failure — never a hard
-        // error, see Detail::compress_bc7's own doc comment.
+        Detail::TextureMipChain mip_chain{};
+        if (desc.generate_mipmaps) {
+            auto generated = Detail::generate_rgba8_mip_chain(desc.rgba8, desc.width, desc.height, srgb);
+            if (!generated) {
+                return std::unexpected(error(AssetErrorCode::InvalidDescription,
+                                             "Could not generate the texture mip chain."));
+            }
+            mip_chain = std::move(*generated);
+        } else {
+            mip_chain.data = std::move(desc.rgba8);
+            mip_chain.mip_levels = 1;
+        }
+        std::vector<std::byte>{}.swap(desc.rgba8);
+        std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
+
+        // BC7-compress every generated level so mipmapping preserves the normal ~4x VRAM win.
+        // Any encoder failure falls back to the complete uncompressed RGBA8 chain.
         std::optional<std::vector<std::byte>> compressed;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        if (desc.allow_compression && device != nullptr && device->limits().supports_bc_texture_compression) {
-            compressed = Detail::compress_bc7(upload_bytes, desc.width, desc.height, srgb);
+        if (desc.allow_compression && desc.width >= 4 && desc.height >= 4 && device != nullptr &&
+            device->limits().supports_bc_texture_compression) {
+            compressed = Detail::compress_bc7_mip_chain(
+                upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
             if (compressed) {
                 format = srgb ? RHI::Format::BC7UnormSrgb : RHI::Format::BC7Unorm;
                 upload_bytes = std::span<const std::byte>{compressed->data(), compressed->size()};
-                // The compressed vector now owns the upload payload; release the full RGBA decode
-                // before the renderer allocates and fills its staging buffer.
-                std::vector<std::byte>{}.swap(desc.rgba8);
+                std::vector<std::byte>{}.swap(mip_chain.data);
             }
         }
 
@@ -382,7 +393,9 @@ namespace SFT::Engine {
             desc.height,
             format,
             upload_bytes,
-            desc.label.c_str());
+            desc.label.c_str(),
+            {},
+            mip_chain.mip_levels);
         if (!texture) {
             return std::unexpected(backend_error(texture.error()));
         }

@@ -1,17 +1,79 @@
 #include "WindowManager.hpp"
 
+#include <Async/src/SpscRingBuffer.hpp>
+
 #include <chrono>
 
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Platform::Windowing {
 
+    // Per-window lock-free event channel: one Async::SpscRingBuffer<WindowEvent> (the actual
+    // producer/consumer handoff -- no lock, fixed capacity allocated once at construction) plus the
+    // small amount of ancillary per-window state that isn't part of the event stream itself.
+    //
+    // Ownership/threading: constructed by seed_channel() (called from spawn_window(), which runs on
+    // whichever thread owns dispatch() -- poll_loop()'s background thread, or the CallerThread
+    // caller). `pending` is producer-thread-confined -- only drain_window_into() (running on the
+    // window's owning thread) ever touches it, so it needs no synchronization of its own.
+    // `close_requested` and framebuffer_size_packed_ are written by that same producer thread once
+    // per poll pass and read by pump()'s (consumer) thread, so those two go through atomics.
+    class WindowEventChannel {
+      public:
+        explicit WindowEventChannel(usize ring_capacity) noexcept : ring(ring_capacity) {}
+
+        Async::SpscRingBuffer<WindowEvent> ring;
+
+        // In-flight MouseMoved coalescing run not yet published to `ring`. Producer-thread-confined;
+        // never touched by the consumer (pump()).
+        optional<WindowEvent> pending;
+
+        // Set true two ways, matching this manager's pre-existing combined behavior: (1)
+        // drain_window_into() latches this the moment it observes a CloseRequested event, *before*
+        // attempting to push it into the ring -- so a CloseRequested that gets dropped for being past
+        // the ring's capacity still isn't lost (a stranded "user asked to close and we silently
+        // forgot" would be far worse than an over-eager latch); (2) window->close_requested() is
+        // itself a monotonic per-window latch (see Window.hpp's own doc comment), so re-querying it
+        // every producer pass and OR-ing the result in covers any backend where the flag can flip
+        // true through a path that doesn't also queue a CloseRequested event. Never reset to false —
+        // matches the original accumulator's same-shaped sticky field.
+        std::atomic<bool> close_requested{false};
+
+        // Set true by drain_window_into() the moment it observes a Resized/FramebufferResized event,
+        // *before* attempting to push it into the ring -- same "latch before a possible drop" reasons
+        // as close_requested above. Unlike close_requested, this is genuinely per-pump()-tick: only
+        // materialize_channel() ever clears it (via take_resized()), matching the original
+        // accumulator's per-tick (not sticky) resized field.
+        std::atomic<bool> resized{false};
+
+        [[nodiscard]] bool take_resized() noexcept { return resized.exchange(false, std::memory_order_acq_rel); }
+
+        void set_framebuffer_size(WindowExtent size) noexcept {
+            const u64 packed = (static_cast<u64>(size.x) << 32U) | static_cast<u64>(size.y);
+            framebuffer_size_packed_.store(packed, std::memory_order_release);
+        }
+
+        [[nodiscard]] optional<WindowExtent> framebuffer_size() const noexcept {
+            const u64 packed = framebuffer_size_packed_.load(std::memory_order_acquire);
+            if (packed == unknown_framebuffer_size) {
+                return std::nullopt;
+            }
+            return WindowExtent{static_cast<u32>(packed >> 32U), static_cast<u32>(packed & 0xFFFFFFFFU)};
+        }
+
+      private:
+        static constexpr u64 unknown_framebuffer_size = ~u64{0};
+        std::atomic<u64> framebuffer_size_packed_{unknown_framebuffer_size};
+    };
+
     namespace {
 
-        [[nodiscard]] ManagedWindowEvents *find_accumulator_entry(vector<ManagedWindowEvents> &entries, WindowId id) noexcept {
-            for (ManagedWindowEvents &entry : entries) {
-                if (entry.window_id == id) {
-                    return &entry;
+        using ChannelDirectory = vector<WindowEventChannelEntry>;
+
+        [[nodiscard]] WindowEventChannel *find_channel(ChannelDirectory &channels, WindowId id) noexcept {
+            for (auto &[channel_id, channel] : channels) {
+                if (channel_id == id) {
+                    return channel.get();
                 }
             }
             return nullptr;
@@ -30,7 +92,30 @@ namespace SFT::Platform::Windowing {
             previous.mouse_move.delta_x += incoming.mouse_move.delta_x;
             previous.mouse_move.delta_y += incoming.mouse_move.delta_y;
             previous.mouse_move.buttons |= incoming.mouse_move.buttons;
+            // Same last-write-wins rule as position above: the merged event should read as "the mouse
+            // was last observed here at this time," not carry the first sample's now-stale timestamp.
+            previous.timestamp_ns = incoming.timestamp_ns;
             return true;
+        }
+
+        // Drains `channel`'s ring into a fresh ManagedWindowEvents and reads its separately-tracked
+        // close_requested/resized/framebuffer_size state (see WindowEventChannel's own doc comments
+        // for why those are latched independently of the ring rather than derived by scanning what
+        // was actually drained -- a dropped-for-being-past-capacity Resized/CloseRequested event must
+        // still not be lost). Shared by both of pump()'s branches so there is exactly one place that
+        // materializes the public ManagedWindowEvents shape from a channel.
+        [[nodiscard]] ManagedWindowEvents materialize_channel(WindowId id, WindowEventChannel &channel) noexcept {
+            ManagedWindowEvents collected{.window_id = id, .events = {}, .framebuffer_size = {}};
+            // A modest fixed reserve rather than trying to track a per-channel high-water mark: real
+            // per-pump-call counts are small (coalescing collapses an entire high-rate motion burst
+            // to one or a few events -- see WindowManagerPolicy::coalesce_mouse_motion's own comment),
+            // so this just avoids the first couple of reallocations on a typical tick.
+            collected.events.reserve(16);
+            channel.ring.drain_into(collected.events);
+            collected.close_requested = channel.close_requested.load(std::memory_order_acquire);
+            collected.resized = channel.take_resized();
+            collected.framebuffer_size = channel.framebuffer_size();
+            return collected;
         }
 
     } // namespace
@@ -76,11 +161,20 @@ namespace SFT::Platform::Windowing {
             if (primary_window_id_ == id) {
                 primary_window_id_ = windows_.empty() ? optional<WindowId>{} : optional<WindowId>{windows_.front()->id()};
             }
-            // Keep the accumulator in lockstep with windows_ (see its own doc comment in the header)
-            // — no more entry for a window poll_loop() will never poll again.
-            auto guard = accumulated_.lock();
-            std::erase_if(*guard, [id](const ManagedWindowEvents &entry) { return entry.window_id == id; });
+            // Keep the channel directory in lockstep with windows_ (see channels_'s own doc comment
+            // in the header) — no more entry for a window poll_loop() will never poll again. Erasing
+            // here only drops the *directory's* reference; a concurrent pump() that already snapshot
+            // this channel keeps it alive via its own shared_ptr copy until that call finishes.
+            auto guard = channels_.lock();
+            std::erase_if(*guard, [id](const WindowEventChannelEntry &entry) { return entry.first == id; });
         });
+    }
+
+    void WindowManager::seed_channel(WindowId id) noexcept {
+        ZoneScopedN("WindowManager::seed_channel");
+        auto channel = std::make_shared<WindowEventChannel>(policy_.max_accumulated_events_per_window);
+        auto guard = channels_.lock();
+        guard->emplace_back(id, std::move(channel));
     }
 
     [[nodiscard]] optional<WindowId> WindowManager::primary_window_id() const noexcept {
@@ -93,9 +187,34 @@ namespace SFT::Platform::Windowing {
         return dispatch([this]() { return windows_.size(); });
     }
 
-    [[nodiscard]] usize WindowManager::drain_window_into(Window &window, ManagedWindowEvents &entry) noexcept {
+    void WindowManager::flush_pending(WindowEventChannel &channel) noexcept {
+        if (!channel.pending.has_value()) {
+            return;
+        }
+        push_or_warn(channel, *channel.pending);
+        channel.pending.reset();
+    }
+
+    void WindowManager::push_or_warn(WindowEventChannel &channel, const WindowEvent &event) noexcept {
+        if (channel.ring.try_push(event)) {
+            return;
+        }
+        // Only reachable when the consumer has stopped calling pump() entirely while input keeps
+        // arriving. Dropping is the correct failure mode here — the alternative is growing until the
+        // process dies — and the state that actually matters across a stall (close/resize, tracked
+        // separately from the ring; see WindowEventChannel) is already preserved regardless.
+        if (!accumulator_overflow_warned_) {
+            accumulator_overflow_warned_ = true;
+            Foundation::log_warn(
+                "WindowManager: a window's {}-slot ring is full; dropping further events until "
+                "pump() drains it. The consumer is not pumping.",
+                channel.ring.capacity());
+        }
+    }
+
+    [[nodiscard]] usize WindowManager::drain_window_into(Window &window, WindowEventChannel &channel) noexcept {
         ZoneScopedN("WindowManager::drain_window_into");
-        if (entry.events.empty()) {
+        if (channel.ring.size() == 0) {
             // pump() has caught up since the last overflow, so re-arm the one-time warning below —
             // done here, on the event thread that solely owns this flag, rather than from pump()'s
             // own thread, which would be a plain data race on it.
@@ -106,39 +225,42 @@ namespace SFT::Platform::Windowing {
             ++drained;
 
             // Latch the two state bits that must survive regardless of what happens to the event
-            // list itself below — a dropped CloseRequested would strand a window the user asked to
-            // close, and a dropped resize would leave the swapchain stale.
+            // itself below — done *before* any coalescing/ring-capacity decision, so a CloseRequested
+            // or Resized/FramebufferResized that ends up dropped for being past the ring's capacity
+            // still isn't lost (see WindowEventChannel's own doc comments on close_requested/resized).
             if (event->kind == WindowEventKind::CloseRequested) {
-                entry.close_requested = true;
-            } else if (event->kind == WindowEventKind::Resized ||
-                       event->kind == WindowEventKind::FramebufferResized) {
-                entry.resized = true;
+                channel.close_requested.store(true, std::memory_order_release);
+            } else if (event->kind == WindowEventKind::Resized || event->kind == WindowEventKind::FramebufferResized) {
+                channel.resized.store(true, std::memory_order_release);
             }
 
-            if (policy_.coalesce_mouse_motion && !entry.events.empty() &&
-                coalesce_mouse_motion(entry.events.back(), *event)) {
+            if (policy_.coalesce_mouse_motion && channel.pending.has_value() &&
+                coalesce_mouse_motion(*channel.pending, *event)) {
                 continue;
             }
 
-            if (entry.events.size() >= policy_.max_accumulated_events_per_window) {
-                // Only reachable when the consumer has stopped calling pump() entirely while input
-                // keeps arriving. Dropping is the correct failure mode here — the alternative is
-                // growing until the process dies — and the state that actually matters across a
-                // stall (close/resize above, and the pointer position, which coalesces into the
-                // still-present tail event rather than being dropped) is already preserved.
-                if (!accumulator_overflow_warned_) {
-                    accumulator_overflow_warned_ = true;
-                    Foundation::log_warn(
-                        "WindowManager: window {} accumulated {} unconsumed events; dropping further "
-                        "events until pump() drains it. The consumer is not pumping.",
-                        static_cast<usize>(entry.window_id),
-                        entry.events.size());
-                }
+            // A non-coalescible event (or coalescing is off): whatever was pending publishes first,
+            // in order, before this one.
+            flush_pending(channel);
+
+            if (policy_.coalesce_mouse_motion && event->kind == WindowEventKind::MouseMoved) {
+                // Start a new coalescible run rather than publishing immediately -- this is what
+                // lets a burst of adjacent MouseMoved events collapse to a single ring slot instead
+                // of one each (see coalesce_mouse_motion()'s own doc comment for why that matters at
+                // 8kHz). Only *this* call's run coalesces together: flush_pending() below (both the
+                // one at the top of this loop's next non-coalescible event, and the final one after
+                // the loop) always publishes before this function returns, rather than holding a run
+                // open across poll_loop() iterations the way the previous mutex/vector accumulator
+                // did. That's an intentional, minor relaxation -- never loses motion data (still
+                // fully summed/last-write-wins), just occasionally yields one extra coalesced event
+                // per window instead of one across a longer window.
+                channel.pending = *event;
                 continue;
             }
 
-            entry.events.push_back(*event);
+            push_or_warn(channel, *event);
         }
+        flush_pending(channel); // don't leave a coalesced run invisible to the consumer between calls
         return drained;
     }
 
@@ -156,11 +278,11 @@ namespace SFT::Platform::Windowing {
         // essentially every pass at 8kHz (one HID report every 125us, so ~4 land per idle interval),
         // so re-polling on that condition alone turned every mouse movement into an unbounded busy
         // spin — pinning a core and, far worse, re-taking the provider's global window mutex
-        // (sdl_window_mutex()/glfw_window_mutex(), which every Window query also needs) and this
-        // manager's own accumulated_ lock tens of thousands of times a second. That starved the main
-        // thread's pump()/with_window() calls for the entire duration of a mouse movement, which is
-        // the stutter this threshold exists to prevent. A pass that drains less than this has
-        // already emptied the OS queue, so sleeping loses nothing.
+        // (sdl_window_mutex()/glfw_window_mutex(), which every Window query also needs) tens of
+        // thousands of times a second. That starved the main thread's pump()/with_window() calls for
+        // the entire duration of a mouse movement, which is the stutter this threshold exists to
+        // prevent. A pass that drains less than this has already emptied the OS queue, so sleeping
+        // loses nothing.
         constexpr usize backlog_threshold = 64;
 
         while (running_.load(std::memory_order_acquire)) {
@@ -181,7 +303,11 @@ namespace SFT::Platform::Windowing {
                 task->execute();
             }
 
-            // 2. Poll every still-live window and fold newly-arrived events into the accumulator.
+            // 2. Poll every still-live window and push newly-arrived events into its lock-free
+            //    channel. The channels_ lock is only held long enough to copy out the directory
+            //    (shared_ptr refcount bumps) -- all the real drain/coalesce/push work below runs
+            //    unlocked, unlike the old accumulated_-locked-across-the-whole-loop shape this
+            //    replaced.
             usize drained_events = 0;
             if (!windows_.empty()) {
                 for (unique_ptr<Window> &window : windows_) {
@@ -193,18 +319,27 @@ namespace SFT::Platform::Windowing {
                     }
                 }
 
-                auto guard = accumulated_.lock();
+                ChannelDirectory snapshot;
+                {
+                    auto guard = channels_.lock();
+                    snapshot = *guard;
+                }
+
                 for (unique_ptr<Window> &window : windows_) {
-                    ManagedWindowEvents *entry = find_accumulator_entry(*guard, window->id());
-                    if (entry == nullptr) {
+                    WindowEventChannel *channel = find_channel(snapshot, window->id());
+                    if (channel == nullptr) {
                         continue; // spawn_window() always seeds one — defensive, should not happen
                     }
-                    drained_events += drain_window_into(*window, *entry);
+                    drained_events += drain_window_into(*window, *channel);
+                    // OR in, never overwrite: drain_window_into() may have just latched this true
+                    // from the CloseRequested event's own content (see its doc comment), and
+                    // window->close_requested() returning false right now (e.g. a test double that
+                    // never sets its own flag) must not stomp that.
                     if (window->close_requested()) {
-                        entry->close_requested = true;
+                        channel->close_requested.store(true, std::memory_order_release);
                     }
                     if (auto size = window->framebuffer_size()) {
-                        entry->framebuffer_size = *size;
+                        channel->set_framebuffer_size(*size);
                     }
                 }
             }
@@ -272,25 +407,28 @@ namespace SFT::Platform::Windowing {
     [[nodiscard]] expected<void, WindowError> WindowManager::pump(vector<ManagedWindowEvents> &out_events) noexcept {
         ZoneScopedN("WindowManager::pump");
         if (event_thread_) {
-            // Non-blocking: swap out whatever poll_loop() has accumulated in the background since the
-            // last call. Reseed an empty entry per still-swapped-out window in the same locked
-            // section — poll_loop()'s own window loop only *updates* entries that already exist (see
-            // find_accumulator_entry()), so a gap here would silently drop events until the next
-            // reseed rather than just being empty this tick.
-            vector<ManagedWindowEvents> swapped;
+            // Non-blocking: snapshot the channel directory (shared_ptr copies only -- brief lock),
+            // then drain each channel's lock-free ring outside it. No reseeding needed here the way
+            // the old mutex/vector accumulator required: each channel's ring is a fixed, permanent
+            // allocation that poll_loop() keeps pushing into regardless of when/whether pump() drains
+            // it, so there is no per-tick "give the producer somewhere to write next" step at all.
+            ChannelDirectory snapshot;
             {
-                auto guard = accumulated_.lock();
-                swapped.swap(*guard);
-                for (const ManagedWindowEvents &prior : swapped) {
-                    guard->push_back(ManagedWindowEvents{.window_id = prior.window_id, .events = {}, .framebuffer_size = {}});
-                }
+                auto guard = channels_.lock();
+                snapshot = *guard;
             }
-            out_events = std::move(swapped);
+            out_events.clear();
+            out_events.reserve(snapshot.size());
+            for (auto &[id, channel] : snapshot) {
+                out_events.push_back(materialize_channel(id, *channel));
+            }
             return {};
         }
 
-        // CallerThread mode (macOS/Web, or wherever threads are disallowed): original synchronous
-        // poll-and-drain, unchanged.
+        // CallerThread mode (macOS/Web, or wherever threads are disallowed): synchronous poll-and-
+        // drain, still sharing drain_window_into()/materialize_channel() with the threaded path so
+        // mouse-motion coalescing and the ring's drop-when-full cap are properties of the manager,
+        // not of whichever pump mode a platform happens to be on.
         return dispatch([this, &out_events]() -> expected<void, WindowError> {
             out_events.clear();
             if (windows_.empty()) {
@@ -303,29 +441,34 @@ namespace SFT::Platform::Windowing {
                 }
             }
 
+            ChannelDirectory snapshot;
+            {
+                auto guard = channels_.lock();
+                snapshot = *guard;
+            }
+
             out_events.reserve(windows_.size());
             for (unique_ptr<Window> &window : windows_) {
-                ManagedWindowEvents collected{
-                    .window_id = window->id(),
-                    .events = {},
-                    .framebuffer_size = {},
-                };
+                WindowEventChannel *channel = find_channel(snapshot, window->id());
+                if (channel == nullptr) {
+                    continue; // spawn_window() always seeds one — defensive, should not happen
+                }
 
-                // Window event/state queries obey the same affinity contract as pump_events().
-                // Keep queue draining here on the dispatch owner rather than handing live Window*
-                // to Scheduler workers, even though current providers protect their queues with
-                // locks internally. Shares drain_window_into() with the threaded path so mouse-motion
-                // coalescing and the accumulator cap are properties of the manager, not of whichever
-                // pump mode a platform happens to be on.
-                (void)drain_window_into(*window, collected);
-
+                // Window event/state queries obey the same affinity contract as pump_events(). Keep
+                // queue draining here on the dispatch owner rather than handing live Window* to
+                // Scheduler workers, even though current providers protect their queues with locks
+                // internally.
+                (void)drain_window_into(*window, *channel);
+                // OR in, never overwrite -- see the DedicatedEventThread branch's identical check in
+                // poll_loop() for why.
                 if (window->close_requested()) {
-                    collected.close_requested = true;
+                    channel->close_requested.store(true, std::memory_order_release);
                 }
                 if (auto size = window->framebuffer_size()) {
-                    collected.framebuffer_size = *size;
+                    channel->set_framebuffer_size(*size);
                 }
-                out_events.push_back(std::move(collected));
+
+                out_events.push_back(materialize_channel(window->id(), *channel));
             }
 
             return {};

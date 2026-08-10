@@ -162,15 +162,17 @@ namespace SFT::Renderer {
     // (Renderer::prepare_text_overlay()/draw_text_overlay()) for the same reason — `prepare` runs
     // with a live CommandEncoder before any render pass is declared (so it can record atlas
     // uploads), `draw` runs with a live RenderPassEncoder already bound to the final target.
-    // `prepare`'s last two parameters are this frame's transient-staging-buffer and retired-atlas-
-    // resource sinks (the exact same ones the debug text overlay's own prepare_text_overlay() call
-    // appends to) — a hook using Renderer::TextAtlas of its own (as UiRenderer does) appends to
-    // these instead of inventing its own deferred-destruction bookkeeping, so its resources are
-    // freed on the same already-correct fence-retirement schedule. Both callbacks are empty
-    // (skipped entirely) unless a consumer sets them.
+    // `prepare` receives the current surface plus frame-resource slot after that surface-slot's fence
+    // has retired; a UI renderer uses both to N-buffer persistent instance buffers instead of rewriting
+    // data an older GPU frame may still be reading. Its last two parameters are this frame's transient-staging-buffer
+    // and retired-atlas-resource sinks (the exact same ones the debug text overlay uses), so atlas
+    // uploads/replacements follow the renderer's existing fence-retirement schedule. Both callbacks
+    // are empty (skipped entirely) unless a consumer sets them.
     using UiOverlayPrepareFn = std::function<Core::RendererResult(
-        RHI::RhiDevice &, RHI::CommandEncoder &, glm::vec2, std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &)>;
-    using UiOverlayDrawFn = std::function<Core::RendererResult(RHI::RenderPassEncoder &, glm::vec2)>;
+        RHI::RhiDevice &, RHI::CommandEncoder &, glm::vec2, Core::RenderSurfaceHandle, u32,
+        std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &)>;
+    using UiOverlayDrawFn = std::function<Core::RendererResult(
+        RHI::RenderPassEncoder &, glm::vec2, Core::RenderSurfaceHandle, u32)>;
 
     struct UiOverlayHooks {
         UiOverlayPrepareFn prepare;

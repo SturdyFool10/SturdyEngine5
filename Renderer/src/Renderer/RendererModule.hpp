@@ -160,10 +160,11 @@ namespace SFT::Renderer {
         [[nodiscard]] const MaterialResource *material(MaterialHandle handle) const noexcept;
 
         // Textures: upload tightly-packed pixel data into a GPU texture (+ a default view and sampler).
-        // `data` must match the format's expected byte size (width*height*texel_size for
-        // uncompressed formats, block-count*bytes_per_block for BC7/BC5/BC4 — see
-        // texture_data_bytes in RendererTextures.cpp), or be empty to allocate an uninitialized
-        // texture. Mirrors the mesh upload path (staged copy through the RHI).
+        // `data` must contain `mip_levels` levels ordered largest-to-smallest, each tightly packed using
+        // the format's texel/block rules and with each level start padded to its copy-offset alignment
+        // (see texture_mip_chain_bytes in RendererTextures.cpp), or be empty to allocate an uninitialized
+        // texture. Mirrors the mesh upload path (staged copy through
+        // the RHI). The default remains one level for existing procedural/data-texture callers.
         // `concurrent_queue_classes`: forwarded to RHI::TextureDesc::concurrent_queue_classes (see its
         // own doc comment) -- empty (the default) keeps today's VK_SHARING_MODE_EXCLUSIVE behavior for
         // every existing caller. A streaming caller that will submit its pixel upload from the
@@ -173,7 +174,8 @@ namespace SFT::Renderer {
                                                                            RHI::Format format,
                                                                            span<const std::byte> data,
                                                                            const char *label = nullptr,
-                                                                           span<const RHI::QueueClass> concurrent_queue_classes = {});
+                                                                           span<const RHI::QueueClass> concurrent_queue_classes = {},
+                                                                           u32 mip_levels = 1);
         void destroy_texture(TextureHandle handle) noexcept;
         [[nodiscard]] TextureResource *texture(TextureHandle handle) noexcept;
         [[nodiscard]] const TextureResource *texture(TextureHandle handle) const noexcept;
@@ -687,10 +689,12 @@ namespace SFT::Renderer {
             // audit — see memory project_multi_window_render_threading.
             HiZPyramidTargets hiz_pyramid;
             // Last completed frame's CPU/GPU timing readback (see FrameTimingSnapshot's own doc
-            // comment, Scene.hpp) — updated in render_frame_rhi whenever a ring slot's pending
-            // gpu_timing/cpu_timing results are read back, independent of whether that data also got
-            // formatted into the on-screen debug-overlay text (RenderGraphSettings::draw_overlay_text).
-            FrameTimingSnapshot last_frame_timings;
+            // comment, Scene.hpp). The render thread publishes while the application thread may call
+            // last_frame_timings(), so the snapshot itself must be synchronized independently of the
+            // window_surfaces_ container lock (which only protects record lookup/lifetime structure).
+            // Heap allocation keeps WindowSurfaceRecord movable for its aggregate make_unique path.
+            unique_ptr<Async::Mutex<FrameTimingSnapshot>> last_frame_timings =
+                std::make_unique<Async::Mutex<FrameTimingSnapshot>>();
         };
 
         struct RenderItem {
