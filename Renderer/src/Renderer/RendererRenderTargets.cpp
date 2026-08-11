@@ -40,8 +40,8 @@ namespace SFT::Renderer {
             .dimension = RHI::TextureDimension::Dim2D,
             .format = RHI::Format::BGRA8UnormSrgb,
             .extent = RHI::Extent3D{
-                .width = description.extent.width,
-                .height = description.extent.height,
+                .width = description.extent.x,
+                .height = description.extent.y,
                 .depth_or_layers = 1,
             },
             .mip_levels = 1,
@@ -92,7 +92,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<OffscreenRenderTargetHandle> Renderer::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
         ZoneScopedN("Renderer::create_offscreen_render_target");
-        if (description.extent.is_zero()) {
+        if (Core::is_zero(description.extent)) {
             return unexpected(offscreen_target_error(
                 "Off-screen render targets require a non-zero absolute extent."));
         }
@@ -201,7 +201,7 @@ namespace SFT::Renderer {
             return std::nullopt;
         }
         const OffscreenRenderTargetRecord &target = (*targets)[static_cast<usize>(handle.value - 1)];
-        if (!target.alive || !target.texture || !target.view || target.description.extent.is_zero()) {
+        if (!target.alive || !target.texture || !target.view || Core::is_zero(target.description.extent)) {
             return std::nullopt;
         }
         return ResolvedOffscreenRenderTarget{

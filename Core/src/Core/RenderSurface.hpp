@@ -4,6 +4,8 @@
 
 #include <Platform/Platform.hpp>
 
+#include <glm/vec2.hpp>
+
 namespace SFT::Core {
 
     // Which provider owns the presentation window. Surface creation itself is dispatched through
@@ -34,12 +36,14 @@ namespace SFT::Core {
         void *window = nullptr;  // native window (X11 Window, wl_surface*, HWND, NSWindow*)
     };
 
-    struct Extent2D {
-        u32 width = 0;
-        u32 height = 0;
+    // Pixel dimensions of a window, swapchain, or attachment. Plain glm::uvec2 so extents take
+    // part in the engine's vector math (and swizzles) directly instead of being converted at every
+    // seam that already speaks glm — `.x` is the width, `.y` the height.
+    using Extent2D = glm::uvec2;
 
-        [[nodiscard]] constexpr bool is_zero() const noexcept { return width == 0 || height == 0; }
-    };
+    [[nodiscard]] constexpr bool is_zero(Extent2D extent) noexcept {
+        return extent.x == 0 || extent.y == 0;
+    }
 
     // Stable handle used by the engine/glue to address one window's backend-side surface.
     // Backed directly by the owning window's WindowId; renderer-owned presentation resources are

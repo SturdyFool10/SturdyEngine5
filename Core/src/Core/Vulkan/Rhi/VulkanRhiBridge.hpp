@@ -55,6 +55,7 @@ namespace SFT::Core::Vulkan {
                               const VulkanPhysicalDevice &physical_device,
                               VulkanDevice &logical_device,
                               VulkanQueue &graphics_queue,
+                              VulkanQueue &present_queue,
                               VulkanQueue *compute_queue,
                               VulkanQueue *transfer_queue,
                               VulkanAllocator &allocator,
@@ -334,6 +335,10 @@ namespace SFT::Core::Vulkan {
         const VulkanPhysicalDevice *physical_device_ = nullptr;
         VulkanDevice *logical_device_ = nullptr;
         VulkanQueue *graphics_queue_ = nullptr;
+        // May alias graphics_queue_ when the device exposes only one queue or presentation lives in a
+        // different family that would require ownership transfers. Otherwise it is queue 1 from the
+        // same graphics family and keeps a WSI-blocked present from serializing graphics submission.
+        VulkanQueue *present_queue_ = nullptr;
         VulkanAllocator *allocator_ = nullptr;
 
         // Seeded from `pipeline_cache_path()`'s file (if any) at construction, serialized back to it in

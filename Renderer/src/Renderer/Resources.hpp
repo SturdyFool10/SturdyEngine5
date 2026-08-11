@@ -3,7 +3,6 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
-#include <string>
 #include <vector>
 #pragma endregion
 
@@ -13,7 +12,6 @@
 #include "Handles.hpp"
 #include "Geometry.hpp"
 
-using std::string;
 using std::vector;
 
 namespace SFT::Renderer {
@@ -24,7 +22,7 @@ namespace SFT::Renderer {
     // the prerequisite for indirect/multi-draw across heterogeneous geometry.
     struct MeshResource {
         MeshHandle handle{};
-        string label;
+        UString label;
         vector<GeometryVertex> vertices;
         vector<u32> indices;
         // Element (not byte) offsets into the shared arenas — directly usable as
@@ -51,13 +49,13 @@ namespace SFT::Renderer {
 
     struct MaterialResource {
         MaterialHandle handle{};
-        string label;
+        UString label;
         bool alive = false;
     };
 
     struct TextureResource {
         TextureHandle handle{};
-        string label;
+        UString label;
         RHI::TextureHandle texture{};
         RHI::TextureViewHandle view{};
         RHI::SamplerHandle sampler{};

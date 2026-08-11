@@ -344,7 +344,7 @@ namespace SFT::Renderer {
             .label = "sky view lut",
         });
 
-        graph.add_compute_pass("sky transmittance lut")
+        graph.add_compute_pass("sky transmittance lut"_ustr)
             .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = transmittance_lut, .read = false, .write = true})
             .set_execute([this, atmosphere_buffer, transmittance_lut, &transient_bind_groups](
                              RenderGraphComputeContext &context) -> Core::RendererResult {
@@ -392,7 +392,7 @@ namespace SFT::Renderer {
                 return {};
             });
 
-        graph.add_compute_pass("sky multi-scattering lut")
+        graph.add_compute_pass("sky multi-scattering lut"_ustr)
             .add_sampled_texture(transmittance_lut)
             .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = multi_scattering_lut, .read = false, .write = true})
             .set_execute([this, atmosphere_buffer, transmittance_lut, multi_scattering_lut, &transient_bind_groups](
@@ -447,7 +447,7 @@ namespace SFT::Renderer {
                 return {};
             });
 
-        graph.add_compute_pass("sky view lut")
+        graph.add_compute_pass("sky view lut"_ustr)
             .add_sampled_texture(transmittance_lut)
             .add_sampled_texture(multi_scattering_lut)
             .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = sky_view_lut, .read = false, .write = true})

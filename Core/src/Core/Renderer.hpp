@@ -14,6 +14,7 @@
 #include "Slang/ShaderDiscovery.hpp"
 
 using SFT::Platform::Windowing::Window;
+using std::expected;
 using std::span;
 using std::string;
 using std::vector;
@@ -71,7 +72,7 @@ namespace SFT::Core {
     // upper_bound != 0); that returns an error rather than silently swapping the bounds, ignoring
     // one of them, or falling back to an unrelated constant. A request merely outside the bounds is
     // not an error — it's raised/reduced to fit, reported via `FramesInFlightResolution::adjustment`.
-    [[nodiscard]] inline std::expected<FramesInFlightResolution, string> resolve_frames_in_flight(
+    [[nodiscard]] inline expected<FramesInFlightResolution, string> resolve_frames_in_flight(
         u32 requested, u32 lower_bound, u32 upper_bound) noexcept {
         if (lower_bound == 0) {
             lower_bound = 1; // 0 is never a valid frames-in-flight count
@@ -110,7 +111,7 @@ namespace SFT::Core {
 
     struct RuntimeSettingsChangeResult {
         RuntimeSettingApplyMode mode = RuntimeSettingApplyMode::NoChange;
-        string message;
+        UString message;
     };
 
     // Engine-facing presentation intent — what an app/settings menu actually expresses, kept
@@ -279,6 +280,10 @@ namespace SFT::Core {
         u64 frame_index = 0;
         u32 framebuffer_width = 0;
         u32 framebuffer_height = 0;
+        // True only for the coalesced interactive-resize path. Backends may skip a host-side wait for
+        // an already-issued present in this mode, retaining the previous image until the next retry
+        // rather than stalling the window coordinator inside an OS modal resize loop.
+        bool live_resize = false;
     };
 
 } // namespace SFT::Core

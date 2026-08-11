@@ -133,6 +133,7 @@ namespace SFT::Core::Vulkan {
                                                  const VulkanPhysicalDevice &physical_device,
                                                  VulkanDevice &logical_device,
                                                  VulkanQueue &graphics_queue,
+                                                 VulkanQueue &present_queue,
                                                  VulkanQueue *compute_queue,
                                                  VulkanQueue *transfer_queue,
                                                  VulkanAllocator &allocator,
@@ -141,7 +142,8 @@ namespace SFT::Core::Vulkan {
                                                  bool hdr_swapchain_colorspace_enabled,
                                                  bool hdr_metadata_enabled)
         : backend_(&backend), instance_(instance), physical_device_(&physical_device),
-          logical_device_(&logical_device), graphics_queue_(&graphics_queue), allocator_(&allocator),
+          logical_device_(&logical_device), graphics_queue_(&graphics_queue), present_queue_(&present_queue),
+          allocator_(&allocator),
           feature_report_(feature_report), enabled_features_(feature_report_.enabled_features()),
           hdr_swapchain_colorspace_enabled_(hdr_swapchain_colorspace_enabled),
           hdr_metadata_enabled_(hdr_metadata_enabled) {
@@ -153,6 +155,9 @@ namespace SFT::Core::Vulkan {
         }
         if (hdr_metadata_enabled_) {
             enabled_extensions_.push_back(rhi::ExtensionId{"vulkan", "VK_EXT_hdr_metadata", 1});
+        }
+        if (enabled_features_.has(rhi::Feature::SwapchainMaintenance)) {
+            enabled_extensions_.push_back(rhi::ExtensionId{"vulkan", "VK_KHR_swapchain_maintenance1", 1});
         }
         if (enable_native_access_extension) {
             native_access_extension_.emplace(
@@ -463,8 +468,18 @@ namespace SFT::Core::Vulkan {
 
     void VulkanBackend::installRhiBridge() {
         ZoneScopedN("VulkanBackend::installRhiBridge");
+        auto &device_present_queue = logicalDevice.present_queue();
         auto &device_compute_queue = logicalDevice.compute_queue();
         auto &device_transfer_queue = logicalDevice.transfer_queue();
+        // A distinct queue in the same family can present without queue-family ownership transfers.
+        // Do not adopt a different-family present queue until the swapchain image ownership handoff is
+        // implemented; gfxQueue is already selected with primary-surface presentation support.
+        VulkanQueue *present_queue = &gfxQueue;
+        if (device_present_queue.has_value() &&
+            device_present_queue->family_index() == gfxQueue.family_index() &&
+            device_present_queue->vk_handle() != gfxQueue.vk_handle()) {
+            present_queue = &*device_present_queue;
+        }
         VulkanQueue *compute_queue = device_compute_queue.has_value() ? &*device_compute_queue : nullptr;
         VulkanQueue *transfer_queue = device_transfer_queue.has_value() ? &*device_transfer_queue : nullptr;
         if (transfer_queue == nullptr && feature_report_.enabled_features().has(rhi::Feature::AsyncTransfer) &&
@@ -475,7 +490,7 @@ namespace SFT::Core::Vulkan {
         // containing a garbage pre-assignment value, so avoid deleting that value before first ownership.
         static_cast<void>(rhiDevice.release());
         rhiDevice = std::make_unique<VulkanRhiDeviceBridge>(*this, vulkan_instance, physicalDevice, logicalDevice, gfxQueue,
-                                                            compute_queue, transfer_queue, vmaAllocator, feature_report_,
+                                                            *present_queue, compute_queue, transfer_queue, vmaAllocator, feature_report_,
                                                             static_cast<bool>(create_info_.features.enable_native_access_extension),
                                                             hdr_swapchain_colorspace_enabled_, hdr_metadata_enabled_);
     }

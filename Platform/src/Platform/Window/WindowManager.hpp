@@ -199,6 +199,36 @@ namespace SFT::Platform::Windowing {
             });
         }
 
+        // Fire-and-forget counterpart to with_window(): queues fn(Window&) to run on the owning thread
+        // and returns *immediately*, without waiting for it.
+        //
+        // This exists because with_window() blocks the caller until the event thread reaches the queued
+        // op, and that thread is not always promptly available: on Windows, an interactive move/resize
+        // puts it inside an OS modal loop for the entire duration of the drag (see poll_loop()). A
+        // blocking window op issued mid-drag therefore stalls its caller for however long the user holds
+        // the mouse — which, when the caller is the application's render coordinator, stops rendering
+        // outright. Every state *request* (set the cursor icon, toggle fullscreen/decorations/effects)
+        // is a submit-and-forget operation whose result the caller discards anyway, so those go through
+        // here and are simply applied a little later instead of holding up the frame loop.
+        //
+        // `fn` is taken by value into the queued task (unlike with_window(), which can safely borrow it
+        // for the duration of its own blocking call), so it must not capture anything by reference that
+        // may die before it runs. Silently does nothing if `id` no longer names a live window by the
+        // time the op executes — a window closed between posting and applying is a normal race here,
+        // not an error.
+        template <typename F>
+        void post_to_window(WindowId id, F &&fn) {
+            ZoneScopedN("WindowManager::post_to_window");
+            post([this, id, fn = std::forward<F>(fn)]() mutable {
+                for (unique_ptr<Window> &w : windows_) {
+                    if (w->id() == id) {
+                        (void)fn(*w);
+                        return;
+                    }
+                }
+            });
+        }
+
         // Runs fn(vector<unique_ptr<Window>>&) with exclusive access to every managed window, on the
         // thread that owns them.
         template <typename F>
@@ -243,6 +273,29 @@ namespace SFT::Platform::Windowing {
                 ZoneScopedN("WindowManager::dispatch wait for poll_loop");
                 return Async::TaskHandle<R>(std::move(state)).wait();
             }
+        }
+
+        // Non-blocking sibling of dispatch(): queues `fn` for poll_loop() to run and returns without
+        // waiting for a result (see post_to_window() above for why that matters). `fn` is moved into
+        // the queued task rather than borrowed, since this call does not outlive it.
+        //
+        // With no event thread there is nothing to defer *to* — the caller already owns the windows —
+        // so this runs inline, matching dispatch()'s own CallerThread-mode behavior. That keeps
+        // "posted" ops ordered consistently with blocking ones on every platform.
+        template <typename F>
+        void post(F &&fn) {
+            ZoneScopedN("WindowManager::post");
+            if (!event_thread_) {
+                fn();
+                return;
+            }
+            auto state = std::make_shared<Async::Detail::TaskState<void>>();
+            auto task = std::make_unique<Async::Detail::ConcreteTask<std::decay_t<F>, void>>(std::forward<F>(fn), state);
+            {
+                auto guard = pending_ops_.lock();
+                guard->push_back(std::move(task));
+            }
+            wake_poll_loop();
         }
 
         template <typename F>

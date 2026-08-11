@@ -301,8 +301,8 @@ namespace SFT::Renderer {
         };
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         gpu.viewport_params = glm::vec4{
-            1.0f / static_cast<f32>(std::max(render_extent.width, 1u)),
-            1.0f / static_cast<f32>(std::max(render_extent.height, 1u)),
+            1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
+            1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
             std::abs(submission.camera.projection[1][1]),
             submission.render_graph.ambient_occlusion
                 ? static_cast<f32>(std::min(submission.render_graph.gtao_quality, 3u) + 1u)

@@ -19,6 +19,9 @@
 #include "Context.hpp"
 #include "Style.hpp"
 
+using std::function;
+using std::pair;
+using std::set;
 using std::string_view;
 using std::vector;
 
@@ -73,8 +76,8 @@ namespace SFT::UI {
         // both null to make Copy/Cut/Paste silent no-ops. See Platform::Windowing::Window::
         // clipboard_text()/set_clipboard_text() for the SDL3/GLFW-backed implementation this
         // typically wraps.
-        std::function<UString()> get_clipboard_text;
-        std::function<void(const UString &)> set_clipboard_text;
+        function<UString()> get_clipboard_text;
+        function<void(const UString &)> set_clipboard_text;
     };
 
     // One color override over a scalar-index range of the buffer — e.g. a keyword, a string
@@ -96,7 +99,7 @@ namespace SFT::UI {
     // highlighter is free to be as expensive as a real Markdown parse or a tokenizer without
     // costing anything on frames where the user isn't actively typing (the overwhelming majority
     // of frames for an idle-but-focused input).
-    using Highlighter = std::function<vector<RichTextSpan>(const UString &)>;
+    using Highlighter = function<vector<RichTextSpan>(const UString &)>;
 
     struct TextEditStyle {
         Color idle{0.14, 0.15, 0.19, 1.0};
@@ -478,8 +481,8 @@ namespace SFT::UI {
         // for text_area() to handle itself, to find which paragraph the caret is in for vertical
         // caret movement — see text_area()'s own doc comment for why paragraphs (hard line breaks)
         // rather than wrapped visual lines is the granularity here.
-        [[nodiscard]] inline vector<std::pair<usize, usize>> split_paragraphs(const UString &text) {
-            vector<std::pair<usize, usize>> result;
+        [[nodiscard]] inline vector<pair<usize, usize>> split_paragraphs(const UString &text) {
+            vector<pair<usize, usize>> result;
             usize start = 0;
             const usize len = text.size();
             for (usize i = 0; i < len; ++i) {
@@ -548,7 +551,7 @@ namespace SFT::UI {
             const usize line_len = line_text.size();
             const vector<RichTextSpan> &spans = state.highlighted_spans(style.highlighter);
 
-            std::set<usize> cuts{0, line_len};
+            set<usize> cuts{0, line_len};
             for (const RichTextSpan &span : spans) {
                 const isize local_start = static_cast<isize>(span.scalar_start) - static_cast<isize>(line_scalar_offset);
                 const isize local_end = local_start + static_cast<isize>(span.scalar_length);
@@ -662,13 +665,15 @@ namespace SFT::UI {
                 (void)run_scope;
                 // Password mode substitutes one mask glyph per scalar — run boundaries, selection,
                 // and the caret all stay index-exact because the substitution is 1:1 per character.
-                UString run_text = line_text.substr(run_start, run_end - run_start);
+                UString run_text;
                 if (style.mask_characters) {
-                    std::string masked;
+                    const ustr mask_glyph{style.mask_glyph};
+                    run_text.reserve(mask_glyph.byte_size() * (run_end - run_start));
                     for (usize j = run_start; j < run_end; ++j) {
-                        masked += style.mask_glyph;
+                        run_text.append(mask_glyph);
                     }
-                    run_text = UString{masked};
+                } else {
+                    run_text = line_text.substr(run_start, run_end - run_start);
                 }
                 ctx.text(run_text.as_ustr(), TextStyle{.color = run_color, .font_id = style.font_id,
                                                        .font_size = style.font_size, .wrap_mode = run_wrap_mode});
@@ -702,16 +707,17 @@ namespace SFT::UI {
                 return line_text.scalar_index_of_byte(byte_offset);
             }
             const usize scalar_count = line_text.size();
-            const usize mask_glyph_bytes = string_view{style.mask_glyph}.size();
+            const ustr mask_glyph{style.mask_glyph};
+            const usize mask_glyph_bytes = mask_glyph.byte_size();
             if (mask_glyph_bytes == 0) {
                 return 0;
             }
-            std::string masked;
+            UString masked;
             masked.reserve(mask_glyph_bytes * scalar_count);
             for (usize i = 0; i < scalar_count; ++i) {
-                masked += style.mask_glyph;
+                masked.append(mask_glyph);
             }
-            const usize byte_offset = ctx.hit_test_text_byte_offset(text_style, masked, local_x);
+            const usize byte_offset = ctx.hit_test_text_byte_offset(text_style, masked.cpp_string_view(), local_x);
             return std::min(byte_offset / mask_glyph_bytes, scalar_count);
         }
 

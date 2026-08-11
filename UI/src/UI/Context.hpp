@@ -137,10 +137,7 @@ namespace SFT::UI {
         // this to reject accidentally drawing a window-sized layout into a differently-sized off-screen
         // endpoint; prepare/draw viewport constants cannot retroactively reflow Clay's baked geometry.
         [[nodiscard]] Core::Extent2D viewport_extent() const noexcept {
-            return Core::Extent2D{
-                .width = full_viewport_scissor_.width,
-                .height = full_viewport_scissor_.height,
-            };
+            return Core::Extent2D{full_viewport_scissor_.width, full_viewport_scissor_.height};
         }
 
         // Read-only access to this frame's resolved draw list — lets a test assert on scissor/
@@ -406,7 +403,7 @@ namespace SFT::UI {
         // Renderer/RendererTextOverlay.cpp's own per-glyph outline cache, just keyed across every
         // font this Context has registered instead of one.
         unordered_map<u64, Text::GlyphOutline> outline_cache_;
-        Core::Extent2D layout_extent_{.width = 1, .height = 1};
+        Core::Extent2D layout_extent_{1, 1};
 
         // Current pointer sample plus latched transitions, set by begin_layout().
         glm::vec2 pointer_position_{0.0f};

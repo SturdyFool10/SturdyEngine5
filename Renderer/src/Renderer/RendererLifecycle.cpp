@@ -11,7 +11,6 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -35,9 +34,11 @@ using std::array;
 using std::chrono::duration;
 using std::chrono::steady_clock;
 using std::optional;
+using std::pair;
 using std::span;
 using std::string;
 using std::unexpected;
+using std::unordered_map;
 using std::vector;
 
 namespace SFT::Renderer {
@@ -76,7 +77,7 @@ namespace SFT::Renderer {
             // `accumulate_into`: when non-null, this stage's duration is also appended (in
             // milliseconds) so a caller can build a full per-frame CPU stage breakdown — the
             // hitch-warning behavior above is unconditional either way, this is purely additive.
-            ScopedRendererStageTimer(const char *stage, vector<std::pair<string, f64>> *accumulate_into) noexcept
+            ScopedRendererStageTimer(const char *stage, vector<pair<string, f64>> *accumulate_into) noexcept
                 : stage_(stage), start_(steady_clock::now()), accumulate_into_(accumulate_into) {}
 
             ~ScopedRendererStageTimer() noexcept {
@@ -92,24 +93,36 @@ namespace SFT::Renderer {
           private:
             const char *stage_;
             steady_clock::time_point start_;
-            vector<std::pair<string, f64>> *accumulate_into_ = nullptr;
+            vector<pair<string, f64>> *accumulate_into_ = nullptr;
         };
 
         // Collapses a pass label's numbered-instance suffix (for example, a bloom mip level) down
         // to its category by truncating at the first digit, so the GPU/CPU timing breakdowns sum
         // same-kind passes into one line. Labels with no digit pass through unchanged.
-        [[nodiscard]] string render_graph_pass_timing_category(std::string_view label) noexcept {
-            const usize digit = label.find_first_of("0123456789");
-            string category{digit == std::string_view::npos ? label : label.substr(0, digit)};
-            while (!category.empty() && category.back() == ' ') {
+        [[nodiscard]] UString render_graph_pass_timing_category(const ustr &label) {
+            UString category{label};
+            const usize digit = category.find_first_of(UString{"0123456789"_ustr});
+            if (digit != UString::npos) {
+                category.erase(digit);
+            }
+            while (!category.empty() && category.back() == U' ') {
                 category.pop_back();
             }
             return category;
         }
 
+        [[nodiscard]] vector<pair<string, f64>> snapshot_timings(const vector<pair<UString, f64>> &timings) {
+            vector<pair<string, f64>> snapshot;
+            snapshot.reserve(timings.size());
+            for (const auto &[label, milliseconds] : timings) {
+                snapshot.emplace_back(label.cpp_string(), milliseconds);
+            }
+            return snapshot;
+        }
+
         [[nodiscard]] Core::Extent2D framebuffer_extent(Platform::Windowing::Window &window) {
             if (auto size = window.framebuffer_size()) {
-                return Core::Extent2D{size->x, size->y};
+                return *size;
             }
             return {};
         }
@@ -619,7 +632,7 @@ namespace SFT::Renderer {
         // prepare_material_frame call (inside record_render_item) into a pure read of already-clean
         // state instead of a racy rebuild.
         {
-            std::unordered_map<u64, bool> warmed;
+            unordered_map<u64, bool> warmed;
             for (const RenderItem *item : visible) {
                 if (!warmed.try_emplace(item->material.value, true).second) {
                     continue;
@@ -780,7 +793,7 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer RHI device is unavailable.");
         }
-        if (record.swapchain_extent.is_zero()) {
+        if (Core::is_zero(record.swapchain_extent)) {
             return {};
         }
         if (record.depth_texture && record.depth_view) {
@@ -790,8 +803,8 @@ namespace SFT::Renderer {
         auto depth_texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = record.depth_format,
-            .extent = RHI::Extent3D{.width = record.swapchain_extent.width,
-                                    .height = record.swapchain_extent.height,
+            .extent = RHI::Extent3D{.width = record.swapchain_extent.x,
+                                    .height = record.swapchain_extent.y,
                                     .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
@@ -818,7 +831,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult Renderer::drain_pending_present(WindowSurfaceRecord &record,
-                                                         vector<std::pair<string, f64>> *stage_timings_ms) {
+                                                         vector<pair<string, f64>> *stage_timings_ms) {
         ZoneScopedN("Renderer::drain_pending_present");
         if (!record.pending_present) {
             return {};
@@ -828,10 +841,20 @@ namespace SFT::Renderer {
             return record.pending_present->wait();
         }();
         record.pending_present.reset();
+        const optional<RHI::FenceHandle> completion_fence = record.pending_present_completion_fence;
+        record.pending_present_completion_fence.reset();
         if (stage_timings_ms != nullptr) {
             stage_timings_ms->emplace_back("present queue lock wait", record.last_present_lock_wait_ms);
         }
         if (!presented) {
+            // A failed vkQueuePresentKHR never signals a maintenance completion fence. Discard it
+            // instead of leaving an unsignaled fence attached to a future retired swapchain.
+            if (completion_fence) {
+                std::erase(record.active_presentation_completion_fences, *completion_fence);
+                if (RHI::RhiDevice *device = rhi_device()) {
+                    device->destroy_fence(*completion_fence);
+                }
+            }
             // SurfaceLost: the swapchain must be recreated before presenting again -- the existing
             // dirty-flag path already does that (a true surface-loss recovery, distinct from a mere
             // swapchain rebuild, is Phase 3 scope per the sync/presentation rework plan). Reachable
@@ -876,7 +899,7 @@ namespace SFT::Renderer {
         }
 
         const Core::Extent2D extent = known_extent ? *known_extent : framebuffer_extent(*record.window);
-        if (extent.is_zero()) {
+        if (Core::is_zero(extent)) {
             record.rhi_swapchain_dirty = true;
             return {};
         }
@@ -887,8 +910,8 @@ namespace SFT::Renderer {
 
         RHI::SwapchainDesc swapchain_desc{
             .surface = record.rhi_surface,
-            .width = extent.width,
-            .height = extent.height,
+            .width = extent.x,
+            .height = extent.y,
             .format = hdr_presentation_format(record.presentation),
             .color_space = hdr_presentation_color_space(record.presentation),
             // Core::resolve_present_strategy() is the one place vsync/variable_refresh/latency/
@@ -922,32 +945,44 @@ namespace SFT::Renderer {
         record.swapchain_extent = extent;
         record.rhi_swapchain_dirty = false;
         if (old_swapchain || old_depth_texture || old_depth_view) {
-            FrameInFlight *retire_after = nullptr;
-            if (!record.frames_in_flight.empty()) {
-                const u64 retire_index = frame_index > 0 ? frame_index - 1 : frame_index;
-                retire_after = &record.frames_in_flight[retire_index % record.frames_in_flight.size()];
-            }
-
-            if (retire_after != nullptr) {
-                if (old_swapchain) {
-                    retire_after->retired_swapchains.push_back(old_swapchain);
-                }
-                if (old_depth_view) {
-                    retire_after->retired_presentation_texture_views.push_back(old_depth_view);
-                }
-                if (old_depth_texture) {
-                    retire_after->retired_presentation_textures.push_back(old_depth_texture);
-                }
+            if (device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+                // A present-completion fence signals after the presentation engine has finished with
+                // the image, which is the missing lifetime proof a graphics submission fence cannot
+                // provide. Move every still-live fence with this exact swapchain generation.
+                record.retired_presentation_resources.push_back(RetiredPresentationResources{
+                    .swapchain = old_swapchain,
+                    .depth_texture = old_depth_texture,
+                    .depth_view = old_depth_view,
+                    .completion_fences = std::move(record.active_presentation_completion_fences),
+                });
             } else {
-                // No frame ring exists yet, so nothing has acquired or presented through this swapchain.
-                if (old_depth_view) {
-                    device->destroy_texture_view(old_depth_view);
+                FrameInFlight *retire_after = nullptr;
+                if (!record.frames_in_flight.empty()) {
+                    const u64 retire_index = frame_index > 0 ? frame_index - 1 : frame_index;
+                    retire_after = &record.frames_in_flight[retire_index % record.frames_in_flight.size()];
                 }
-                if (old_depth_texture) {
-                    device->destroy_texture(old_depth_texture);
-                }
-                if (old_swapchain) {
-                    device->destroy_swapchain(old_swapchain);
+
+                if (retire_after != nullptr) {
+                    if (old_swapchain) {
+                        retire_after->retired_swapchains.push_back(old_swapchain);
+                    }
+                    if (old_depth_view) {
+                        retire_after->retired_presentation_texture_views.push_back(old_depth_view);
+                    }
+                    if (old_depth_texture) {
+                        retire_after->retired_presentation_textures.push_back(old_depth_texture);
+                    }
+                } else {
+                    // No frame ring exists yet, so nothing has acquired or presented through this swapchain.
+                    if (old_depth_view) {
+                        device->destroy_texture_view(old_depth_view);
+                    }
+                    if (old_depth_texture) {
+                        device->destroy_texture(old_depth_texture);
+                    }
+                    if (old_swapchain) {
+                        device->destroy_swapchain(old_swapchain);
+                    }
                 }
             }
         }
@@ -1011,7 +1046,7 @@ namespace SFT::Renderer {
         // execute, submit, present — whichever of those actually run this frame) so they can be
         // stashed on `slot` for the debug overlay to display next time this ring slot comes round —
         // see FrameCpuTimingTarget's doc comment for why "next time", not "this frame".
-        vector<std::pair<string, f64>> current_frame_cpu_stage_timings_ms;
+        vector<pair<string, f64>> current_frame_cpu_stage_timings_ms;
 
         // Backpressure — the one sanctioned per-frame CPU wait (plans/async-submission-model.md). Waits on
         // the *specific* frame that last used this ring slot (frame_count frames ago), never a full-device
@@ -1051,10 +1086,10 @@ namespace SFT::Renderer {
         // execute() queued for it last time this ring slot was used (see FrameGpuTimingTarget's doc
         // comment). Read once here rather than at the point the graph executes further down, since
         // this frame's own about-to-be-recorded timestamps land in the SAME query set slots.
-        vector<std::pair<string, f64>> gpu_pass_timings_ms;
+        vector<pair<UString, f64>> gpu_pass_timings_ms;
         if (slot.gpu_timing.has_pending_results) {
             const f32 period_ns = device->limits().timestamp_period_ns;
-            std::unordered_map<string, f64> totals_ms;
+            unordered_map<UString, f64> totals_ms;
             bool any_read = false;
             // Accumulates one query set's begin/end pairs into `totals_ms` — shared between the
             // RenderGraph's own per-pass query set and the fixed-size pre-graph one (TLAS build,
@@ -1094,7 +1129,7 @@ namespace SFT::Renderer {
                         continue;
                     }
                     const f64 ms = static_cast<f64>(end_ticks - begin_ticks) * static_cast<f64>(period_ns) / 1.0e6;
-                    totals_ms[render_graph_pass_timing_category(timing.label)] += ms;
+                    totals_ms[render_graph_pass_timing_category(timing.label.as_ustr())] += ms;
                 }
             };
             if (period_ns > 0.0f) {
@@ -1109,7 +1144,7 @@ namespace SFT::Renderer {
                 // display via Renderer::last_frame_timings() needs this even when the on-screen text
                 // block further down is skipped.
                 auto published_timings = record.last_frame_timings->lock();
-                published_timings->gpu_pass_timings_ms = gpu_pass_timings_ms;
+                published_timings->gpu_pass_timings_ms = snapshot_timings(gpu_pass_timings_ms);
                 published_timings->has_data = true;
             }
             slot.gpu_timing.has_pending_results = false;
@@ -1121,12 +1156,12 @@ namespace SFT::Renderer {
         // down) before this frame's own RenderGraph::execute() call has run, so "this frame's own
         // numbers" don't exist yet either way — same one-frame-stale contract as GPU timing above,
         // just for a different reason.
-        vector<std::pair<string, f64>> cpu_pass_timings_ms;
-        vector<std::pair<string, f64>> cpu_stage_timings_ms;
+        vector<pair<UString, f64>> cpu_pass_timings_ms;
+        vector<pair<string, f64>> cpu_stage_timings_ms;
         if (slot.cpu_timing.has_pending_results) {
-            std::unordered_map<string, f64> totals_ms;
+            unordered_map<UString, f64> totals_ms;
             for (const RenderGraph::CpuPassTiming &timing : slot.cpu_timing.pass_timings) {
-                totals_ms[render_graph_pass_timing_category(timing.label)] += timing.duration_ms;
+                totals_ms[render_graph_pass_timing_category(timing.label.as_ustr())] += timing.duration_ms;
             }
             cpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
             std::sort(cpu_pass_timings_ms.begin(), cpu_pass_timings_ms.end(),
@@ -1134,7 +1169,7 @@ namespace SFT::Renderer {
             cpu_stage_timings_ms = slot.cpu_timing.stage_timings;
             // See the matching GPU-side comment above: published regardless of draw_overlay_text.
             auto published_timings = record.last_frame_timings->lock();
-            published_timings->cpu_pass_timings_ms = cpu_pass_timings_ms;
+            published_timings->cpu_pass_timings_ms = snapshot_timings(cpu_pass_timings_ms);
             published_timings->cpu_stage_timings_ms = cpu_stage_timings_ms;
             published_timings->has_data = true;
             slot.cpu_timing.has_pending_results = false;
@@ -1168,19 +1203,28 @@ namespace SFT::Renderer {
             // the swapchain — see drain_pending_present's and WindowSurfaceRecord::pending_present's
             // doc comments. In steady state (GPU keeping up) the previous frame's present has already
             // finished by the time we get here, so this is a no-op wait.
+            //
+            // During a modal live resize, however, waiting here turns an asynchronous present straight
+            // back into a render-thread stall. Keep the previous swapchain image available for the
+            // platform compositor and let Application retry this coalesced frame at its bounded cadence
+            // once the present task completes. Normal frames preserve the strict wait so a resize outside
+            // the live path still observes presentation errors before touching swapchain lifetime.
+            if (frame.live_resize && record.pending_present && !record.pending_present->is_done()) {
+                return {};
+            }
             if (Core::RendererResult drained = drain_pending_present(record, &current_frame_cpu_stage_timings_ms);
                 !drained.has_value()) {
                 return drained;
             }
+            reclaim_completed_presentation_fences(record);
 
             // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
             // this tick — see Application::render_managed_window), never by re-querying the Window object.
             const Core::Extent2D surface_extent{frame.framebuffer_width, frame.framebuffer_height};
-            if (surface_extent.is_zero()) {
+            if (Core::is_zero(surface_extent)) {
                 return {};
             }
-            const bool size_changed = surface_extent.width != record.swapchain_extent.width ||
-                surface_extent.height != record.swapchain_extent.height;
+            const bool size_changed = surface_extent != record.swapchain_extent;
             const bool should_recreate = record.rhi_swapchain_dirty || size_changed;
             if (should_recreate) {
                 {
@@ -1204,10 +1248,10 @@ namespace SFT::Renderer {
         const bool hdr_output = !offscreen_output && static_cast<bool>(record.presentation.hdr_enabled);
         const RHI::Format output_format = hdr_output ? hdr_presentation_format(record.presentation) : RHI::Format::BGRA8UnormSrgb;
         const f32 resolution_scale = std::clamp(submission.render_graph.resolution_scale, 0.1f, 2.0f);
-        const Core::Extent2D render_extent{
-            .width = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.width) * resolution_scale))),
-            .height = std::max(1u, static_cast<u32>(std::lround(static_cast<f64>(presentation_extent.height) * resolution_scale))),
-        };
+        const Core::Extent2D render_extent = glm::max(
+            Core::Extent2D{std::lround(static_cast<f64>(presentation_extent.x) * resolution_scale),
+                           std::lround(static_cast<f64>(presentation_extent.y) * resolution_scale)},
+            Core::Extent2D{1u, 1u});
         {
             ScopedRendererStageTimer timer{"prepare scene GPU data", &current_frame_cpu_stage_timings_ms};
             if (Core::RendererResult scene_gpu_data = prepare_scene_gpu_data(record, frame.frame_index, submission); !scene_gpu_data.has_value()) {
@@ -1331,8 +1375,8 @@ namespace SFT::Renderer {
             // camera motion must invalidate it. The view-independent photon signature intentionally
             // continues to exclude the camera transform.
             hash_matrix(submission.view_projection);
-            hash_u64_both(render_extent.width);
-            hash_u64_both(render_extent.height);
+            hash_u64_both(render_extent.x);
+            hash_u64_both(render_extent.y);
             hash_float_both(submission.lighting.sun.direction.x);
             hash_float_both(submission.lighting.sun.direction.y);
             hash_float_both(submission.lighting.sun.direction.z);
@@ -1379,8 +1423,8 @@ namespace SFT::Renderer {
             }
             hiz_cull_input = HiZCullInput{
                 .pyramid_view = record.hiz_pyramid.full_view,
-                .extent_width = record.hiz_pyramid.extent.width,
-                .extent_height = record.hiz_pyramid.extent.height,
+                .extent_width = record.hiz_pyramid.extent.x,
+                .extent_height = record.hiz_pyramid.extent.y,
                 .mip_count = record.hiz_pyramid.mip_levels,
                 .valid = record.hiz_pyramid.has_valid_data,
             };
@@ -1527,7 +1571,7 @@ namespace SFT::Renderer {
         if (gpu_timing_enabled) {
             (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 1);
             slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
-                .label = "pre-graph: TLAS build",
+                .label = UString{"pre-graph: TLAS build"_ustr},
                 .begin_query_index = 0,
                 .end_query_index = 1,
             });
@@ -1582,8 +1626,8 @@ namespace SFT::Renderer {
                 std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
                             submission.camera.world_position.y, submission.camera.world_position.z),
                 std::format("Resolution: {}x{} (scene {}x{}, {:.0f}%)",
-                            presentation_extent.width, presentation_extent.height,
-                            render_extent.width, render_extent.height, resolution_scale * 100.0f),
+                            presentation_extent.x, presentation_extent.y,
+                            render_extent.x, render_extent.y, resolution_scale * 100.0f),
                 std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
                 std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
                 std::format("Frame: {}", frame.frame_index),
@@ -1653,7 +1697,7 @@ namespace SFT::Renderer {
             if (Core::RendererResult text_prepared =
                     prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
                                          glm::vec2{10.0f, 10.0f},
-                                         glm::vec2{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)},
+                                         glm::vec2{presentation_extent},
                                          slot.text_overlay_resources,
                                          submission.transient_buffers, submission.retired_text_atlas_resources,
                                          text_overlay_batches);
@@ -1663,7 +1707,7 @@ namespace SFT::Renderer {
         }
 
         if (submission.render_graph.ui_overlay) {
-            const glm::vec2 ui_viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
+            const glm::vec2 ui_viewport_size{presentation_extent};
             if (Core::RendererResult ui_prepared = submission.render_graph.ui_overlay.prepare(
                     *device, **encoder, ui_viewport_size, record.surface, frame_slot_index,
                     submission.transient_buffers, submission.retired_text_atlas_resources);
@@ -1710,7 +1754,7 @@ namespace SFT::Renderer {
         if (gpu_timing_enabled) {
             (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
             slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
-                .label = "pre-graph: photon hash clear",
+                .label = UString{"pre-graph: photon hash clear"_ustr},
                 .begin_query_index = 2,
                 .end_query_index = 3,
             });
@@ -1733,8 +1777,8 @@ namespace SFT::Renderer {
             .default_view = output_view,
             .format = output_format,
             .extent = RHI::Extent3D{
-                .width = presentation_extent.width,
-                .height = presentation_extent.height,
+                .width = presentation_extent.x,
+                .height = presentation_extent.y,
                 .depth_or_layers = 1,
             },
             .usage = offscreen_output
@@ -1760,7 +1804,7 @@ namespace SFT::Renderer {
             .label = offscreen_output ? "off-screen final color" : "swapchain color",
         });
         graph.mark_output(final_output);
-        const RHI::Extent3D frame_extent{.width = render_extent.width, .height = render_extent.height, .depth_or_layers = 1};
+        const RHI::Extent3D frame_extent{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1};
         const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
             .default_view = slot.deferred_targets.gbuffer_albedo_view,
@@ -1928,7 +1972,7 @@ namespace SFT::Renderer {
             .texture = hiz_pyramid_gpu_texture,
             .default_view = hiz_pyramid_full_view,
             .format = RHI::Format::R32Float,
-            .extent = RHI::Extent3D{.width = hiz_pyramid_extent.width, .height = hiz_pyramid_extent.height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = hiz_pyramid_extent.x, .height = hiz_pyramid_extent.y, .depth_or_layers = 1},
             .mip_levels = hiz_pyramid_mip_levels,
             .initial_layout = hiz_cull_input.valid ? RHI::TextureLayout::ShaderReadOnly : RHI::TextureLayout::Undefined,
             .initial_stage = hiz_cull_input.valid ? RHI::PipelineStage::ComputeShader : RHI::PipelineStage::None,
@@ -2039,7 +2083,7 @@ namespace SFT::Renderer {
                 .initial_access = RHI::AccessFlags::ShaderRead,
                 .label = "GPU-culling compacted instance indices",
             });
-            graph.add_compute_pass("gpu instance cull")
+            graph.add_compute_pass("gpu instance cull"_ustr)
                 .add_sampled_texture(hiz_pyramid_texture)
                 .add_buffer(RenderGraphBufferAccessDesc{
                     .buffer = instance_indirect_commands,
@@ -2076,7 +2120,7 @@ namespace SFT::Renderer {
                 // this fixes (VUID-vkCmdExecuteCommands-flags-06024, hit and root-caused this session).
                 const bool shadow_atlas_uses_bundles =
                     shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
-                graph.add_render_pass("raster shadow atlas")
+                graph.add_render_pass("raster shadow atlas"_ustr)
                     .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                         .texture = shadow_atlas,
                         .depth_load_op = RHI::LoadOp::Clear,
@@ -2245,25 +2289,25 @@ namespace SFT::Renderer {
             }
             const bool zprepass_uses_bundles =
                 zprepass_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
-            graph.add_render_pass("z prepass")
+            graph.add_render_pass("z prepass"_ustr)
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = raster_depth,
                     .depth_load_op = RHI::LoadOp::Clear,
                     .depth_store_op = RHI::StoreOp::Store,
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_allow_bundles(zprepass_uses_bundles)
                 .set_execute([this, &submission, render_extent, frame, camera_frustum,
                               framebuffer_samples, zprepass_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.width),
-                        .height = static_cast<f32>(render_extent.height),
+                        .width = static_cast<f32>(render_extent.x),
+                        .height = static_cast<f32>(render_extent.y),
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
                     return record_render_items_culled(pass, submission.draws, camera_frustum,
                                                        span<const RHI::Format>{}, submission.deferred_formats.depth,
                                                        frame.frame_index, submission.view_projection,
@@ -2283,7 +2327,7 @@ namespace SFT::Renderer {
             }
             const bool gbuffer_uses_bundles =
                 gbuffer_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
-            RenderGraphRenderPassBuilder &gbuffer_pass = graph.add_render_pass("deferred gbuffer geometry");
+            RenderGraphRenderPassBuilder &gbuffer_pass = graph.add_render_pass("deferred gbuffer geometry"_ustr);
             gbuffer_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = gbuffer_albedo,
                     .load_op = RHI::LoadOp::Clear,
@@ -2323,7 +2367,7 @@ namespace SFT::Renderer {
                     .depth_store_op = RHI::StoreOp::Store,
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_allow_bundles(gbuffer_uses_bundles);
             if (!instanced_batches.empty()) {
                 gbuffer_pass
@@ -2344,11 +2388,11 @@ namespace SFT::Renderer {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.width),
-                        .height = static_cast<f32>(render_extent.height),
+                        .width = static_cast<f32>(render_extent.x),
+                        .height = static_cast<f32>(render_extent.y),
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
                     const array<RHI::Format, 5> gbuffer_formats{
                         submission.deferred_formats.albedo,
                         submission.deferred_formats.normal,
@@ -2396,7 +2440,7 @@ namespace SFT::Renderer {
                                      spectral_mode != SpectralRenderMode::RasterDeferred &&
                                      spectral_mode != SpectralRenderMode::FullPathTracing;
         if (hybrid_spectral) {
-            graph.add_compute_pass("hybrid spectral ray query")
+            graph.add_compute_pass("hybrid spectral ray query"_ustr)
                 .add_sampled_texture(gbuffer_albedo)
                 .add_sampled_texture(gbuffer_normal)
                 .add_sampled_texture(gbuffer_material)
@@ -2433,7 +2477,7 @@ namespace SFT::Renderer {
         }
 
         if (spectral_photon_emission_needed) {
-            graph.add_compute_pass("spectral photon emission")
+            graph.add_compute_pass("spectral photon emission"_ustr)
                 .add_buffer(RenderGraphBufferAccessDesc{
                     .buffer = spectral_photons,
                     .stages = RHI::PipelineStage::ComputeShader,
@@ -2453,7 +2497,7 @@ namespace SFT::Renderer {
                     return record_spectral_photon_emission(context.compute_pass(), slot, submission);
                 });
 
-            graph.add_compute_pass("spectral photon spatial hash")
+            graph.add_compute_pass("spectral photon spatial hash"_ustr)
                 .add_buffer(RenderGraphBufferAccessDesc{
                     .buffer = spectral_photons,
                     .stages = RHI::PipelineStage::ComputeShader,
@@ -2482,7 +2526,7 @@ namespace SFT::Renderer {
         }
 
         if (submission.render_graph.render_scene && full_path_tracing) {
-            RenderGraphComputePassBuilder &full_path_pass = graph.add_compute_pass("full spectral path tracing");
+            RenderGraphComputePassBuilder &full_path_pass = graph.add_compute_pass("full spectral path tracing"_ustr);
             full_path_pass
                 .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_effect})
                 .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = scene_color})
@@ -2545,7 +2589,7 @@ namespace SFT::Renderer {
                         }, spectral_accumulation_reset);
                 });
 
-            graph.add_render_pass("path traced depth commit")
+            graph.add_render_pass("path traced depth commit"_ustr)
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = depth_texture,
                     .depth_load_op = RHI::LoadOp::DontCare,
@@ -2553,7 +2597,7 @@ namespace SFT::Renderer {
                 })
                 .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = spectral_primary_depth})
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
-                                             .width = render_extent.width, .height = render_extent.height})
+                                             .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &slot, spectral_primary_depth, render_extent](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     return record_spectral_depth_commit(
@@ -2565,7 +2609,7 @@ namespace SFT::Renderer {
         if (submission.render_graph.render_scene && !full_path_tracing) {
             const RenderGraphTextureHandle lighting_spectral_effect = hybrid_spectral
                 ? spectral_effect : gbuffer_emissive;
-            RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting");
+            RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting"_ustr);
             lighting_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = scene_color,
                 .load_op = RHI::LoadOp::DontCare,
@@ -2584,7 +2628,7 @@ namespace SFT::Renderer {
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = multi_scattering_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = sky_view_lut});
             lighting_pass
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
                               gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
                               shadow_atlas, &shadow_frame,
@@ -2593,12 +2637,12 @@ namespace SFT::Renderer {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.width),
-                        .height = static_cast<f32>(render_extent.height),
+                        .width = static_cast<f32>(render_extent.x),
+                        .height = static_cast<f32>(render_extent.y),
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0,
-                                                 .width = render_extent.width, .height = render_extent.height});
+                                                 .width = render_extent.x, .height = render_extent.y});
                     const RHI::TextureViewHandle atlas_view = shadow_frame.atlas_used
                         ? context.texture(shadow_atlas).default_view
                         : context.texture(depth_texture).default_view;
@@ -2621,15 +2665,15 @@ namespace SFT::Renderer {
                 });
         } else if (!submission.render_graph.render_scene) {
             // Overlay-only views still need a defined HDR source for gizmos and post-processing.
-            graph.add_render_pass("scene background")
+            graph.add_render_pass("scene background"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = scene_color,
                     .load_op = RHI::LoadOp::Clear,
                     .store_op = RHI::StoreOp::Store,
                     .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width,
-                                             .height = render_extent.height});
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x,
+                                             .height = render_extent.y});
         }
 
         if (submission.render_graph.render_scene && multisampled) {
@@ -2650,7 +2694,7 @@ namespace SFT::Renderer {
         // depth for a defined overlay-only pass.
         if (!submission.gizmo_draws.empty()) {
             const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
-            graph.add_render_pass("pre-bloom light indicators")
+            graph.add_render_pass("pre-bloom light indicators"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = scene_before_bloom,
                     .load_op = RHI::LoadOp::Load,
@@ -2662,17 +2706,17 @@ namespace SFT::Renderer {
                     .depth_store_op = RHI::StoreOp::Store,
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &submission, render_extent, frame, gizmo_color_formats](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.width),
-                        .height = static_cast<f32>(render_extent.height),
+                        .width = static_cast<f32>(render_extent.x),
+                        .height = static_cast<f32>(render_extent.y),
                         .min_depth = 0.0f, .max_depth = 1.0f,
                     });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.width, .height = render_extent.height});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
                     RenderItemBindingState binding_state{};
                     for (const RenderItem &item : submission.gizmo_draws) {
                         if (Core::RendererResult recorded = record_render_item(
@@ -2735,25 +2779,25 @@ namespace SFT::Renderer {
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
             // Shaping/residency/instance upload happened above; this pass only issues the prepared
             // instanced draws over the tonemapped scene.
-            graph.add_render_pass("debug text overlay")
+            graph.add_render_pass("debug text overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = final_output,
                     .load_op = RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([this, presentation_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f,
                         .y = 0.0f,
-                        .width = static_cast<f32>(presentation_extent.width),
-                        .height = static_cast<f32>(presentation_extent.height),
+                        .width = static_cast<f32>(presentation_extent.x),
+                        .height = static_cast<f32>(presentation_extent.y),
                         .min_depth = 0.0f,
                         .max_depth = 1.0f,
                     });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
-                    const glm::vec2 viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
+                    const glm::vec2 viewport_size{presentation_extent};
                     return draw_text_overlay(pass, text_overlay_batches, viewport_size);
                 });
         }
@@ -2761,26 +2805,26 @@ namespace SFT::Renderer {
         if (submission.render_graph.ui_overlay) {
             // prepare() already ran above (before this graph's first pass was declared) — this
             // pass only issues the draw calls it prepared, over the fully composited frame.
-            graph.add_render_pass("UI overlay")
+            graph.add_render_pass("UI overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = final_output,
                     .load_op = RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
                               &submission](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
                         .x = 0.0f,
                         .y = 0.0f,
-                        .width = static_cast<f32>(presentation_extent.width),
-                        .height = static_cast<f32>(presentation_extent.height),
+                        .width = static_cast<f32>(presentation_extent.x),
+                        .height = static_cast<f32>(presentation_extent.y),
                         .min_depth = 0.0f,
                         .max_depth = 1.0f,
                     });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.width, .height = presentation_extent.height});
-                    const glm::vec2 viewport_size{static_cast<f32>(presentation_extent.width), static_cast<f32>(presentation_extent.height)};
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
+                    const glm::vec2 viewport_size{presentation_extent};
                     return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
                 });
         }
@@ -2898,8 +2942,19 @@ namespace SFT::Renderer {
             // by drain_pending_present() instead of here -- see WindowSurfaceRecord::pending_present's
             // doc comment for the ordering invariant that keeps this safe.
             ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
+            RHI::FenceHandle completion_fence{};
+            if (device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+                auto created_fence = device->create_fence(RHI::FenceDesc{.label = "renderer present completion fence"});
+                if (!created_fence) {
+                    return unexpected(graphics_error_from_rhi(created_fence.error(), "create present completion fence"));
+                }
+                completion_fence = *created_fence;
+                record.active_presentation_completion_fences.push_back(completion_fence);
+                record.pending_present_completion_fence = completion_fence;
+            }
             RHI::PresentDesc present_desc{
                 .texture = *acquired_surface,
+                .completion_fence = completion_fence,
                 .label = "renderer present",
             };
             const bool present_via_compute = device->presentation_resolution(record.rhi_swapchain).present_queue_is_compute;
@@ -2953,8 +3008,8 @@ namespace SFT::Renderer {
         }
         const bool matches = slot.deferred_targets.gbuffer_albedo &&
             slot.deferred_targets.depth &&
-            slot.deferred_targets.extent.width == extent.width &&
-            slot.deferred_targets.extent.height == extent.height &&
+            slot.deferred_targets.extent.x == extent.x &&
+            slot.deferred_targets.extent.y == extent.y &&
             slot.deferred_targets.formats.albedo == formats.albedo &&
             slot.deferred_targets.formats.normal == formats.normal &&
             slot.deferred_targets.formats.material == formats.material &&
@@ -2973,11 +3028,11 @@ namespace SFT::Renderer {
 
         auto create_target = [&](RHI::Format format, RHI::TextureUsage usage, const char *label,
                                  RHI::SampleCount target_samples = RHI::SampleCount::X1)
-            -> Core::RendererExpected<std::pair<RHI::TextureHandle, RHI::TextureViewHandle>> {
+            -> Core::RendererExpected<pair<RHI::TextureHandle, RHI::TextureViewHandle>> {
             auto texture = device->create_texture(RHI::TextureDesc{
                 .dimension = RHI::TextureDimension::Dim2D,
                 .format = format,
-                .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+                .extent = RHI::Extent3D{.width = extent.x, .height = extent.y, .depth_or_layers = 1},
                 .mip_levels = 1,
                 .samples = target_samples,
                 .usage = usage,
@@ -2995,7 +3050,7 @@ namespace SFT::Renderer {
                 device->destroy_texture(*texture);
                 return unexpected(graphics_error_from_rhi(view.error(), label));
             }
-            return std::pair<RHI::TextureHandle, RHI::TextureViewHandle>{*texture, *view};
+            return pair<RHI::TextureHandle, RHI::TextureViewHandle>{*texture, *view};
         };
 
         constexpr RHI::TextureUsage color_usage = RHI::TextureUsage::ColorAttachment |
@@ -3143,8 +3198,7 @@ namespace SFT::Renderer {
         downsample_ratio = std::isfinite(downsample_ratio)
             ? std::clamp(downsample_ratio, 1.25f, 2.0f)
             : 1.61803398875f;
-        const bool matches = slot.bloom_targets.source_extent.width == extent.width &&
-            slot.bloom_targets.source_extent.height == extent.height &&
+        const bool matches = slot.bloom_targets.source_extent == extent &&
             slot.bloom_targets.requested_levels == requested_levels &&
             slot.bloom_targets.downsample_ratio == downsample_ratio &&
             !slot.bloom_targets.textures.empty() &&
@@ -3171,19 +3225,16 @@ namespace SFT::Renderer {
         constexpr u32 minimum_stable_bloom_axis = 4u;
         Core::Extent2D source_extent = extent;
         for (u32 level = 0; level < requested_levels; ++level) {
-            const Core::Extent2D level_extent{
-                .width = std::max(1u, static_cast<u32>(
-                    std::floor(static_cast<f64>(source_extent.width) / static_cast<f64>(downsample_ratio)))),
-                .height = std::max(1u, static_cast<u32>(
-                    std::floor(static_cast<f64>(source_extent.height) / static_cast<f64>(downsample_ratio)))),
-            };
+            const Core::Extent2D level_extent = glm::max(
+                Core::Extent2D{glm::floor(glm::dvec2{source_extent} / static_cast<f64>(downsample_ratio))},
+                Core::Extent2D{1u, 1u});
             if (!slot.bloom_targets.extents.empty() &&
-                (level_extent.width < minimum_stable_bloom_axis ||
-                 level_extent.height < minimum_stable_bloom_axis)) {
+                (level_extent.x < minimum_stable_bloom_axis ||
+                 level_extent.y < minimum_stable_bloom_axis)) {
                 break;
             }
             slot.bloom_targets.extents.push_back(level_extent);
-            if (level_extent.width == source_extent.width && level_extent.height == source_extent.height) {
+            if (level_extent == source_extent) {
                 break;
             }
             source_extent = level_extent;
@@ -3196,8 +3247,8 @@ namespace SFT::Renderer {
                 .dimension = RHI::TextureDimension::Dim2D,
                 .format = RHI::Format::RG11B10Float,
                 .extent = RHI::Extent3D{
-                    .width = level_extent.width,
-                    .height = level_extent.height,
+                    .width = level_extent.x,
+                    .height = level_extent.y,
                     .depth_or_layers = 1,
                 },
                 .mip_levels = 1,
@@ -3295,8 +3346,8 @@ namespace SFT::Renderer {
                                                                   Core::Extent2D extent,
                                                                   RHI::Format format) {
         ZoneScopedN("Renderer::ensure_frame_composite_target");
-        const bool matches = slot.composite_target.extent.width == extent.width &&
-            slot.composite_target.extent.height == extent.height &&
+        const bool matches = slot.composite_target.extent.x == extent.x &&
+            slot.composite_target.extent.y == extent.y &&
             slot.composite_target.format == format &&
             slot.composite_target.texture && slot.composite_target.view;
         if (matches) return {};
@@ -3313,7 +3364,7 @@ namespace SFT::Renderer {
         auto texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = format,
-            .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = extent.x, .height = extent.y, .depth_or_layers = 1},
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
                      RHI::TextureUsage::TransferSrc,
@@ -3534,17 +3585,108 @@ namespace SFT::Renderer {
         }
     }
 
+    void Renderer::reclaim_completed_presentation_fences(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::reclaim_completed_presentation_fences");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr || !device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+            return;
+        }
+        for (auto it = record.active_presentation_completion_fences.begin();
+             it != record.active_presentation_completion_fences.end();) {
+            const RHI::FenceHandle fence = *it;
+            const auto waited = device->wait_fences(span<const RHI::FenceHandle>{&fence, 1}, true, 0);
+            if (!waited) {
+                Foundation::log_warn("Could not poll presentation-completion fence: {}", waited.error().message);
+                ++it;
+            } else if (*waited) {
+                device->destroy_fence(fence);
+                it = record.active_presentation_completion_fences.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void Renderer::reclaim_completed_retired_presentations(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::reclaim_completed_retired_presentations");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr || !device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+            return;
+        }
+        for (auto it = record.retired_presentation_resources.begin();
+             it != record.retired_presentation_resources.end();) {
+            bool complete = true;
+            for (const RHI::FenceHandle fence : it->completion_fences) {
+                const auto waited = device->wait_fences(span<const RHI::FenceHandle>{&fence, 1}, true, 0);
+                if (!waited) {
+                    Foundation::log_warn("Could not poll retired presentation fence: {}", waited.error().message);
+                    complete = false;
+                    break;
+                }
+                if (!*waited) {
+                    complete = false;
+                    break;
+                }
+            }
+            if (!complete) {
+                ++it;
+                continue;
+            }
+
+            for (const RHI::FenceHandle fence : it->completion_fences) {
+                device->destroy_fence(fence);
+            }
+            if (it->depth_view) {
+                device->destroy_texture_view(it->depth_view);
+            }
+            if (it->depth_texture) {
+                device->destroy_texture(it->depth_texture);
+            }
+            if (it->swapchain) {
+                device->destroy_swapchain(it->swapchain);
+            }
+            it = record.retired_presentation_resources.erase(it);
+        }
+    }
+
+    void Renderer::destroy_retired_presentations(WindowSurfaceRecord &record) noexcept {
+        ZoneScopedN("Renderer::destroy_retired_presentations");
+        RHI::RhiDevice *device = rhi_device();
+        if (device != nullptr) {
+            for (RetiredPresentationResources &retired : record.retired_presentation_resources) {
+                for (const RHI::FenceHandle fence : retired.completion_fences) {
+                    device->destroy_fence(fence);
+                }
+                if (retired.depth_view) {
+                    device->destroy_texture_view(retired.depth_view);
+                }
+                if (retired.depth_texture) {
+                    device->destroy_texture(retired.depth_texture);
+                }
+                if (retired.swapchain) {
+                    device->destroy_swapchain(retired.swapchain);
+                }
+            }
+        }
+        record.retired_presentation_resources.clear();
+    }
+
     void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept {
         ZoneScopedN("Renderer::maybe_flush_retired_swapchains");
+        RHI::RhiDevice *device = rhi_device();
+        if (device != nullptr && device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+            // Every retired generation has exact presentation-completion fences, so polling is enough:
+            // do not ever idle unrelated windows just because this one is being resized.
+            reclaim_completed_retired_presentations(record);
+            return;
+        }
+
         usize retired_count = 0;
         for (const FrameInFlight &slot : record.frames_in_flight) {
             retired_count += slot.retired_swapchains.size();
         }
-        // `opportunistic` (called on a frame that isn't itself resizing) flushes any backlog at all —
-        // there's no live-resize responsiveness to protect on this frame, so there's no reason to let
-        // even one superseded swapchain linger. The non-opportunistic call (from inside an active
-        // resize) only trips the bounded safety-net threshold, so a fast continuous drag doesn't pay
-        // a wait_idle() on every single frame.
+        // Portable fallback: without presentation completion tracking, the only proof that an old
+        // swapchain is no longer referenced by vkQueuePresentKHR is a device-wide idle point.
         const usize threshold = opportunistic ? 1 : retired_swapchain_flush_threshold;
         if (retired_count < threshold) {
             return;
@@ -3569,6 +3711,14 @@ namespace SFT::Renderer {
             // presented swapchain images can still be attached when SDL destroys the wl_surface, producing
             // "mesa vk display queue ... destroyed while proxies still attached" warnings.
             drain_frames_in_flight(record);
+            // wait_idle() above also completes every presentation fence, so teardown can reclaim the
+            // maintenance path's old generations and any current-generation fences unconditionally.
+            destroy_retired_presentations(record);
+            for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
+                device->destroy_fence(fence);
+            }
+            record.active_presentation_completion_fences.clear();
+            record.pending_present_completion_fence.reset();
             for (FrameInFlight &slot : record.frames_in_flight) {
                 reclaim_frame_slot(slot, true);
                 destroy_text_frame_resources(*device, slot.text_overlay_resources);

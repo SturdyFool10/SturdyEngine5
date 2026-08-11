@@ -139,9 +139,6 @@ namespace SFT::Core::Vulkan {
                 Foundation::log_warn(
                     "Presentation strategy {} wanted {} but the surface doesn't support it; using {} instead.",
                     rhi::present_strategy_name(strategy), rhi::present_mode_name(ideal), rhi::present_mode_name(effective));
-            } else {
-                Foundation::log_info("Presentation strategy {} resolved to {}.", rhi::present_strategy_name(strategy),
-                                     rhi::present_mode_name(effective));
             }
             return rhi::PresentationResolution{.strategy = strategy, .effective_mode = effective, .degraded = degraded};
         }
@@ -559,12 +556,7 @@ namespace SFT::Core::Vulkan {
 
         // Flip-model composed presentation on Windows (the fast "Composed: Flip" path vs. the
         // legacy blit-copy "Composed: Copy with GPU/CPU" path) needs imageCount >= 2 and an opaque
-        // composite alpha; both are already this bridge's default resolution, but log the values
-        // actually negotiated so a regression (e.g. a non-opaque composite alpha request) is
-        // greppable without reaching for PresentMon just to sanity-check preconditions.
-        Foundation::log_info(
-            "Swapchain created: imageCount={} compositeAlpha={} presentMode={}",
-            info.minImageCount, static_cast<u32>(info.compositeAlpha), rhi::present_mode_name(resolution.effective_mode));
+        // composite alpha. Both are already this bridge's default resolution.
 
         VkHdrMetadataEXT initial_hdr_metadata{};
         bool initial_hdr_metadata_set = false;
@@ -774,7 +766,7 @@ namespace SFT::Core::Vulkan {
 
     rhi::RhiExpected<rhi::PresentOutcome> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
         ZoneScopedN("VulkanRhiDeviceBridge::present");
-        if (graphics_queue_ == nullptr) {
+        if (present_queue_ == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "Vulkan RHI bridge cannot run present: device resources are not ready.");
         }
@@ -789,8 +781,29 @@ namespace SFT::Core::Vulkan {
         const VkSwapchainKHR swapchain = record->swapchain.vk_handle();
         const u32 image_index = desc.texture.image_index;
         const VkSemaphore wait = record->render_finished_semaphores[image_index].vk_handle();
+        VkSwapchainPresentFenceInfoKHR completion_info{
+            .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_KHR,
+            .pNext = nullptr,
+            .swapchainCount = 1,
+            .pFences = nullptr,
+        };
+        VkFence completion_fence = VK_NULL_HANDLE;
+        if (desc.completion_fence) {
+            if (!enabled_features_.has(rhi::Feature::SwapchainMaintenance)) {
+                return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                      "present: completion fences require swapchain-maintenance support.");
+            }
+            VulkanFence *fence = fences_.find(desc.completion_fence);
+            if (fence == nullptr) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "present: completion_fence is not a live RHI fence.");
+            }
+            completion_fence = fence->vk_handle();
+            completion_info.pFences = &completion_fence;
+        }
         const VkPresentInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .pNext = desc.completion_fence ? &completion_info : nullptr,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &wait,
             .swapchainCount = 1,
@@ -799,8 +812,11 @@ namespace SFT::Core::Vulkan {
         };
         // record->present_via_compute was decided once at create_swapchain() time against this exact
         // swapchain's surface (RHI::PresentationResolution::present_queue_is_compute's own doc
-        // comment) — compute_queue_ is guaranteed non-null whenever it's true.
-        VulkanQueue &present_queue = (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *graphics_queue_;
+        // comment) — compute_queue_ is guaranteed non-null whenever it's true. Otherwise use the
+        // dedicated same-family presentation queue when device creation found one; it aliases graphics
+        // on single-queue hardware and therefore remains portable without ownership transfers.
+        VulkanQueue &present_queue =
+            (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *present_queue_;
         auto result = present_queue.present(info, queue_lock_wait_ms);
         if (!result) {
             return rhi_error_from_graphics(result.error());

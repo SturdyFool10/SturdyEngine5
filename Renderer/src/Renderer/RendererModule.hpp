@@ -512,6 +512,17 @@ namespace SFT::Renderer {
             u64 state_signature = 0;
         };
 
+        // Presentation resources cannot be reclaimed after the graphics submission fence alone:
+        // vkQueuePresentKHR may still reference the old swapchain. On backends with a presentation
+        // completion fence, the fence list tracks precisely that remaining ownership; unsupported
+        // backends use the conservative wait_idle() path in maybe_flush_retired_swapchains().
+        struct RetiredPresentationResources {
+            RHI::SwapchainHandle swapchain{};
+            RHI::TextureHandle depth_texture{};
+            RHI::TextureViewHandle depth_view{};
+            vector<RHI::FenceHandle> completion_fences;
+        };
+
         struct FrameInFlight {
             RHI::FenceHandle fence{};
             // One entry per command buffer execute_parallel() finished this frame (the primary encoder
@@ -628,6 +639,13 @@ namespace SFT::Renderer {
             Core::PresentationSettings presentation{};
             bool primary = false;
             bool rhi_swapchain_dirty = true;
+            // Completion fences for presents already issued from the current swapchain. Only retained
+            // while unsignaled; on recreation they move with the old swapchain into
+            // retired_presentation_resources so a maintenance-capable backend can reclaim precisely
+            // that generation without a device-wide wait.
+            vector<RHI::FenceHandle> active_presentation_completion_fences;
+            optional<RHI::FenceHandle> pending_present_completion_fence;
+            vector<RetiredPresentationResources> retired_presentation_resources;
             // RHI::RhiDevice::present() (ultimately vkQueuePresentKHR) is issued through Renderer's
             // shared PresentationCoordinator (presentation_coordinator_for()), not this window's own
             // render thread. On Windows the driver commonly blocks the calling thread inside that
@@ -1295,27 +1313,13 @@ namespace SFT::Renderer {
         // (unsignaled) so the ring is immediately reusable.
         void drain_frames_in_flight(WindowSurfaceRecord &record) noexcept;
         // Cleans up superseded swapchains/presentation textures that recreate_rhi_swapchain() couldn't
-        // safely destroy immediately (its present isn't fenced, so it retires them onto a
-        // frame-in-flight slot instead — see reclaim_frame_slot's comment). `opportunistic` (call this
-        // on any frame that ISN'T itself recreating the swapchain) flushes as soon as there's any
-        // backlog at all — a live swapchain is dead weight the WSI carries on every acquire/present
-        // until it's gone, and a non-resizing frame has no live-resize responsiveness to protect, so
-        // there's no reason to wait. `!opportunistic` (call this from inside an active resize) only
-        // trips a small bounded safety-net threshold, so a fast continuous resize drag — which
-        // recreates every frame, by design, see render_frame_rhi — doesn't pay a wait_idle() on every
-        // single one of those frames; it still won't grow the backlog without bound for a drag that
-        // runs long enough to never hit a non-resizing frame.
-        //
-        // FOLLOW-UP (not yet done): drain_frames_in_flight()'s wait_idle() below is a real, sanctioned
-        // full-device stall standing in for per-present completion tracking this engine doesn't have
-        // yet. RHI::Feature::SwapchainMaintenance (VK_KHR_swapchain_maintenance1) is now detected and
-        // enabled when the device supports it (VulkanBackendDevice.cpp) specifically so a future pass
-        // can attach VkSwapchainPresentFenceInfoEXT to each present, track the fence from a retired
-        // swapchain's *last* present, and wait on just that fence here instead of the whole device —
-        // routine swapchain recreation would then never need to stall unrelated in-flight frames on
-        // other windows. That fence-tracking plumbing itself is not implemented; this function still
-        // always uses the wait_idle() fallback regardless of the feature being enabled.
+        // safely destroy immediately. Backends exposing RHI::Feature::SwapchainMaintenance poll the
+        // presentation-completion fences attached to each retired generation, so live resize never
+        // needs to idle unrelated work. The portable fallback retains the bounded wait_idle() policy.
         void maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept;
+        void reclaim_completed_presentation_fences(WindowSurfaceRecord &record) noexcept;
+        void reclaim_completed_retired_presentations(WindowSurfaceRecord &record) noexcept;
+        void destroy_retired_presentations(WindowSurfaceRecord &record) noexcept;
         void destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept;
         [[nodiscard]] Core::RendererResult prepare_scene_gpu_data(
             WindowSurfaceRecord &record, u64 frame_index, const FrameSubmission &submission);

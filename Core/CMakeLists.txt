@@ -35,6 +35,8 @@ endif()
 # sturdy_generate_shader_embeds() — it implements Core::Slang::embedded_shaders() (see
 # Core/src/Core/Slang/EmbeddedShaders.hpp), #embed-ing every *.slang file under Shaders/.
 sturdy_add_package(Core
+    ARCHIVE_TIMEOUT_SECONDS ${STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS}
+
     SOURCES
         "${STURDY_LICENSES_EMBED_CPP}"
         "${STURDY_SHADERS_EMBED_CPP}"

@@ -140,7 +140,7 @@ namespace SFT::Core::Vulkan {
         info.descriptor.system = to_surface_system(native->system);
         info.descriptor.display = native->display;
         info.descriptor.window = native->window;
-        info.framebuffer_extent = {framebuffer->x, framebuffer->y};
+        info.framebuffer_extent = *framebuffer;
         info.desired_frames_in_flight = sanitize_frames_in_flight(desired_frames_in_flight);
         return info;
     }
@@ -195,8 +195,8 @@ namespace SFT::Core::Vulkan {
         Foundation::log_info("Vulkan surface created: provider={} system={} extent={}x{}",
                              surface_provider_name(init.descriptor.provider),
                              surface_system_name(init.descriptor.system),
-                             init.framebuffer_extent.width,
-                             init.framebuffer_extent.height);
+                             init.framebuffer_extent.x,
+                             init.framebuffer_extent.y);
         return RenderSurfaceHandle{window_id};
     }
 

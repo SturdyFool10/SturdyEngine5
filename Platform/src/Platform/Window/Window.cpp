@@ -29,6 +29,6 @@ expected<void, WindowError> Window::unlock_mouse() noexcept {
             return set_mouse_locked(false);
         }
 
-void Window::set_repaint_callback(std::function<void()> /*callback*/) noexcept {}
+void Window::set_live_resize_callback(std::function<void(WindowExtent)> /*callback*/) noexcept {}
 
 } // namespace SFT::Platform::Windowing

@@ -1,6 +1,12 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
 
@@ -195,6 +201,16 @@ namespace SFT::Platform::Windowing::SDL3 {
             return registry;
         }
 
+#if defined(_WIN32)
+        // SDL exposes one process-wide Windows message hook. Its callback uses this directory to
+        // route WM_SIZING to the corresponding wrapper without storing native handles in Platform's
+        // public Window abstraction.
+        unordered_map<HWND, SDL3Window *> &sdl_win32_window_registry() noexcept {
+            static unordered_map<HWND, SDL3Window *> registry;
+            return registry;
+        }
+#endif
+
         i32 &sdl_window_count() noexcept {
             static i32 count = 0;
             return count;
@@ -238,24 +254,63 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else [[unlikely]] {
                 last_framebuffer_size_ = last_size_;
             }
+            last_live_resize_extent_ = last_framebuffer_size_;
         }
     }
 
-    // SDL event watcher used only for platforms whose native move/resize modal loop can starve the normal
-    // main loop. Linux/Wayland/X11 resize events keep flowing through SDL_PollEvent; rendering directly from
-    // this watch there can re-enter the renderer while pump_events() is still processing and can force a
-    // swapchain rebuild for every intermediate resize event.
-    bool SDLCALL SDL3Window::sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept {
-        ZoneScopedN("SDL3Window::sdl_repaint_watch");
+    // SDL's Windows move/resize modal loop sends an EXPOSED event from its timer even when the
+    // provider defers its normal resize event until the client extent is committed. Sample the
+    // physical extent on those exposes; PIXEL_SIZE_CHANGED remains an immediate fast path whenever
+    // SDL does dispatch it during the drag. The callback publishes state only, never renders here.
+    bool SDLCALL SDL3Window::sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept {
+        ZoneScopedN("SDL3Window::sdl_live_resize_watch");
 #if defined(_WIN32)
-        if (event->type == SDL_EVENT_WINDOW_EXPOSED) {
-            auto *self = static_cast<SDL3Window *>(userdata);
-            if (self->window_ && SDL_GetWindowID(self->window_) == event->window.windowID) {
-                if (self->repaint_callback_) {
-                    self->repaint_callback_();
-                }
-            }
+        const bool pixel_size_changed = event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED;
+        const bool modal_repaint = event->type == SDL_EVENT_WINDOW_EXPOSED;
+        if (!pixel_size_changed && !modal_repaint) {
+            return true;
         }
+
+        auto *self = static_cast<SDL3Window *>(userdata);
+        // A watch can be invoked while an SDL operation already owns this non-recursive lock (for
+        // example, a programmatic resize). In that case the normal pump will deliver the event; do
+        // not risk self-deadlocking merely to request an optional live-resize repaint.
+        auto lock = sdl_window_mutex().try_lock();
+        if (!lock || self->window_ == nullptr ||
+            SDL_GetWindowID(self->window_) != event->window.windowID ||
+            !self->live_resize_callback_) {
+            return true;
+        }
+
+        WindowExtent extent{};
+        if (pixel_size_changed) {
+            if (event->window.data1 <= 0 || event->window.data2 <= 0) {
+                return true;
+            }
+            extent = WindowExtent{
+                static_cast<u32>(event->window.data1),
+                static_cast<u32>(event->window.data2),
+            };
+        } else {
+            i32 width = 0;
+            i32 height = 0;
+            if (!SDL_GetWindowSizeInPixels(self->window_, &width, &height) ||
+                width <= 0 || height <= 0) {
+                return true;
+            }
+            extent = WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
+        }
+
+        if (extent.x == self->last_live_resize_extent_.x &&
+            extent.y == self->last_live_resize_extent_.y) {
+            return true;
+        }
+        self->last_live_resize_extent_ = extent;
+
+        // The live-resize callback contract forbids re-entering Window or the renderer, so calling it
+        // under this lock safely serializes callback replacement/destruction without a racy copy of
+        // std::function.
+        self->live_resize_callback_(extent);
 #else
         (void)userdata;
         (void)event;
@@ -263,13 +318,80 @@ namespace SFT::Platform::Windowing::SDL3 {
         return true;
     }
 
-    SDL3Window::~SDL3Window() noexcept {
-        ZoneScopedN("SDL3Window::~SDL3Window");
-        if (repaint_callback_) {
-            SDL_RemoveEventWatch(sdl_repaint_watch, this);
+#if defined(_WIN32)
+    // SDL calls this on the Windows event-loop thread before it dispatches a native message. WM_SIZING
+    // carries the proposed outer rectangle even when SDL defers its own resize event until the modal
+    // loop exits, which is the missing live-resize extent for Vulkan presentation.
+    bool SDLCALL SDL3Window::sdl_windows_message_hook(void *userdata, MSG *message) noexcept {
+        ZoneScopedN("SDL3Window::sdl_windows_message_hook");
+        (void)userdata;
+        if (message == nullptr || message->message != WM_SIZING) {
+            return true;
         }
 
+        auto lock = sdl_window_mutex().try_lock();
+        if (!lock) {
+            return true;
+        }
+        const auto found = sdl_win32_window_registry().find(message->hwnd);
+        if (found == sdl_win32_window_registry().end() ||
+            found->second == nullptr || !found->second->live_resize_callback_) {
+            return true;
+        }
+
+        const auto *sizing_rect = reinterpret_cast<const RECT *>(message->lParam);
+        if (sizing_rect == nullptr) {
+            return true;
+        }
+
+        RECT current_window_rect{};
+        RECT current_client_rect{};
+        if (!GetWindowRect(message->hwnd, &current_window_rect) ||
+            !GetClientRect(message->hwnd, &current_client_rect)) {
+            return true;
+        }
+
+        const LONG current_outer_width = current_window_rect.right - current_window_rect.left;
+        const LONG current_outer_height = current_window_rect.bottom - current_window_rect.top;
+        const LONG current_client_width = current_client_rect.right - current_client_rect.left;
+        const LONG current_client_height = current_client_rect.bottom - current_client_rect.top;
+        const LONG non_client_width = current_outer_width - current_client_width;
+        const LONG non_client_height = current_outer_height - current_client_height;
+        const LONG width = (sizing_rect->right - sizing_rect->left) - non_client_width;
+        const LONG height = (sizing_rect->bottom - sizing_rect->top) - non_client_height;
+        if (width <= 0 || height <= 0) {
+            return true;
+        }
+
+        SDL3Window *self = found->second;
+        const WindowExtent extent{static_cast<u32>(width), static_cast<u32>(height)};
+        if (extent.x == self->last_live_resize_extent_.x &&
+            extent.y == self->last_live_resize_extent_.y) {
+            return true;
+        }
+        self->last_live_resize_extent_ = extent;
+        self->live_resize_callback_(extent);
+        return true;
+    }
+#endif
+
+    SDL3Window::~SDL3Window() noexcept {
+        ZoneScopedN("SDL3Window::~SDL3Window");
+        // Unregister before releasing the object. A callback already in progress holds
+        // sdl_window_mutex(), so the lock below also waits for it to finish publishing.
+        SDL_RemoveEventWatch(sdl_live_resize_watch, this);
+
         auto lock = sdl_window_mutex().lock();
+        live_resize_callback_ = {};
+#if defined(_WIN32)
+        for (auto it = sdl_win32_window_registry().begin(); it != sdl_win32_window_registry().end();) {
+            if (it->second == this) {
+                it = sdl_win32_window_registry().erase(it);
+            } else {
+                ++it;
+            }
+        }
+#endif
 
         if (current_cursor_ != nullptr) {
             SDL_DestroyCursor(current_cursor_);
@@ -294,14 +416,33 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
-    void SDL3Window::set_repaint_callback(std::function<void()> callback) noexcept {
-        ZoneScopedN("SDL3Window::set_repaint_callback");
-        if (repaint_callback_) {
-            SDL_RemoveEventWatch(sdl_repaint_watch, this);
+    void SDL3Window::set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept {
+        ZoneScopedN("SDL3Window::set_live_resize_callback");
+        auto lock = sdl_window_mutex().lock();
+        if (live_resize_callback_) {
+            SDL_RemoveEventWatch(sdl_live_resize_watch, this);
         }
-        repaint_callback_ = std::move(callback);
-        if (repaint_callback_) {
-            SDL_AddEventWatch(sdl_repaint_watch, this);
+#if defined(_WIN32)
+        for (auto it = sdl_win32_window_registry().begin(); it != sdl_win32_window_registry().end();) {
+            if (it->second == this) {
+                it = sdl_win32_window_registry().erase(it);
+            } else {
+                ++it;
+            }
+        }
+#endif
+        live_resize_callback_ = std::move(callback);
+        if (live_resize_callback_) {
+            SDL_AddEventWatch(sdl_live_resize_watch, this);
+#if defined(_WIN32)
+            // SDL's hook is process-wide, so every registered HWND shares this one dispatcher. It is
+            // installed on the event-owning thread, as SDL_SetWindowsMessageHook requires.
+            if (auto native = native_window_handle_locked(); native &&
+                native->system == NativeWindowSystem::Win32 && native->window != nullptr) {
+                sdl_win32_window_registry().emplace(static_cast<HWND>(native->window), this);
+                SDL_SetWindowsMessageHook(sdl_windows_message_hook, nullptr);
+            }
+#endif
         }
     }
 
@@ -498,14 +639,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         // negligible next to the nanosecond-timestamp resolution being converted.
         const i64 timestamp_offset_ns = sdl_to_steady_offset_ns();
 
-        // Deliberately NOT held across SDL_PollEvent itself (each iteration below takes its own
-        // lock only for the event-processing body) -- on Windows, SDL's blocked interactive
-        // move/resize modal loop reenters synchronously through sdl_repaint_watch during this
-        // exact call, on this same thread, and that watch's repaint_callback_ (set in
-        // ApplicationImpl.cpp) calls back into consume_resize()/framebuffer_size(), which lock
-        // sdl_window_mutex() themselves. sdl_window_mutex() is non-recursive (see its own doc
-        // comment), so holding it across SDL_PollEvent self-deadlocks -- observed as a crash
-        // (not just a hang) every time a repaint fires mid-drag on Windows.
+        // Deliberately do not hold sdl_window_mutex() across SDL_PollEvent. During Windows'
+        // interactive move/resize modal loop, sdl_live_resize_watch runs synchronously as SDL queues
+        // the pixel-size event and needs this lock to publish the latest extent. Holding it here
+        // would make the watch skip that update, leaving the application to redraw only after the
+        // modal loop returns.
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
             auto lock = sdl_window_mutex().lock();
             ++event_count;
@@ -547,6 +685,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                         target->last_size_ = WindowExtent{static_cast<u32>(event.window.data1), static_cast<u32>(event.window.data2)};
                     } else {
                         target->last_framebuffer_size_ = WindowExtent{static_cast<u32>(event.window.data1), static_cast<u32>(event.window.data2)};
+                        target->last_live_resize_extent_ = target->last_framebuffer_size_;
                     }
 
                     window_event.resize = WindowResize{

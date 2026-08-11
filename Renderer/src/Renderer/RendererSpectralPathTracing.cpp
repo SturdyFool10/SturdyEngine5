@@ -986,8 +986,8 @@ namespace SFT::Renderer {
         WindowSurfaceRecord &record, Core::Extent2D extent) {
         ZoneScopedN("Renderer::ensure_spectral_accumulation_target");
         const bool matches = record.spectral_accumulation.texture && record.spectral_accumulation.view &&
-            record.spectral_accumulation.extent.width == extent.width &&
-            record.spectral_accumulation.extent.height == extent.height;
+            record.spectral_accumulation.extent.x == extent.x &&
+            record.spectral_accumulation.extent.y == extent.y;
         if (matches) {
             return {};
         }
@@ -1005,7 +1005,7 @@ namespace SFT::Renderer {
         auto texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = RHI::Format::RGBA32Float,
-            .extent = RHI::Extent3D{.width = extent.width, .height = extent.height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = extent.x, .height = extent.y, .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::Storage,
@@ -1327,7 +1327,7 @@ namespace SFT::Renderer {
                 submission.lighting.sun.direction,
                 submission.lighting.sun.angular_radius_degrees * 0.01745329251994329577f),
             .sun_radiance = glm::vec4(submission.lighting.sun.radiance, 1.0f),
-            .extent = glm::uvec2(extent.width, extent.height),
+            .extent = extent,
             .frame_index = static_cast<u32>(submission.frame_index),
             .samples_per_pixel = settings.samples_per_pixel,
             .max_bounces = settings.max_bounces,
@@ -1452,7 +1452,7 @@ namespace SFT::Renderer {
 
         pass.set_pipeline(resources->pipelines[spectral_pipeline_index(mode)]);
         pass.set_bind_group(0, *bind_group);
-        pass.dispatch((extent.width + 7u) / 8u, (extent.height + 7u) / 8u, 1u);
+        pass.dispatch((extent.x + 7u) / 8u, (extent.y + 7u) / 8u, 1u);
         return {};
     }
 
@@ -1483,9 +1483,9 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create spectral depth commit bind group"));
         }
         slot.transient_bind_groups.push_back(*bind_group);
-        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(extent.width),
-                                       .height = static_cast<f32>(extent.height), .max_depth = 1.0f});
-        pass.set_scissor(RHI::Rect2D{.width = extent.width, .height = extent.height});
+        pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(extent.x),
+                                       .height = static_cast<f32>(extent.y), .max_depth = 1.0f});
+        pass.set_scissor(RHI::Rect2D{.width = extent.x, .height = extent.y});
         pass.set_pipeline(resources->depth_commit_pipeline);
         pass.set_bind_group(0, *bind_group);
         pass.draw(RHI::DrawArgs{.vertex_count = 3});

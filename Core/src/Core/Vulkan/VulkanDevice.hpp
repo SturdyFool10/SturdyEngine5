@@ -40,6 +40,10 @@ namespace SFT::Core::Vulkan {
             optional<u32> sparse_queue_family{};
             optional<u32> video_decode_queue_family{};
             optional<u32> video_encode_queue_family{};
+            // Queue index within present_queue_family. When graphics and present share a family with
+            // at least two queues, the backend requests index 1 for presentation so a driver-blocked
+            // vkQueuePresentKHR cannot hold the graphics submission queue's external-sync lock.
+            u32 present_queue_index = 0;
             u32 graphics_queue_count = 1;
             u32 compute_queue_count = 1;
             u32 transfer_queue_count = 1;

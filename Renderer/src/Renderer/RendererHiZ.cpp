@@ -13,6 +13,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+#include <glm/common.hpp>
+
 #include <tracy/Tracy.hpp>
 
 using std::array;
@@ -33,10 +35,7 @@ namespace SFT::Renderer {
         // Halves extent to the next mip level, floored at 1x1 — same shape as
         // ensure_frame_bloom_targets' level_extent stepping (RendererLifecycle.cpp).
         [[nodiscard]] Core::Extent2D next_mip_extent(Core::Extent2D extent) noexcept {
-            return Core::Extent2D{
-                .width = std::max(1u, extent.width / 2u),
-                .height = std::max(1u, extent.height / 2u),
-            };
+            return glm::max(extent / 2u, Core::Extent2D{1u, 1u});
         }
 
     } // namespace
@@ -157,7 +156,7 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::ensure_hiz_pyramid(HiZPyramidTargets &pyramid, Core::Extent2D depth_extent) {
         ZoneScopedN("Renderer::ensure_hiz_pyramid");
-        if (depth_extent.width == 0 || depth_extent.height == 0) {
+        if (Core::is_zero(depth_extent)) {
             return unexpected(hiz_error("Cannot build a Hi-Z pyramid for a zero-sized depth extent."));
         }
         // The reduction shader always halves its source (see hiz_build.slang's header comment) —
@@ -166,8 +165,7 @@ namespace SFT::Renderer {
         // declared extent — what HiZPyramidTargets::extent stores and what gpu_instance_cull.slang's
         // hiZExtent indexes into) must itself be half of depth_extent, not depth_extent itself.
         const Core::Extent2D base_extent = next_mip_extent(depth_extent);
-        const bool matches = pyramid.extent.width == base_extent.width &&
-            pyramid.extent.height == base_extent.height &&
+        const bool matches = pyramid.extent == base_extent &&
             pyramid.texture && !pyramid.mip_views.empty() && pyramid.full_view;
         if (matches) {
             return {};
@@ -184,7 +182,7 @@ namespace SFT::Renderer {
         Core::Extent2D level_extent = base_extent;
         for (;;) {
             level_extents.push_back(level_extent);
-            if (level_extent.width == 1u && level_extent.height == 1u) break;
+            if (level_extent.x == 1u && level_extent.y == 1u) break;
             level_extent = next_mip_extent(level_extent);
         }
         pyramid.mip_levels = static_cast<u32>(level_extents.size());
@@ -192,7 +190,7 @@ namespace SFT::Renderer {
         auto texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = RHI::Format::R32Float,
-            .extent = RHI::Extent3D{.width = level_extents.front().width, .height = level_extents.front().height, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = level_extents.front().x, .height = level_extents.front().y, .depth_or_layers = 1},
             .mip_levels = pyramid.mip_levels,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
@@ -286,7 +284,7 @@ namespace SFT::Renderer {
             const RHI::TextureViewHandle source_view_for_bind = from_real_depth ? depth_view : pyramid.mip_views[level - 1];
             const Core::Extent2D this_source_extent = source_extent;
 
-            graph.add_render_pass("hiz build")
+            graph.add_render_pass("hiz build"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = pyramid_texture,
                     .view = destination_view,
@@ -306,7 +304,7 @@ namespace SFT::Renderer {
                         ? RHI::TextureSubresourceRange{}
                         : RHI::TextureSubresourceRange{.base_mip_level = level - 1, .mip_level_count = 1},
                 })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.x, .height = destination_extent.y})
                 .set_execute([this, bind_group_layout, source_binding, pipeline, source_view_for_bind,
                               this_source_extent, destination_extent, &transient_bind_groups](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RhiDevice *device = rhi_device();
@@ -328,12 +326,12 @@ namespace SFT::Renderer {
                     { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                     RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.width), .height = static_cast<f32>(destination_extent.height), .min_depth = 0.0f, .max_depth = 1.0f});
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.width, .height = destination_extent.height});
+                    pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.x), .height = static_cast<f32>(destination_extent.y), .min_depth = 0.0f, .max_depth = 1.0f});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.x, .height = destination_extent.y});
                     pass.set_pipeline(pipeline);
                     pass.set_bind_group(0, *bind_group);
                     struct HiZBuildConstants { u32 source_extent[2]; };
-                    const HiZBuildConstants constants{.source_extent = {this_source_extent.width, this_source_extent.height}};
+                    const HiZBuildConstants constants{.source_extent = {this_source_extent.x, this_source_extent.y}};
                     pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const HiZBuildConstants>{&constants, 1}));
                     pass.draw(RHI::DrawArgs{.vertex_count = 3});
                     return {};

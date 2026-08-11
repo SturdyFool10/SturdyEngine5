@@ -19,7 +19,9 @@
 #include <tracy/Tracy.hpp>
 
 using SFT::Foundation::f64;
+using std::make_shared;
 using std::make_unique;
+using std::string;
 using std::vector;
 using std::chrono::duration;
 using std::chrono::high_resolution_clock;
@@ -45,7 +47,7 @@ namespace SFT::Engine {
     void Application::drain_render_thread() noexcept {
         for (auto &managed : windows_) {
             while (!managed->in_flight_frames.empty()) {
-                (void)managed->in_flight_frames.front().wait();
+                report_frame_result(managed->in_flight_frames.front().wait());
                 managed->in_flight_frames.pop_front();
             }
         }
@@ -81,7 +83,7 @@ namespace SFT::Engine {
                     .code = "engine.render.frame",
                     .summary = "frame rendering failed",
                     .context = "Engine::Application::render_managed_window",
-                    .cause_code = std::string{Core::graphics_backend_error_code_name(error.code)},
+                    .cause_code = string{Core::graphics_backend_error_code_name(error.code)},
                     .cause = error.message,
                     .details = "failure occurrence " + std::to_string(consecutive_render_errors_) +
                                "; repeated failures are reported every 120 frames",
@@ -107,7 +109,7 @@ namespace SFT::Engine {
                 .code = "engine.window.spawn",
                 .summary = "could not create the application window",
                 .context = "Engine::Application::spawn_managed_window",
-                .cause_code = std::string{window_error_code_name(id.error().code)},
+                .cause_code = string{window_error_code_name(id.error().code)},
                 .cause = id.error().message,
                 .details = {},
                 .help = "check the selected window backend, display connection, and window configuration",
@@ -142,7 +144,7 @@ namespace SFT::Engine {
                 .code = "engine.surface.register",
                 .summary = "could not create a render surface for the application window",
                 .context = "Engine::Application::spawn_managed_window",
-                .cause_code = std::string{Core::graphics_backend_error_code_name(error.code)},
+                .cause_code = string{Core::graphics_backend_error_code_name(error.code)},
                 .cause = error.message,
                 .details = {},
                 .help = "verify graphics feature requirements and presentation support for this display",
@@ -157,6 +159,13 @@ namespace SFT::Engine {
         managed->window_id = *id;
         managed->surface = **register_result;
         managed->primary = is_primary;
+        managed->window_snapshot = WindowSnapshot{
+            .id = *id,
+            .size = config.extent,
+            .framebuffer_size = config.extent,
+            .position = config.position,
+        };
+        managed->live_resize = make_shared<LiveResizeState>();
         managed->last_frame_time = std::chrono::high_resolution_clock::now();
         // use_render_threading_ is false here for the very first (primary) call — the backend doesn't
         // exist yet to query render_threading_capabilities() from, see initialize()'s own comment,
@@ -168,26 +177,14 @@ namespace SFT::Engine {
         ManagedWindow *managed_ptr = managed.get();
         windows_.push_back(std::move(managed));
 
-        // The repaint callback fires only from inside WindowManager::pump()'s own dispatch (a
-        // Window's internals never invoke it any other way — see Window::set_repaint_callback's
-        // docs), so it's always safe to touch the captured Window& directly from inside it; calling
-        // back into window_manager_ from here would deadlock a single-worker DedicatedThread waiting
-        // on itself.
-        //
-        // In practice this callback only ever fires on Windows, synchronously from inside SDL's
-        // blocked interactive move/resize modal pump (see SDL3Window::sdl_repaint_watch — every other
-        // platform's watch is a no-op and relies solely on the normal per-frame call in run()'s main
-        // loop below). wait_for_completion=true makes each of those repaints block until fully
-        // rendered before returning to the modal pump, so on-screen content tracks the drag live
-        // instead of free-running ahead and catching up only once the drag ends.
-        window_manager_.with_window(*id, [this, managed_ptr](Window &window) -> bool {
-            window.set_repaint_callback([this, managed_ptr, window_ptr = &window]() {
-                const bool resized = window_ptr->consume_resize().has_value();
-                auto extent = window_ptr->framebuffer_size();
-                if (!extent) {
-                    return;
-                }
-                render_managed_window(*managed_ptr, *extent, resized, /*wait_for_completion=*/true);
+        // Windows can invoke the provider callback from its event-producing thread while its modal
+        // move/resize loop is active. It must not render or query Window there: publishing one packed
+        // extent is lock-free, lifetime-safe, and lets run() remain this application's only render
+        // coordinator.
+        const shared_ptr<LiveResizeState> live_resize = managed_ptr->live_resize;
+        window_manager_.with_window(*id, [live_resize](Window &window) -> bool {
+            window.set_live_resize_callback([live_resize](WindowExtent extent) {
+                live_resize->publish(extent);
             });
             return true;
         });
@@ -233,45 +230,58 @@ namespace SFT::Engine {
                     .accepted = surface.has_value(),
                     .surface = surface,
                     .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
-                    .message = surface ? std::string{} : std::string{"Runtime window management is disabled or window creation failed."},
+                    .message = surface ? UString{} : UString{"Runtime window management is disabled or window creation failed."},
                 });
                 continue;
             }
 
+            // Every state request below is posted rather than dispatched-and-waited-for. None of them
+            // has a result this loop consumes, and blocking on the window-owning thread here is exactly
+            // what used to freeze rendering for the whole of an interactive resize: that thread sits
+            // inside Windows' modal move/resize loop until the user releases the mouse, so one cursor
+            // request issued mid-drag stalled the entire application loop behind it. See
+            // WindowManager::post_to_window().
             if (auto *cursor = std::get_if<SetCursorIconRequest>(&request)) {
-                // with_window()'s return type is std::optional<std::invoke_result_t<F&, Window&>> —
-                // a lambda returning plain void would instantiate the ill-formed std::optional<void>,
-                // so this returns set_cursor_icon()'s own expected<void, WindowError> unchanged
-                // (discarded by (void) below) rather than swallowing it inside the lambda itself.
-                (void)window_manager_.with_window(cursor->window, [icon = cursor->icon](Platform::Windowing::Window &w) {
+                // A UI re-requests its hovered cursor every frame, so this is by far the highest-volume
+                // request kind. Collapse the unchanged repeats here rather than posting thousands of
+                // identical ops that the window thread would have to drain (in a burst, once a modal
+                // resize ends) to no visible effect.
+                ManagedWindow *managed = find_managed_window(cursor->window);
+                if (managed != nullptr && managed->applied_cursor_icon == cursor->icon) {
+                    continue;
+                }
+                if (managed != nullptr) {
+                    managed->applied_cursor_icon = cursor->icon;
+                }
+                window_manager_.post_to_window(cursor->window, [icon = cursor->icon](Platform::Windowing::Window &w) {
                     return w.set_cursor_icon(icon);
                 });
                 continue;
             }
 
             if (auto *fullscreen = std::get_if<SetFullscreenRequest>(&request)) {
-                (void)window_manager_.with_window(fullscreen->window, [mode = fullscreen->mode](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(fullscreen->window, [mode = fullscreen->mode](Platform::Windowing::Window &w) {
                     return w.set_fullscreen(mode);
                 });
                 continue;
             }
 
             if (auto *decorated = std::get_if<SetDecoratedRequest>(&request)) {
-                (void)window_manager_.with_window(decorated->window, [enabled = decorated->decorated](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(decorated->window, [enabled = decorated->decorated](Platform::Windowing::Window &w) {
                     return w.set_decorated(enabled);
                 });
                 continue;
             }
 
             if (auto *transparent = std::get_if<SetTransparentRequest>(&request)) {
-                (void)window_manager_.with_window(transparent->window, [enabled = transparent->transparent](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(transparent->window, [enabled = transparent->transparent](Platform::Windowing::Window &w) {
                     return w.set_transparent(enabled);
                 });
                 continue;
             }
 
             if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
-                (void)window_manager_.with_window(blur->window, [kind = blur->kind, enabled = blur->enabled](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](Platform::Windowing::Window &w) {
                     return w.set_effect(Platform::Windowing::WindowEffect{kind, enabled});
                 });
                 continue;
@@ -309,37 +319,29 @@ namespace SFT::Engine {
         }
     }
 
-    void Application::render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion) {
+    bool Application::render_managed_window(ManagedWindow &managed,
+                                             Platform::Windowing::WindowExtent extent,
+                                             bool resized,
+                                             bool coalesce_if_backpressured) {
+        if (extent.x == 0 || extent.y == 0 || !managed.surface) {
+            return false;
+        }
+
+        if (managed.render_thread && coalesce_if_backpressured) {
+            // A live resize can generate many pixel-size events while a driver is still recreating
+            // the previous swapchain. Only one submitted frame can be useful: retain the newest
+            // unscheduled extent instead of queuing another obsolete swapchain recreation.
+            while (!managed.in_flight_frames.empty() && managed.in_flight_frames.front().is_done()) {
+                report_frame_result(managed.in_flight_frames.front().wait());
+                managed.in_flight_frames.pop_front();
+            }
+            if (!managed.in_flight_frames.empty()) {
+                return false;
+            }
+        }
+
         if (resized) {
             managed.resize_pending.store(true, std::memory_order_release);
-        }
-        if (extent.x == 0 || extent.y == 0 || !managed.surface) {
-            return;
-        }
-
-        // See wait_for_completion's doc in Application.hpp for both guards below — throttle and
-        // adaptive fallback — which apply only to the Windows interactive-drag repaint path and
-        // never touch the pipelined async path used everywhere else.
-        bool effective_wait_for_completion = wait_for_completion;
-        if (wait_for_completion) {
-            constexpr f64 min_synchronous_repaint_interval_seconds = 1.0 / 120.0;
-            // Threshold well above any observed healthy swapchain-recreate cost (tens of ms) but
-            // far below the multi-second GPU driver stalls this guards against.
-            constexpr f64 slow_repaint_fallback_threshold_seconds = 0.2;
-
-            if (managed.last_synchronous_repaint_duration_seconds > slow_repaint_fallback_threshold_seconds) {
-                effective_wait_for_completion = false;
-                // Give synchronous mode another chance next repaint rather than disabling it for the
-                // rest of the drag — most observed stalls were a one-off GPU wake-up, not sustained.
-                managed.last_synchronous_repaint_duration_seconds = 0.0;
-            } else {
-                const auto throttle_now = high_resolution_clock::now();
-                const f64 since_last = duration<f64>(throttle_now - managed.last_synchronous_repaint_time).count();
-                if (since_last < min_synchronous_repaint_interval_seconds) {
-                    return;
-                }
-                managed.last_synchronous_repaint_time = throttle_now;
-            }
         }
 
         constexpr f64 hitch_log_threshold_seconds = 0.1;
@@ -357,6 +359,7 @@ namespace SFT::Engine {
             .frame_index = managed.frame_index,
             .framebuffer_width = extent.x,
             .framebuffer_height = extent.y,
+            .live_resize = coalesce_if_backpressured,
         };
         ++managed.frame_index;
 
@@ -364,26 +367,20 @@ namespace SFT::Engine {
         // lambda is the one seam where graphics calls happen: on the dedicated render thread, resize
         // handling and engine_->render() both run there so all RHI/Vulkan calls for this window stay on
         // a single owning thread (Vulkan objects here are not internally synchronized).
-        // resize_needed_extent is `extent`, already resolved on the main thread above — the render
-        // thread must not call back into Window itself (e.g. via framebuffer_size()): on Windows the
-        // main thread can be blocked inside SDL's modal move/resize pump holding Window's internal
-        // lock while it waits on this very render task, so a render-thread Window touch here would
-        // deadlock the whole process during a drag.
         const Core::RenderSurfaceHandle surface = *managed.surface;
-        const Core::Extent2D resize_needed_extent{extent.x, extent.y};
         optional<RenderFrameParameters> frame_parameters =
             client_->request_render_frame(*engine_, surface, frame_input);
         if (!frame_parameters) {
-            return;
+            return true;
         }
         PreparedRenderFrame prepared_frame = engine_->prepare_render_frame(surface, frame_input, *frame_parameters);
         auto render_task = [this,
                             &managed,
                             surface,
-                            resize_needed_extent,
+                            extent,
                             prepared_frame = std::move(prepared_frame)]() -> Core::RendererResult {
             if (managed.resize_pending.exchange(false, std::memory_order_acq_rel)) {
-                engine_->on_surface_resize_needed(surface, resize_needed_extent);
+                engine_->on_surface_resize_needed(surface, extent);
             }
             return engine_->render(prepared_frame);
         };
@@ -398,19 +395,10 @@ namespace SFT::Engine {
                 managed.in_flight_frames.pop_front();
             }
             managed.in_flight_frames.push_back(managed.render_thread->run(std::move(render_task)));
-
-            if (effective_wait_for_completion) {
-                const auto wait_start = high_resolution_clock::now();
-                while (!managed.in_flight_frames.empty()) {
-                    report_frame_result(managed.in_flight_frames.front().wait());
-                    managed.in_flight_frames.pop_front();
-                }
-                managed.last_synchronous_repaint_duration_seconds =
-                    duration<f64>(high_resolution_clock::now() - wait_start).count();
-            }
         } else {
             report_frame_result(render_task());
         }
+        return true;
     }
 
     void Application::sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events) {
@@ -421,39 +409,55 @@ namespace SFT::Engine {
             if (managed == nullptr) {
                 continue;
             }
+
+            WindowSnapshot &snapshot = managed->window_snapshot;
+            if (events.framebuffer_size) {
+                snapshot.framebuffer_size = *events.framebuffer_size;
+            }
             for (const Platform::Windowing::WindowEvent &event : events.events) {
-                if (event.kind == WindowEventKind::FocusGained) {
-                    managed->focused = true;
-                } else if (event.kind == WindowEventKind::FocusLost) {
-                    managed->focused = false;
+                switch (event.kind) {
+                    case WindowEventKind::FocusGained:
+                        managed->focused = true;
+                        break;
+                    case WindowEventKind::FocusLost:
+                        managed->focused = false;
+                        break;
+                    case WindowEventKind::Moved:
+                        snapshot.position = event.position;
+                        break;
+                    case WindowEventKind::Resized:
+                        snapshot.size = event.resize.current;
+                        if (event.resize.framebuffer_changed) {
+                            snapshot.framebuffer_size = event.resize.framebuffer;
+                        }
+                        break;
+                    case WindowEventKind::FramebufferResized:
+                        snapshot.framebuffer_size = event.resize.framebuffer;
+                        break;
+                    case WindowEventKind::MouseLocked:
+                        snapshot.mouse_locked = true;
+                        break;
+                    case WindowEventKind::MouseUnlocked:
+                        snapshot.mouse_locked = false;
+                        break;
+                    default:
+                        break;
                 }
             }
+            snapshot.focused = managed->focused;
         }
 
         vector<WindowSnapshot> snapshots;
         snapshots.reserve(windows_.size());
-        for (auto &managed : windows_) {
-            window_manager_.with_window(managed->window_id, [&](Window &window) {
-                WindowSnapshot snapshot{.id = managed->window_id, .focused = managed->focused};
-                if (auto size = window.size()) {
-                    snapshot.size = *size;
-                }
-                if (auto framebuffer_size = window.framebuffer_size()) {
-                    snapshot.framebuffer_size = *framebuffer_size;
-                }
-                if (auto position = window.position()) {
-                    snapshot.position = *position;
-                }
-                if (auto opacity = window.opacity()) {
-                    snapshot.opacity = *opacity;
-                }
-                snapshot.mouse_locked = window.mouse_locked();
-                snapshots.push_back(snapshot);
-                return true;
-            });
+        optional<WindowId> primary_window;
+        for (const auto &managed : windows_) {
+            snapshots.push_back(managed->window_snapshot);
+            if (managed->primary) {
+                primary_window = managed->window_id;
+            }
         }
 
-        engine_->window_state().sync(std::move(snapshots), window_manager_.primary_window_id());
+        engine_->window_state().sync(std::move(snapshots), primary_window);
     }
 
     bool Application::initialize() {
@@ -561,7 +565,7 @@ namespace SFT::Engine {
                     .code = "engine.events.pump",
                     .summary = "the platform event loop failed",
                     .context = "Engine::Application::run",
-                    .cause_code = std::string{window_error_code_name(pump.error().code)},
+                    .cause_code = string{window_error_code_name(pump.error().code)},
                     .cause = pump.error().message,
                     .details = {},
                     .help = "the application will stop cleanly; inspect the window backend state",
@@ -574,7 +578,96 @@ namespace SFT::Engine {
                     engine_->queue_window_event(events.window_id, event);
                 }
             }
+
+            // SDL's Windows event watch publishes the current pixel extent even while its modal
+            // move/resize loop prevents the normal event pump from returning. Consume the newest one
+            // here, on the sole render-coordinating thread. A bounded queue keeps a slow driver from
+            // turning every intermediate size into an obsolete swapchain recreation.
+            //
+            // The retry cadence is intentionally display-like rather than event-like. Window systems
+            // can produce hundreds of size updates per second, while each Vulkan swapchain rebuild is
+            // a WSI transaction. At most one attempt per ~16 ms retains fluid feedback, lets the
+            // compositor scale the most recent image between attempts, and avoids serializing a drag
+            // behind redundant recreate requests.
+            constexpr auto live_resize_submission_interval = std::chrono::milliseconds(16);
+            constexpr auto live_resize_settle_interval = std::chrono::milliseconds(250);
+            // Backoff for an attempt the renderer declined because this window's previous present is
+            // still in the WSI. Short enough that the retry lands essentially as soon as the present
+            // completes, but long enough that the application loop isn't re-attempting (and re-logging)
+            // the same coalesced frame thousands of times a second while it waits.
+            constexpr auto live_resize_retry_interval = std::chrono::milliseconds(1);
+            const auto live_resize_now = high_resolution_clock::now();
+            for (auto &managed_ptr : windows_) {
+                ManagedWindow &managed = *managed_ptr;
+                if (managed.live_resize) {
+                    if (optional<WindowExtent> extent = managed.live_resize->consume()) {
+                        managed.pending_live_resize = *extent;
+                        // The matching normal event is unavailable until SDL returns from the Windows
+                        // modal pump. Keep this state latched until that event arrives rather than
+                        // guessing based on elapsed time: users can pause mid-drag indefinitely.
+                        managed.live_resize_active = true;
+                    }
+                }
+
+                if (managed.pending_live_resize) {
+                    // Interactive resize is a presentation-only redraw. Reset the presentation-frame
+                    // timestamp so time spent in Windows' modal loop is neither fed into temporal
+                    // rendering nor reported as an engine frame hitch. Retain the newest extent after
+                    // submission: a render task can intentionally skip while its previous present is
+                    // still in the WSI, and the next cadence tick must retry it without waiting for a
+                    // new mouse-move message.
+                    managed.last_frame_time = live_resize_now;
+                    const bool extent_changed = !managed.submitted_live_resize ||
+                        managed.submitted_live_resize->x != managed.pending_live_resize->x ||
+                        managed.submitted_live_resize->y != managed.pending_live_resize->y;
+                    // A size this window has not tried to render yet goes out immediately, so the
+                    // first frame at each new extent is never held back by the cadence timer. Tracked
+                    // separately from submitted_live_resize (which only advances on an accepted frame)
+                    // precisely so a *declined* attempt doesn't re-qualify as "new" on the very next
+                    // iteration and spin the loop.
+                    const bool unattempted = !managed.attempted_live_resize ||
+                        managed.attempted_live_resize->x != managed.pending_live_resize->x ||
+                        managed.attempted_live_resize->y != managed.pending_live_resize->y;
+                    if (unattempted || live_resize_now >= managed.next_live_resize_submission) {
+                        managed.attempted_live_resize = managed.pending_live_resize;
+                        const bool submitted = render_managed_window(
+                            managed, *managed.pending_live_resize, extent_changed,
+                            /*coalesce_if_backpressured=*/true);
+                        if (submitted) {
+                            managed.submitted_live_resize = managed.pending_live_resize;
+                            managed.next_live_resize_submission =
+                                live_resize_now + live_resize_submission_interval;
+                        } else {
+                            managed.next_live_resize_submission =
+                                live_resize_now + live_resize_retry_interval;
+                        }
+                    }
+                }
+
+                if (managed.pending_live_resize || managed.live_resize_active) {
+                    managed.last_frame_time = live_resize_now;
+                }
+            }
+
+            // Once SDL has returned from its modal pump, its regular resize event is authoritative
+            // again. Let the ordinary path issue one final frame and resume live Window queries.
+            for (const ManagedWindowEvents &events : window_events) {
+                if (events.resized) {
+                    if (ManagedWindow *managed = find_managed_window(events.window_id)) {
+                        managed->pending_live_resize.reset();
+                        managed->submitted_live_resize.reset();
+                        managed->attempted_live_resize.reset();
+                        managed->live_resize_active = false;
+                        managed->live_resize_nonblocking_until =
+                            live_resize_now + live_resize_settle_interval;
+                    }
+                }
+            }
+
+            // WindowState comes exclusively from the event-channel cache, so it remains safe to
+            // publish while the dedicated event thread is inside Windows' modal resize loop.
             sync_window_state(window_events);
+
             const auto tick_now = high_resolution_clock::now();
             const f64 tick_delta_seconds = duration<f64>(tick_now - last_tick_time).count();
             last_tick_time = tick_now;
@@ -594,9 +687,16 @@ namespace SFT::Engine {
                 if (managed == nullptr || managed->closing || !events.framebuffer_size) {
                     continue;
                 }
-                // render_managed_window() consumes any pending resize before drawing, so the rebuild path
-                // is shared by both this normal-loop call and the modal-resize repaint callback.
-                render_managed_window(*managed, *events.framebuffer_size, events.resized);
+                if (managed->live_resize_active) {
+                    // The channel still reports its last pre-modal framebuffer extent. Rendering it
+                    // would immediately undo the fresh extent consumed above and recreate again.
+                    continue;
+                }
+                const bool in_live_resize_settle_interval =
+                    high_resolution_clock::now() < managed->live_resize_nonblocking_until;
+                (void)render_managed_window(
+                    *managed, *events.framebuffer_size, events.resized,
+                    in_live_resize_settle_interval);
             }
 
             for (auto it = windows_.begin(); it != windows_.end();) {
@@ -647,6 +747,7 @@ namespace SFT::Engine {
                     engine_->remove_window(surface);
                 }
 
+                const bool was_primary = managed.primary;
                 window_manager_.destroy_window(managed.window_id);
                 // Posted only now — surface removal (including this window's render thread's own
                 // remove_surface_task, confirmed done above) is fully complete, so a completion
@@ -662,6 +763,9 @@ namespace SFT::Engine {
                     });
                 }
                 it = windows_.erase(it);
+                if (was_primary && !windows_.empty()) {
+                    windows_.front()->primary = true;
+                }
             }
 
             const auto now = high_resolution_clock::now();
@@ -685,31 +789,41 @@ namespace SFT::Engine {
                 client_->application_config().primary_window_title_update_interval_seconds;
             if (title_update_interval &&
                 duration<f64>(now - last_title_update).count() >= *title_update_interval) {
-                if (auto primary_id = window_manager_.primary_window_id()) {
-                    if (ManagedWindow *primary = find_managed_window(*primary_id); primary != nullptr && !primary->closing && primary->last_delta_seconds > 0.0) {
-                        const UString title = client_->primary_window_title(
-                            *engine_,
-                            ApplicationFrameStats{
-                                .frame_seconds = primary->last_delta_seconds,
-                                .frame_index = primary->frame_index,
-                                .window_count = windows_.size(),
-                            });
-                        window_manager_.with_window(*primary_id, [&](Window &w) -> bool {
-                            if (auto result = w.set_title(title.c_str()); !result) {
-                                Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
-                                    .severity = Foundation::DiagnosticSeverity::Warning,
-                                    .code = "engine.window.title",
-                                    .summary = "could not update the primary window title",
-                                    .context = "Engine::Application::run",
-                                    .cause_code = std::string{window_error_code_name(result.error().code)},
-                                    .cause = result.error().message,
-                                    .details = {},
-                                    .help = "rendering will continue; disable periodic title updates if unsupported",
-                                });
-                            }
-                            return true;
-                        });
+                ManagedWindow *primary = nullptr;
+                for (const auto &managed : windows_) {
+                    if (managed->primary) {
+                        primary = managed.get();
+                        break;
                     }
+                }
+                if (primary != nullptr && !primary->closing && !primary->live_resize_active &&
+                    primary->last_delta_seconds > 0.0) {
+                    const UString title = client_->primary_window_title(
+                        *engine_,
+                        ApplicationFrameStats{
+                            .frame_seconds = primary->last_delta_seconds,
+                            .frame_index = primary->frame_index,
+                            .window_count = windows_.size(),
+                        });
+                    // Posted, never waited on — the periodic title update is cosmetic, and blocking on
+                    // the window thread for it froze the loop for a whole interactive resize whenever
+                    // the interval happened to elapse mid-drag (that thread is inside an OS modal loop
+                    // until the drag ends). See WindowManager::post_to_window().
+                    window_manager_.post_to_window(primary->window_id, [title](Window &w) -> bool {
+                        if (auto result = w.set_title(title.c_str()); !result) {
+                            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                                .severity = Foundation::DiagnosticSeverity::Warning,
+                                .code = "engine.window.title",
+                                .summary = "could not update the primary window title",
+                                .context = "Engine::Application::run",
+                                .cause_code = string{window_error_code_name(result.error().code)},
+                                .cause = result.error().message,
+                                .details = {},
+                                .help = "rendering will continue; disable periodic title updates if unsupported",
+                            });
+                        }
+                        return true;
+                    });
                 }
                 last_title_update = now;
             }

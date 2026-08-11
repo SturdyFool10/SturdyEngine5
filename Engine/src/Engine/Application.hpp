@@ -15,10 +15,13 @@
 
 #include "EngineModule.hpp"
 #include "GameLogic.hpp"
+#include "WindowState.hpp"
 #include <Core/Core.hpp>
 #include <Platform/Platform.hpp>
 
+using std::atomic;
 using std::optional;
+using std::shared_ptr;
 using std::unique_ptr;
 using std::vector;
 
@@ -95,10 +98,33 @@ namespace SFT::Engine {
         void request_close_window(Platform::Windowing::WindowId id) noexcept;
 
       private:
+        // Thread-safe handoff owned both by ManagedWindow and the SDL event-watch callback. The callback
+        // publishes only the latest physical framebuffer extent; Application::run() is the sole render
+        // coordinator and consumes it on the application thread.
+        struct LiveResizeState {
+            void publish(Platform::Windowing::WindowExtent extent) noexcept {
+                const u64 packed = (static_cast<u64>(extent.x) << 32U) | static_cast<u64>(extent.y);
+                pending_extent.store(packed, std::memory_order_release);
+            }
+
+            [[nodiscard]] optional<Platform::Windowing::WindowExtent> consume() noexcept {
+                const u64 packed = pending_extent.exchange(0, std::memory_order_acq_rel);
+                if (packed == 0) {
+                    return std::nullopt;
+                }
+                return Platform::Windowing::WindowExtent{
+                    static_cast<u32>(packed >> 32U),
+                    static_cast<u32>(packed & 0xFFFFFFFFU),
+                };
+            }
+
+          private:
+            atomic<u64> pending_extent{0};
+        };
+
         // Per-window render bookkeeping — everything render_managed_window() needs that isn't shared
         // app-wide state. Held by pointer in windows_ so the vector can grow (spawning more windows at
-        // runtime) without invalidating references captured by an in-flight render task or a repaint
-        // callback.
+        // runtime) without invalidating references captured by in-flight render tasks.
         struct ManagedWindow {
             Platform::Windowing::WindowId window_id{};
             optional<Core::RenderSurfaceHandle> surface;
@@ -107,7 +133,29 @@ namespace SFT::Engine {
             // Latched from WindowEventKind::FocusGained/FocusLost — Window exposes no direct getter
             // for this, only the one-shot event (see WindowState.hpp).
             bool focused = false;
-            std::atomic<bool> resize_pending{false};
+            WindowSnapshot window_snapshot{};
+            // Last cursor icon actually posted to this window. A UI re-requests its hovered icon every
+            // frame, so process_window_requests() compares against this and drops the unchanged repeats
+            // instead of posting an op per frame. Empty until the first request for this window.
+            optional<Platform::Windowing::CursorIcon> applied_cursor_icon;
+            atomic<bool> resize_pending{false};
+            shared_ptr<LiveResizeState> live_resize;
+            optional<Platform::Windowing::WindowExtent> pending_live_resize;
+            // Last extent handed to the renderer from pending_live_resize. Keeping it separate lets
+            // Application retry a frame while the WSI catches up without needlessly marking the
+            // already-current swapchain dirty again.
+            optional<Platform::Windowing::WindowExtent> submitted_live_resize;
+            // Last extent this window *tried* to render, whether or not the renderer accepted it.
+            // Distinct from submitted_live_resize so a declined attempt (previous present still in
+            // flight) doesn't immediately look like an untried new size and re-attempt on every single
+            // application iteration — see run()'s live-resize section.
+            optional<Platform::Windowing::WindowExtent> attempted_live_resize;
+            std::chrono::high_resolution_clock::time_point next_live_resize_submission{};
+            // Keeps the final authoritative resize event on the same nonblocking present path for a
+            // short settling interval after a modal loop ends. This avoids one last synchronous wait
+            // undoing the responsiveness maintained throughout the drag.
+            std::chrono::high_resolution_clock::time_point live_resize_nonblocking_until{};
+            bool live_resize_active = false;
             std::deque<Async::TaskHandle<Core::RendererResult>> in_flight_frames;
             optional<Async::TaskHandle<void>> remove_surface_task;
             // Set only when this window is closing because of a WindowRequests::close() call (not an
@@ -131,16 +179,6 @@ namespace SFT::Engine {
             u64 frame_index = 0;
             std::chrono::high_resolution_clock::time_point last_frame_time{};
             f64 last_delta_seconds = 0.0;
-            // Last time a wait_for_completion=true (Windows interactive-drag) repaint actually
-            // rendered, as opposed to being throttle-skipped — see render_managed_window's
-            // wait_for_completion doc for why this throttle exists.
-            std::chrono::high_resolution_clock::time_point last_synchronous_repaint_time{};
-            // How long that last synchronous repaint actually took to render+present. Feeds the
-            // adaptive fallback in render_managed_window: an unusually slow one (GPU/driver hiccup,
-            // not something the engine controls — see the wait_for_completion doc) means the *next*
-            // repaint skips forcing a synchronous wait, so a slow driver can't freeze the OS's own
-            // move/resize loop for a second multi-second stretch back to back.
-            f64 last_synchronous_repaint_duration_seconds = 0.0;
         };
 
         // Waits on every still-in-flight render-thread frame (every window) and empties each ring. Must
@@ -163,51 +201,18 @@ namespace SFT::Engine {
             Platform::Windowing::WindowFactory factory,
             bool is_primary);
 
-        // Core per-window render dispatch: given this tick's already-known framebuffer extent and
-        // whether a resize was just observed, builds FrameInput and either runs it inline or dispatches
-        // it onto managed.render_thread. Deliberately touches only `managed` and `engine_` — never
-        // window_manager_ — since it also runs from inside a Window's repaint callback, which itself
-        // fires from inside WindowManager's own dispatch(); re-entering dispatch() from there would
-        // deadlock a single-worker DedicatedThread waiting on itself.
-        //
-        // wait_for_completion forces this call to block until the frame it just queued has actually
-        // finished (rather than only enforcing the usual max_frames_in_flight_ backpressure), so the
-        // window's on-screen content is fully caught up before returning. Only the Windows-only
-        // interactive-move/resize repaint path (see SDL3Window::sdl_repaint_watch) needs this: that
-        // path is driven synchronously from inside SDL's blocked modal move/resize pump, and without
-        // it the render thread free-runs ahead as fast as WM_PAINT fires while swapchain recreation
-        // (tens to thousands of ms each) can't keep up, so the visible content lags the drag by however
-        // large that backlog has grown instead of tracking it live.
-        //
-        // wait_for_completion also applies two guards, both scoped to just this synchronous path —
-        // neither ever touches the pipelined async path used everywhere else:
-        //
-        //  1. A small minimum-interval throttle (min_synchronous_repaint_interval_seconds in the
-        //     .cpp) pacing how often it *starts* a new synchronous render. Windows can dispatch
-        //     WM_PAINT during a drag far faster than a full render+swapchain-recreate can complete;
-        //     the throttle keeps that from turning into a wall of redundant back-to-back rebuilds.
-        //  2. An adaptive fallback: if the *previous* synchronous repaint measured unusually slow
-        //     (see last_synchronous_repaint_duration_seconds on ManagedWindow), this call skips
-        //     forcing the wait and dispatches through the normal pipelined path instead. Direct
-        //     instrumentation traced an observed multi-second-per-call stall to the GPU driver's
-        //     vkCreateSwapchainKHR itself — correlated with a preceding idle gap, recovering
-        //     immediately after, the signature of a GPU power-state wake-up rather than anything
-        //     this engine's own bookkeeping controls. When the driver does stall like that, forcing
-        //     every subsequent repaint to also block would turn one hardware hiccup into the OS's
-        //     entire move/resize loop being frozen for its whole duration; falling back lets the
-        //     drag stay interactive (content trailing briefly) instead.
-        //
-        // The extent used once a throttled or recovering call finally renders synchronously again is
-        // still whatever is current at that moment, so it stays visually live rather than stale.
-        // The normal per-frame call from run()'s main loop (used on every platform, including Windows
-        // outside of an active drag) keeps the default pipelined behavior for throughput.
-        void render_managed_window(ManagedWindow &managed, Platform::Windowing::WindowExtent extent, bool resized, bool wait_for_completion = false);
+        // Core per-window render dispatch. `coalesce_if_backpressured` returns false without preparing
+        // or queuing work when the render queue is full, so live resize can retain only its newest
+        // extent instead of blocking the application or rebuilding every intermediate swapchain.
+        [[nodiscard]] bool render_managed_window(ManagedWindow &managed,
+                                                 Platform::Windowing::WindowExtent extent,
+                                                 bool resized,
+                                                 bool coalesce_if_backpressured = false);
         void report_frame_result(const Core::RendererResult &result) noexcept;
 
-        // Latches each managed window's focused state from this tick's events, then builds a fresh
-        // WindowSnapshot per window (querying the live Window on this, the window-owning thread) and
-        // publishes them to engine_->window_state(). Called once per run() tick, before
-        // engine_->update() runs any schedule that might read Ecs::ReadResource<WindowState>.
+        // Updates cached WindowSnapshots from the event channel and publishes them before
+        // engine_->update(). This never synchronously queries a live Window: the dedicated event
+        // thread can be inside Windows' modal resize loop while the application still needs to tick.
         void sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events);
 
         Platform::Windowing::WindowManager window_manager_{

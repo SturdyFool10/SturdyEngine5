@@ -119,11 +119,15 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
 
             volkLoadDevice(vk_device);
 
-            auto get_queue = [&](optional<u32> fam) -> optional<VulkanQueue> {
+            auto get_queue = [&](optional<u32> fam, u32 index = 0) -> optional<VulkanQueue> {
                 if (!fam)
                     return {};
+                const auto family = std::ranges::find(families, *fam, &FamilyRequest::family);
+                if (family == families.end() || index >= family->count) {
+                    return {};
+                }
                 VkQueue q = VK_NULL_HANDLE;
-                vkGetDeviceQueue(vk_device, *fam, 0, &q);
+                vkGetDeviceQueue(vk_device, *fam, index, &q);
                 return VulkanQueue(q, *fam);
             };
             auto get_queue_lanes = [&](optional<u32> fam) -> vector<VulkanQueue> {
@@ -146,7 +150,7 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
             out.device_ = vk_device;
             out.physical_device_ = physical;
             out.graphics_queue_ = get_queue(desc.graphics_queue_family);
-            out.present_queue_ = get_queue(desc.present_queue_family);
+            out.present_queue_ = get_queue(desc.present_queue_family, desc.present_queue_index);
             out.compute_queue_ = get_queue(desc.compute_queue_family);
             out.transfer_queue_ = get_queue(desc.transfer_queue_family);
             out.sparse_queue_ = get_queue(desc.sparse_queue_family);

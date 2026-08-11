@@ -15,6 +15,9 @@
 #include "Style.hpp"
 #include "WidgetComposition.hpp"
 
+using std::optional;
+using std::span;
+
 // Immediate-mode numeric range control with the interaction/value semantics expected from an HTML
 // input[type=range]: bounded values, min-relative step snapping (or step="any"), track clicks,
 // captured thumb dragging, disabled state, focus, repeated keyboard intents, Home/End/Page steps,
@@ -36,7 +39,7 @@ namespace SFT::UI {
                                 Maximum };
 
     struct SliderInput {
-        std::span<const SliderKey> keys{};
+        span<const SliderKey> keys{};
         bool request_focus = false;
         bool request_blur = false;
     };
@@ -50,16 +53,16 @@ namespace SFT::UI {
         f64 max = 100.0;
         // A positive value snaps to min + N*step. std::nullopt is HTML's step="any". Invalid
         // numeric steps fall back to HTML's default of 1 rather than silently becoming continuous.
-        std::optional<f64> step = 1.0;
+        optional<f64> step = 1.0;
         // Used only for keyboard intents. Omitted: numeric step, or 1% of the range for step="any".
-        std::optional<f64> keyboard_step;
+        optional<f64> keyboard_step;
         // Omitted: max(10 * keyboard step, 10% of the range).
-        std::optional<f64> page_step;
+        optional<f64> page_step;
         SliderOrientation orientation = SliderOrientation::Horizontal;
         // Horizontal defaults to min-left/max-right. Vertical defaults to min-bottom/max-top;
         // reversed swaps those visual endpoints without changing numeric keyboard semantics.
         bool reversed = false;
-        std::span<const SliderTick> ticks{};
+        span<const SliderTick> ticks{};
         // Generates regular marks from min by step, capped by max_generated_ticks. Arbitrary ticks
         // above are visual suggestions only, matching datalist behavior; neither kind changes snap.
         bool show_step_ticks = false;
@@ -94,9 +97,9 @@ namespace SFT::UI {
         Tooltip,
     };
 
-    [[nodiscard]] inline UString slider_part_id(const UString &id, SliderVisualPart part, usize occurrence = 0) {
+    [[nodiscard]] inline UString slider_part_id(const ustr &id, SliderVisualPart part, usize occurrence = 0) {
         if (part == SliderVisualPart::Root)
-            return id;
+            return UString{id};
         const char *suffix = part == SliderVisualPart::Track         ? "#track"
                              : part == SliderVisualPart::Fill        ? "#fill"
                              : part == SliderVisualPart::Thumb       ? "#thumb"
@@ -105,7 +108,17 @@ namespace SFT::UI {
                              : part == SliderVisualPart::Label       ? "#label"
                                                                      : "#tooltip";
         const bool repeated = part == SliderVisualPart::Marker || part == SliderVisualPart::MarkerLabel;
-        return UString{id.cpp_string() + suffix + (repeated ? std::to_string(occurrence) : std::string{})};
+        UString result{id};
+        result.append(suffix);
+        if (repeated) {
+            const auto occurrence_text = std::to_string(occurrence);
+            result.append(occurrence_text.c_str());
+        }
+        return result;
+    }
+
+    [[nodiscard]] inline UString slider_part_id(const UString &id, SliderVisualPart part, usize occurrence = 0) {
+        return slider_part_id(id.as_ustr(), part, occurrence);
     }
 
     struct SliderPartContext {
@@ -119,10 +132,10 @@ namespace SFT::UI {
         f64 max = 0.0;
         f64 value_fraction = 0.0;
         f64 screen_fraction = 0.0;
-        std::optional<f64> marker_value;
+        optional<f64> marker_value;
         usize marker_index = 0;
         bool generated_marker = false;
-        std::optional<ElementBounds> bounds;
+        optional<ElementBounds> bounds;
     };
 
     struct SliderComposition {
@@ -177,7 +190,7 @@ namespace SFT::UI {
         struct SliderRange {
             f64 min = 0.0;
             f64 max = 100.0;
-            std::optional<f64> step = 1.0;
+            optional<f64> step = 1.0;
         };
 
         [[nodiscard]] inline SliderRange slider_range(const SliderConfig &config) noexcept {
@@ -294,7 +307,7 @@ namespace SFT::UI {
         SliderResult result{.value = Detail::sanitize_slider_value(value, range)};
         result.adjusted = !std::isfinite(value) || !Detail::slider_values_equal(result.value, value, range);
 
-        const UString thumb_id = slider_part_id(decl.id, SliderVisualPart::Thumb);
+        const UString thumb_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Thumb);
         const bool root_visible = composition.root.visible;
         const bool slider_enabled = enabled && root_visible && composition.root.enabled;
         const bool track_enabled = slider_enabled && composition.track.visible && composition.track.enabled;
@@ -340,7 +353,7 @@ namespace SFT::UI {
             const bool thumb_pressed = thumb_enabled && ctx.clicked(thumb_id);
             const bool track_pressed = track_enabled && ctx.clicked(decl.id);
             const bool control_pressed = thumb_pressed || track_pressed;
-            const std::optional<ElementBounds> bounds = ctx.element_bounds(decl.id);
+            const optional<ElementBounds> bounds = ctx.element_bounds(decl.id);
             const f32 thumb_size = std::max(style.thumb_size, 1.0f);
             if (control_pressed && bounds.has_value() && ctx.try_capture_pointer(decl.id)) {
                 ctx.focus(decl.id);
@@ -445,7 +458,7 @@ namespace SFT::UI {
         if (!root_visible)
             return result;
 
-        const std::optional<ElementBounds> bounds = ctx.element_bounds(decl.id);
+        const optional<ElementBounds> bounds = ctx.element_bounds(decl.id);
         const f32 length = bounds.has_value()
                                ? (config.orientation == SliderOrientation::Horizontal ? bounds->size.x : bounds->size.y)
                                : Detail::declared_axis_size(decl, config.orientation);
@@ -453,7 +466,7 @@ namespace SFT::UI {
         const f32 travel = std::max(length - thumb_size, 0.0f);
         const bool horizontal = config.orientation == SliderOrientation::Horizontal;
 
-        const auto make_context = [&](SliderVisualPart part, const UString &part_id, const PartVisualState &visual, f64 part_screen_fraction = 0.0, std::optional<f64> marker_value = std::nullopt, usize marker_index = 0, bool generated_marker = false) {
+        const auto make_context = [&](SliderVisualPart part, const UString &part_id, const PartVisualState &visual, f64 part_screen_fraction = 0.0, optional<f64> marker_value = std::nullopt, usize marker_index = 0, bool generated_marker = false) {
             return SliderPartContext{
                 .part = part,
                 .visual = visual,
@@ -515,7 +528,7 @@ namespace SFT::UI {
         };
 
         if (composition.label.visible) {
-            const UString label_id = slider_part_id(decl.id, SliderVisualPart::Label);
+            const UString label_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Label);
             PartVisualState label_visual{.enabled = slider_enabled && composition.label.enabled};
             SliderPartContext label_context = make_context(
                 SliderVisualPart::Label,
@@ -540,7 +553,7 @@ namespace SFT::UI {
                         label_context);
         }
 
-        const UString track_id = slider_part_id(decl.id, SliderVisualPart::Track);
+        const UString track_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Track);
         PartVisualState track_visual{
             .enabled = track_enabled,
             .hovered = track_enabled && ctx.hovered(decl.id),
@@ -564,7 +577,7 @@ namespace SFT::UI {
 
         if (composition.fill.visible) {
             const f32 fill_length = static_cast<f32>(value_fraction) * travel;
-            const UString fill_id = slider_part_id(decl.id, SliderVisualPart::Fill);
+            const UString fill_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Fill);
             PartVisualState fill_visual{
                 .enabled = slider_enabled && composition.fill.enabled,
                 .hovered = result.hovered,
@@ -617,7 +630,7 @@ namespace SFT::UI {
             const glm::vec2 offset = horizontal
                                          ? glm::vec2{thumb_size * 0.5f + static_cast<f32>(fraction) * travel, 0.0f}
                                          : glm::vec2{0.0f, thumb_size * 0.5f + static_cast<f32>(fraction) * travel};
-            const UString marker_id = slider_part_id(decl.id, SliderVisualPart::Marker, marker_index);
+            const UString marker_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Marker, marker_index);
             PartVisualState marker_visual{.enabled = slider_enabled && composition.marker.enabled};
             SliderPartContext marker_context = make_context(
                 SliderVisualPart::Marker,
@@ -647,7 +660,7 @@ namespace SFT::UI {
                         marker_context);
 
             if (composition.marker_label.visible) {
-                const UString label_id = slider_part_id(decl.id, SliderVisualPart::MarkerLabel, marker_index);
+                const UString label_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::MarkerLabel, marker_index);
                 PartVisualState marker_label_visual{
                     .enabled = slider_enabled && composition.marker_label.enabled,
                 };
@@ -733,7 +746,7 @@ namespace SFT::UI {
 
         if (composition.tooltip.visible && composition.tooltip.build &&
             (result.hovered || result.focused || result.dragging)) {
-            const UString tooltip_id = slider_part_id(decl.id, SliderVisualPart::Tooltip);
+            const UString tooltip_id = slider_part_id(decl.id.as_ustr(), SliderVisualPart::Tooltip);
             PartVisualState tooltip_visual{
                 .enabled = slider_enabled && composition.tooltip.enabled,
                 .hovered = result.hovered,

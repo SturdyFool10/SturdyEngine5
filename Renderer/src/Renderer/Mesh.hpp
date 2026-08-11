@@ -4,7 +4,6 @@
 
 #pragma region Imports
 #include <span>
-#include <string>
 #include <vector>
 
 #include <glm/vec2.hpp>
@@ -17,7 +16,6 @@
 #include "Geometry.hpp"
 
 using std::span;
-using std::string;
 using std::vector;
 
 namespace SFT::Renderer {
@@ -117,8 +115,8 @@ namespace SFT::Renderer {
 
         [[nodiscard]] span<const GeometryVertex> vertices() const noexcept;
         [[nodiscard]] span<const u32> indices() const noexcept;
-        [[nodiscard]] const string &label() const noexcept;
-        void set_label(string label) noexcept;
+        [[nodiscard]] const UString &label() const noexcept;
+        void set_label(UString label) noexcept;
         void set_vertex_color(const glm::vec4 &color) noexcept;
 
         // Triangle count this mesh draws as (every Mesh factory function populates indices_, even
@@ -146,7 +144,7 @@ namespace SFT::Renderer {
 
         vector<GeometryVertex> vertices_;
         vector<u32> indices_;
-        string label_;
+        UString label_;
         MeshHandle handle_{};
         bool gpu_resident_ = false;
     };

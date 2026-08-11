@@ -9,6 +9,15 @@
 // syscalls is less code and one fewer vendored dependency than wrapping liburing would be. This is
 // the same shape of tradeoff DirectStorageBackend.cpp makes on Windows, just via COM there instead
 // of raw syscalls.
+//
+// Everything below is Linux-only and guarded to match IoUringBackend.hpp's own guard: Core's
+// CMakeLists never adds this file to a non-Linux build, but nothing stops a reader-side tool from
+// parsing it with another platform's flags (clangd infers a command from a sibling TU for any file
+// missing a compile_commands.json entry, so a Windows view lands here with a Windows target). The
+// guard keeps the Linux UAPI headers and syscalls out of any such parse instead of relying on the
+// build system's per-OS file list being the only thing that ever looks at this file.
+#if defined(__linux__)
+
 #include <Foundation/src/Foundation.hpp>
 
 #include <linux/io_uring.h>
@@ -268,3 +277,5 @@ namespace SFT::Core {
     }
 
 } // namespace SFT::Core
+
+#endif // defined(__linux__)

@@ -7,9 +7,10 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 #include <optional>
 #include <span>
-#include <string>
+#include <string_view>
 #include <variant>
 #pragma endregion
 
@@ -18,6 +19,13 @@
 #include "Slider.hpp"
 #include "Style.hpp"
 #include "WidgetComposition.hpp"
+
+using std::array;
+using std::initializer_list;
+using std::optional;
+using std::span;
+using std::string_view;
+using std::variant;
 
 // Engine-native color picker rendered entirely through ordinary UI quads: a conventional sRGB-HSV
 // saturation/value plane, hue strip, optional alpha strip over a checkerboard, preview swatch, and
@@ -46,7 +54,7 @@ namespace SFT::UI {
         Count,
     };
 
-    using ColorPickerValue = std::variant<
+    using ColorPickerValue = variant<
         Foundation::Color::Srgb,
         Foundation::Color::Linear,
         Foundation::Color::Xyz,
@@ -77,17 +85,17 @@ namespace SFT::UI {
     // The three non-alpha channels of `color_space`, in the same order as the corresponding
     // Foundation struct's own fields (alpha always exists and is handled by the picker's alpha bar,
     // so it is deliberately not in this list).
-    [[nodiscard]] inline std::span<const ColorPickerComponent> color_picker_components(ColorPickerColorSpace color_space) noexcept {
-        static constexpr std::array<ColorPickerComponent, 3> rgb{{{"R", 0.0, 1.0}, {"G", 0.0, 1.0}, {"B", 0.0, 1.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> xyz{{{"X", 0.0, 1.1}, {"Y", 0.0, 1.0}, {"Z", 0.0, 1.1}}};
-        static constexpr std::array<ColorPickerComponent, 3> hsl{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"L", 0.0, 1.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> hsv{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"V", 0.0, 1.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> hwb{{{"H", 0.0, 360.0}, {"W", 0.0, 1.0}, {"B", 0.0, 1.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> lab{{{"L", 0.0, 100.0}, {"a", -128.0, 128.0}, {"b", -128.0, 128.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> lch{{{"L", 0.0, 100.0}, {"C", 0.0, 150.0}, {"H", 0.0, 360.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> luv{{{"L", 0.0, 100.0}, {"u", -220.0, 220.0}, {"v", -220.0, 220.0}}};
-        static constexpr std::array<ColorPickerComponent, 3> oklab{{{"L", 0.0, 1.0}, {"a", -0.4, 0.4}, {"b", -0.4, 0.4}}};
-        static constexpr std::array<ColorPickerComponent, 3> oklch{{{"L", 0.0, 1.0}, {"C", 0.0, 0.4}, {"H", 0.0, 360.0}}};
+    [[nodiscard]] inline span<const ColorPickerComponent> color_picker_components(ColorPickerColorSpace color_space) noexcept {
+        static constexpr array<ColorPickerComponent, 3> rgb{{{"R", 0.0, 1.0}, {"G", 0.0, 1.0}, {"B", 0.0, 1.0}}};
+        static constexpr array<ColorPickerComponent, 3> xyz{{{"X", 0.0, 1.1}, {"Y", 0.0, 1.0}, {"Z", 0.0, 1.1}}};
+        static constexpr array<ColorPickerComponent, 3> hsl{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"L", 0.0, 1.0}}};
+        static constexpr array<ColorPickerComponent, 3> hsv{{{"H", 0.0, 360.0}, {"S", 0.0, 1.0}, {"V", 0.0, 1.0}}};
+        static constexpr array<ColorPickerComponent, 3> hwb{{{"H", 0.0, 360.0}, {"W", 0.0, 1.0}, {"B", 0.0, 1.0}}};
+        static constexpr array<ColorPickerComponent, 3> lab{{{"L", 0.0, 100.0}, {"a", -128.0, 128.0}, {"b", -128.0, 128.0}}};
+        static constexpr array<ColorPickerComponent, 3> lch{{{"L", 0.0, 100.0}, {"C", 0.0, 150.0}, {"H", 0.0, 360.0}}};
+        static constexpr array<ColorPickerComponent, 3> luv{{{"L", 0.0, 100.0}, {"u", -220.0, 220.0}, {"v", -220.0, 220.0}}};
+        static constexpr array<ColorPickerComponent, 3> oklab{{{"L", 0.0, 1.0}, {"a", -0.4, 0.4}, {"b", -0.4, 0.4}}};
+        static constexpr array<ColorPickerComponent, 3> oklch{{{"L", 0.0, 1.0}, {"C", 0.0, 0.4}, {"H", 0.0, 360.0}}};
         switch (color_space) {
             case ColorPickerColorSpace::Xyz: return xyz;
             case ColorPickerColorSpace::Hsl: return hsl;
@@ -132,10 +140,10 @@ namespace SFT::UI {
 
     // The typed value's channels flattened to {component0, component1, component2, alpha}, in the
     // same order color_picker_components() describes them.
-    [[nodiscard]] inline std::array<f64, 4> color_picker_component_values(const ColorPickerValue &value) noexcept {
+    [[nodiscard]] inline array<f64, 4> color_picker_component_values(const ColorPickerValue &value) noexcept {
         using namespace Foundation::Color;
         return std::visit(
-            [](const auto &typed) -> std::array<f64, 4> {
+            [](const auto &typed) -> array<f64, 4> {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, Srgb> || std::is_same_v<T, Linear> || std::is_same_v<T, AdobeRgb> ||
                               std::is_same_v<T, DisplayP3> || std::is_same_v<T, Rec2020>) {
@@ -176,11 +184,11 @@ namespace SFT::UI {
                                      Maximum };
 
     struct ColorPickerInput {
-        std::span<const ColorPickerKey> keys{};
-        std::optional<ColorPickerPart> request_focus;
+        span<const ColorPickerKey> keys{};
+        optional<ColorPickerPart> request_focus;
         // Programmatic selection, useful for restoring serialized editor state. It does not emit a
         // user-change event; selecting an entry from the dropdown does.
-        std::optional<ColorPickerColorSpace> requested_color_space;
+        optional<ColorPickerColorSpace> requested_color_space;
         // Drives the dropdown trigger's ButtonStyle transition.
         f32 delta_seconds = 0.0f;
         bool request_blur = false;
@@ -251,7 +259,7 @@ namespace SFT::UI {
         Tooltip,
     };
 
-    [[nodiscard]] inline UString color_picker_part_id(const UString &id, ColorPickerVisualPart part, ColorPickerVisualPart target = ColorPickerVisualPart::Root) {
+    [[nodiscard]] inline UString color_picker_part_id(const ustr &id, ColorPickerVisualPart part, ColorPickerVisualPart target = ColorPickerVisualPart::Root) {
         const char *suffix = part == ColorPickerVisualPart::Dropdown                ? "#color-space"
                              : part == ColorPickerVisualPart::SaturationValue       ? "#sv"
                              : part == ColorPickerVisualPart::SaturationValueMarker ? "#sv-marker"
@@ -264,10 +272,19 @@ namespace SFT::UI {
                              : part == ColorPickerVisualPart::Label                 ? "#label:"
                                                                                     : "";
         if (part == ColorPickerVisualPart::Root)
-            return id;
+            return UString{id};
         const bool targeted = part == ColorPickerVisualPart::Label;
-        return UString{id.cpp_string() + suffix +
-                       (targeted ? std::to_string(static_cast<u8>(target)) : std::string{})};
+        UString result{id};
+        result.append(suffix);
+        if (targeted) {
+            const auto target_text = std::to_string(static_cast<u8>(target));
+            result.append(target_text.c_str());
+        }
+        return result;
+    }
+
+    [[nodiscard]] inline UString color_picker_part_id(const UString &id, ColorPickerVisualPart part, ColorPickerVisualPart target = ColorPickerVisualPart::Root) {
+        return color_picker_part_id(id.as_ustr(), part, target);
     }
 
     struct ColorPickerPartContext {
@@ -283,7 +300,7 @@ namespace SFT::UI {
         f64 value = 0.0;
         f64 alpha = 1.0;
         glm::vec2 normalized_position{0.0f};
-        std::optional<ElementBounds> bounds;
+        optional<ElementBounds> bounds;
     };
 
     struct ColorPickerComposition {
@@ -324,7 +341,7 @@ namespace SFT::UI {
         DropdownState color_space_dropdown_{};
         // One per component slider (see ColorPickerStyle::component_slider) — indices match
         // color_picker_components()' order for whichever space is currently selected.
-        std::array<SliderState, 3> component_sliders_{};
+        array<SliderState, 3> component_sliders_{};
         // The user's authoritative typed-component values, kept alongside the sRGB color they
         // produced. Re-deriving slider positions from the round-tripped color every frame snaps
         // them around badly in spaces the sRGB round trip is lossy over: hue resets to 0 the moment
@@ -333,7 +350,7 @@ namespace SFT::UI {
         // components produced (component_cache_source_), the sliders display these values verbatim;
         // any outside change (plane drag, external color, space switch) invalidates the cache and
         // re-derives. Space initialized to Count = "no cache yet".
-        std::array<f64, 3> component_cache_{};
+        array<f64, 3> component_cache_{};
         Color component_cache_source_{};
         ColorPickerColorSpace component_cache_space_ = ColorPickerColorSpace::Count;
     };
@@ -365,8 +382,8 @@ namespace SFT::UI {
         static bool &gesture_changed(ColorPickerState &s) noexcept { return s.changed_during_gesture_; }
         static ColorPickerColorSpace &color_space(ColorPickerState &s) noexcept { return s.color_space_; }
         static DropdownState &color_space_dropdown(ColorPickerState &s) noexcept { return s.color_space_dropdown_; }
-        static std::array<SliderState, 3> &component_sliders(ColorPickerState &s) noexcept { return s.component_sliders_; }
-        static std::array<f64, 3> &component_cache(ColorPickerState &s) noexcept { return s.component_cache_; }
+        static array<SliderState, 3> &component_sliders(ColorPickerState &s) noexcept { return s.component_sliders_; }
+        static array<f64, 3> &component_cache(ColorPickerState &s) noexcept { return s.component_cache_; }
         static Color &component_cache_source(ColorPickerState &s) noexcept { return s.component_cache_source_; }
         static ColorPickerColorSpace &component_cache_space(ColorPickerState &s) noexcept { return s.component_cache_space_; }
     };
@@ -462,7 +479,7 @@ namespace SFT::UI {
         // see CustomElement.hpp's own doc comment) followed by each vec4 packed contiguously. Every
         // Shaders/ui_color_picker_*.slang shader below declares its extra fields as plain float4s
         // for exactly this reason, so this one packer covers all three.
-        [[nodiscard]] inline vector<std::byte> pack_gradient_shader_params(std::initializer_list<glm::vec4> vec4_fields) {
+        [[nodiscard]] inline vector<std::byte> pack_gradient_shader_params(initializer_list<glm::vec4> vec4_fields) {
             vector<f32> words;
             words.reserve(2 + vec4_fields.size() * 4);
             words.push_back(0.0f);
@@ -540,7 +557,7 @@ namespace SFT::UI {
         // per-pixel through sturdy_common's GPU mirror of Foundation::Color.
         [[nodiscard]] inline CustomShaderRef component_bar_shader(ColorPickerColorSpace color_space, usize component_index,
                                                                   const ColorPickerComponent &component,
-                                                                  const std::array<f64, 3> &values, f64 opacity,
+                                                                  const array<f64, 3> &values, f64 opacity,
                                                                   const CornerRadius &corner_radius) {
             return CustomShaderRef{
                 .shader_path = "Shaders/ui_color_picker_component_bar.slang",
@@ -617,7 +634,7 @@ namespace SFT::UI {
         // The dropdown row's display text — the same names color_picker_space_name() reports, so
         // the trigger, the option list, and any app-side readout can never drift apart.
         inline void render_color_space_label(Context &ctx, ColorPickerColorSpace color_space, const TextStyle &style) {
-            const ustr name{std::string_view{color_picker_space_name(color_space)}};
+            const ustr name{string_view{color_picker_space_name(color_space)}};
             ctx.text(name, style);
         }
 
@@ -647,15 +664,17 @@ namespace SFT::UI {
             return Color{c0, c1, c2, alpha};
         }
 
-        [[nodiscard]] inline UString picker_part_id(const UString &id, ColorPickerPart part) {
+        [[nodiscard]] inline UString picker_part_id(const ustr &id, ColorPickerPart part) {
             const char *suffix = part == ColorPickerPart::SaturationValue ? "#sv"
                                  : part == ColorPickerPart::Hue           ? "#hue"
                                  : part == ColorPickerPart::Alpha         ? "#alpha"
                                                                           : "";
-            return UString{id.cpp_string() + suffix};
+            UString result{id};
+            result.append(suffix);
+            return result;
         }
 
-        [[nodiscard]] inline ColorPickerPart focused_picker_part(const Context &ctx, const UString &id, bool show_sv, bool show_hue, bool show_alpha) noexcept {
+        [[nodiscard]] inline ColorPickerPart focused_picker_part(const Context &ctx, const ustr &id, bool show_sv, bool show_hue, bool show_alpha) noexcept {
             if (show_sv && ctx.has_focus(picker_part_id(id, ColorPickerPart::SaturationValue)))
                 return ColorPickerPart::SaturationValue;
             if (show_hue && ctx.has_focus(picker_part_id(id, ColorPickerPart::Hue)))
@@ -700,10 +719,10 @@ namespace SFT::UI {
             last_output = color;
         }
 
-        const UString sv_id = color_picker_part_id(id, ColorPickerVisualPart::SaturationValue);
-        const UString hue_id = color_picker_part_id(id, ColorPickerVisualPart::Hue);
-        const UString alpha_id = color_picker_part_id(id, ColorPickerVisualPart::Alpha);
-        const UString color_space_id = color_picker_part_id(id, ColorPickerVisualPart::Dropdown);
+        const UString sv_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::SaturationValue);
+        const UString hue_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Hue);
+        const UString alpha_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Alpha);
+        const UString color_space_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Dropdown);
 
         const bool root_visible = composition.root.visible;
         const bool picker_enabled = enabled && root_visible && composition.root.enabled;
@@ -801,7 +820,7 @@ namespace SFT::UI {
                     ctx.release_pointer(active_id);
                     active = ColorPickerPart::None;
                     gesture_changed = false;
-                } else if (const std::optional<ElementBounds> bounds = ctx.element_bounds(active_id); bounds.has_value()) {
+                } else if (const optional<ElementBounds> bounds = ctx.element_bounds(active_id); bounds.has_value()) {
                     const f64 x = bounds->size.x > 0.0f
                                       ? std::clamp(static_cast<f64>((ctx.pointer_position().x - bounds->position.x) / bounds->size.x), 0.0, 1.0)
                                       : 0.0;
@@ -840,7 +859,7 @@ namespace SFT::UI {
                 }
             }
 
-            ColorPickerPart focused = Detail::focused_picker_part(ctx, id, sv_enabled, hue_enabled, alpha_enabled);
+            ColorPickerPart focused = Detail::focused_picker_part(ctx, id.as_ustr(), sv_enabled, hue_enabled, alpha_enabled);
             if (ctx.pointer_pressed_this_frame() && !result.hovered && active == ColorPickerPart::None) {
                 if (focused != ColorPickerPart::None)
                     ctx.clear_focus(id_for_part(focused));
@@ -961,7 +980,7 @@ namespace SFT::UI {
         result.color_space = color_space;
         result.active_part = active;
         result.focused_part = picker_enabled
-                                  ? Detail::focused_picker_part(ctx, id, sv_enabled, hue_enabled, alpha_enabled)
+                                  ? Detail::focused_picker_part(ctx, id.as_ustr(), sv_enabled, hue_enabled, alpha_enabled)
                                   : ColorPickerPart::None;
 
         if (!root_visible) {
@@ -1015,7 +1034,7 @@ namespace SFT::UI {
         const auto render_label = [&](ColorPickerVisualPart target, bool target_enabled) {
             if (!composition.label.visible)
                 return;
-            const UString label_id = color_picker_part_id(id, ColorPickerVisualPart::Label, target);
+            const UString label_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Label, target);
             PartVisualState visual{.enabled = picker_enabled && composition.label.enabled && target_enabled};
             ColorPickerPartContext label_context = make_context(
                 ColorPickerVisualPart::Label,
@@ -1039,7 +1058,7 @@ namespace SFT::UI {
         if (show_dropdown) {
             render_label(ColorPickerVisualPart::Dropdown, dropdown_enabled);
             constexpr usize color_space_count = static_cast<usize>(ColorPickerColorSpace::Count);
-            std::array<DropdownOption, color_space_count> options;
+            array<DropdownOption, color_space_count> options;
             for (usize i = 0; i < color_space_count; ++i) {
                 const ColorPickerColorSpace option_space = static_cast<ColorPickerColorSpace>(i);
                 options[i].build = [option_space, &style](Context &option_ctx) {
@@ -1143,7 +1162,7 @@ namespace SFT::UI {
                 composition.saturation_value.build(ctx, plane_context);
 
             if (composition.saturation_value_marker.visible) {
-                const UString marker_id = color_picker_part_id(id, ColorPickerVisualPart::SaturationValueMarker);
+                const UString marker_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::SaturationValueMarker);
                 const bool marker_enabled = picker_enabled && composition.saturation_value_marker.enabled;
                 PartVisualState marker_visual{.enabled = marker_enabled, .active = plane_visual.active};
                 ColorPickerPartContext marker_context = make_context(
@@ -1235,7 +1254,7 @@ namespace SFT::UI {
                 part_slot.build(ctx, part_context);
 
             if (marker_slot.visible) {
-                const UString marker_id = color_picker_part_id(id, marker_part);
+                const UString marker_id = color_picker_part_id(id.as_ustr(), marker_part);
                 const bool marker_enabled = picker_enabled && marker_slot.enabled;
                 PartVisualState marker_visual{.enabled = marker_enabled, .active = visual.active};
                 ColorPickerPartContext marker_context = make_context(
@@ -1278,9 +1297,9 @@ namespace SFT::UI {
         // internal HSV state exactly the way an externally-passed color does (achromatic edits
         // preserve the last meaningful hue). See show_hue's declaration for the classic-mode fallback.
         if (show_dropdown) {
-            const std::span<const ColorPickerComponent> components = color_picker_components(color_space);
-            std::array<SliderState, 3> &component_states = DetailColorPickerAccess::component_sliders(state);
-            std::array<f64, 3> &component_values = DetailColorPickerAccess::component_cache(state);
+            const span<const ColorPickerComponent> components = color_picker_components(color_space);
+            array<SliderState, 3> &component_states = DetailColorPickerAccess::component_sliders(state);
+            array<f64, 3> &component_values = DetailColorPickerAccess::component_cache(state);
             Color &cache_source = DetailColorPickerAccess::component_cache_source(state);
             ColorPickerColorSpace &cache_space = DetailColorPickerAccess::component_cache_space(state);
             // Only rebuild the displayed values from the round-tripped color when something *other*
@@ -1293,7 +1312,7 @@ namespace SFT::UI {
                                      cache_source.g != result.color.g ||
                                      cache_source.b != result.color.b;
             if (cache_stale) {
-                const std::array<f64, 4> derived = color_picker_component_values(result.value);
+                const array<f64, 4> derived = color_picker_component_values(result.value);
                 component_values = {derived[0], derived[1], derived[2]};
                 cache_space = color_space;
                 cache_source = result.color;
@@ -1314,7 +1333,7 @@ namespace SFT::UI {
                         .sizing = {SizingAxis::fixed(style.component_label_width), SizingAxis::fit()},
                     });
                     (void)label_box;
-                    const ustr label_text{std::string_view{component.label}};
+                    const ustr label_text{string_view{component.label}};
                     ctx.text(label_text, style.color_space_text);
                 }
                 // Reskin the slider into a gradient bar matching the classic hue/alpha bars: the
@@ -1391,7 +1410,7 @@ namespace SFT::UI {
 
         if (show_preview) {
             render_label(ColorPickerVisualPart::Preview, picker_enabled && composition.preview.enabled);
-            const UString preview_id = color_picker_part_id(id, ColorPickerVisualPart::Preview);
+            const UString preview_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Preview);
             const bool preview_enabled = picker_enabled && composition.preview.enabled;
             PartVisualState preview_visual{.enabled = preview_enabled};
             ColorPickerPartContext preview_context = make_context(
@@ -1449,8 +1468,8 @@ namespace SFT::UI {
 
         if (tooltip_target != ColorPickerVisualPart::Root && composition.tooltip.visible &&
             composition.tooltip.build) {
-            const UString tooltip_id = color_picker_part_id(id, ColorPickerVisualPart::Tooltip);
-            const UString target_id = color_picker_part_id(id, tooltip_target);
+            const UString tooltip_id = color_picker_part_id(id.as_ustr(), ColorPickerVisualPart::Tooltip);
+            const UString target_id = color_picker_part_id(id.as_ustr(), tooltip_target);
             PartVisualState tooltip_visual{
                 .enabled = picker_enabled && composition.tooltip.enabled,
                 .hovered = result.hovered,

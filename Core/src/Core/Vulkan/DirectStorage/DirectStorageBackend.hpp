@@ -10,8 +10,8 @@ namespace SFT::Core {
 
     // Windows fast-file-read backend for the texture-streaming pipeline, built on Microsoft's
     // DirectStorage API (see cmake/SturdyDependencies.cmake's sturdy_fetch_directstorage()). This is
-    // the Windows sibling of the (not yet written) Linux io_uring backend referenced by
-    // Decompression.hpp's own doc comment: both exist purely to get file bytes off disk faster/with
+    // the Windows sibling of the Linux io_uring backend (Core/IoUring/IoUringBackend.hpp): both
+    // exist purely to get file bytes off disk faster/with
     // less CPU overhead than std::ifstream, handing the result to Core::decompress_gdeflate for the
     // actual (CPU-side) decompression.
     //

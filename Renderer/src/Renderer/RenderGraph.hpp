@@ -7,8 +7,6 @@
 #include <functional>
 #include <memory>
 #include <span>
-#include <string>
-#include <string_view>
 #include <vector>
 #pragma endregion
 
@@ -16,10 +14,10 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
+using std::expected;
 using std::function;
 using std::span;
-using std::string;
-using std::string_view;
+using std::unique_ptr;
 using std::vector;
 
 namespace SFT::Renderer {
@@ -186,7 +184,7 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle source{};
         RenderGraphTextureHandle destination{};
         RHI::Filter filter = RHI::Filter::Linear;
-        const char *label = nullptr;
+        UString label;
     };
 
     // Raw same-size, same-format texture->texture copy (no scaling/filtering) — distinct from
@@ -194,7 +192,7 @@ namespace SFT::Renderer {
     struct RenderGraphCopyDesc {
         RenderGraphTextureHandle source{};
         RenderGraphTextureHandle destination{};
-        const char *label = nullptr;
+        UString label;
     };
 
     // A storage-image (RHI::TextureLayout::General) access declared by a compute pass. `read`/`write`
@@ -226,7 +224,7 @@ namespace SFT::Renderer {
 
     class RenderGraphComputePassBuilder {
       public:
-        explicit RenderGraphComputePassBuilder(string label = {});
+        explicit RenderGraphComputePassBuilder(const ustr &label = {});
 
         // Sampled (ShaderReadOnly) texture read, always at the compute-shader stage.
         RenderGraphComputePassBuilder &add_sampled_texture(RenderGraphTextureHandle texture);
@@ -245,7 +243,7 @@ namespace SFT::Renderer {
       private:
         friend class RenderGraph;
 
-        string label_;
+        UString label_;
         vector<RenderGraphTextureHandle> sampled_texture_reads_;
         vector<RenderGraphStorageTextureAccessDesc> storage_textures_;
         vector<RenderGraphBufferAccessDesc> buffers_;
@@ -255,7 +253,7 @@ namespace SFT::Renderer {
 
     class RenderGraphRenderPassBuilder {
       public:
-        explicit RenderGraphRenderPassBuilder(string label = {});
+        explicit RenderGraphRenderPassBuilder(const ustr &label = {});
 
         RenderGraphRenderPassBuilder &add_color_attachment(const RenderGraphColorAttachmentDesc &attachment);
 
@@ -289,7 +287,7 @@ namespace SFT::Renderer {
       private:
         friend class RenderGraph;
 
-        string label_;
+        UString label_;
         vector<RenderGraphColorAttachmentDesc> color_attachments_;
         RenderGraphDepthStencilAttachmentDesc depth_stencil_attachment_{};
         bool has_depth_stencil_attachment_ = false;
@@ -317,7 +315,7 @@ namespace SFT::Renderer {
 
     struct RenderGraphCompileError {
         RenderGraphCompileErrorCode code = RenderGraphCompileErrorCode::UnknownTextureHandle;
-        string message;
+        UString message;
     };
 
     class RenderGraph {
@@ -348,7 +346,7 @@ namespace SFT::Renderer {
             vector<u32> levels;
         };
 
-        using CompileResult = std::expected<CompiledPlan, RenderGraphCompileError>;
+        using CompileResult = expected<CompiledPlan, RenderGraphCompileError>;
 
         // One executed pass's GPU timing, filled by execute() when a valid `timestamp_query_set` is
         // passed in. `begin_query_index`/`end_query_index` are slots in that query set (both written
@@ -356,7 +354,7 @@ namespace SFT::Renderer {
         // exactly that pass's GPU duration); the caller resolves them to nanoseconds via
         // RHI::DeviceLimits::timestamp_period_ns once this frame's fence proves the GPU wrote them.
         struct GpuPassTiming {
-            string label;
+            UString label;
             u32 begin_query_index = 0;
             u32 end_query_index = 0;
         };
@@ -368,7 +366,7 @@ namespace SFT::Renderer {
         // in practice most callers still stash it a frame, same as GpuPassTiming, simply because
         // debug-overlay text for frame N is built before frame N's own execute() call runs).
         struct CpuPassTiming {
-            string label;
+            UString label;
             f64 duration_ms = 0.0;
         };
 
@@ -378,9 +376,9 @@ namespace SFT::Renderer {
 
         [[nodiscard]] RenderGraphTextureHandle create_texture(const RenderGraphTextureDesc &desc);
 
-        [[nodiscard]] RenderGraphRenderPassBuilder &add_render_pass(string_view label);
+        [[nodiscard]] RenderGraphRenderPassBuilder &add_render_pass(const ustr &label);
 
-        [[nodiscard]] RenderGraphComputePassBuilder &add_compute_pass(string_view label);
+        [[nodiscard]] RenderGraphComputePassBuilder &add_compute_pass(const ustr &label);
 
         void add_blit_pass(const RenderGraphBlitDesc &desc);
 
@@ -434,7 +432,7 @@ namespace SFT::Renderer {
         // every command buffer already appended to `out_command_buffers` is destroyed before returning
         // (nothing orphaned in the RHI's command-buffer pool) and the vector is left empty.
         [[nodiscard]] Core::RendererResult execute_parallel(RHI::RhiDevice &device,
-                                                             std::unique_ptr<RHI::CommandEncoder> primary_encoder,
+                                                             unique_ptr<RHI::CommandEncoder> primary_encoder,
                                                              RHI::QueueLane queue,
                                                              vector<RHI::CommandBufferHandle> &out_command_buffers,
                                                              RHI::QuerySetHandle timestamp_query_set = {},
@@ -509,7 +507,7 @@ namespace SFT::Renderer {
             RenderGraphImportedBufferDesc imported{};
             RHI::PipelineStage stage = RHI::PipelineStage::None;
             RHI::AccessFlags access = RHI::AccessFlags::None;
-            string label;
+            UString label;
         };
 
         struct TextureRecord {
@@ -528,7 +526,7 @@ namespace SFT::Renderer {
             RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
             RHI::PipelineStage final_stage = RHI::PipelineStage::None;
             RHI::AccessFlags final_access = RHI::AccessFlags::None;
-            string label;
+            UString label;
         };
 
         [[nodiscard]] TextureRecord *texture_record(RenderGraphTextureHandle handle) noexcept;
@@ -566,13 +564,12 @@ namespace SFT::Renderer {
                                                                RenderGraphRenderPassBuilder &pass);
 
         template <typename Fn>
-        [[nodiscard]] Core::RendererResult with_debug_group(RHI::CommandEncoder &encoder, string_view label, Fn &&fn) {
-            string label_storage{label};
-            if (!label_storage.empty()) {
-                encoder.push_debug_group(label_storage.c_str());
+        [[nodiscard]] Core::RendererResult with_debug_group(RHI::CommandEncoder &encoder, const UString &label, Fn &&fn) {
+            if (!label.empty()) {
+                encoder.push_debug_group(label.c_str());
             }
             Core::RendererResult result = fn();
-            if (!label_storage.empty()) {
+            if (!label.empty()) {
                 encoder.pop_debug_group();
             }
             return result;

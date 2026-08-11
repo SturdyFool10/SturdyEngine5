@@ -8,9 +8,12 @@
 #include <Platform/Platform.hpp>
 
 #include <optional>
-#include <string>
 #include <variant>
 #include <vector>
+
+using std::optional;
+using std::variant;
+using std::vector;
 
 namespace SFT::Engine {
 
@@ -23,7 +26,7 @@ namespace SFT::Engine {
     // Owns WindowConfig's otherwise-borrowed title so requests can safely wait in a queue until the
     // Application host reaches its window-owner phase.
     struct OwnedWindowConfig {
-        std::string title{"Sturdy Engine"};
+        UString title{"Sturdy Engine"};
         Platform::Windowing::WindowConfig config{};
 
         OwnedWindowConfig() noexcept { config.title = nullptr; }
@@ -90,8 +93,8 @@ namespace SFT::Engine {
         bool enabled = false;
     };
 
-    using WindowRequest = std::variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest,
-                                       SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest>;
+    using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest,
+                                  SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close };
 
@@ -99,9 +102,9 @@ namespace SFT::Engine {
         WindowRequestId id{};
         WindowRequestKind kind = WindowRequestKind::Spawn;
         bool accepted = false;
-        std::optional<Core::RenderSurfaceHandle> surface;
+        optional<Core::RenderSurfaceHandle> surface;
         Platform::Windowing::WindowId window{};
-        std::string message;
+        UString message;
     };
 
     // Deferred bridge from GameLogic/ECS/editor systems (which can reach Engine but deliberately do
@@ -154,9 +157,9 @@ namespace SFT::Engine {
             guard->pending.emplace_back(SetBlurRequest{window, kind, enabled});
         }
 
-        [[nodiscard]] std::vector<WindowRequest> drain() {
+        [[nodiscard]] vector<WindowRequest> drain() {
             auto guard = state_.lock();
-            std::vector<WindowRequest> result;
+            vector<WindowRequest> result;
             result.swap(guard->pending);
             return result;
         }
@@ -166,9 +169,9 @@ namespace SFT::Engine {
             guard->completions.push_back(std::move(completion));
         }
 
-        [[nodiscard]] std::vector<WindowRequestCompletion> take_completions() {
+        [[nodiscard]] vector<WindowRequestCompletion> take_completions() {
             auto guard = state_.lock();
-            std::vector<WindowRequestCompletion> result;
+            vector<WindowRequestCompletion> result;
             result.swap(guard->completions);
             return result;
         }
@@ -181,8 +184,8 @@ namespace SFT::Engine {
       private:
         struct State {
             u64 next_id = 1;
-            std::vector<WindowRequest> pending;
-            std::vector<WindowRequestCompletion> completions;
+            vector<WindowRequest> pending;
+            vector<WindowRequestCompletion> completions;
         };
         mutable Async::Mutex<State> state_;
     };

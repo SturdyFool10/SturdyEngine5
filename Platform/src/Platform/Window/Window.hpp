@@ -442,21 +442,13 @@ namespace SFT::Platform::Windowing {
             const void *allocation_callbacks,
             void *surface_out) const noexcept = 0;
 
-        // Register a callback the backend invokes to render a frame **while the OS holds the message pump
-        // hostage** — most notably the Windows move/resize modal loop, during which `pump_events()` would
-        // otherwise block and freeze rendering.
-        //
-        // The callback fires on the **main thread** from inside the blocked pump, so it must **not** call
-        // back into `pump_events()`, but may otherwise call any engine or window API. Pass an empty
-        // `std::function` to clear a previously registered callback. Backends without a blocking
-        // modal-loop problem may leave this a no-op.
-        //
-        // ```cpp
-        // window->set_repaint_callback([&] { engine.render(surface, frame); });
-        // // ... later:
-        // window->set_repaint_callback({});   // clear it
-        // ```
-        virtual void set_repaint_callback(std::function<void()> /*callback*/) noexcept;
+        // Register a state-only callback for a new physical framebuffer extent observed while an OS
+        // modal resize loop prevents the normal event pump from returning. On Windows this may run on
+        // SDL's event-producing thread, so it must only publish/coalesce the supplied extent; it must
+        // not call Window, Engine, renderer, or other blocking APIs. Pass an empty `std::function` to
+        // clear a previously registered callback. Backends without this modal-loop behavior may leave
+        // it as a no-op.
+        virtual void set_live_resize_callback(std::function<void(WindowExtent)> /*callback*/) noexcept;
 
         // Reads the OS clipboard's text contents (UTF-8) — empty if the clipboard is empty, holds
         // non-text data, or the read fails; callers can't distinguish those cases (no backend

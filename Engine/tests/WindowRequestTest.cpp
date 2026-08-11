@@ -3,13 +3,16 @@
 #include <cassert>
 #include <string>
 #include <variant>
+#include <vector>
 
 int main() {
     using namespace SFT::Engine;
     using namespace SFT::Platform::Windowing;
+    using std::string;
+    using std::vector;
 
     WindowRequests requests;
-    std::string temporary_title = "Detached Inspector";
+    string temporary_title = "Detached Inspector";
     WindowConfig config{
         .title = temporary_title.c_str(),
         .extent = {640, 480},
@@ -25,13 +28,13 @@ int main() {
     assert(spawn_id != close_id);
     assert(requests.has_pending());
 
-    std::vector<WindowRequest> pending = requests.drain();
+    vector<WindowRequest> pending = requests.drain();
     assert(pending.size() == 2);
     assert(!requests.has_pending());
 
     const SpawnWindowRequest &spawn = std::get<SpawnWindowRequest>(pending[0]);
     const WindowConfig owned_view = spawn.window.view();
-    assert(std::string{owned_view.title} == "Detached Inspector");
+    assert(string{owned_view.title} == "Detached Inspector");
     assert(owned_view.extent.x == 640);
     assert(owned_view.position.x == 120);
 
@@ -44,11 +47,11 @@ int main() {
         .accepted = false,
         .message = "test failure",
     });
-    std::vector<WindowRequestCompletion> completions = requests.take_completions();
+    vector<WindowRequestCompletion> completions = requests.take_completions();
     assert(completions.size() == 1);
     assert(completions[0].id == spawn_id);
     assert(!completions[0].accepted);
-    assert(completions[0].message == "test failure");
+    assert(completions[0].message.cpp_string_view() == "test failure");
     assert(requests.take_completions().empty());
     return 0;
 }

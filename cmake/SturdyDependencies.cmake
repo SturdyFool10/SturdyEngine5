@@ -132,7 +132,7 @@ set(STURDY_DEPS_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache/deps" CACHE PATH "Director
 
 function(sturdy_fetchcontent_declare name)
     set(options)
-    set(one_value_args GIT_REPOSITORY GIT_TAG CACHE_KEY)
+    set(one_value_args GIT_REPOSITORY GIT_TAG CACHE_KEY SOURCE_SUBDIR)
     set(multi_value_args FIND_PACKAGE_ARGS)
     cmake_parse_arguments(STURDY_FETCH "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -175,6 +175,11 @@ function(sturdy_fetchcontent_declare name)
         set(_binary_dir BINARY_DIR "${CMAKE_BINARY_DIR}/_deps/${_cache_key}-build")
     endif()
 
+    set(_source_subdir)
+    if(STURDY_FETCH_SOURCE_SUBDIR)
+        set(_source_subdir SOURCE_SUBDIR "${STURDY_FETCH_SOURCE_SUBDIR}")
+    endif()
+
     # GIT_SHALLOW is only safe when GIT_TAG names a branch/tag that IS the remote's current tip:
     # CMake's generated clone script runs `git clone --depth 1` (fetching only that tip) as a
     # separate step *before* `git checkout <tag>`, so pinning an arbitrary historical commit SHA
@@ -199,6 +204,7 @@ function(sturdy_fetchcontent_declare name)
         SYSTEM
         ${_cache_dirs}
         ${_binary_dir}
+        ${_source_subdir}
         ${_find_package_args}
     )
 endfunction()
@@ -221,6 +227,74 @@ function(sturdy_mark_dependency_targets_exclude_from_all)
             set_target_properties("${_real_target}" PROPERTIES EXCLUDE_FROM_ALL TRUE)
         endif()
     endforeach()
+endfunction()
+
+function(sturdy_patch_slang_header_copy_target slang_source_dir)
+    set(_slang_cmake "${slang_source_dir}/source/slang/CMakeLists.txt")
+    if(NOT EXISTS "${_slang_cmake}")
+        return()
+    endif()
+
+    file(READ "${_slang_cmake}" _slang_cmake_contents)
+    if(_slang_cmake_contents MATCHES "SturdyEngine incremental header-copy stamp")
+        return()
+    endif()
+
+    set(_slang_header_copy_target [=[add_custom_target(
+    copy_slang_headers
+    COMMAND
+        ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_directory "${slang_SOURCE_DIR}/include"
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_BINARY_DIR}/slang-version-header/slang-tag-version.h"
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include/slang-tag-version.h"
+)
+set_target_properties(copy_slang_headers PROPERTIES FOLDER "generated")]=])
+    set(_slang_header_copy_stamp [=[# SturdyEngine incremental header-copy stamp: upstream Slang's original custom target has no
+# output, so Ninja rebuilds it for every target that links Slang. The fetched source is pinned;
+# listing the current public headers as dependencies still refreshes the staged headers whenever
+# one changes, while the stamp makes ordinary incremental builds no-ops.
+file(GLOB_RECURSE _slang_public_headers LIST_DIRECTORIES FALSE
+    "${slang_SOURCE_DIR}/include/*.h"
+)
+list(SORT _slang_public_headers)
+set(_slang_header_copy_stamp
+    "${CMAKE_CURRENT_BINARY_DIR}/copy_slang_headers-$<CONFIG>.stamp"
+)
+add_custom_command(
+    OUTPUT "${_slang_header_copy_stamp}"
+    COMMAND
+        ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_directory "${slang_SOURCE_DIR}/include"
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_BINARY_DIR}/slang-version-header/slang-tag-version.h"
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/include/slang-tag-version.h"
+    COMMAND
+        ${CMAKE_COMMAND} -E touch "${_slang_header_copy_stamp}"
+    DEPENDS
+        ${_slang_public_headers}
+        "${CMAKE_CURRENT_BINARY_DIR}/slang-version-header/slang-tag-version.h"
+    VERBATIM
+)
+add_custom_target(copy_slang_headers DEPENDS "${_slang_header_copy_stamp}")
+set_target_properties(copy_slang_headers PROPERTIES FOLDER "generated")]=])
+
+    string(FIND "${_slang_cmake_contents}" "${_slang_header_copy_target}" _slang_header_copy_target_offset)
+    if(_slang_header_copy_target_offset EQUAL -1)
+        return()
+    endif()
+
+    string(REPLACE "${_slang_header_copy_target}" "${_slang_header_copy_stamp}"
+        _slang_cmake_contents "${_slang_cmake_contents}")
+    file(WRITE "${_slang_cmake}" "${_slang_cmake_contents}")
 endfunction()
 
 function(sturdy_configure_dependencies)
@@ -581,11 +655,19 @@ function(sturdy_fetch_slang)
     # Emscripten, so it stays off everywhere rather than only on Web.
     set(SLANG_ENABLE_SLANG_RHI OFF CACHE BOOL "" FORCE)
 
+    # Slang's copy_slang_headers target is always dirty upstream because it has no declared output.
+    # Populate it without adding its subdirectory, patch that target into a stamped custom command,
+    # then add the source tree normally so the generated Ninja graph is incrementally correct.
     sturdy_fetchcontent_declare(slang
         GIT_REPOSITORY https://github.com/shader-slang/slang.git
         GIT_TAG ${STURDY_SLANG_TAG}
+        SOURCE_SUBDIR "__sturdy_populate_only__"
     )
     FetchContent_MakeAvailable(slang)
+    sturdy_patch_slang_header_copy_target("${slang_SOURCE_DIR}")
+    if(NOT TARGET slang AND NOT TARGET slang::slang AND NOT TARGET Slang::slang)
+        add_subdirectory("${slang_SOURCE_DIR}" "${slang_BINARY_DIR}" EXCLUDE_FROM_ALL SYSTEM)
+    endif()
     sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
     sturdy_register_license(slang "${slang_SOURCE_DIR}")
 
@@ -1393,6 +1475,21 @@ function(sturdy_normalize_dependency_targets)
     sturdy_alias_existing_target(Sturdy::GLM
         glm::glm
         glm
+    )
+
+    # Swizzle operators (v.xy, v.bgra, v.xyz = ...) instead of rebuilding vectors component by
+    # component. This is carried on the alias so every consumer of Sturdy::GLM sees it: the flag
+    # changes glm::vec's definition to an anonymous union, so a TU that missed it would disagree
+    # with the rest of the engine about the type (ODR). glm silences the nameless-struct warning
+    # (C4201/-Wpedantic) itself unless GLM_FORCE_WARNINGS is set, so /W4 /WX stays clean.
+    #
+    # Caveat for the non-SIMD targets (riscv, web): glm only gives the *operator* form when the
+    # compiler advertises MS extensions or the arch has the SIMD bit (glm/detail/setup.hpp's
+    # GLM_LANG_EXT). Everywhere else the same flag silently selects the *function* form, where the
+    # spelling is v.xy() rather than v.xy — so a bare v.xy compiles on x86-64/arm64 and then fails
+    # only on those targets. Keep swizzles out of headers shared with them, or spell the fallback.
+    set_property(TARGET Sturdy::GLM APPEND PROPERTY
+        INTERFACE_COMPILE_DEFINITIONS GLM_FORCE_SWIZZLE
     )
 
     sturdy_alias_existing_target(Sturdy::VMA

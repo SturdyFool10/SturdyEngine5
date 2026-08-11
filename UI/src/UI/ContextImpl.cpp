@@ -375,10 +375,7 @@ namespace SFT::UI {
             }
             return static_cast<u32>(std::clamp(std::round(value), 1.0f, max_exact_pixel_dimension));
         };
-        layout_extent_ = Core::Extent2D{
-            .width = layout_dimension(viewport_size.x),
-            .height = layout_dimension(viewport_size.y),
-        };
+        layout_extent_ = Core::Extent2D{layout_dimension(viewport_size.x), layout_dimension(viewport_size.y)};
 
         set_current();
         text_bridge_.begin_frame();
@@ -396,8 +393,8 @@ namespace SFT::UI {
         // a later frame permanently stuck at some stale nonzero z.
         z_stack_.assign(1, 0);
         Clay_SetLayoutDimensions(Clay_Dimensions{
-            .width = static_cast<f32>(layout_extent_.width),
-            .height = static_cast<f32>(layout_extent_.height),
+            .width = static_cast<f32>(layout_extent_.x),
+            .height = static_cast<f32>(layout_extent_.y),
         });
         // Must run before Clay_BeginLayout(): it hit-tests against last frame's still-committed
         // layout tree, which is exactly what makes hovered(id)/clicked(id) answerable before this
@@ -903,8 +900,8 @@ namespace SFT::UI {
         snapshot.full_viewport_scissor_ = RHI::Rect2D{
             .x = 0,
             .y = 0,
-            .width = layout_extent_.width,
-            .height = layout_extent_.height,
+            .width = layout_extent_.x,
+            .height = layout_extent_.y,
         };
 
         Clay_RenderCommandArray commands = Clay_EndLayout();

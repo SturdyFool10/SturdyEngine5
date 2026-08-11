@@ -22,7 +22,7 @@ int main() {
     SFT::Ecs::ComponentRegistry ecs_registry;
     SFT::Ecs::World ecs_world{ecs_registry};
 
-    const SFT::Core::Extent2D extent{.width = 1, .height = 1};
+    const SFT::Core::Extent2D extent{1, 1};
 
     const auto tone_mapping = SFT::Renderer::ToneMappingOperator::Agx;
 
@@ -33,7 +33,7 @@ int main() {
     const glm::vec3 position{1.0f, 2.0f, 3.0f};
 
     const bool ok = !name.empty() && async_reachable && &ecs_world.registry() == &ecs_registry &&
-                    extent.width == 1 &&
+                    extent.x == 1 &&
                     tone_mapping == SFT::Renderer::ToneMappingOperator::Agx &&
                     engine_config.app_name != nullptr &&
                     runtime_config.primary_window_title.empty() == false &&

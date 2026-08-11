@@ -2,7 +2,7 @@ include_guard(GLOBAL)
 
 function(sturdy_add_package package_name)
   set(options EXECUTABLE)
-  set(one_value_args)
+  set(one_value_args ARCHIVE_TIMEOUT_SECONDS)
   set(multi_value_args
         SOURCES
         MODULES
@@ -168,6 +168,26 @@ function(sturdy_add_package package_name)
             OPTIMIZE_DEPENDENCIES ON
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
         )
+
+    if(STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS)
+      if(NOT STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+          "${package_name}: ARCHIVE_TIMEOUT_SECONDS must be a positive integer or omitted."
+        )
+      endif()
+      if(NOT (CMAKE_HOST_WIN32 AND STURDY_OS STREQUAL "Windows" AND NOT STURDY_BUILD_SHARED_LIBS))
+        message(FATAL_ERROR
+          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only supported for Windows static libraries."
+        )
+      endif()
+
+      # CMake has no public target-level archive launcher. RULE_LAUNCH_LINK is the only Ninja
+      # hook that wraps each archive subcommand without changing archive rules for dependencies.
+      set(_sturdy_archive_timeout_script "${CMAKE_SOURCE_DIR}/cmake/RunWithTimeout.ps1")
+      set_property(TARGET "${package_name}" PROPERTY RULE_LAUNCH_LINK
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${_sturdy_archive_timeout_script}\" -TimeoutSeconds ${STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS}"
+      )
+    endif()
 
     # Clang ThinLTO currently miscompiles some C++20 named-module TUs in Dist: objects that cross
     # module boundaries can corrupt the process heap before the first spdlog allocation. Keep IPO/LTO

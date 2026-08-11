@@ -1,6 +1,5 @@
 #include <Foundation/src/Foundation.hpp>
 
-#include <string>
 
 #include <Renderer/Renderer.hpp>
 
@@ -10,10 +9,12 @@ namespace SFT::Renderer {
 
     namespace {
 
-        [[nodiscard]] Core::RendererResult missing_module_texture(const char *module, const char *semantic) {
-            return Core::graphics_backend_error(
-                Core::GraphicsBackendErrorCode::OperationFailed,
-                std::string{module} + " requires the render-graph semantic texture '" + semantic + "'.");
+        [[nodiscard]] Core::RendererResult missing_module_texture(const ustr &module, const ustr &semantic) {
+            UString message{module};
+            message.append(" requires the render-graph semantic texture '"_ustr);
+            message.append(semantic);
+            message.append("'."_ustr);
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, message.cpp_string());
         }
 
     } // namespace
@@ -29,13 +30,13 @@ namespace SFT::Renderer {
         const RenderGraphTextureHandle resolved_depth = context.resources.texture<ResolvedSceneDepth>();
         const RenderGraphTextureHandle raster_depth = context.resources.texture<RasterVisibilityDepth>();
         if (!scene_color) {
-            return missing_module_texture("deferred MSAA reconstruction", "SceneHdrColor");
+            return missing_module_texture("deferred MSAA reconstruction"_ustr, "SceneHdrColor"_ustr);
         }
         if (!resolved_depth) {
-            return missing_module_texture("deferred MSAA reconstruction", "ResolvedSceneDepth");
+            return missing_module_texture("deferred MSAA reconstruction"_ustr, "ResolvedSceneDepth"_ustr);
         }
         if (!raster_depth) {
-            return missing_module_texture("deferred MSAA reconstruction", "RasterVisibilityDepth");
+            return missing_module_texture("deferred MSAA reconstruction"_ustr, "RasterVisibilityDepth"_ustr);
         }
 
         RenderGraphTextureHandle destination = context.resources.texture<ReusableSceneHdrScratch>();
@@ -50,7 +51,7 @@ namespace SFT::Renderer {
             });
         }
 
-        context.graph.add_render_pass("deferred MSAA reconstruction")
+        context.graph.add_render_pass("deferred MSAA reconstruction"_ustr)
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = destination,
                 .load_op = RHI::LoadOp::DontCare,
@@ -62,23 +63,23 @@ namespace SFT::Renderer {
             .set_render_area(RHI::Rect2D{
                 .x = 0,
                 .y = 0,
-                .width = context.render_extent.width,
-                .height = context.render_extent.height,
+                .width = context.render_extent.x,
+                .height = context.render_extent.y,
             })
             .set_execute([this, &submission, extent = context.render_extent, samples,
                           scene_color, resolved_depth, raster_depth](RenderGraphContext &graph_context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = graph_context.render_pass();
                 pass.set_viewport(RHI::Viewport{
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(extent.x),
+                    .height = static_cast<f32>(extent.y),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
                 pass.set_scissor(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = extent.width,
-                    .height = extent.height,
+                    .width = extent.x,
+                    .height = extent.y,
                 });
                 return record_deferred_msaa_reconstruction(
                     pass,
@@ -108,7 +109,7 @@ namespace SFT::Renderer {
         }
         const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
         if (!source) {
-            return missing_module_texture("scene-linear spatial anti-aliasing", "SceneHdrColor");
+            return missing_module_texture("scene-linear spatial anti-aliasing"_ustr, "SceneHdrColor"_ustr);
         }
 
         RenderGraphTextureHandle destination = context.resources.texture<ReusableSceneHdrScratch>();
@@ -123,7 +124,7 @@ namespace SFT::Renderer {
             });
         }
 
-        context.graph.add_render_pass("scene-linear spatial anti-aliasing")
+        context.graph.add_render_pass("scene-linear spatial anti-aliasing"_ustr)
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = destination,
                 .load_op = RHI::LoadOp::DontCare,
@@ -133,23 +134,23 @@ namespace SFT::Renderer {
             .set_render_area(RHI::Rect2D{
                 .x = 0,
                 .y = 0,
-                .width = context.render_extent.width,
-                .height = context.render_extent.height,
+                .width = context.render_extent.x,
+                .height = context.render_extent.y,
             })
             .set_execute([this, &submission, source,
                           extent = context.render_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = graph_context.render_pass();
                 pass.set_viewport(RHI::Viewport{
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(extent.x),
+                    .height = static_cast<f32>(extent.y),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
                 pass.set_scissor(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = extent.width,
-                    .height = extent.height,
+                    .width = extent.x,
+                    .height = extent.y,
                 });
                 return record_post_process_aa(
                     pass,
@@ -173,7 +174,7 @@ namespace SFT::Renderer {
 
         RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
         if (!source) {
-            return missing_module_texture("custom graph stage", "SceneHdrColor");
+            return missing_module_texture("custom graph stage"_ustr, "SceneHdrColor"_ustr);
         }
 
         constexpr RHI::TextureUsage custom_hdr_usage =
@@ -211,7 +212,7 @@ namespace SFT::Renderer {
             });
             switch (custom_pass.kind) {
                 case CustomGraphPassKind::RasterEffect:
-                    context.graph.add_render_pass("custom graph raster effect")
+                    context.graph.add_render_pass("custom graph raster effect"_ustr)
                         .add_color_attachment(RenderGraphColorAttachmentDesc{
                             .texture = output,
                             .load_op = RHI::LoadOp::DontCare,
@@ -221,23 +222,23 @@ namespace SFT::Renderer {
                         .set_render_area(RHI::Rect2D{
                             .x = 0,
                             .y = 0,
-                            .width = context.render_extent.width,
-                            .height = context.render_extent.height,
+                            .width = context.render_extent.x,
+                            .height = context.render_extent.y,
                         })
                         .set_execute([this, &submission, input, pass_index,
                                       extent = context.render_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
                             RHI::RenderPassEncoder &pass = graph_context.render_pass();
                             pass.set_viewport(RHI::Viewport{
-                                .width = static_cast<f32>(extent.width),
-                                .height = static_cast<f32>(extent.height),
+                                .width = static_cast<f32>(extent.x),
+                                .height = static_cast<f32>(extent.y),
                                 .min_depth = 0.0f,
                                 .max_depth = 1.0f,
                             });
                             pass.set_scissor(RHI::Rect2D{
                                 .x = 0,
                                 .y = 0,
-                                .width = extent.width,
-                                .height = extent.height,
+                                .width = extent.x,
+                                .height = extent.y,
                             });
                             return record_custom_post_process(
                                 pass,
@@ -253,7 +254,7 @@ namespace SFT::Renderer {
                             Core::GraphicsBackendErrorCode::OperationFailed,
                             "Custom compute effects currently require the default RGBA16Float scene HDR format.");
                     }
-                    context.graph.add_compute_pass("custom graph compute effect")
+                    context.graph.add_compute_pass("custom graph compute effect"_ustr)
                         .add_sampled_texture(input)
                         .add_storage_texture(RenderGraphStorageTextureAccessDesc{
                             .texture = output,
@@ -275,7 +276,7 @@ namespace SFT::Renderer {
                     context.graph.add_copy_pass(RenderGraphCopyDesc{
                         .source = input,
                         .destination = output,
-                        .label = "custom graph exact HDR copy",
+                        .label = UString{"custom graph exact HDR copy"_ustr},
                     });
                     break;
             }
@@ -307,7 +308,7 @@ namespace SFT::Renderer {
                 .usage = custom_hdr_usage,
                 .label = "legacy custom HDR post-process target",
             });
-            context.graph.add_render_pass("legacy custom HDR post-process")
+            context.graph.add_render_pass("legacy custom HDR post-process"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = output,
                     .load_op = RHI::LoadOp::DontCare,
@@ -317,23 +318,23 @@ namespace SFT::Renderer {
                 .set_render_area(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = context.render_extent.width,
-                    .height = context.render_extent.height,
+                    .width = context.render_extent.x,
+                    .height = context.render_extent.y,
                 })
                 .set_execute([this, &submission, input, effect_index,
                               extent = context.render_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = graph_context.render_pass();
                     pass.set_viewport(RHI::Viewport{
-                        .width = static_cast<f32>(extent.width),
-                        .height = static_cast<f32>(extent.height),
+                        .width = static_cast<f32>(extent.x),
+                        .height = static_cast<f32>(extent.y),
                         .min_depth = 0.0f,
                         .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{
                         .x = 0,
                         .y = 0,
-                        .width = extent.width,
-                        .height = extent.height,
+                        .width = extent.x,
+                        .height = extent.y,
                     });
                     return record_custom_post_process(
                         pass,
@@ -369,7 +370,7 @@ namespace SFT::Renderer {
         }
         const RenderGraphTextureHandle scene_source = context.resources.texture<SceneHdrColor>();
         if (!scene_source) {
-            return missing_module_texture("bloom", "SceneHdrColor");
+            return missing_module_texture("bloom"_ustr, "SceneHdrColor"_ustr);
         }
 
         const vector<Core::Extent2D> &bloom_extents = frame_slot.bloom_targets.extents;
@@ -381,8 +382,8 @@ namespace SFT::Renderer {
                 .default_view = frame_slot.bloom_targets.views[level],
                 .format = bloom_format,
                 .extent = RHI::Extent3D{
-                    .width = bloom_extents[level].width,
-                    .height = bloom_extents[level].height,
+                    .width = bloom_extents[level].x,
+                    .height = bloom_extents[level].y,
                     .depth_or_layers = 1,
                 },
                 .mip_levels = 1,
@@ -406,7 +407,7 @@ namespace SFT::Renderer {
             const RHI::BindGroupHandle cached_bind_group =
                 frame_slot.bloom_targets.downsample_bind_groups[level];
 
-            context.graph.add_render_pass("bloom downsample")
+            context.graph.add_render_pass("bloom downsample"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = bloom_levels[level],
                     .view = frame_slot.bloom_targets.views[level],
@@ -417,24 +418,24 @@ namespace SFT::Renderer {
                 .set_render_area(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = destination_extent.width,
-                    .height = destination_extent.height,
+                    .width = destination_extent.x,
+                    .height = destination_extent.y,
                 })
                 .set_execute([this, &submission, scene_source, level_source_view, source_extent,
                               destination_extent, level, cached_bind_group](
                                  RenderGraphContext &graph_context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = graph_context.render_pass();
                     pass.set_viewport(RHI::Viewport{
-                        .width = static_cast<f32>(destination_extent.width),
-                        .height = static_cast<f32>(destination_extent.height),
+                        .width = static_cast<f32>(destination_extent.x),
+                        .height = static_cast<f32>(destination_extent.y),
                         .min_depth = 0.0f,
                         .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{
                         .x = 0,
                         .y = 0,
-                        .width = destination_extent.width,
-                        .height = destination_extent.height,
+                        .width = destination_extent.x,
+                        .height = destination_extent.y,
                     });
                     RHI::TextureViewHandle source_view = level_source_view;
                     RHI::BindGroupHandle bind_group = cached_bind_group;
@@ -454,15 +455,15 @@ namespace SFT::Renderer {
                         pass,
                         source_view,
                         glm::vec2{
-                            1.0f / static_cast<f32>(source_extent.width),
-                            1.0f / static_cast<f32>(source_extent.height),
+                            1.0f / static_cast<f32>(source_extent.x),
+                            1.0f / static_cast<f32>(source_extent.y),
                         },
                         submission.render_graph,
                         glm::vec2{
-                            0.5f * static_cast<f32>(source_extent.width) /
-                                static_cast<f32>(destination_extent.width),
-                            0.5f * static_cast<f32>(source_extent.height) /
-                                static_cast<f32>(destination_extent.height),
+                            0.5f * static_cast<f32>(source_extent.x) /
+                                static_cast<f32>(destination_extent.x),
+                            0.5f * static_cast<f32>(source_extent.y) /
+                                static_cast<f32>(destination_extent.y),
                         },
                         level == 0,
                         bind_group);
@@ -475,7 +476,7 @@ namespace SFT::Renderer {
             const RHI::TextureViewHandle source_view = frame_slot.bloom_targets.views[level];
             const RHI::BindGroupHandle bind_group = frame_slot.bloom_targets.upsample_bind_groups[level];
 
-            context.graph.add_render_pass("bloom upsample")
+            context.graph.add_render_pass("bloom upsample"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = bloom_levels[level - 1],
                     .view = frame_slot.bloom_targets.views[level - 1],
@@ -486,30 +487,30 @@ namespace SFT::Renderer {
                 .set_render_area(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = destination_extent.width,
-                    .height = destination_extent.height,
+                    .width = destination_extent.x,
+                    .height = destination_extent.y,
                 })
                 .set_execute([this, &submission, source_view, source_extent,
                               destination_extent, bind_group](RenderGraphContext &graph_context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = graph_context.render_pass();
                     pass.set_viewport(RHI::Viewport{
-                        .width = static_cast<f32>(destination_extent.width),
-                        .height = static_cast<f32>(destination_extent.height),
+                        .width = static_cast<f32>(destination_extent.x),
+                        .height = static_cast<f32>(destination_extent.y),
                         .min_depth = 0.0f,
                         .max_depth = 1.0f,
                     });
                     pass.set_scissor(RHI::Rect2D{
                         .x = 0,
                         .y = 0,
-                        .width = destination_extent.width,
-                        .height = destination_extent.height,
+                        .width = destination_extent.x,
+                        .height = destination_extent.y,
                     });
                     return record_bloom_upsample(
                         pass,
                         source_view,
                         glm::vec2{
-                            1.0f / static_cast<f32>(source_extent.width),
-                            1.0f / static_cast<f32>(source_extent.height),
+                            1.0f / static_cast<f32>(source_extent.x),
+                            1.0f / static_cast<f32>(source_extent.y),
                         },
                         submission.render_graph,
                         bind_group);
@@ -530,7 +531,7 @@ namespace SFT::Renderer {
                 .label = "bloom composite target",
             });
         const RenderGraphTextureHandle reconstructed_bloom = bloom_levels.front();
-        context.graph.add_render_pass("bloom composite")
+        context.graph.add_render_pass("bloom composite"_ustr)
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = composite_destination,
                 .load_op = RHI::LoadOp::DontCare,
@@ -541,23 +542,23 @@ namespace SFT::Renderer {
             .set_render_area(RHI::Rect2D{
                 .x = 0,
                 .y = 0,
-                .width = context.render_extent.width,
-                .height = context.render_extent.height,
+                .width = context.render_extent.x,
+                .height = context.render_extent.y,
             })
             .set_execute([this, &submission, scene_source, reconstructed_bloom,
                           extent = context.render_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
                 RHI::RenderPassEncoder &pass = graph_context.render_pass();
                 pass.set_viewport(RHI::Viewport{
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(extent.x),
+                    .height = static_cast<f32>(extent.y),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
                 pass.set_scissor(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = extent.width,
-                    .height = extent.height,
+                    .width = extent.x,
+                    .height = extent.y,
                 });
                 return record_bloom_composite(
                     pass,
@@ -585,15 +586,15 @@ namespace SFT::Renderer {
         const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
         const RenderGraphTextureHandle destination = context.resources.texture<PresentationTarget>();
         if (!source) {
-            return missing_module_texture("tone mapping", "SceneHdrColor");
+            return missing_module_texture("tone mapping"_ustr, "SceneHdrColor"_ustr);
         }
         if (!destination) {
-            return missing_module_texture("tone mapping", "PresentationTarget");
+            return missing_module_texture("tone mapping"_ustr, "PresentationTarget"_ustr);
         }
 
         submission.render_graph.tone_mapping_hdr_output = hdr_output;
         submission.render_graph.tone_mapping_hdr_color_space = hdr_color_space;
-        context.graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap" : "present scene color")
+        context.graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap"_ustr : "present scene color"_ustr)
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = destination,
                 .load_op = RHI::LoadOp::DontCare,
@@ -607,8 +608,8 @@ namespace SFT::Renderer {
             .set_render_area(RHI::Rect2D{
                 .x = 0,
                 .y = 0,
-                .width = context.presentation_extent.width,
-                .height = context.presentation_extent.height,
+                .width = context.presentation_extent.x,
+                .height = context.presentation_extent.y,
             })
             .set_execute([this, &submission, source, presentation_format,
                           extent = context.presentation_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
@@ -616,16 +617,16 @@ namespace SFT::Renderer {
                 pass.set_viewport(RHI::Viewport{
                     .x = 0.0f,
                     .y = 0.0f,
-                    .width = static_cast<f32>(extent.width),
-                    .height = static_cast<f32>(extent.height),
+                    .width = static_cast<f32>(extent.x),
+                    .height = static_cast<f32>(extent.y),
                     .min_depth = 0.0f,
                     .max_depth = 1.0f,
                 });
                 pass.set_scissor(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = extent.width,
-                    .height = extent.height,
+                    .width = extent.x,
+                    .height = extent.y,
                 });
                 return record_tonemap(
                     pass,

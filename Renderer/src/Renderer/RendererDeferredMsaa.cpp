@@ -286,8 +286,8 @@ namespace SFT::Renderer {
 
         const f32 safe_near = std::max(near_plane, 1.0e-4f);
         const DeferredMsaaConstants constants{
-            .width = std::max(extent.width, 1u),
-            .height = std::max(extent.height, 1u),
+            .width = std::max(extent.x, 1u),
+            .height = std::max(extent.y, 1u),
             .sample_count = static_cast<u32>(samples),
             .near_plane = safe_near,
             .far_plane = std::max(far_plane, safe_near + 1.0e-3f),

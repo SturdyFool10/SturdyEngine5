@@ -4,11 +4,13 @@
 #include <algorithm>
 #include <expected>
 #include <format>
+#include <memory>
 
 #include <optional>
 #include <span>
 #include <string_view>
 #include <utility>
+#include <vector>
 #pragma endregion
 
 #include <Core/Core.hpp>
@@ -18,8 +20,11 @@
 #include <Renderer/Renderer.hpp>
 
 using std::format;
+using std::optional;
+using std::shared_ptr;
 using std::span;
 using std::string_view;
+using std::vector;
 
 using std::unexpected;
 
@@ -282,7 +287,7 @@ namespace SFT::Engine {
     Core::RendererExpected<RenderTargetHandle> Engine::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
         auto target = renderer_.create_offscreen_render_target(RendererApi::OffscreenRenderTargetDescription{
-            .extent = Core::Extent2D{.width = description.width, .height = description.height},
+            .extent = Core::Extent2D{description.width, description.height},
             .label = description.label,
         });
         if (!target) {
@@ -304,8 +309,8 @@ namespace SFT::Engine {
             return std::nullopt;
         }
         return OffscreenRenderTargetDescription{
-            .width = description->extent.width,
-            .height = description->extent.height,
+            .width = description->extent.x,
+            .height = description->extent.y,
             .label = description->label,
         };
     }
@@ -467,7 +472,7 @@ namespace SFT::Engine {
         light_frame_requests_.begin_frame();
         render_extraction_schedule_.run(ecs_world_);
 
-        const std::shared_ptr<const LightFrameRequests::ExtractedLights> lights = light_frame_requests_.finish_frame();
+        const shared_ptr<const LightFrameRequests::ExtractedLights> lights = light_frame_requests_.finish_frame();
 
         if (RenderGraphResult graph_validation = parameters.render_graph.validate(); !graph_validation) {
             Foundation::log_error("Invalid high-level render graph: {} Using its normalized safe form.",
@@ -503,7 +508,7 @@ namespace SFT::Engine {
     }
 
     Core::RendererResult Engine::render(const PreparedRenderFrame &frame) {
-        std::optional<RenderGraph> normalized_graph;
+        optional<RenderGraph> normalized_graph;
         if (RenderGraphResult validation = frame.render_graph.validate(); !validation) {
             Foundation::log_error("Prepared frame contains an invalid high-level render graph: {} Using its normalized safe form.",
                                   validation.error().message);
@@ -511,7 +516,7 @@ namespace SFT::Engine {
         }
         const RenderGraph &executable_graph = normalized_graph ? *normalized_graph : frame.render_graph;
         const RenderGraphDescription &graph = executable_graph.description();
-        const std::vector<RenderGraphPassHandle> presentation_path = executable_graph.presentation_path();
+        const vector<RenderGraphPassHandle> presentation_path = executable_graph.presentation_path();
         const auto path_contains = [&executable_graph, &presentation_path](RenderGraphPassKind kind) {
             return std::ranges::any_of(presentation_path, [&executable_graph, kind](RenderGraphPassHandle handle) {
                 return handle.index < executable_graph.passes().size() &&
@@ -529,9 +534,9 @@ namespace SFT::Engine {
                           : RendererApi::LogicalRenderGraphTexture{};
         };
         enum class TextureDomain : u8 { Unknown, BeforeBloom, AfterBloom, Display };
-        std::vector<TextureDomain> domains(executable_graph.textures().size(), TextureDomain::Unknown);
-        std::vector<bool> live_pass(executable_graph.passes().size(), false);
-        std::vector<bool> presentation_pass(executable_graph.passes().size(), false);
+        vector<TextureDomain> domains(executable_graph.textures().size(), TextureDomain::Unknown);
+        vector<bool> live_pass(executable_graph.passes().size(), false);
+        vector<bool> presentation_pass(executable_graph.passes().size(), false);
         for (RenderGraphPassHandle handle : presentation_path) {
             if (handle.index < presentation_pass.size()) {
                 presentation_pass[handle.index] = true;
@@ -645,7 +650,7 @@ namespace SFT::Engine {
             }
         }
 
-        std::vector<RendererApi::CustomPostProcessEffect> custom_effects;
+        vector<RendererApi::CustomPostProcessEffect> custom_effects;
 
         RendererApi::RenderFrameDesc desc{};
         desc.surface = frame.surface;
@@ -750,7 +755,7 @@ namespace SFT::Engine {
         renderer_.wait_idle();
     }
 
-    std::optional<Core::GpuInfo> Engine::gpu_info() const {
+    optional<Core::GpuInfo> Engine::gpu_info() const {
         return renderer_.gpu_info();
     }
 

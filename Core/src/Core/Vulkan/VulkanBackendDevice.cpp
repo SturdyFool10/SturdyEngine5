@@ -573,6 +573,12 @@ namespace SFT::Core::Vulkan {
         if (enable_present_mode_fifo_latest_ready) {
             extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
         }
+        if (enable_swapchain_maintenance1) {
+            // The feature struct in the device pNext chain is only valid when its owning extension
+            // is enabled too. This also makes the RHI feature report truthful for the future
+            // present-fence retirement path.
+            extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+        }
         if (video_decode_family.has_value() || video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME);
         }
@@ -597,6 +603,17 @@ namespace SFT::Core::Vulkan {
             extensions.push_back(PORTABILITY_SUBSET_EXTENSION_NAME);
         }
 
+        // A second queue from the graphics family is the best portable latency win available when
+        // the driver exposes one: vkQueuePresentKHR can block in the WSI, but it then blocks only the
+        // presentation queue while graphics submissions keep flowing on queue 0. A separate family is
+        // deliberately not selected here because that needs explicit swapchain-image ownership transfer;
+        // the existing graphics queue remains the safe fallback in that topology.
+        const u32 graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family);
+        const u32 present_queue_index = gfx_family.has_value() && present_family.has_value() &&
+                *gfx_family == *present_family && graphics_queue_count > 1
+            ? 1u
+            : 0u;
+
         VulkanDevice::DeviceCreateDesc desc{
             .graphics_queue_family = gfx_family,
             .present_queue_family = present_family,
@@ -605,7 +622,8 @@ namespace SFT::Core::Vulkan {
             .sparse_queue_family = sparse_family,
             .video_decode_queue_family = video_decode_family,
             .video_encode_queue_family = video_encode_family,
-            .graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family),
+            .present_queue_index = present_queue_index,
+            .graphics_queue_count = graphics_queue_count,
             .compute_queue_count = preferred_lane_count(this->physicalDevice, compute_family),
             .transfer_queue_count = preferred_lane_count(this->physicalDevice, transfer_family),
             .sparse_queue_count = preferred_lane_count(this->physicalDevice, sparse_family),

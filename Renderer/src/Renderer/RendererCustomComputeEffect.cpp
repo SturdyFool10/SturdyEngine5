@@ -245,7 +245,7 @@ namespace SFT::Renderer {
         if (Core::RendererResult ready = ensure_custom_compute_effect(effect); !ready.has_value()) {
             return ready;
         }
-        if (!source_view || !output_view || extent.width == 0 || extent.height == 0) {
+        if (!source_view || !output_view || extent.x == 0 || extent.y == 0) {
             return unexpected(custom_compute_error(
                 "Cannot record a custom compute effect without valid source/output views and extent."));
         }
@@ -307,7 +307,7 @@ namespace SFT::Renderer {
                 0,
                 span<const std::byte>{effect.push_constants.data(), effect.push_constants.size()});
         }
-        pass.dispatch((extent.width + 7u) / 8u, (extent.height + 7u) / 8u, 1);
+        pass.dispatch((extent.x + 7u) / 8u, (extent.y + 7u) / 8u, 1);
         return {};
     }
 

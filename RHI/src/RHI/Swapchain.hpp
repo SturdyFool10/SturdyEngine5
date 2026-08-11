@@ -281,6 +281,11 @@ namespace SFT::RHI {
 
     struct PresentDesc {
         SurfaceTexture texture{};
+        // Optional completion fence for the presentation operation itself, distinct from a graphics
+        // submission fence. Backends attach it only when Feature::SwapchainMaintenance (or an
+        // equivalent native capability) is enabled; it signals when this present no longer keeps the
+        // swapchain alive, allowing a resize to retire only the old presentation resources.
+        FenceHandle completion_fence{};
         const char *label = nullptr;
     };
 

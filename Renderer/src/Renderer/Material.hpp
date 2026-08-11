@@ -122,7 +122,7 @@ namespace SFT::Renderer {
     // One template backs many instances. Owned + created by Renderer::create_material_template().
     struct MaterialTemplateResource {
         MaterialTemplateHandle handle{};
-        string label;
+        UString label;
 
         // Kept so pipelines/reflection stay available for hot-reload and lazy pipeline creation.
         Core::Slang::Shader shader;
@@ -199,7 +199,7 @@ namespace SFT::Renderer {
     struct MaterialInstanceResource {
         MaterialInstanceHandle handle{};
         MaterialTemplateHandle material_template{};
-        string label;
+        UString label;
 
         vector<byte> uniform_values;               // mirror of the UBO, seeded from parameter defaults
         vector<MaterialTextureBinding> textures;    // one entry per template texture slot

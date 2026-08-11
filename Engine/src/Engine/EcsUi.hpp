@@ -166,8 +166,7 @@ namespace SFT::Engine {
                                 std::vector<RHI::BufferHandle> &transient_buffers,
                                 Renderer::TextAtlasRetiredResources &retired_atlas_resources) -> Core::RendererResult {
                 const Core::Extent2D layout_extent = snapshot->viewport_extent();
-                if (viewport_size.x != static_cast<f32>(layout_extent.width) ||
-                    viewport_size.y != static_cast<f32>(layout_extent.height)) {
+                if (viewport_size != glm::vec2{layout_extent}) {
                     return Core::graphics_backend_error(
                         Core::GraphicsBackendErrorCode::OperationFailed,
                         "UI snapshot extent does not match the selected render endpoint; call begin_layout() "

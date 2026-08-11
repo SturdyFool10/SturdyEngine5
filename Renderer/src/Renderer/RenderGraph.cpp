@@ -5,14 +5,36 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <memory>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Renderer {
 
+    using std::optional;
+    using std::pair;
+    using std::string;
+    using std::string_view;
+    using std::unique_ptr;
+
     namespace {
         using CpuClock = std::chrono::steady_clock;
+
+        const UString render_graph_blit_label{"render graph blit"_ustr};
+        const UString render_graph_copy_label{"render graph copy"_ustr};
+
+        [[nodiscard]] string render_graph_labelled_error(
+            const ustr &operation, const UString &label, const string &error) {
+            UString message{operation};
+            message.append(" '"_ustr);
+            message.append(label);
+            message.append("' failed: "_ustr);
+            message.append(string_view{error});
+            return message.cpp_string();
+        }
     } // namespace
 
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphRenderPassBuilder &pass) {
@@ -110,7 +132,7 @@ namespace SFT::Renderer {
             return {};
         }
 
-RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(string label) : label_(std::move(label)) {}
+RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(const ustr &label) : label_(label) {}
 
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_color_attachment(const RenderGraphColorAttachmentDesc &attachment) {
             ZoneScopedN("RenderGraphRenderPassBuilder::add_color_attachment");
@@ -167,7 +189,7 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGr
             return *this;
         }
 
-RenderGraphComputePassBuilder::RenderGraphComputePassBuilder(string label) : label_(std::move(label)) {}
+RenderGraphComputePassBuilder::RenderGraphComputePassBuilder(const ustr &label) : label_(label) {}
 
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_sampled_texture(RenderGraphTextureHandle texture) {
             ZoneScopedN("RenderGraphComputePassBuilder::add_sampled_texture");
@@ -226,7 +248,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
-                .label = desc.label ? desc.label : "",
+                .label = UString{desc.label ? desc.label : ""},
             });
             return handle;
         }
@@ -238,7 +260,7 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .imported = desc,
                 .stage = desc.initial_stage,
                 .access = desc.initial_access,
-                .label = desc.label ? desc.label : "",
+                .label = UString{desc.label ? desc.label : ""},
             });
             return handle;
         }
@@ -260,15 +282,15 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
                 .final_layout = desc.final_layout,
                 .final_stage = desc.final_stage,
                 .final_access = desc.final_access,
-                .label = desc.label ? desc.label : "",
+                .label = UString{desc.label ? desc.label : ""},
             });
             return handle;
         }
 
-[[nodiscard]] RenderGraphRenderPassBuilder &RenderGraph::add_render_pass(string_view label) {
+[[nodiscard]] RenderGraphRenderPassBuilder &RenderGraph::add_render_pass(const ustr &label) {
             ZoneScopedN("RenderGraph::add_render_pass");
             const u32 index = static_cast<u32>(render_passes_.size());
-            render_passes_.emplace_back(string{label});
+            render_passes_.emplace_back(label);
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Render, .index = index});
             return render_passes_.back();
         }
@@ -280,10 +302,10 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Blit, .index = index});
         }
 
-[[nodiscard]] RenderGraphComputePassBuilder &RenderGraph::add_compute_pass(string_view label) {
+[[nodiscard]] RenderGraphComputePassBuilder &RenderGraph::add_compute_pass(const ustr &label) {
             ZoneScopedN("RenderGraph::add_compute_pass");
             const u32 index = static_cast<u32>(compute_passes_.size());
-            compute_passes_.emplace_back(string{label});
+            compute_passes_.emplace_back(label);
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Compute, .index = index});
             return compute_passes_.back();
         }
@@ -408,7 +430,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
 
             const auto validate_buffer_access = [this](const RenderGraphBufferAccessDesc &access)
-                -> std::optional<RenderGraphCompileError> {
+                -> optional<RenderGraphCompileError> {
                 const BufferRecord *record = buffer_record(access.buffer);
                 const bool range_valid = record != nullptr && record->imported.size > 0 &&
                     access.offset < record->imported.size &&
@@ -486,10 +508,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     const bool same_pass_write =
                         std::find(usage[i].writes.begin(), usage[i].writes.end(), read) != usage[i].writes.end();
                     if (record != nullptr && record->is_transient && !same_pass_write) {
+                        UString message{"Render graph pass reads transient texture '"_ustr};
+                        message.append(record->label);
+                        message.append("' before any earlier pass wrote it."_ustr);
                         return std::unexpected(RenderGraphCompileError{
                             .code = RenderGraphCompileErrorCode::MissingProducer,
-                            .message = string("Render graph pass reads transient texture '") + record->label +
-                                       "' before any earlier pass wrote it.",
+                            .message = std::move(message),
                         });
                     }
                 }
@@ -554,7 +578,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 }
             }
 
-            // Binary min-heap over a plain vector instead of std::set<u32>: same "always schedule the
+            // Binary min-heap over a plain vector instead of an ordered set: same "always schedule the
             // smallest ready original index next" semantics (push_heap/pop_heap with std::greater keep
             // the smallest element at front), but one contiguous buffer instead of a per-element
             // red-black-tree node allocation — cheaper and far more cache-friendly at the pass counts
@@ -621,7 +645,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             CompileResult compiled = compile();
             if (!compiled.has_value()) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    compiled.error().message);
+                                                    compiled.error().message.cpp_string());
             }
             const vector<OrderedPass> &execution_order = compiled->order;
             if (Core::RendererResult created = create_transient_resources(device, execution_order); !created.has_value()) {
@@ -677,57 +701,57 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
             const CpuClock::time_point cpu_begin = cpu_timing_enabled ? CpuClock::now() : CpuClock::time_point{};
             Core::RendererResult result = {};
-            string_view label;
+            const UString *label = &render_graph_copy_label;
             switch (ordered.kind) {
                 case PassKind::Render: {
                     RenderGraphRenderPassBuilder &pass = render_passes_[ordered.index];
-                    label = pass.label_;
-                    result = with_debug_group(encoder, pass.label_, [&]() {
+                    label = &pass.label_;
+                    result = with_debug_group(encoder, *label, [&]() {
                         return execute_render_pass(encoder, pass);
                     });
                     break;
                 }
                 case PassKind::Blit: {
                     const RenderGraphBlitDesc &pass = blit_passes_[ordered.index];
-                    label = pass.label ? pass.label : "render graph blit";
-                    result = with_debug_group(encoder, label, [&]() {
+                    label = pass.label.empty() ? &render_graph_blit_label : &pass.label;
+                    result = with_debug_group(encoder, *label, [&]() {
                         return execute_blit_pass(encoder, pass);
                     });
                     break;
                 }
                 case PassKind::Compute: {
                     RenderGraphComputePassBuilder &pass = compute_passes_[ordered.index];
-                    label = pass.label_;
-                    result = with_debug_group(encoder, pass.label_, [&]() {
+                    label = &pass.label_;
+                    result = with_debug_group(encoder, *label, [&]() {
                         return execute_compute_pass(encoder, pass);
                     });
                     break;
                 }
                 case PassKind::Copy: {
                     const RenderGraphCopyDesc &pass = copy_passes_[ordered.index];
-                    label = pass.label ? pass.label : "render graph copy";
-                    result = with_debug_group(encoder, label, [&]() {
+                    label = pass.label.empty() ? &render_graph_copy_label : &pass.label;
+                    result = with_debug_group(encoder, *label, [&]() {
                         return execute_copy_pass(encoder, pass);
                     });
                     break;
                 }
             }
-            if (!label.empty()) {
-                ZoneText(label.data(), label.size());
+            if (!label->empty()) {
+                ZoneText(label->data(), label->byte_size());
             }
             if (!result.has_value()) {
                 return result;
             }
             if (out_cpu_timing != nullptr) {
                 const f64 ms = std::chrono::duration<f64, std::milli>(CpuClock::now() - cpu_begin).count();
-                *out_cpu_timing = CpuPassTiming{.label = string{label}, .duration_ms = ms};
+                *out_cpu_timing = CpuPassTiming{.label = *label, .duration_ms = ms};
             }
             if (timing_enabled) {
                 const u32 end_query_index = begin_query_index + 1;
                 encoder.write_timestamp(RHI::PipelineStage::AllCommands, timestamp_query_set, end_query_index);
                 if (out_gpu_timing != nullptr) {
                     *out_gpu_timing = GpuPassTiming{
-                        .label = string{label},
+                        .label = *label,
                         .begin_query_index = begin_query_index,
                         .end_query_index = end_query_index,
                     };
@@ -824,7 +848,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 [[nodiscard]] Core::RendererResult RenderGraph::execute_parallel(RHI::RhiDevice &device,
-                                                                   std::unique_ptr<RHI::CommandEncoder> primary_encoder,
+                                                                   unique_ptr<RHI::CommandEncoder> primary_encoder,
                                                                    RHI::QueueLane queue,
                                                                    vector<RHI::CommandBufferHandle> &out_command_buffers,
                                                                    RHI::QuerySetHandle timestamp_query_set,
@@ -851,7 +875,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }();
             if (!compiled.has_value()) {
                 return fail(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                         compiled.error().message));
+                                                         compiled.error().message.cpp_string()));
             }
             const vector<OrderedPass> &execution_order = compiled->order;
             Core::RendererResult created = [&] {
@@ -963,7 +987,7 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 struct LevelPassGroup {
                     Core::RendererResult status{};
                     RHI::CommandBufferHandle command_buffer{};
-                    std::unique_ptr<RHI::CommandEncoder> encoder;
+                    unique_ptr<RHI::CommandEncoder> encoder;
                     usize begin = 0; // index into `positions`, inclusive
                     usize end = 0;   // index into `positions`, exclusive
                 };
@@ -1403,8 +1427,9 @@ void RenderGraph::reset() noexcept {
             };
             auto render_pass = encoder.begin_render_pass(pass_desc);
             if (!render_pass) {
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    string("begin render graph pass '") + pass.label_ + "' failed: " + render_pass.error().message);
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    render_graph_labelled_error("begin render graph pass"_ustr, pass.label_, render_pass.error().message));
             }
 
             if (pass.execute_) {
@@ -1504,8 +1529,9 @@ void RenderGraph::reset() noexcept {
             };
             auto compute_pass = encoder.begin_compute_pass(pass_desc);
             if (!compute_pass) {
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    string("begin render graph compute pass '") + pass.label_ + "' failed: " + compute_pass.error().message);
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    render_graph_labelled_error("begin render graph compute pass"_ustr, pass.label_, compute_pass.error().message));
             }
 
             if (pass.execute_) {
@@ -1602,7 +1628,7 @@ void RenderGraph::reset() noexcept {
 
             struct PendingSlot {
                 RenderGraphTextureDesc desc;
-                string label;
+                UString label;
             };
             vector<PendingSlot> pending;
 
@@ -1647,7 +1673,7 @@ void RenderGraph::reset() noexcept {
                 std::sort(bucket.members.begin(), bucket.members.end(), [&](u32 a, u32 b) {
                     return lifetimes[a].first_use < lifetimes[b].first_use;
                 });
-                vector<std::pair<u32, i32>> open_slots; // (physical_slots_ index, current occupant's last_use)
+                vector<pair<u32, i32>> open_slots; // (physical_slots_ index, current occupant's last_use)
                 for (u32 texture_index : bucket.members) {
                     const TextureLifetime &lifetime = lifetimes[texture_index];
                     i32 reused_slot = -1;
@@ -1685,8 +1711,10 @@ void RenderGraph::reset() noexcept {
                     .label = pending_slot.label.empty() ? "render graph transient texture" : pending_slot.label.c_str(),
                 });
                 if (!texture_handle) {
-                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        string("create render graph transient texture '") + pending_slot.label + "' failed: " + texture_handle.error().message);
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        render_graph_labelled_error("create render graph transient texture"_ustr,
+                                                    pending_slot.label, texture_handle.error().message));
                 }
 
                 auto view_handle = device.create_texture_view(RHI::TextureViewDesc{
@@ -1696,8 +1724,10 @@ void RenderGraph::reset() noexcept {
                 });
                 if (!view_handle) {
                     device.destroy_texture(*texture_handle);
-                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                        string("create render graph transient texture view '") + pending_slot.label + "' failed: " + view_handle.error().message);
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        render_graph_labelled_error("create render graph transient texture view"_ustr,
+                                                    pending_slot.label, view_handle.error().message));
                 }
 
                 slot.texture = *texture_handle;

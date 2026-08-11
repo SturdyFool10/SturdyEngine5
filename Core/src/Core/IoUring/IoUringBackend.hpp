@@ -1,5 +1,15 @@
 #pragma once
 
+// io_uring is a Linux kernel interface, so this backend only exists on Linux. Core/CMakeLists.txt
+// already keeps the whole IoUring/ directory out of every other OS's source list
+// (EXCLUDE_SOURCE_DIRS), and this guard makes that same boundary hold for readers of the source
+// that do not go through CMake's per-OS file list at all: clangd resolves a file with no
+// compile_commands.json entry by inferring flags from a sibling TU, so under a Windows view (see
+// .clangd's CompilationDatabase) it would otherwise parse the definitions below -- and the .cpp's
+// <linux/io_uring.h> -- with a Windows target. Declaring nothing off Linux also means a call that
+// slips past a platform guard fails at the call site, rather than compiling into a link error.
+#if defined(__linux__)
+
 #include <RHI/RHI.hpp>
 
 #include <cstddef>
@@ -27,3 +37,5 @@ namespace SFT::Core {
     [[nodiscard]] RHI::RhiExpected<std::vector<std::byte>> read_file_io_uring(const std::filesystem::path &path);
 
 } // namespace SFT::Core
+
+#endif // defined(__linux__)

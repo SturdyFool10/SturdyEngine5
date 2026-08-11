@@ -8,9 +8,9 @@ namespace SFT::Renderer {
 
 [[nodiscard]] span<const u32> Mesh::indices() const noexcept { return indices_; }
 
-[[nodiscard]] const string &Mesh::label() const noexcept { return label_; }
+[[nodiscard]] const UString &Mesh::label() const noexcept { return label_; }
 
-void Mesh::set_label(string label) noexcept { label_ = std::move(label); }
+void Mesh::set_label(UString label) noexcept { label_ = std::move(label); }
 
 void Mesh::set_vertex_color(const glm::vec4 &color) noexcept {
             ZoneScopedN("Mesh::set_vertex_color");

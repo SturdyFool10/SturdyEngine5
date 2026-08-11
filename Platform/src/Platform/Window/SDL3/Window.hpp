@@ -4,6 +4,9 @@
 
 #pragma region Imports
 #include <SDL3/SDL.h>
+#if defined(_WIN32)
+#include <SDL3/SDL_system.h>
+#endif
 
 #include <atomic>
 #include <deque>
@@ -114,7 +117,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             const void *allocation_callbacks,
             void *surface_out) const noexcept override;
 
-        void set_repaint_callback(std::function<void()> callback) noexcept override;
+        void set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept override;
 
         [[nodiscard]] std::string clipboard_text() const noexcept override;
         expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
@@ -134,13 +137,19 @@ namespace SFT::Platform::Windowing::SDL3 {
         optional<WindowResize> pending_resize_;
         WindowExtent last_size_ = {};
         WindowExtent last_framebuffer_size_ = {};
+        // Updated by the Windows modal-loop event watch under sdl_window_mutex(). Kept separate
+        // from last_framebuffer_size_, which is committed only when the ordinary event pump drains.
+        WindowExtent last_live_resize_extent_ = {};
         atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
-        std::function<void()> repaint_callback_;
+        std::function<void(WindowExtent)> live_resize_callback_;
         SDL_Cursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
 
-        static bool SDLCALL sdl_repaint_watch(void *userdata, SDL_Event *event) noexcept;
+        static bool SDLCALL sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept;
+#if defined(_WIN32)
+        static bool SDLCALL sdl_windows_message_hook(void *userdata, MSG *message) noexcept;
+#endif
     };
 
 } // namespace SFT::Platform::Windowing::SDL3

@@ -11,10 +11,9 @@
 namespace SFT::Engine {
 
     // Read-only per-window snapshot of state a gameplay/UI system might want without touching a live
-    // Window*. Window is main-thread-affine (Window.hpp: "do not operate one window from multiple
-    // threads"), and ECS Schedule stages run on Async::Scheduler worker threads, so Application builds
-    // one of these per managed window on the window-owning thread and hands it to Engine as plain
-    // data every tick — exactly how PreparedRenderFrame keeps ECS workers away from live
+    // Window*. The window manager owns live windows on its event thread, while ECS Schedule stages
+    // may run on Async::Scheduler workers. Application turns the manager's event-channel cache into
+    // one of these plain-data snapshots every tick, keeping both systems away from live Window and
     // Renderer/RHI objects.
     struct WindowSnapshot {
         Platform::Windowing::WindowId id{};

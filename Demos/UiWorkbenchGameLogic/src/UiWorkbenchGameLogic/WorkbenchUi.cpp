@@ -1674,8 +1674,7 @@ namespace SFT::UiWorkbench {
                             Renderer::TextAtlasRetiredResources &retired_resources)
             -> Core::RendererResult {
             const Core::Extent2D extent = snapshot->viewport_extent();
-            if (viewport_size.x != static_cast<f32>(extent.width) ||
-                viewport_size.y != static_cast<f32>(extent.height)) {
+            if (viewport_size != glm::vec2{extent}) {
                 return Core::graphics_backend_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "UiWorkbench snapshot extent does not match its render surface.");

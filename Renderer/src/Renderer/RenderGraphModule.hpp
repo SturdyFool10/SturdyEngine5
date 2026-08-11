@@ -107,8 +107,8 @@ namespace SFT::Renderer {
 
         [[nodiscard]] RHI::Extent3D render_texture_extent() const noexcept {
             return RHI::Extent3D{
-                .width = render_extent.width,
-                .height = render_extent.height,
+                .width = render_extent.x,
+                .height = render_extent.y,
                 .depth_or_layers = 1,
             };
         }
