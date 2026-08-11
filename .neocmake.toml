@@ -1,0 +1,4 @@
+# This project intentionally permits unwrapped CMake commands and explanatory comments.
+# neocmakelsp counts bytes in line_max_words. Its 32-bit maximum is effectively
+# unlimited for source files, disabling only C0301 while retaining all other lint.
+line_max_words = 4294967295
