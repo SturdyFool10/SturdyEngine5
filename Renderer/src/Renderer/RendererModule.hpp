@@ -637,6 +637,9 @@ namespace SFT::Renderer {
             Core::Extent2D swapchain_extent{};
             u32 desired_frames_in_flight = 2;
             Core::PresentationSettings presentation{};
+            // Last per-window SDR reference white used by the direct UI display transform, in nits.
+            // Zero means no platform value has been observed/logged yet.
+            f32 ui_reference_white_nits = 0.0f;
             bool primary = false;
             bool rhi_swapchain_dirty = true;
             // Completion fences for presents already issued from the current swapchain. Only retained
@@ -1770,7 +1773,8 @@ namespace SFT::Renderer {
                                                           RHI::TextureViewHandle source_view,
                                                           RHI::Format color_format,
                                                           const RenderGraphSettings &settings,
-                                                          vector<RHI::BindGroupHandle> &transient_bind_groups);
+                                                          vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                          bool preserve_alpha = false);
         void destroy_tonemap_resources() noexcept;
         // Caller must already hold tonemap_'s guard.
         void destroy_tonemap_resources_locked(TonemapResources &resources) noexcept;

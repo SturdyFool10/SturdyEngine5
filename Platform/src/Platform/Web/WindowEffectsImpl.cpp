@@ -29,6 +29,11 @@ namespace SFT::Platform::Windowing {
         return false;
     }
 
+    void release_native_window_effects(NativeWindowHandle handle, bool release_display) noexcept {
+        (void)handle;
+        (void)release_display;
+    }
+
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
         (void)handle;
         if (!operating_system_may_support_window_effect(effect.kind)) [[likely]] {

@@ -177,6 +177,9 @@ namespace SFT::Renderer {
     struct UiOverlayHooks {
         UiOverlayPrepareFn prepare;
         UiOverlayDrawFn draw;
+        // Multiplies the compositor-reported SDR/reference white for HDR UI presentation. A value of
+        // 1 preserves exact SDR parity; exposed by calibration/workbench UIs without hardcoding nits.
+        f32 hdr_reference_white_scale = 1.0f;
         [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(prepare) && static_cast<bool>(draw); }
     };
 

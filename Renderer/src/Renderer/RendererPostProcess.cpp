@@ -47,6 +47,7 @@ namespace SFT::Renderer {
             u32 hdr_color_space = 0;
             f32 hdr_paper_white_nits = 203.0f;
             f32 hdr_peak_nits = 1000.0f;
+            u32 preserve_alpha = 0;
 
             u32 agx_look = 0;
 
@@ -70,7 +71,7 @@ namespace SFT::Renderer {
             f32 psychov_background_gray_g = 0.18f;
             f32 psychov_background_gray_b = 0.18f;
         };
-        static_assert(sizeof(TonemapConstants) == 108);
+        static_assert(sizeof(TonemapConstants) == 112);
 
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -246,7 +247,8 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::record_tonemap(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                   RHI::Format color_format, const RenderGraphSettings &settings,
-                                                  vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                  vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                  bool preserve_alpha) {
         ZoneScopedN("Renderer::record_tonemap");
         auto pipeline = tonemap_pipeline_for(color_format);
         if (!pipeline) {
@@ -324,6 +326,7 @@ namespace SFT::Renderer {
             .hdr_color_space = static_cast<u32>(settings.tone_mapping_hdr_color_space),
             .hdr_paper_white_nits = settings.tone_mapping_hdr_paper_white_nits,
             .hdr_peak_nits = settings.tone_mapping_hdr_peak_nits,
+            .preserve_alpha = preserve_alpha ? 1u : 0u,
             .agx_look = static_cast<u32>(settings.agx_look),
             .hermite_toe_strength = settings.hermite_toe_strength,
             .hermite_toe_length = settings.hermite_toe_length,

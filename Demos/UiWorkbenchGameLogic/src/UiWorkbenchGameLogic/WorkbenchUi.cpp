@@ -24,6 +24,11 @@ namespace SFT::UiWorkbench {
         constexpr UI::Color warning{1.0, 0.670, 0.260, 1.0};
         constexpr UI::Color danger{0.960, 0.350, 0.380, 1.0};
 
+        [[nodiscard]] UI::Color background_with_opacity(UI::Color color, f64 opacity) noexcept {
+            color.a *= std::clamp(opacity, 0.0, 1.0);
+            return color;
+        }
+
         // UI stays Platform-agnostic (see UI.hpp's own doc comment), so nothing below Engine ever
         // translates UI::CursorIcon to Platform::Windowing::CursorIcon on its own — this is exactly
         // that Engine-level glue, applied once per surface per frame further down in render().
@@ -227,17 +232,19 @@ namespace SFT::UiWorkbench {
 
     struct WorkbenchUi::Surface {
         Surface(Core::RenderSurfaceHandle surface_handle, UI::Context &&ui_context,
-                UI::UiRenderer &&ui_renderer, UString workspace_id,
-                UI::Docking::DockWorkspaceStyle workspace_style, bool is_primary)
+                UI::UiRenderer &&sdr_ui_renderer, UI::UiRenderer &&hdr_ui_renderer,
+                UString workspace_id, UI::Docking::DockWorkspaceStyle workspace_style, bool is_primary)
             : handle(surface_handle),
               context(std::move(ui_context)),
-              renderer(std::move(ui_renderer)),
+              sdr_renderer(std::move(sdr_ui_renderer)),
+              hdr_renderer(std::move(hdr_ui_renderer)),
               workspace(std::move(workspace_id), workspace_style),
               primary(is_primary) {}
 
         Core::RenderSurfaceHandle handle{};
         UI::Context context{};
-        UI::UiRenderer renderer{};
+        UI::UiRenderer sdr_renderer{};
+        UI::UiRenderer hdr_renderer{};
         UI::PointerState pointer{};
         UI::Docking::DockWorkspace workspace;
         bool primary = false;
@@ -275,7 +282,8 @@ namespace SFT::UiWorkbench {
 
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
-        // overlay_only() leaves debug_overlay.enabled true (it's the CPU/GPU timing collection this
+        // overlay_only() disables scene/post-processing so the UI writes directly to presentation.
+        // It leaves debug_overlay.enabled true (it's the CPU/GPU timing collection this
         // workbench wants), but the burned-in on-screen text block it used to also draw is redundant
         // with the "Performance" dock panel below (build_metrics_panel), which reads the same numbers
         // via Renderer::last_frame_timings() — so only the text draw is turned off here.
@@ -299,6 +307,9 @@ namespace SFT::UiWorkbench {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
         font_ = std::move(*loaded);
+        hdr_enabled_ = static_cast<bool>(engine.config().features.presentation.hdr_enabled);
+        swapchain_transparent_ =
+            static_cast<bool>(engine.config().features.presentation.transparent_composition);
         Foundation::log_info(
             "UiWorkbench: loaded font 'Fonts/MapleMono-NF-Regular.ttf' ({} bytes) in {}",
             font_bytes->size(),
@@ -353,15 +364,24 @@ namespace SFT::UiWorkbench {
             Foundation::log_error("UiWorkbench: failed to create a UI context for a window.");
             return nullptr;
         }
-        auto renderer = UI::UiRenderer::create(*device, RHI::Format::BGRA8UnormSrgb);
-        if (!renderer) {
-            Foundation::log_error("UiWorkbench: failed to create a UI renderer for a window.");
+        auto sdr_renderer = UI::UiRenderer::create(*device, RHI::Format::BGRA8UnormSrgb);
+        if (!sdr_renderer) {
+            Foundation::log_error("UiWorkbench: failed to create the SDR UI renderer for a window.");
+            context->destroy();
+            return nullptr;
+        }
+        // HDR UI is composited in linear light, then Renderer applies the surface's actual HDR
+        // transfer function once after all UI blending. Never blend individual UI fragments in PQ.
+        auto hdr_renderer = UI::UiRenderer::create(*device, RHI::Format::RGBA16Float);
+        if (!hdr_renderer) {
+            Foundation::log_error("UiWorkbench: failed to create the HDR UI renderer for a window.");
+            sdr_renderer->destroy(*device);
             context->destroy();
             return nullptr;
         }
         const usize numeric_window = static_cast<usize>(handle.window_id);
         auto surface = std::make_unique<Surface>(
-            handle, std::move(*context), std::move(*renderer),
+            handle, std::move(*context), std::move(*sdr_renderer), std::move(*hdr_renderer),
             UString{"ui-workbench-window-" + std::to_string(numeric_window)},
             dock_style(font_id_), primary);
         surface->context.register_font(font_id_, font_);
@@ -552,7 +572,8 @@ namespace SFT::UiWorkbench {
                 (!primary_window_ || completion.window != *primary_window_)) {
                 if (auto found = surfaces_.find(completion.window); found != surfaces_.end()) {
                     if (RHI::RhiDevice *device = engine.rhi_device()) {
-                        found->second->renderer.destroy(*device);
+                        found->second->sdr_renderer.destroy(*device);
+                        found->second->hdr_renderer.destroy(*device);
                     }
                     found->second->context.destroy();
                     surfaces_.erase(found);
@@ -571,6 +592,7 @@ namespace SFT::UiWorkbench {
         if (surface == nullptr || frame.framebuffer_width == 0 || frame.framebuffer_height == 0) {
             return std::nullopt;
         }
+
 
         if (Renderer::Renderer *renderer = engine.renderer(); renderer != nullptr) {
             surface->last_timing_snapshot = renderer->last_frame_timings(handle);
@@ -632,7 +654,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::symmetric(18, 12),
                 .child_gap = 10,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Top},
-                .background_color = canvas,
+                .background_color = background_with_opacity(canvas, effective_background_opacity()),
             });
             {
                 auto brand = surface.context.element(UI::ElementDecl{
@@ -671,6 +693,8 @@ namespace SFT::UiWorkbench {
 
         const glm::vec2 workspace_size{std::max(viewport.x - 36.0f, 1.0f),
                                        std::max(viewport.y - 72.0f, 1.0f)};
+        surface.workspace.set_content_background(
+            background_with_opacity(canvas, effective_background_opacity()));
         surface.workspace.begin_frame(
             surface.context,
             UI::Docking::DockRect{.origin = kWorkspaceOrigin, .size = workspace_size},
@@ -820,12 +844,12 @@ namespace SFT::UiWorkbench {
             (void)core;
         };
         composition.tooltip.visible = true;
-        composition.tooltip.build = [](UI::Context &part_ctx,
-                                       const UI::SliderPartContext &part) {
+        composition.tooltip.build = [this](UI::Context &part_ctx,
+                                           const UI::SliderPartContext &part) {
             auto tooltip = part_ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::symmetric(9, 5),
-                .background_color = panel_raised,
+                .background_color = background_with_opacity(panel_raised, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(7.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -877,7 +901,7 @@ namespace SFT::UiWorkbench {
                     .padding = UI::Padding::all(14),
                     .child_gap = 7,
                     .direction = UI::LayoutDirection::TopToBottom,
-                    .background_color = panel,
+                    .background_color = background_with_opacity(panel, effective_background_opacity()),
                     .corner_radius = UI::CornerRadius::all(12.0f),
                     .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
                 });
@@ -924,7 +948,8 @@ namespace SFT::UiWorkbench {
         style.color_space_text = text_style(font_id_, text_primary, 13);
         style.color_space_text.wrap_mode = UI::TextWrapMode::None;
         style.color_space_dropdown.trigger = action_button_style();
-        style.color_space_dropdown.list_background = panel_raised;
+        style.color_space_dropdown.list_background =
+            background_with_opacity(panel_raised, effective_background_opacity());
         style.color_space_dropdown.option_hovered = UI::Color{0.16, 0.19, 0.28, 1.0};
         style.color_space_dropdown.corner_radius = UI::CornerRadius::all(10.0f);
         style.color_space_dropdown.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
@@ -949,12 +974,12 @@ namespace SFT::UiWorkbench {
                            UI::SizingAxis::fixed(part.visual.active ? 19.0f : 16.0f)};
         };
         composition.tooltip.visible = true;
-        composition.tooltip.build = [](UI::Context &part_ctx,
-                                       const UI::ColorPickerPartContext &part) {
+        composition.tooltip.build = [this](UI::Context &part_ctx,
+                                           const UI::ColorPickerPartContext &part) {
             auto tooltip = part_ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::symmetric(9, 5),
-                .background_color = panel_raised,
+                .background_color = background_with_opacity(panel_raised, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(7.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -968,7 +993,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(14),
                 .child_gap = 10,
                 .direction = UI::LayoutDirection::TopToBottom,
-                .background_color = panel,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(14.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             },
@@ -985,7 +1010,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(13),
                 .child_gap = 6,
                 .direction = UI::LayoutDirection::TopToBottom,
-                .background_color = panel_raised,
+                .background_color = background_with_opacity(panel_raised, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1018,6 +1043,29 @@ namespace SFT::UiWorkbench {
         panel_heading(ctx, font_id_, "PART SLOTS", "Composition",
                       "Enable, disable, hide or replace widget internals without forking interaction logic.");
 
+        const auto apply_presentation_config = [&](const Engine::EngineConfig &config) {
+            Surface *primary_surface = primary_window_ ? find_surface(*primary_window_) : nullptr;
+            const Core::RenderSurfaceHandle config_surface =
+                primary_surface != nullptr ? primary_surface->handle : surface.handle;
+            auto applied = engine.apply_runtime_settings(config_surface, config);
+            if (!applied) {
+                return applied;
+            }
+            for (const auto &[window, other_surface] : surfaces_) {
+                if (window == config_surface.window_id) {
+                    continue;
+                }
+                if (const Core::RendererResult mirrored = engine.set_presentation_settings(
+                        other_surface->handle, config.features.presentation);
+                    !mirrored) {
+                    Foundation::log_warn(
+                        "UiWorkbench: failed to mirror presentation settings to window {}: {}",
+                        static_cast<usize>(window), mirrored.error().message);
+                }
+            }
+            return applied;
+        };
+
         const auto toggle_row = [&](usize index, const char *label, const char *description,
                                     bool &value, const std::function<void()> &on_change = [] {}) {
             auto row = ctx.element(UI::ElementDecl{
@@ -1025,7 +1073,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(12),
                 .child_gap = 12,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = panel,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1058,6 +1106,193 @@ namespace SFT::UiWorkbench {
         toggle_row(4, "Alpha part", "Remove the alpha strip independently", show_alpha_);
         toggle_row(5, "Preview part", "Remove preview without changing color state", show_preview_);
 
+        section_label(ctx, font_id_, "PRESENTATION");
+        toggle_row(10, "HDR", "Use compositor-managed linear scRGB presentation",
+                   hdr_enabled_, [&] {
+                       Engine::EngineConfig config = engine.config();
+                       config.features.presentation.hdr_enabled = hdr_enabled_;
+                       if (const auto applied = apply_presentation_config(config)) {
+                           status_message_ = hdr_enabled_
+                                                 ? "HDR enabled with scRGB presentation; the swapchain will be recreated."
+                                                 : "HDR disabled; SDR presentation will resume.";
+                       } else {
+                           hdr_enabled_ = !hdr_enabled_;
+                           status_message_ = "HDR change rejected: " + applied.error().message;
+                       }
+                   });
+        if (hdr_enabled_) {
+            section_label(ctx, font_id_, "HDR METADATA");
+            draw_text(
+                ctx,
+                "Reference white and peak affect scRGB/PQ rendering. MaxCLL and MaxFALL are staged "
+                "for HDR10 because linear scRGB carries no static HDR10 metadata.",
+                text_style(font_id_, text_secondary, 10));
+
+            const UI::SliderStyle metadata_style{
+                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
+                .fill = accent,
+                .thumb = text_primary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = accent_hot,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+                .focused_border = UI::BorderStyle{},
+            };
+            const auto metadata_slider = [&](const char *id, const char *label, const char *description,
+                                             f64 &value, const UI::SliderConfig &config,
+                                             UI::SliderState &state, f64 display_scale = 1.0,
+                                             const char *suffix = " nits") {
+                auto row = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                    .padding = UI::Padding::all(12),
+                    .child_gap = 7,
+                    .direction = UI::LayoutDirection::TopToBottom,
+                    .background_color = background_with_opacity(panel, effective_background_opacity()),
+                    .corner_radius = UI::CornerRadius::all(11.0f),
+                    .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+                });
+                draw_text(ctx, number_text((std::string{label} + "  ").c_str(), value * display_scale, suffix),
+                          text_style(font_id_, text_primary, 13));
+                draw_text(ctx, description, text_style(font_id_, text_secondary, 10));
+                const UI::SliderResult result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
+                        .id = UString{id},
+                    },
+                    config, metadata_style, state, value, UI::SliderInput{}, true);
+                value = result.value;
+                return result;
+            };
+
+            const UI::SliderResult reference_result = metadata_slider(
+                "workbench-hdr-reference-white", "Reference white scale",
+                "Scales the compositor-provided SDR white while preserving monitor-specific calibration.",
+                hdr_reference_white_scale_,
+                UI::SliderConfig{.min = 0.25, .max = 2.0, .step = 0.01},
+                hdr_reference_white_scale_state_, 100.0, "%");
+            const f64 minimum_peak_nits =
+                std::max(80.0, static_cast<f64>(render_graph_.tone_mapping().hdr_paper_white_nits));
+            hdr_peak_luminance_nits_ = std::max(hdr_peak_luminance_nits_, minimum_peak_nits);
+            const UI::SliderResult peak_result = metadata_slider(
+                "workbench-hdr-peak", "Peak luminance",
+                "Highlight ceiling used by HDR-capable tone-mapping operators.",
+                hdr_peak_luminance_nits_,
+                UI::SliderConfig{
+                    .min = minimum_peak_nits,
+                    .max = std::max(4000.0, minimum_peak_nits),
+                    .step = 10.0,
+                },
+                hdr_peak_luminance_state_);
+            render_graph_.tone_mapping().hdr_peak_nits =
+                static_cast<f32>(hdr_peak_luminance_nits_);
+
+            const UI::SliderResult max_cll_result = metadata_slider(
+                "workbench-hdr-max-cll", "MaxCLL",
+                "Maximum content light level advertised to an HDR10 display.",
+                hdr_max_content_light_level_nits_,
+                UI::SliderConfig{.min = 80.0, .max = 10000.0, .step = 10.0},
+                hdr_max_content_light_level_state_);
+            hdr_max_frame_average_light_level_nits_ = std::min(
+                hdr_max_frame_average_light_level_nits_, hdr_max_content_light_level_nits_);
+            const UI::SliderResult max_fall_result = metadata_slider(
+                "workbench-hdr-max-fall", "MaxFALL",
+                "Maximum frame-average light level advertised to an HDR10 display.",
+                hdr_max_frame_average_light_level_nits_,
+                UI::SliderConfig{
+                    .min = 0.0,
+                    .max = std::max(0.0, hdr_max_content_light_level_nits_),
+                    .step = 10.0,
+                },
+                hdr_max_frame_average_light_level_state_);
+
+            if (reference_result.committed || peak_result.committed) {
+                status_message_ = "HDR rendering metadata updated.";
+            }
+            if (max_cll_result.committed || max_fall_result.committed) {
+                if (engine.config().features.presentation.hdr_color_space !=
+                    Core::HdrColorSpaceMode::Hdr10St2084) {
+                    status_message_ = "MaxCLL/MaxFALL staged; they apply when HDR10/PQ presentation is active.";
+                } else {
+                    const RHI::HdrContentLightLevelUpdate update{
+                        .max_content_light_level_nits =
+                            static_cast<f32>(hdr_max_content_light_level_nits_),
+                        .max_frame_average_light_level_nits =
+                            static_cast<f32>(hdr_max_frame_average_light_level_nits_),
+                    };
+                    bool all_updated = true;
+                    for (const auto &[window, other_surface] : surfaces_) {
+                        (void)window;
+                        if (const RHI::RhiResult updated =
+                                engine.update_hdr_content_light_level(other_surface->handle, update);
+                            !updated) {
+                            all_updated = false;
+                            Foundation::log_warn(
+                                "UiWorkbench: failed to update HDR10 metadata for window {}: {}",
+                                static_cast<usize>(other_surface->handle.window_id),
+                                updated.error().message);
+                        }
+                    }
+                    status_message_ = all_updated
+                        ? "HDR10 MaxCLL/MaxFALL metadata updated on every surface."
+                        : "Some surfaces rejected the HDR10 metadata update; see the log.";
+                }
+            }
+        }
+        toggle_row(8, "Transparent swapchain", "Use premultiplied compositor alpha for this surface",
+                   swapchain_transparent_, [&] {
+                       Engine::EngineConfig config = engine.config();
+                       config.features.presentation.transparent_composition = swapchain_transparent_;
+                       if (const auto applied = apply_presentation_config(config)) {
+                           if (Platform::Windowing::operating_system_may_support_window_effect(
+                                   Platform::Windowing::WindowEffectKind::Transparent)) {
+                               for (const auto &[window, other_surface] : surfaces_) {
+                                   (void)other_surface;
+                                   engine.window_requests().set_transparent(window, swapchain_transparent_);
+                               }
+                           }
+                           status_message_ = swapchain_transparent_
+                                                 ? "Transparent swapchain enabled; adjust background opacity below."
+                                                 : "Opaque swapchain composition restored.";
+                       } else {
+                           swapchain_transparent_ = !swapchain_transparent_;
+                           status_message_ = "Transparency change rejected: " + applied.error().message;
+                       }
+                   });
+        if (swapchain_transparent_) {
+            auto opacity_row = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(12),
+                .child_gap = 10,
+                .direction = UI::LayoutDirection::TopToBottom,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+            draw_text(ctx, number_text("UI background opacity  ", ui_background_opacity_ * 100.0, "%"),
+                      text_style(font_id_, text_primary, 13));
+            const UI::SliderConfig opacity_config{.min = 0.0, .max = 1.0, .step = 0.01};
+            const UI::SliderStyle opacity_style{
+                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
+                .fill = accent,
+                .thumb = text_primary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = accent_hot,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+                .focused_border = UI::BorderStyle{},
+            };
+            const UI::SliderResult opacity_result = UI::slider(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
+                    .id = UString{"workbench-ui-background-opacity"},
+                },
+                opacity_config, opacity_style, ui_background_opacity_slider_state_,
+                ui_background_opacity_, UI::SliderInput{}, true);
+            ui_background_opacity_ = opacity_result.value;
+        }
+
         section_label(ctx, font_id_, "OS WINDOW COMPOSITION");
         toggle_row(6, "Borderless fullscreen", "Toggle OS borderless fullscreen for this window",
                    window_borderless_fullscreen_, [&] {
@@ -1069,10 +1304,6 @@ namespace SFT::UiWorkbench {
         toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border",
                    window_decorated_, [&] {
                        engine.window_requests().set_decorated(surface.handle.window_id, window_decorated_);
-                   });
-        toggle_row(8, "Window transparent", "Live per-pixel transparency (dynamic on Windows; no-ops elsewhere)",
-                   window_transparent_, [&] {
-                       engine.window_requests().set_transparent(surface.handle.window_id, window_transparent_);
                    });
 
         section_label(ctx, font_id_, "WINDOW BLUR");
@@ -1089,7 +1320,8 @@ namespace SFT::UiWorkbench {
 
             UI::DropdownStyle blur_style{};
             blur_style.trigger = action_button_style();
-            blur_style.list_background = panel_raised;
+            blur_style.list_background =
+                background_with_opacity(panel_raised, effective_background_opacity());
             blur_style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
             blur_style.corner_radius = UI::CornerRadius::all(11.0f);
             blur_style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
@@ -1135,7 +1367,7 @@ namespace SFT::UiWorkbench {
         };
         UI::DropdownStyle style{};
         style.trigger = action_button_style();
-        style.list_background = panel_raised;
+        style.list_background = background_with_opacity(panel_raised, effective_background_opacity());
         style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
         style.corner_radius = UI::CornerRadius::all(11.0f);
         style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
@@ -1168,12 +1400,12 @@ namespace SFT::UiWorkbench {
         composition.option.visual.disabled.background_color =
             UI::Color{0.060, 0.065, 0.080, 0.65};
         composition.tooltip.visible = true;
-        composition.tooltip.build = [](UI::Context &part_ctx,
-                                       const UI::DropdownPartContext &part) {
+        composition.tooltip.build = [this](UI::Context &part_ctx,
+                                           const UI::DropdownPartContext &part) {
             auto tooltip = part_ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::symmetric(8, 5),
-                .background_color = panel_raised,
+                .background_color = background_with_opacity(panel_raised, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(7.0f),
             });
             draw_text(part_ctx,
@@ -1234,8 +1466,8 @@ namespace SFT::UiWorkbench {
         };
 
         UI::TextEditStyle edit_style{};
-        edit_style.idle = panel;
-        edit_style.hovered = panel_raised;
+        edit_style.idle = background_with_opacity(panel, effective_background_opacity());
+        edit_style.hovered = background_with_opacity(panel_raised, effective_background_opacity());
         edit_style.focused = UI::Color{0.050, 0.058, 0.088, 1.0};
         edit_style.border_idle = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
         edit_style.border_focused = UI::BorderStyle{.color = accent, .width = UI::BorderWidth::all(1)};
@@ -1334,7 +1566,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(13),
                 .child_gap = 5,
                 .direction = UI::LayoutDirection::TopToBottom,
-                .background_color = panel_raised,
+                .background_color = background_with_opacity(panel_raised, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1425,7 +1657,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(11),
                 .child_gap = 11,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = panel,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1482,7 +1714,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(12),
                 .child_gap = 12,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = panel,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1520,7 +1752,7 @@ namespace SFT::UiWorkbench {
                 .padding = UI::Padding::all(12),
                 .child_gap = 10,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = panel,
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
@@ -1648,6 +1880,7 @@ namespace SFT::UiWorkbench {
                 .resizable = true,
                 .decorated = true,
                 .high_dpi = true,
+                .transparent = true,
                 .mode = Platform::Windowing::WindowMode::Windowed,
                 .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
             };
@@ -1664,7 +1897,12 @@ namespace SFT::UiWorkbench {
         Engine::Engine &engine, Surface &surface,
         std::shared_ptr<UI::FrameSnapshot> snapshot) {
         Renderer::UiOverlayHooks hooks{};
-        UI::UiRenderer *renderer = &surface.renderer;
+        // HDR and transparent SDR both use the linear-float renderer. Renderer performs the final
+        // transfer-aware premultiplication/encoding after all UI blending in those modes.
+        UI::UiRenderer *renderer = (hdr_enabled_ || swapchain_transparent_)
+            ? &surface.hdr_renderer
+            : &surface.sdr_renderer;
+        hooks.hdr_reference_white_scale = static_cast<f32>(hdr_reference_white_scale_);
         Renderer::Renderer *texture_resolver = engine.renderer();
         hooks.prepare = [renderer, snapshot, texture_resolver](
                             RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
@@ -1694,7 +1932,8 @@ namespace SFT::UiWorkbench {
         if (RHI::RhiDevice *device = engine.rhi_device()) {
             for (auto &[window, surface] : surfaces_) {
                 (void)window;
-                surface->renderer.destroy(*device);
+                surface->sdr_renderer.destroy(*device);
+                surface->hdr_renderer.destroy(*device);
                 surface->context.destroy();
             }
         } else {

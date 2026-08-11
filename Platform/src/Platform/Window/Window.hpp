@@ -54,6 +54,15 @@ namespace SFT::Platform::Windowing {
     // alias a different window.
     enum class WindowId : usize {};
 
+    // Color-management state reported for the display currently containing this window. The SDR
+    // white level uses scRGB units (1.0 == 80 nits), matching SDL3's cross-platform property and the
+    // Vulkan EXTENDED_SRGB_LINEAR color-space convention.
+    struct WindowHdrProperties {
+        bool hdr_enabled = false;
+        f32 sdr_white_level = 1.0f;
+        f32 hdr_headroom = 1.0f;
+    };
+
     // Sentinel `WindowId` that `allocate_window_id()` never produces (ids count up from `0`). Use it
     // to mark an empty "no window" slot; it compares unequal to every real id for the life of the
     // process.
@@ -226,6 +235,13 @@ namespace SFT::Platform::Windowing {
         //
         // @returns a `NativeWindowHandle`, or a `WindowError` if the window has been destroyed.
         [[nodiscard]] virtual expected<NativeWindowHandle, WindowError> native_window_handle() const noexcept = 0;
+
+        // Returns dynamic compositor/display HDR state when the provider exposes it. `nullopt` means
+        // the provider cannot report a trustworthy value; presentation code should use its configured
+        // reference-white fallback in that case.
+        [[nodiscard]] virtual optional<WindowHdrProperties> hdr_properties() const noexcept {
+            return std::nullopt;
+        }
 
         // Drain the OS/backend event queue **once**, translating native events into this window's own
         // queue and updating latched state (`close_requested()`, `resized()`). Call it on the message-pump

@@ -31,6 +31,17 @@ namespace {
         return passed;
     }
 
+    bool overlay_only_disables_scene_post_processing() {
+        const SFT::Engine::RenderGraph graph = SFT::Engine::RenderGraph::overlay_only();
+        bool passed = check(graph.validate().has_value(), "overlay-only graph failed validation");
+        passed &= check(!graph.scene().enabled, "overlay-only graph still enables scene rendering");
+        passed &= check(!graph.bloom().enabled, "overlay-only graph still enables bloom");
+        passed &= check(!graph.tone_mapping().enabled, "overlay-only graph still enables tone mapping");
+        passed &= check(graph.debug_overlay().enabled,
+                        "overlay-only graph disabled timing collection with scene rendering");
+        return passed;
+    }
+
     struct ApplicationEffectPair {
         SFT::Engine::RenderGraphTextureHandle input{};
 
@@ -360,6 +371,7 @@ namespace {
 int main() {
     bool passed = true;
     passed &= standard_graph_is_explicit();
+    passed &= overlay_only_disables_scene_post_processing();
     passed &= application_module_can_declare_safe_passes();
     passed &= branches_are_valid_and_presentation_lowering_is_reachable_only();
     passed &= fullscreen_modules_compose_by_dataflow();

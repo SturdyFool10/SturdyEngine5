@@ -70,6 +70,87 @@ endif()
 
 target_compile_definitions(Platform PUBLIC ${_sturdy_platform_definitions})
 
+if(_sturdy_effective_platform STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(STURDY_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+    pkg_check_modules(STURDY_WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.49)
+    pkg_get_variable(STURDY_WAYLAND_PROTOCOLS_DATA_DIR wayland-protocols pkgdatadir)
+    find_program(STURDY_WAYLAND_SCANNER NAMES wayland-scanner REQUIRED)
+
+    set(_sturdy_wayland_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
+    set(_sturdy_ext_background_effect_xml
+        "${STURDY_WAYLAND_PROTOCOLS_DATA_DIR}/staging/ext-background-effect/ext-background-effect-v1.xml")
+    set(_sturdy_kde_blur_xml "${CMAKE_CURRENT_SOURCE_DIR}/protocols/org-kde-kwin-blur.xml")
+    set(_sturdy_color_management_xml
+        "${STURDY_WAYLAND_PROTOCOLS_DATA_DIR}/staging/color-management/color-management-v1.xml")
+    if(NOT EXISTS "${_sturdy_ext_background_effect_xml}")
+        message(FATAL_ERROR
+            "wayland-protocols >= 1.49 was found, but ext-background-effect-v1.xml is missing at "
+            "${_sturdy_ext_background_effect_xml}.")
+    endif()
+    if(NOT EXISTS "${_sturdy_color_management_xml}")
+        message(FATAL_ERROR
+            "wayland-protocols >= 1.49 was found, but color-management-v1.xml is missing at "
+            "${_sturdy_color_management_xml}.")
+    endif()
+
+    set(_sturdy_ext_background_effect_header
+        "${_sturdy_wayland_generated_dir}/wayland-ext-background-effect-v1-client-protocol.h")
+    set(_sturdy_ext_background_effect_code
+        "${_sturdy_wayland_generated_dir}/wayland-ext-background-effect-v1-client-protocol.c")
+    add_custom_command(
+        OUTPUT "${_sturdy_ext_background_effect_header}" "${_sturdy_ext_background_effect_code}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_sturdy_wayland_generated_dir}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" client-header
+            "${_sturdy_ext_background_effect_xml}" "${_sturdy_ext_background_effect_header}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" private-code
+            "${_sturdy_ext_background_effect_xml}" "${_sturdy_ext_background_effect_code}"
+        DEPENDS "${_sturdy_ext_background_effect_xml}"
+        VERBATIM
+    )
+
+    set(_sturdy_kde_blur_header
+        "${_sturdy_wayland_generated_dir}/wayland-org-kde-kwin-blur-client-protocol.h")
+    set(_sturdy_kde_blur_code
+        "${_sturdy_wayland_generated_dir}/wayland-org-kde-kwin-blur-client-protocol.c")
+    add_custom_command(
+        OUTPUT "${_sturdy_kde_blur_header}" "${_sturdy_kde_blur_code}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_sturdy_wayland_generated_dir}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" client-header
+            "${_sturdy_kde_blur_xml}" "${_sturdy_kde_blur_header}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" private-code
+            "${_sturdy_kde_blur_xml}" "${_sturdy_kde_blur_code}"
+        DEPENDS "${_sturdy_kde_blur_xml}"
+        VERBATIM
+    )
+
+    set(_sturdy_color_management_header
+        "${_sturdy_wayland_generated_dir}/wayland-color-management-v1-client-protocol.h")
+    set(_sturdy_color_management_code
+        "${_sturdy_wayland_generated_dir}/wayland-color-management-v1-client-protocol.c")
+    add_custom_command(
+        OUTPUT "${_sturdy_color_management_header}" "${_sturdy_color_management_code}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_sturdy_wayland_generated_dir}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" client-header
+            "${_sturdy_color_management_xml}" "${_sturdy_color_management_header}"
+        COMMAND "${STURDY_WAYLAND_SCANNER}" private-code
+            "${_sturdy_color_management_xml}" "${_sturdy_color_management_code}"
+        DEPENDS "${_sturdy_color_management_xml}"
+        VERBATIM
+    )
+
+    target_sources(Platform PRIVATE
+        "${_sturdy_ext_background_effect_header}"
+        "${_sturdy_ext_background_effect_code}"
+        "${_sturdy_kde_blur_header}"
+        "${_sturdy_kde_blur_code}"
+        "${_sturdy_color_management_header}"
+        "${_sturdy_color_management_code}"
+    )
+    target_include_directories(Platform PRIVATE "${_sturdy_wayland_generated_dir}")
+    target_link_libraries(Platform PRIVATE PkgConfig::STURDY_WAYLAND_CLIENT)
+endif()
+
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT _sturdy_effective_platform STREQUAL "Web")
     add_executable(PlatformWindowManagerAccumulatorTest tests/WindowManagerAccumulatorTest.cpp)
     target_link_libraries(PlatformWindowManagerAccumulatorTest PRIVATE Sturdy::Platform)

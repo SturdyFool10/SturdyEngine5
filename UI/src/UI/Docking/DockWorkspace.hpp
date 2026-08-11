@@ -100,6 +100,8 @@ namespace SFT::UI::Docking {
         explicit DockWorkspace(UString id_prefix, DockWorkspaceStyle style = {})
             : id_prefix_(std::move(id_prefix)), style_(style) {}
 
+        void set_content_background(Color color) noexcept { style_.content_background = color; }
+
         // Registers and places one logical panel as a single operation. Duplicate/empty ids and
         // stale/non-leaf explicit targets are rejected without changing either metadata or tree.
         // `placement == nullopt` docks into the focused leaf, falling back to the first live leaf.

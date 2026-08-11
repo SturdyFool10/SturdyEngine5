@@ -59,6 +59,9 @@ struct TonemapConstants {
     uint hdrColorSpace;
     float hdrPaperWhiteNits;
     float hdrPeakNits;
+    // When set, source RGB is premultiplied linear light. Tonemap/encode the unassociated color,
+    // then premultiply the encoded result again for swapchain compositor alpha.
+    uint preserveAlpha;
 
     uint agxLook;
 
@@ -86,14 +89,19 @@ struct TonemapConstants {
 [[push_constant]] ConstantBuffer<TonemapConstants> tonemap;
 
 
-float3 sampleScene(float2 uv) {
-    return max(sceneColor.SampleLevel(sceneSampler, uv, 0.0).rgb, 0.0);
+float4 sampleScene(float2 uv) {
+    return sceneColor.SampleLevel(sceneSampler, uv, 0.0);
 }
 
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float3 hdr = sampleScene(input.uv);
+    float4 source = sampleScene(input.uv);
+    float alpha = tonemap.preserveAlpha != 0u ? clamp01(source.a) : 1.0;
+    float3 hdr = max(source.rgb, 0.0);
+    if (tonemap.preserveAlpha != 0u) {
+        hdr = alpha > SFT_EPSILON ? hdr / alpha : float3(0.0);
+    }
     float3 exposed = hdr * tonemap.exposure / max(tonemap.whitePoint, SFT_EPSILON);
 
     // Reference-domain headroom this frame's actual output can use: 1.0 for SDR (no headroom above
@@ -132,7 +140,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     mapped = lerp(float3(gray), mapped, tonemap.saturation);
 
     if (tonemap.hdrOutput != 0u) {
-        float3 nits = max(mapped, 0.0) * tonemap.hdrPaperWhiteNits;
+        // Internal scene and UI colors use linear BT.709/sRGB primaries. PQ/HLG swapchain color
+        // spaces use BT.2020, while scRGB intentionally keeps linear sRGB primaries.
+        float3 outputLinear = tonemap.hdrColorSpace == 1u
+            ? max(mapped, 0.0)
+            : linearSrgbToLinearBt2020(max(mapped, 0.0));
+        float3 nits = outputLinear * tonemap.hdrPaperWhiteNits;
         float3 encoded;
         if (tonemap.hdrColorSpace == 1u) { // ScrgbLinear
             encoded = scrgbEncode(nits);
@@ -142,7 +155,14 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                  // RHI::ColorSpace::DolbyVision's own doc comment).
             encoded = pqEncode(nits);
         }
-        return float4(encoded, 1.0);
+        return float4(encoded * alpha, alpha);
+    }
+    if (tonemap.preserveAlpha != 0u) {
+        // The attachment is *Srgb, so fixed-function encoding happens after this shader. Convert the
+        // desired encoded-premultiplied value back to linear first; the attachment encode then stores
+        // exactly sRGB(straightColor) * alpha for premultiplied compositor composition.
+        float3 associatedSrgb = linearToSrgb(saturate(mapped)) * alpha;
+        return float4(srgbToLinear(associatedSrgb), alpha);
     }
     return float4(saturate(mapped), 1.0);
 }

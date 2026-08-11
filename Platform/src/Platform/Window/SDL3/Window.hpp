@@ -66,6 +66,7 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] WindowingSystem type() const noexcept override;
         [[nodiscard]] expected<void *, WindowError> native_backend_handle() const noexcept override;
         [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle() const noexcept override;
+        [[nodiscard]] optional<WindowHdrProperties> hdr_properties() const noexcept override;
 
         expected<void, WindowError> pump_events() noexcept override;
         [[nodiscard]] optional<WindowEvent> poll_event() noexcept override;
@@ -145,6 +146,16 @@ namespace SFT::Platform::Windowing::SDL3 {
         std::function<void(WindowExtent)> live_resize_callback_;
         SDL_Cursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
+        // Wayland may destroy/recreate wl_surface across hide/show. Retain the requested blur state
+        // and last complete native handle so protocol objects can be released before hide, reapplied
+        // after show, and display-scoped state can still be torn down while the window is hidden.
+        optional<WindowEffect> active_blur_effect_;
+        optional<NativeWindowHandle> native_effect_handle_;
+        // Cached compositor-preferred reference white. Invalidated when SDL reports a display/HDR
+        // transition or recreates the Wayland surface; querying it performs private-queue roundtrips.
+        mutable bool wayland_reference_white_queried_ = false;
+        mutable optional<f32> wayland_reference_white_nits_;
+        mutable u64 wayland_reference_white_query_time_ns_ = 0;
 
         static bool SDLCALL sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept;
 #if defined(_WIN32)

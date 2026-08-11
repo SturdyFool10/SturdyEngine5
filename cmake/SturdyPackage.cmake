@@ -175,18 +175,34 @@ function(sturdy_add_package package_name)
           "${package_name}: ARCHIVE_TIMEOUT_SECONDS must be a positive integer or omitted."
         )
       endif()
-      if(NOT (CMAKE_HOST_WIN32 AND STURDY_OS STREQUAL "Windows" AND NOT STURDY_BUILD_SHARED_LIBS))
+      if(STURDY_PACKAGE_EXECUTABLE OR STURDY_BUILD_SHARED_LIBS)
         message(FATAL_ERROR
-          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only supported for Windows static libraries."
+          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only supported for static libraries."
         )
       endif()
 
       # CMake has no public target-level archive launcher. RULE_LAUNCH_LINK is the only Ninja
       # hook that wraps each archive subcommand without changing archive rules for dependencies.
-      set(_sturdy_archive_timeout_script "${CMAKE_SOURCE_DIR}/cmake/RunWithTimeout.ps1")
-      set_property(TARGET "${package_name}" PROPERTY RULE_LAUNCH_LINK
-        "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${_sturdy_archive_timeout_script}\" -TimeoutSeconds ${STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS}"
-      )
+      if(CMAKE_HOST_WIN32 AND STURDY_OS STREQUAL "Windows")
+        set(_sturdy_archive_timeout_script "${CMAKE_SOURCE_DIR}/cmake/RunWithTimeout.ps1")
+        set_property(TARGET "${package_name}" PROPERTY RULE_LAUNCH_LINK
+          "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${_sturdy_archive_timeout_script}\" -TimeoutSeconds ${STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS}"
+        )
+      elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND STURDY_OS STREQUAL "Linux")
+        find_program(_sturdy_archive_timeout_executable NAMES timeout NO_CACHE)
+        if(NOT _sturdy_archive_timeout_executable)
+          message(FATAL_ERROR
+            "${package_name}: ARCHIVE_TIMEOUT_SECONDS on Linux requires the 'timeout' utility (normally provided by GNU coreutils)."
+          )
+        endif()
+        set_property(TARGET "${package_name}" PROPERTY RULE_LAUNCH_LINK
+          "\"${_sturdy_archive_timeout_executable}\" --kill-after=5s ${STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS}s"
+        )
+      else()
+        message(FATAL_ERROR
+          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only supported for native Windows and Linux static libraries."
+        )
+      endif()
     endif()
 
     # Clang ThinLTO currently miscompiles some C++20 named-module TUs in Dist: objects that cross

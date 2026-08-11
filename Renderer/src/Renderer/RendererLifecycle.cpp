@@ -920,7 +920,9 @@ namespace SFT::Renderer {
             // (RHI::choose_present_mode(), RHI/Swapchain.hpp), never a raw requested PresentMode.
             .present_strategy = Core::resolve_present_strategy(record.presentation),
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::TransferDst,
-            .composite_alpha = RHI::CompositeAlphaMode::Auto,
+            .composite_alpha = static_cast<bool>(record.presentation.transparent_composition)
+                                   ? RHI::CompositeAlphaMode::Premultiplied
+                                   : RHI::CompositeAlphaMode::Opaque,
             .clipped = true,
             .image_count = record.presentation.swapchain_image_count != 0
                                ? record.presentation.swapchain_image_count
@@ -1515,11 +1517,48 @@ namespace SFT::Renderer {
                 }
             }
         }
-        if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
-            return tonemap_ready;
+        const bool direct_overlay_presentation =
+            !submission.render_graph.render_scene && !submission.render_graph.tone_mapping &&
+            !submission.render_graph.bloom && submission.render_graph.post_process_aa == 0u &&
+            submission.render_graph.custom_post_processes.empty() &&
+            submission.render_graph.custom_graph.passes.empty() && submission.gizmo_draws.empty() &&
+            static_cast<bool>(submission.render_graph.ui_overlay) && !submission.render_graph.draw_overlay_text;
+        const bool direct_overlay_display_transform =
+            direct_overlay_presentation &&
+            (hdr_output || static_cast<bool>(record.presentation.transparent_composition));
+        f32 ui_reference_white_nits = submission.render_graph.tone_mapping_hdr_paper_white_nits;
+        bool platform_reference_white = false;
+        if (hdr_output && record.window != nullptr) {
+            if (const optional<Platform::Windowing::WindowHdrProperties> properties =
+                    record.window->hdr_properties();
+                properties && properties->hdr_enabled && properties->sdr_white_level > 0.0f) {
+                // SDL reports SDR white in scRGB units, where 1.0 is exactly 80 nits. Matching the
+                // compositor's per-window value keeps authored UI white identical to SDR content even
+                // when the user changes KDE/Windows HDR SDR-brightness settings or moves monitors.
+                ui_reference_white_nits = properties->sdr_white_level * 80.0f;
+                platform_reference_white = true;
+            }
         }
-        if (auto tonemap_pipeline = tonemap_pipeline_for(output_format); !tonemap_pipeline) {
-            return unexpected(tonemap_pipeline.error());
+        if (hdr_output) {
+            ui_reference_white_nits *= std::clamp(
+                submission.render_graph.ui_overlay.hdr_reference_white_scale, 0.25f, 4.0f);
+        }
+        if (hdr_output &&
+            (record.ui_reference_white_nits == 0.0f ||
+             std::abs(record.ui_reference_white_nits - ui_reference_white_nits) >= 0.5f)) {
+            Foundation::log_info(
+                "UI HDR reference white: {:.1f} nits ({}).",
+                ui_reference_white_nits,
+                platform_reference_white ? "window compositor SDR white" : "render-graph fallback");
+            record.ui_reference_white_nits = ui_reference_white_nits;
+        }
+        if (!direct_overlay_presentation || direct_overlay_display_transform) {
+            if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
+                return tonemap_ready;
+            }
+            if (auto tonemap_pipeline = tonemap_pipeline_for(output_format); !tonemap_pipeline) {
+                return unexpected(tonemap_pipeline.error());
+            }
         }
 
         // Ensures a successfully-acquired swapchain image is never abandoned: unless explicitly
@@ -1561,20 +1600,26 @@ namespace SFT::Renderer {
             }
             slot.pregraph_gpu_timing_pending.clear();
             (**encoder).reset_query_set(slot.pregraph_gpu_timing_query_set, 0, kPregraphGpuTimingQueryCount);
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
         }
-        if (Core::RendererResult spectral_scene = prepare_spectral_scene_acceleration_structure(
-                **encoder, slot, submission);
-            !spectral_scene.has_value()) {
-            return spectral_scene;
-        }
-        if (gpu_timing_enabled) {
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 1);
-            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
-                .label = UString{"pre-graph: TLAS build"_ustr},
-                .begin_query_index = 0,
-                .end_query_index = 1,
-            });
+        const bool spectral_scene_active = submission.render_graph.spectral_path_tracing.mode !=
+                                           SpectralRenderMode::RasterDeferred;
+        if (spectral_scene_active) {
+            if (gpu_timing_enabled) {
+                (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
+            }
+            if (Core::RendererResult spectral_scene = prepare_spectral_scene_acceleration_structure(
+                    **encoder, slot, submission);
+                !spectral_scene.has_value()) {
+                return spectral_scene;
+            }
+            if (gpu_timing_enabled) {
+                (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 1);
+                slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
+                    .label = UString{"pre-graph: TLAS build"_ustr},
+                    .begin_query_index = 0,
+                    .end_query_index = 1,
+                });
+            }
         }
         // Whether the caustic photon map (up to 262144 photons, each up to max_bounces ray-traced
         // segments) needs re-emitting this frame. Gated on spectral_photon_signature (geometry + sun +
@@ -1743,21 +1788,23 @@ namespace SFT::Renderer {
         // that trusts `populated` reading stale/uninitialized photon data. TLAS build has no such
         // optimistic-completion bookkeeping (it unconditionally rebuilds every call), so it stays
         // safely hoisted above; only this call needs to wait until an image is actually in hand.
-        if (gpu_timing_enabled) {
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
-        }
-        if (Core::RendererResult photon_mapping = prepare_spectral_photon_mapping(
-                **encoder, slot, submission, spectral_photon_emission_needed, spectral_photon_signature);
-            !photon_mapping.has_value()) {
-            return photon_mapping;
-        }
-        if (gpu_timing_enabled) {
-            (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
-            slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
-                .label = UString{"pre-graph: photon hash clear"_ustr},
-                .begin_query_index = 2,
-                .end_query_index = 3,
-            });
+        if (spectral_photon_mapping) {
+            if (gpu_timing_enabled) {
+                (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
+            }
+            if (Core::RendererResult photon_mapping = prepare_spectral_photon_mapping(
+                    **encoder, slot, submission, spectral_photon_emission_needed, spectral_photon_signature);
+                !photon_mapping.has_value()) {
+                return photon_mapping;
+            }
+            if (gpu_timing_enabled) {
+                (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 3);
+                slot.pregraph_gpu_timing_pending.push_back(RenderGraph::GpuPassTiming{
+                    .label = UString{"pre-graph: photon hash clear"_ustr},
+                    .begin_query_index = 2,
+                    .end_query_index = 3,
+                });
+            }
         }
 
         // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
@@ -1804,6 +1851,18 @@ namespace SFT::Renderer {
             .label = offscreen_output ? "off-screen final color" : "swapchain color",
         });
         graph.mark_output(final_output);
+        const RenderGraphTextureHandle ui_overlay_target = direct_overlay_display_transform
+            ? graph.create_texture(RenderGraphTextureDesc{
+                  .format = RHI::Format::RGBA16Float,
+                  .extent = RHI::Extent3D{
+                      .width = presentation_extent.x,
+                      .height = presentation_extent.y,
+                      .depth_or_layers = 1,
+                  },
+                  .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                  .label = "linear UI composition",
+              })
+            : final_output;
         const RHI::Extent3D frame_extent{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1};
         const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
@@ -2663,8 +2722,8 @@ namespace SFT::Renderer {
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
                 });
-        } else if (!submission.render_graph.render_scene) {
-            // Overlay-only views still need a defined HDR source for gizmos and post-processing.
+        } else if (!submission.render_graph.render_scene && !direct_overlay_presentation) {
+            // Overlay-only views with post-processing still need a defined HDR source.
             graph.add_render_pass("scene background"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = scene_color,
@@ -2770,10 +2829,12 @@ namespace SFT::Renderer {
         // Hdr10St2084 (and DolbyVision, best-effort — Vulkan applies no fixed-function PQ curve),
         // HLG for Hdr10Hlg, none at all for ScrgbLinear (the OS/compositor tone-maps a linear float
         // target itself), sRGB's automatic OETF for SDR.
-        if (Core::RendererResult tone_mapped = build_tonemap_module(
-                module_context, submission, output_format, hdr_output, record.presentation.hdr_color_space);
-            !tone_mapped.has_value()) {
-            return tone_mapped;
+        if (!direct_overlay_presentation) {
+            if (Core::RendererResult tone_mapped = build_tonemap_module(
+                    module_context, submission, output_format, hdr_output, record.presentation.hdr_color_space);
+                !tone_mapped.has_value()) {
+                return tone_mapped;
+            }
         }
 
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
@@ -2807,9 +2868,12 @@ namespace SFT::Renderer {
             // pass only issues the draw calls it prepared, over the fully composited frame.
             graph.add_render_pass("UI overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = final_output,
-                    .load_op = RHI::LoadOp::Load,
+                    .texture = ui_overlay_target,
+                    .load_op = direct_overlay_presentation ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
                     .store_op = RHI::StoreOp::Store,
+                    .clear_color = static_cast<bool>(record.presentation.transparent_composition)
+                                       ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
+                                       : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
@@ -2826,6 +2890,61 @@ namespace SFT::Renderer {
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
                     return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
+                });
+        }
+
+        if (direct_overlay_display_transform) {
+            RenderGraphSettings ui_display_settings{};
+            ui_display_settings.tone_mapping = false;
+            ui_display_settings.tone_mapping_exposure = 1.0f;
+            ui_display_settings.tone_mapping_white_point = 1.0f;
+            ui_display_settings.tone_mapping_saturation = 1.0f;
+            ui_display_settings.tone_mapping_hdr_output = hdr_output;
+            ui_display_settings.tone_mapping_hdr_color_space = record.presentation.hdr_color_space;
+            ui_display_settings.tone_mapping_hdr_paper_white_nits = ui_reference_white_nits;
+            ui_display_settings.tone_mapping_hdr_peak_nits = submission.render_graph.tone_mapping_hdr_peak_nits;
+
+            graph.add_render_pass("UI display encode"_ustr)
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = final_output,
+                    .load_op = RHI::LoadOp::DontCare,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{
+                    .texture = ui_overlay_target,
+                    .stages = RHI::PipelineStage::FragmentShader,
+                    .access = RHI::AccessFlags::ShaderRead,
+                })
+                .set_render_area(RHI::Rect2D{
+                    .x = 0,
+                    .y = 0,
+                    .width = presentation_extent.x,
+                    .height = presentation_extent.y,
+                })
+                .set_execute([this, ui_overlay_target, output_format, presentation_extent,
+                              ui_display_settings, &submission](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .x = 0.0f,
+                        .y = 0.0f,
+                        .width = static_cast<f32>(presentation_extent.x),
+                        .height = static_cast<f32>(presentation_extent.y),
+                        .min_depth = 0.0f,
+                        .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{
+                        .x = 0,
+                        .y = 0,
+                        .width = presentation_extent.x,
+                        .height = presentation_extent.y,
+                    });
+                    return record_tonemap(
+                        pass,
+                        context.texture(ui_overlay_target).default_view,
+                        output_format,
+                        ui_display_settings,
+                        submission.transient_bind_groups,
+                        true);
                 });
         }
 

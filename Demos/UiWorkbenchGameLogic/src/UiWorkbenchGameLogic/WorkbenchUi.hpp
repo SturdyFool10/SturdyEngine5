@@ -52,6 +52,9 @@ namespace SFT::UiWorkbench {
             Engine::Engine &engine,
             Surface &surface,
             std::shared_ptr<UI::FrameSnapshot> snapshot);
+        [[nodiscard]] f64 effective_background_opacity() const noexcept {
+            return swapchain_transparent_ ? ui_background_opacity_ : 1.0;
+        }
 
         static constexpr UI::FontId font_id_ = 1;
 
@@ -90,12 +93,26 @@ namespace SFT::UiWorkbench {
         std::array<UI::ToggleState, 12> toggle_states_{};
         UI::ButtonState reset_button_state_{};
 
-        // OS window-composition controls (Composition panel) — fire Engine::window_requests() calls
-        // live, see build_composition_panel(). toggle_states_ indices 6-9 are theirs (0-5 are the
-        // widget-composition toggles above).
+        // Presentation/window-composition controls in the Composition panel. The native window is
+        // created alpha-capable; swapchain_transparent_ controls whether its swapchain actually
+        // preserves compositor-visible alpha, while ui_background_opacity_ controls the backgrounds
+        // drawn into that alpha channel.
+        bool hdr_enabled_ = false;
+        bool swapchain_transparent_ = false;
+        f64 ui_background_opacity_ = 0.78;
+        UI::SliderState ui_background_opacity_slider_state_{};
+        // HDR presentation calibration. Reference white is a scale over the compositor-provided value;
+        // peak shapes HDR output, while MaxCLL/MaxFALL are live Vulkan HDR10 metadata values.
+        f64 hdr_reference_white_scale_ = 1.0;
+        f64 hdr_peak_luminance_nits_ = 1000.0;
+        f64 hdr_max_content_light_level_nits_ = 1000.0;
+        f64 hdr_max_frame_average_light_level_nits_ = 400.0;
+        UI::SliderState hdr_reference_white_scale_state_{};
+        UI::SliderState hdr_peak_luminance_state_{};
+        UI::SliderState hdr_max_content_light_level_state_{};
+        UI::SliderState hdr_max_frame_average_light_level_state_{};
         bool window_borderless_fullscreen_ = false;
         bool window_decorated_ = true;
-        bool window_transparent_ = false;
         bool window_blur_enabled_ = false;
         // Which entry of supported_blur_kinds_ is picked in the blur-type dropdown; only actually
         // applied to the window once window_blur_enabled_ is on (or changed while already on).

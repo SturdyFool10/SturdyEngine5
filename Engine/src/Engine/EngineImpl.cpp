@@ -390,6 +390,8 @@ namespace SFT::Engine {
             old_presentation.variable_refresh != new_presentation.variable_refresh ||
             old_presentation.latency != new_presentation.latency ||
             old_presentation.preference != new_presentation.preference ||
+            static_cast<bool>(old_presentation.transparent_composition) !=
+                static_cast<bool>(new_presentation.transparent_composition) ||
             old_presentation.swapchain_image_count != new_presentation.swapchain_image_count ||
             static_cast<bool>(old_presentation.allow_present_from_compute) != static_cast<bool>(new_presentation.allow_present_from_compute) ||
             hdr_changed;

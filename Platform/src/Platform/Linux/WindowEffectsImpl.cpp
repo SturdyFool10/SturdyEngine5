@@ -9,6 +9,7 @@
 #endif
 #pragma endregion
 
+#include <Platform/Linux/WaylandBackgroundEffects.hpp>
 #include <Platform/Window/WindowError.hpp>
 #include <Platform/Window/WindowConfig.hpp>
 #include <Platform/Window/WindowEffect.hpp>
@@ -37,11 +38,8 @@ namespace SFT::Platform::Windowing {
                 handle.window,
                 effect.enabled);
 
-            if (handle.system != NativeWindowSystem::Wayland || !handle.display || !handle.window) {
-                return WindowEffectResult::failed("ext-background-effect-v1 requires a Wayland display and wl_surface.");
-            }
-
-            return WindowEffectResult::failed("ext-background-effect-v1 support is not wired yet; generated Wayland protocol bindings are required.");
+            effect.linux_blur_protocol = LinuxBlurProtocol::ExtBackgroundEffect;
+            return Detail::set_wayland_background_blur(handle, effect);
         }
 
         WindowEffectResult try_kde_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
@@ -53,11 +51,8 @@ namespace SFT::Platform::Windowing {
                 handle.window,
                 effect.enabled);
 
-            if (handle.system != NativeWindowSystem::Wayland || !handle.display || !handle.window) {
-                return WindowEffectResult::failed("KDE blur requires a Wayland display and wl_surface.");
-            }
-
-            return WindowEffectResult::failed("KDE blur support is not wired yet; generated org_kde_kwin_blur protocol bindings are required.");
+            effect.linux_blur_protocol = LinuxBlurProtocol::KdeBlur;
+            return Detail::set_wayland_background_blur(handle, effect);
         }
 
         WindowEffectResult try_linux_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
@@ -71,26 +66,10 @@ namespace SFT::Platform::Windowing {
                     break;
             }
 
-            WindowEffectResult ext_result = try_ext_background_effect_blur(handle, effect);
-            if (ext_result.kind == WindowEffectResultKind::Success) [[unlikely]] {
-                return ext_result;
-            }
-
-            Detail::window_warn(
-                "Linux ext-background-effect-v1 blur did not fully apply; trying KDE blur fallback: ext_kind={} ext_details='{}'",
-                static_cast<int>(ext_result.kind),
-                ext_result.details);
-
-            WindowEffectResult kde_result = try_kde_blur(handle, effect);
-            if (kde_result.succeeded()) [[unlikely]] {
-                return WindowEffectResult::degraded("ext-background-effect-v1 was unavailable or degraded; KDE blur fallback applied.");
-            }
-
-            Detail::window_error(
-                "Linux blur failed on both ext-background-effect-v1 and KDE blur paths: ext_details='{}' kde_details='{}'",
-                ext_result.details,
-                kde_result.details);
-            return WindowEffectResult::failed("Linux blur failed: ext-background-effect-v1 did not apply and KDE blur fallback failed.");
+            // Keep automatic routing in the shared backend so enable and disable operate on the same
+            // per-surface state. In particular, disabling must remove a KDE fallback object rather than
+            // returning early after a no-op ext-background-effect disable.
+            return Detail::set_wayland_background_blur(handle, effect);
         }
 #endif
 
@@ -110,6 +89,15 @@ namespace SFT::Platform::Windowing {
 #else
         (void)effect;
         return false;
+#endif
+    }
+
+    void release_native_window_effects(NativeWindowHandle handle, bool release_display) noexcept {
+#if defined(__linux__)
+        Detail::release_wayland_background_effects(handle, release_display);
+#else
+        (void)handle;
+        (void)release_display;
 #endif
     }
 

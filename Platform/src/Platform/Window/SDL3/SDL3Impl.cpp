@@ -11,6 +11,7 @@
 #include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
 
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <expected>
 #include <functional>
@@ -28,6 +29,9 @@
 #include <Async/src/Mutex.hpp>
 #include <Platform/Window/Window.hpp>
 #include <Platform/Window/SDL3/Window.hpp>
+#if defined(__linux__)
+#include <Platform/Linux/WaylandColorManagement.hpp>
+#endif
 
 #include <tracy/Tracy.hpp>
 
@@ -401,6 +405,16 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (window_) [[likely]] {
             const SDL_WindowID id = SDL_GetWindowID(window_);
             sdl_window_registry().erase(id);
+            bool released_effects = false;
+            if (auto native = ::SFT::Platform::Windowing::Detail::native_window_handle_from_sdl(window_)) {
+                release_native_window_effects(*native, sdl_window_count() == 1);
+                released_effects = true;
+            }
+            if (!released_effects && native_effect_handle_) {
+                release_native_window_effects(*native_effect_handle_, sdl_window_count() == 1);
+            }
+            active_blur_effect_.reset();
+            native_effect_handle_.reset();
             Foundation::log_info("Closing window via SDL3");
             SDL_DestroyWindow(window_);
             window_ = nullptr;
@@ -595,6 +609,58 @@ namespace SFT::Platform::Windowing::SDL3 {
         return native_window_handle_locked();
     }
 
+    optional<WindowHdrProperties> SDL3Window::hdr_properties() const noexcept {
+        ZoneScopedN("SDL3Window::hdr_properties");
+        auto lock = sdl_window_mutex().lock();
+        if (!window_) {
+            return nullopt;
+        }
+        const SDL_PropertiesID properties = SDL_GetWindowProperties(window_);
+        optional<WindowHdrProperties> result;
+        if (properties != 0 &&
+            SDL_HasProperty(properties, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT)) {
+            const f32 sdr_white_level = SDL_GetFloatProperty(
+                properties, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 0.0f);
+            if (std::isfinite(sdr_white_level) && sdr_white_level > 0.0f) {
+                const f32 hdr_headroom = SDL_GetFloatProperty(
+                    properties, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+                result = WindowHdrProperties{
+                    .hdr_enabled = SDL_GetBooleanProperty(
+                        properties, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false),
+                    .sdr_white_level = sdr_white_level,
+                    .hdr_headroom = std::isfinite(hdr_headroom) && hdr_headroom > 0.0f
+                        ? hdr_headroom
+                        : 1.0f,
+                };
+            }
+        }
+
+#if defined(__linux__)
+        constexpr u64 reference_white_refresh_interval_ns = 5'000'000'000ull;
+        const u64 now_ns = steady_now_ns();
+        const bool refresh_wayland_reference = !wayland_reference_white_queried_ ||
+            now_ns < wayland_reference_white_query_time_ns_ ||
+            now_ns - wayland_reference_white_query_time_ns_ >= reference_white_refresh_interval_ns;
+        if (refresh_wayland_reference) {
+            wayland_reference_white_queried_ = true;
+            wayland_reference_white_query_time_ns_ = now_ns;
+            if (auto handle = ::SFT::Platform::Windowing::Detail::native_window_handle_from_sdl(window_);
+                handle && handle->system == NativeWindowSystem::Wayland) {
+                wayland_reference_white_nits_ =
+                    ::SFT::Platform::Windowing::Detail::query_wayland_surface_reference_white(*handle);
+            }
+        }
+        if (wayland_reference_white_nits_ && *wayland_reference_white_nits_ > 0.0f) {
+            if (!result) {
+                result = WindowHdrProperties{};
+            }
+            result->hdr_enabled = true;
+            result->sdr_white_level = *wayland_reference_white_nits_ / 80.0f;
+        }
+#endif
+        return result;
+    }
+
     expected<NativeWindowHandle, WindowError> SDL3Window::native_window_handle_locked() const noexcept {
         ZoneScopedN("SDL3Window::native_window_handle_locked");
         if (!window_) [[unlikely]] {
@@ -700,11 +766,21 @@ namespace SFT::Platform::Windowing::SDL3 {
                 }
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    found->second->wayland_reference_white_queried_ = false;
+                    found->second->wayland_reference_white_nits_.reset();
+                    found->second->wayland_reference_white_query_time_ns_ = 0;
                     WindowEvent window_event{WindowEventKind::Moved};
                     window_event.timestamp_ns = event_timestamp_ns;
                     window_event.position = WindowPosition{event.window.data1, event.window.data2};
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_WINDOW_HDR_STATE_CHANGED) {
+                if (auto found = sdl_window_registry().find(event.window.windowID);
+                    found != sdl_window_registry().end() && found->second) {
+                    found->second->wayland_reference_white_queried_ = false;
+                    found->second->wayland_reference_white_nits_.reset();
+                    found->second->wayland_reference_white_query_time_ns_ = 0;
                 }
             } else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED || event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_MOUSE_ENTER || event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
@@ -849,7 +925,23 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         Foundation::log_debug("SDL3 show window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
-        return sdl_bool_result(SDL_ShowWindow(window_), WindowErrorCode::OperationFailed, "SDL3 show window failed.");
+        auto shown = sdl_bool_result(SDL_ShowWindow(window_), WindowErrorCode::OperationFailed, "SDL3 show window failed.");
+        if (!shown) {
+            return shown;
+        }
+        wayland_reference_white_queried_ = false;
+        wayland_reference_white_nits_.reset();
+        wayland_reference_white_query_time_ns_ = 0;
+        if (active_blur_effect_) {
+            if (auto handle = native_window_handle_locked()) {
+                native_effect_handle_ = *handle;
+                const WindowEffectResult applied = enable_native_window_effect(*handle, *active_blur_effect_);
+                if (!applied.succeeded()) {
+                    Foundation::log_warn("SDL3 could not reapply blur after showing a recreated native surface: {}", applied.details);
+                }
+            }
+        }
+        return {};
     }
 
     expected<void, WindowError> SDL3Window::hide() noexcept {
@@ -859,7 +951,19 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         Foundation::log_debug("SDL3 hide window: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_));
-        return sdl_bool_result(SDL_HideWindow(window_), WindowErrorCode::OperationFailed, "SDL3 hide window failed.");
+        optional<NativeWindowHandle> released_handle;
+        if (active_blur_effect_) {
+            if (auto handle = native_window_handle_locked()) {
+                released_handle = *handle;
+                native_effect_handle_ = *handle;
+                release_native_window_effects(*handle, false);
+            }
+        }
+        auto hidden = sdl_bool_result(SDL_HideWindow(window_), WindowErrorCode::OperationFailed, "SDL3 hide window failed.");
+        if (!hidden && released_handle && active_blur_effect_) {
+            (void)enable_native_window_effect(*released_handle, *active_blur_effect_);
+        }
+        return hidden;
     }
 
     expected<void, WindowError> SDL3Window::focus() noexcept {
@@ -1245,10 +1349,35 @@ namespace SFT::Platform::Windowing::SDL3 {
         // above, and sdl_window_mutex() is non-recursive — see its own doc comment.
         auto handle = native_window_handle_locked();
         if (!handle) [[unlikely]] {
+            // SDL temporarily has no wl_surface while a Wayland window is hidden. Preserve the
+            // requested state locally so disabling while hidden prevents show() from reapplying blur.
+            if (effect.kind == WindowEffectKind::Blur && native_effect_handle_ &&
+                native_effect_handle_->system == NativeWindowSystem::Wayland) {
+                if (effect.enabled) {
+                    active_blur_effect_ = effect;
+                } else {
+                    active_blur_effect_.reset();
+                }
+                return WindowEffectResult::success(
+                    "Wayland blur state saved until SDL recreates the hidden window surface.");
+            }
             return WindowEffectResult::failed("SDL3 native window handle is unavailable.");
         }
 
-        return enable_native_window_effect(*handle, effect);
+        if (effect.kind == WindowEffectKind::Blur) {
+            // Keep the display/surface available for teardown even when protocol discovery later says
+            // blur is unsupported; a hidden destructor otherwise cannot query SDL's null wl_surface.
+            native_effect_handle_ = *handle;
+        }
+        WindowEffectResult result = enable_native_window_effect(*handle, effect);
+        if (result.succeeded() && effect.kind == WindowEffectKind::Blur) {
+            if (effect.enabled) {
+                active_blur_effect_ = effect;
+            } else {
+                active_blur_effect_.reset();
+            }
+        }
+        return result;
     }
 
     expected<void, WindowError> SDL3Window::set_effect(WindowEffect effect) noexcept {

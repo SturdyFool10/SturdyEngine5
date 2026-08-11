@@ -267,6 +267,16 @@ float3 hlgEncode(float3 nits) {
     return lerp(lowBranch, highBranch, useHighBranch);
 }
 
+// Linear BT.709/sRGB primaries -> linear BT.2020. HDR presentation shaders apply this once after
+// all scene/UI compositing so blending remains linear while the tagged output uses BT.2020 primaries.
+float3 linearSrgbToLinearBt2020(float3 color) {
+    static const float3x3 SRGB_TO_BT2020 = float3x3(
+        0.6274040, 0.3292820, 0.0433136,
+        0.0690970, 0.9195400, 0.0113612,
+        0.0163916, 0.0880132, 0.8955950);
+    return max(mul(SRGB_TO_BT2020, color), 0.0);
+}
+
 float linearToSrgbChannel(float linearValue) {
     return linearValue <= 0.0031308
         ? linearValue * 12.92

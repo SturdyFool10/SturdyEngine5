@@ -186,6 +186,10 @@ namespace SFT::Core {
         // and report Unsupported only when the OS/display/API genuinely cannot expose HDR.
         b8 hdr_enabled = false;
         HdrColorSpaceMode hdr_color_space = HdrColorSpaceMode::Hdr10St2084;
+        // Requests a compositor-visible alpha channel. The renderer asks the RHI for premultiplied
+        // swapchain composition; platforms that require an alpha-capable native window must also
+        // create that window with WindowConfig::transparent.
+        b8 transparent_composition = false;
         // 0 = renderer/backend chooses. Non-zero is clamped by the backend/surface capabilities.
         u32 swapchain_image_count = 0;
         // Opt-in, not opt-out: presenting from a compute queue moves present's per-frame driver

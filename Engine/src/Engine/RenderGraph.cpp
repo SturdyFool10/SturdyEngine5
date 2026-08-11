@@ -103,6 +103,7 @@ namespace SFT::Engine {
         graph.description_.ambient_occlusion.enabled = false;
         graph.description_.anti_aliasing.post_process = PostProcessAntiAliasing::None;
         graph.description_.bloom.enabled = false;
+        graph.description_.tone_mapping.enabled = false;
         graph.description_.debug_overlay.enabled = true;
         return graph;
     }

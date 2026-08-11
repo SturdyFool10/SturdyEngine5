@@ -32,6 +32,11 @@ namespace SFT::Platform::Windowing {
         return false;
     }
 
+    void release_native_window_effects(NativeWindowHandle handle, bool release_display) noexcept {
+        (void)handle;
+        (void)release_display;
+    }
+
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
 #if defined(__APPLE__)
         (void)handle;

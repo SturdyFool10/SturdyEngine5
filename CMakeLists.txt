@@ -103,7 +103,7 @@ set(
     STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS
     120
     CACHE STRING
-    "Maximum duration of a guarded Windows static-library archive step; 0 disables the guard."
+    "Maximum duration of a guarded Windows or Linux static-library archive step; 0 disables the guard."
 )
 if(NOT STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS MATCHES "^[0-9]+$")
     message(FATAL_ERROR
