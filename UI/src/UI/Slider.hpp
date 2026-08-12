@@ -506,7 +506,9 @@ namespace SFT::UI {
         if (composition.root.alter_decl)
             composition.root.alter_decl(root, root_context);
         if (root.cursor == CursorIcon::Auto) {
-            root.cursor = slider_enabled ? CursorIcon::Pointer : CursorIcon::NotAllowed;
+            root.cursor = !slider_enabled ? CursorIcon::NotAllowed
+                                         : result.dragging ? CursorIcon::Grabbing
+                                                           : CursorIcon::Pointer;
         }
         root.id = decl.id;
         auto root_scope = ctx.element(root);
@@ -739,7 +741,9 @@ namespace SFT::UI {
                             },
                             // More specific than the root's own Pointer default (Grab, not just
                             // Pointer) — this *is* the drag handle, not just "somewhere clickable."
-                            .cursor = thumb_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed,
+                            .cursor = !thumb_enabled ? CursorIcon::NotAllowed
+                                                     : thumb_visual.active ? CursorIcon::Grabbing
+                                                                           : CursorIcon::Grab,
                         },
                         thumb_context);
         }

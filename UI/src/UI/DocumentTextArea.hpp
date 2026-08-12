@@ -175,6 +175,9 @@ namespace SFT::UI {
         styled.border = state.focused() ? style.border_focused : style.border_idle;
         styled.direction = LayoutDirection::TopToBottom;
         styled.clip = {.horizontal = style.features.horizontal_scroll, .vertical = style.features.vertical_scroll};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Text : CursorIcon::NotAllowed;
+        }
         ScrollbarStyle resolved_scrollbar = scrollbar_style;
         if (!style.features.scrollbars) resolved_scrollbar.visibility = ScrollbarVisibility::AlwaysHidden;
 

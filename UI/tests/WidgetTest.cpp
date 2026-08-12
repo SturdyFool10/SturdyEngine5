@@ -1002,6 +1002,40 @@ namespace {
     // declaration order alone is enough to get that right), and back to Default for everything the
     // instant cursor management is disabled, "similar to how the web works" per the request this
     // feature backs (an app can still declare `cursor` everywhere; the app just stops acting on it).
+    void text_input_cursor_defaults_and_overrides() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        TextEditState state;
+        TextEditStyle style;
+        const UString id{"cursor-text-input"};
+
+        const auto build = [&](CursorIcon cursor, bool enabled) {
+            context.begin_layout({200.0f, 80.0f}, PointerState{.position = {10.0f, 10.0f}});
+            (void)text_input(
+                context,
+                ElementDecl{
+                    .sizing = {SizingAxis::fixed(160.0f), SizingAxis::fixed(32.0f)},
+                    .cursor = cursor,
+                    .id = id,
+                },
+                style, state, TextEditInput{}, 0.016f, UString{}, enabled);
+            (void)context.finish_frame();
+        };
+
+        build(CursorIcon::Auto, true);
+        build(CursorIcon::Auto, true);
+        assert(context.desired_cursor() == CursorIcon::Text);
+
+        build(CursorIcon::Auto, false);
+        assert(context.desired_cursor() == CursorIcon::NotAllowed);
+
+        // Explicit values always beat widget defaults; Default is the consumer opt-out.
+        build(CursorIcon::Default, true);
+        assert(context.desired_cursor() == CursorIcon::Default);
+        build(CursorIcon::ResizeHorizontal, true);
+        assert(context.desired_cursor() == CursorIcon::ResizeHorizontal);
+    }
+
     void desired_cursor_resolves_hover_and_specificity() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -1095,6 +1129,7 @@ int main() {
     scroll_metrics_and_set_scroll_offset_work();
     scroll_area_shows_thumb_only_when_hovering_overflowing_content();
     scroll_area_thumb_drag_scrolls_content();
+    text_input_cursor_defaults_and_overrides();
     desired_cursor_resolves_hover_and_specificity();
     // Every check above is a bare assert() — a failure never reaches this line (libc's assert
     // aborts with its own file:line diagnostic first). Printing on the success path is the only

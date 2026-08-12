@@ -45,6 +45,15 @@ namespace SFT::UI::Docking {
         // `threshold` for tab gestures; split dividers use 0 (always an immediate drag).
         f32 drag_start_threshold = 4.0f;
 
+        // Public cursor policy for the workspace's internally generated chrome. These are explicit
+        // values rather than Auto because DockWorkspace owns the declarations; consumers can replace
+        // any of them to match a host application's conventions.
+        CursorIcon tab_cursor = CursorIcon::Grab;
+        CursorIcon tab_dragging_cursor = CursorIcon::Grabbing;
+        CursorIcon close_button_cursor = CursorIcon::Pointer;
+        CursorIcon horizontal_divider_cursor = CursorIcon::ResizeHorizontal;
+        CursorIcon vertical_divider_cursor = CursorIcon::ResizeVertical;
+
         ButtonStyle tab_active_style{
             .idle = Color{0.20, 0.22, 0.28, 1.0}, .hovered = Color{0.24, 0.26, 0.33, 1.0}, .pressed = Color{0.20, 0.22, 0.28, 1.0}};
         ButtonStyle tab_inactive_style{
@@ -651,6 +660,10 @@ namespace SFT::UI::Docking {
                         .sizing = {SizingAxis::fit(48.0f), SizingAxis::fixed(nl.tab_strip_rect.size.y)},
                         .padding = Padding::symmetric(10, 4),
                         .child_alignment = {.x = AlignX::Center, .y = AlignY::Center},
+                        .cursor = active_drag_ && active_drag_->kind == ActiveDrag::Kind::Tab &&
+                                          active_drag_->panel == panel_id
+                                      ? style_.tab_dragging_cursor
+                                      : style_.tab_cursor,
                         .id = tid,
                     },
                     active ? style_.tab_active_style : style_.tab_inactive_style, tab_states_[panel_id], last_delta_seconds_);
@@ -664,6 +677,7 @@ namespace SFT::UI::Docking {
                             .sizing = {SizingAxis::fixed(16.0f), SizingAxis::fixed(16.0f)},
                             .child_alignment = {.x = AlignX::Center, .y = AlignY::Center},
                             .corner_radius = CornerRadius::all(3.0f),
+                            .cursor = style_.close_button_cursor,
                             .id = close_button_id_for(panel_id),
                         },
                         style_.close_button_style, tab_close_states_[panel_id], last_delta_seconds_);
@@ -687,7 +701,8 @@ namespace SFT::UI::Docking {
                     // A resize handle, not just "something clickable" — overrides button()'s own
                     // Pointer default (see DockSplitAxis's own doc comment, DockTypes.hpp, for which
                     // way each axis actually drags).
-                    .cursor = axis == DockSplitAxis::Horizontal ? CursorIcon::ResizeHorizontal : CursorIcon::ResizeVertical,
+                    .cursor = axis == DockSplitAxis::Horizontal ? style_.horizontal_divider_cursor
+                                                               : style_.vertical_divider_cursor,
                     .debug_label = UString{"DockDivider"},
                     .id = divider_id_for(nl.node),
                 },

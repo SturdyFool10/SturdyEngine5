@@ -183,7 +183,10 @@ namespace SFT::Engine {
                     }
                 }
                 for (const MouseWheelEvent &event : mouse_wheel.read()) {
-                    pointer->add_scroll_delta({event.wheel.x, event.wheel.y});
+                    // SDL and GLFW define positive X as scrolling the viewport right, while Clay's
+                    // positive X moves content right. Convert at the UI boundary; raw InputState
+                    // wheel deltas retain the platform convention.
+                    pointer->add_scroll_delta({-event.wheel.x, event.wheel.y});
                 }
             });
 

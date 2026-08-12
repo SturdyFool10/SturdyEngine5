@@ -1144,7 +1144,9 @@ namespace SFT::UI {
             if (composition.saturation_value.alter_decl)
                 composition.saturation_value.alter_decl(plane_decl, plane_context);
             if (plane_decl.cursor == CursorIcon::Auto) {
-                plane_decl.cursor = sv_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed;
+                plane_decl.cursor = !sv_enabled ? CursorIcon::NotAllowed
+                                                : plane_visual.active ? CursorIcon::Grabbing
+                                                                      : CursorIcon::Grab;
             }
             plane_decl.id = sv_id;
             auto plane = ctx.element(plane_decl);
@@ -1230,7 +1232,9 @@ namespace SFT::UI {
             if (part_slot.alter_decl)
                 part_slot.alter_decl(bar_decl, part_context);
             if (bar_decl.cursor == CursorIcon::Auto) {
-                bar_decl.cursor = part_enabled ? CursorIcon::Grab : CursorIcon::NotAllowed;
+                bar_decl.cursor = !part_enabled ? CursorIcon::NotAllowed
+                                                : visual.active ? CursorIcon::Grabbing
+                                                                : CursorIcon::Grab;
             }
             bar_decl.id = part_id;
             auto bar = ctx.element(bar_decl);

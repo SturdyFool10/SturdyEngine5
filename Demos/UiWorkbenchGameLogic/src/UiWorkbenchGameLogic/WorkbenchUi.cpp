@@ -498,7 +498,9 @@ namespace SFT::UiWorkbench {
                 for (const Engine::MouseWheelEvent &event : wheels.read()) {
                     if (Surface *surface = find_surface(event.window)) {
                         surface->pointer.position = {event.wheel.mouse_x, event.wheel.mouse_y};
-                        surface->pointer.scroll_delta += glm::vec2{event.wheel.x, event.wheel.y};
+                        // Platform wheel X describes viewport motion; Clay's X delta describes
+                        // content motion, so horizontal input must be inverted at the UI boundary.
+                        surface->pointer.scroll_delta += glm::vec2{-event.wheel.x, event.wheel.y};
                     }
                 }
                 for (const Engine::WindowStateEvent &event : window_events.read()) {
@@ -668,7 +670,53 @@ namespace SFT::UiWorkbench {
 
     UI::Docking::DockWorkspaceEvents WorkbenchUi::build_frame(
         Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds) {
-        surface.context.begin_layout(viewport, surface.pointer, delta_seconds);
+        UI::PointerState framebuffer_pointer = surface.pointer;
+        if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
+            const glm::vec2 logical_size{window->size};
+            if (logical_size.x > 0.0f && logical_size.y > 0.0f) {
+                const glm::vec2 logical_to_framebuffer = viewport / logical_size;
+                framebuffer_pointer.position *= logical_to_framebuffer;
+                if (framebuffer_pointer.press_position) {
+                    *framebuffer_pointer.press_position *= logical_to_framebuffer;
+                }
+            }
+        }
+        // Clay v0.14 chooses the outermost matching container for nested wheel targets. Route wheel
+        // input to the multiline editor explicitly when it is the hovered, scrollable descendant;
+        // consume only axes that actually moved so an editor at its boundary still lets the panel
+        // continue scrolling naturally.
+        if (const std::optional<UI::ElementBounds> bounds =
+                surface.context.element_bounds(UString{"workbench-text-markdown"});
+            bounds && framebuffer_pointer.position.x >= bounds->position.x &&
+            framebuffer_pointer.position.y >= bounds->position.y &&
+            framebuffer_pointer.position.x < bounds->position.x + bounds->size.x &&
+            framebuffer_pointer.position.y < bounds->position.y + bounds->size.y) {
+            const UString text_area_id{"workbench-text-markdown"};
+            const UI::Context::ScrollMetrics metrics = surface.context.scroll_metrics(text_area_id);
+            if (metrics.found) {
+                glm::vec2 offset = metrics.offset;
+                const glm::vec2 max_scroll = glm::max(metrics.content_size - metrics.container_size, glm::vec2{0.0f});
+                const auto route_axis = [](f32 delta, f32 maximum, f32 &axis_offset) {
+                    if (delta == 0.0f || maximum <= 0.0f) {
+                        return false;
+                    }
+                    const f32 routed = std::clamp(axis_offset + delta * 30.0f, -maximum, 0.0f);
+                    if (std::abs(routed - axis_offset) <= 0.001f) {
+                        return false;
+                    }
+                    axis_offset = routed;
+                    return true;
+                };
+                if (metrics.horizontal && route_axis(framebuffer_pointer.scroll_delta.x, max_scroll.x, offset.x)) {
+                    framebuffer_pointer.scroll_delta.x = 0.0f;
+                }
+                if (metrics.vertical && route_axis(framebuffer_pointer.scroll_delta.y, max_scroll.y, offset.y)) {
+                    framebuffer_pointer.scroll_delta.y = 0.0f;
+                }
+                surface.context.set_scroll_offset(text_area_id, offset);
+            }
+        }
+        surface.context.begin_layout(viewport, framebuffer_pointer, delta_seconds);
         surface.pointer.pressed = false;
         surface.pointer.press_position.reset();
         surface.pointer.released = false;
@@ -1504,6 +1552,7 @@ namespace SFT::UiWorkbench {
         panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab",
                       "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
 
+        Platform::Windowing::Window *clipboard_window = engine.primary_window();
         const UI::TextEditInput edit_input{
             .typed_text = surface.typed_text,
             .keys = {surface.edit_keys.begin(), surface.edit_keys.end()},
@@ -1511,6 +1560,15 @@ namespace SFT::UiWorkbench {
             .word_modifier_held = surface.ctrl_down,
             .composition_text = surface.composition_text,
             .composing = surface.composing,
+            .get_clipboard_text = [clipboard_window]() {
+                return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{};
+            },
+            .set_clipboard_text = [clipboard_window](const UString &text) {
+                if (clipboard_window != nullptr) {
+                    [[maybe_unused]] const auto result =
+                        clipboard_window->set_clipboard_text(text.cpp_string_view());
+                }
+            },
         };
 
         UI::TextEditStyle edit_style{};

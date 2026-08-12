@@ -171,6 +171,9 @@ namespace SFT::UI {
         styled.border = state.focused() ? style.border_focused : style.border_idle;
         styled.direction = LayoutDirection::TopToBottom;
         styled.clip = ClipConfig{.horizontal = style.features.horizontal_scroll, .vertical = style.features.vertical_scroll};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Text : CursorIcon::NotAllowed;
+        }
 
         const bool buffer_empty = state.text().empty();
         (void)scroll_area(

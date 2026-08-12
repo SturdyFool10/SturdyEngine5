@@ -111,6 +111,9 @@ namespace SFT::UI {
         styled.corner_radius = style.corner_radius;
         styled.border = state.focused() ? style.border_focused : style.border_idle;
         styled.clip = ClipConfig{.horizontal = style.features.horizontal_scroll};
+        if (styled.cursor == CursorIcon::Auto) {
+            styled.cursor = enabled ? CursorIcon::Text : CursorIcon::NotAllowed;
+        }
         auto box = ctx.element(styled);
         (void)box;
 
