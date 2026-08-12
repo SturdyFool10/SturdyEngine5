@@ -485,6 +485,36 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    expected<void, WindowError> SDL3Window::start_text_input() noexcept {
+        ZoneScopedN("SDL3Window::start_text_input");
+        if (!SDL_StartTextInput(window_)) [[unlikely]] {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_StartTextInput failed."));
+        }
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::stop_text_input() noexcept {
+        ZoneScopedN("SDL3Window::stop_text_input");
+        if (!SDL_StopTextInput(window_)) [[unlikely]] {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_StopTextInput failed."));
+        }
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::set_text_input_area(TextInputArea area) noexcept {
+        ZoneScopedN("SDL3Window::set_text_input_area");
+        const SDL_Rect rect{
+            .x = static_cast<int>(area.x),
+            .y = static_cast<int>(area.y),
+            .w = static_cast<int>(area.width),
+            .h = static_cast<int>(area.height),
+        };
+        if (!SDL_SetTextInputArea(window_, &rect, static_cast<int>(area.cursor_offset_x))) [[unlikely]] {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_SetTextInputArea failed."));
+        }
+        return {};
+    }
+
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         ZoneScopedN("SDL3Window::construct");
         auto lock = sdl_window_mutex().lock();
@@ -819,6 +849,23 @@ namespace SFT::Platform::Windowing::SDL3 {
                         const usize copy_size = SDL_strnlen(event.text.text, sizeof(window_event.text.utf8) - 1);
                         memcpy(window_event.text.utf8, event.text.text, copy_size);
                     }
+                    found->second->events_.push_back(window_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_TEXT_EDITING) {
+                // The IME composition/preedit update itself — see WindowTextEditingEvent's own doc
+                // comment for why an empty text field here means composition ended, and why this
+                // needs its own event kind rather than reusing TextInput (uncommitted composition
+                // text must never be treated as if the user actually typed it).
+                if (auto found = sdl_window_registry().find(event.edit.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    WindowEvent window_event{WindowEventKind::TextEditing};
+                    window_event.timestamp_ns = event_timestamp_ns;
+                    if (event.edit.text) [[likely]] {
+                        const usize copy_size = SDL_strnlen(event.edit.text, sizeof(window_event.editing.utf8) - 1);
+                        memcpy(window_event.editing.utf8, event.edit.text, copy_size);
+                    }
+                    window_event.editing.cursor = event.edit.start;
+                    window_event.editing.selection_length = event.edit.length;
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
                 }

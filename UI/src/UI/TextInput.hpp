@@ -17,6 +17,13 @@ namespace SFT::UI {
         // literal newline).
         bool submitted = false;
         bool focused = false;
+        // The caret's own on-screen rectangle (one frame stale, same as every other
+        // Context::element_bounds() read — see this field's own use in the function body), present
+        // only while focused. Feed it to Platform::Windowing::Window::set_text_input_area() (via
+        // whatever request-queue bridge the embedding app uses — see Engine::WindowRequests::
+        // set_text_input_area() for this engine's own) so an IME's composition candidate window
+        // anchors to the caret instead of a default/wrong location.
+        std::optional<ElementBounds> caret_bounds;
     };
 
     // `decl.id` must be set (same convention as button()) — it's the click-to-focus hit-test id.
@@ -109,7 +116,12 @@ namespace SFT::UI {
 
         Detail::render_line(ctx, state.text(), 0, style, state, decl.id, placeholder);
 
-        return TextInputResult{.changed = apply_result.changed, .submitted = apply_result.submitted, .focused = state.focused()};
+        return TextInputResult{
+            .changed = apply_result.changed,
+            .submitted = apply_result.submitted,
+            .focused = state.focused(),
+            .caret_bounds = state.focused() ? ctx.element_bounds(Detail::caret_element_id(decl.id)) : std::nullopt,
+        };
     }
 
 } // namespace SFT::UI

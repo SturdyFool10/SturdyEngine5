@@ -45,6 +45,14 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
+    // IME composition/preedit update — see Platform::Windowing::WindowTextEditingEvent's own doc
+    // comment, in particular that an empty `text.utf8` means composition just ended.
+    struct TextEditingEvent {
+        Platform::Windowing::WindowId window{};
+        Platform::Windowing::WindowTextEditingEvent text{};
+        u64 timestamp_ns = 0;
+    };
+
     struct MouseMoveEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowMouseMoveEvent mouse{};
@@ -104,6 +112,7 @@ SFT_ECS_RESOURCE(SFT::Engine::PlatformEventInbox, "sturdy.engine.platform_event_
 SFT_ECS_EVENT(SFT::Engine::WindowEvent, "sturdy.engine.window_event");
 SFT_ECS_EVENT(SFT::Engine::KeyboardEvent, "sturdy.engine.keyboard_event");
 SFT_ECS_EVENT(SFT::Engine::TextInputEvent, "sturdy.engine.text_input_event");
+SFT_ECS_EVENT(SFT::Engine::TextEditingEvent, "sturdy.engine.text_editing_event");
 SFT_ECS_EVENT(SFT::Engine::MouseMoveEvent, "sturdy.engine.mouse_move_event");
 SFT_ECS_EVENT(SFT::Engine::MouseButtonEvent, "sturdy.engine.mouse_button_event");
 SFT_ECS_EVENT(SFT::Engine::MouseWheelEvent, "sturdy.engine.mouse_wheel_event");

@@ -477,6 +477,31 @@ namespace SFT::Platform::Windowing {
         // Writes `text` (UTF-8) to the OS clipboard, replacing its current contents.
         virtual expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept = 0;
 
+        // --- IME (Input Method Editor) support. Together these are what a romaji-to-hiragana,
+        // pinyin, or similar composing input method needs beyond plain WindowEventKind::TextInput:
+        // somewhere to route composition, and somewhere on screen to draw its candidate window.
+        // Default no-ops (like set_live_resize_callback() above) so a backend without meaningful
+        // support here — GLFW, which exposes no preedit/composition API at all in stock 3.4 — simply
+        // does nothing rather than needing a special case at every call site.
+
+        // Begin routing text input (and, on a backend that supports it, composition/preedit) to this
+        // window. SDL3 requires this to receive WindowEventKind::TextInput/TextEditing at all; it is
+        // already called once, unconditionally, when an SDL3 window is constructed, so callers don't
+        // need to call this themselves unless they specifically want to gate it — e.g. only while
+        // some UI text field has focus, pairing this with stop_text_input() on blur.
+        virtual expected<void, WindowError> start_text_input() noexcept { return {}; }
+
+        // Stop routing text input to this window (see start_text_input()).
+        virtual expected<void, WindowError> stop_text_input() noexcept { return {}; }
+
+        // Tells the OS/IME where the currently focused text field (and caret within it) is on
+        // screen, so a composition candidate window anchors there instead of a default/wrong
+        // location (commonly the screen's top-left corner). Call every frame a focused field's
+        // bounds might have changed — layout, scrolling, or the caret moving — while it has focus;
+        // there is no need to call this when nothing is focused. Cheap on SDL3 (SDL_SetTextInputArea);
+        // a no-op wherever it isn't supported.
+        virtual expected<void, WindowError> set_text_input_area(TextInputArea /*area*/) noexcept { return {}; }
+
       private:
         WindowId id_;
     };

@@ -23,6 +23,9 @@ namespace SFT::UI {
     struct TextAreaResult {
         bool changed = false;
         bool focused = false;
+        // See TextInputResult::caret_bounds's own doc comment — same one-frame-stale IME-positioning
+        // hook, present only while focused.
+        std::optional<ElementBounds> caret_bounds;
     };
 
     // `decl.id` must be set (see text_input()'s own doc comment — same click-to-focus/
@@ -188,7 +191,11 @@ namespace SFT::UI {
             },
             enabled);
 
-        return TextAreaResult{.changed = apply_result.changed, .focused = state.focused()};
+        return TextAreaResult{
+            .changed = apply_result.changed,
+            .focused = state.focused(),
+            .caret_bounds = state.focused() ? ctx.element_bounds(Detail::caret_element_id(decl.id)) : std::nullopt,
+        };
     }
 
 } // namespace SFT::UI

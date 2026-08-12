@@ -69,5 +69,38 @@ int main() {
     input.begin_tick();
     assert(input.text_this_tick().empty());
 
+    // IME composition (preedit): unlike text_this_tick(), this persists across ticks where nothing
+    // changed — a composition can sit open for many frames while the user thinks.
+    assert(!input.composing());
+    assert(input.composition_text().empty());
+    input.begin_tick();
+    input.apply(TextEditingEvent{.text = {.utf8 = "k"}});
+    assert(input.composing());
+    assert(input.composition_text() == "k");
+    // A later tick with no new TextEditingEvent must not lose the composition.
+    input.begin_tick();
+    assert(input.composing());
+    assert(input.composition_text() == "k");
+    // Composition updates as the IME keeps converting romaji.
+    input.begin_tick();
+    input.apply(TextEditingEvent{.text = {.utf8 = "こんにちは"}});
+    assert(input.composing());
+    assert(input.composition_text() == "こんにちは");
+    // Per SDL3's documented contract, an empty composition-text event means editing finished
+    // (cancelled here, rather than confirmed) — composing() must go false, not just the text.
+    input.begin_tick();
+    input.apply(TextEditingEvent{.text = {.utf8 = ""}});
+    assert(!input.composing());
+    assert(input.composition_text().empty());
+    // A commit (TextInputEvent) also always ends whatever composition preceded it, even without an
+    // intervening empty TextEditingEvent — an IME's confirm keystroke doesn't send both.
+    input.begin_tick();
+    input.apply(TextEditingEvent{.text = {.utf8 = "konnichiwa"}});
+    assert(input.composing());
+    input.apply(TextInputEvent{.text = {.utf8 = "こんにちは"}});
+    assert(!input.composing());
+    assert(input.composition_text().empty());
+    assert(input.text_this_tick() == "こんにちは");
+
     return 0;
 }

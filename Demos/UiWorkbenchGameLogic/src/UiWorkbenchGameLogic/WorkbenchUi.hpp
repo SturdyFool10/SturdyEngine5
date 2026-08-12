@@ -43,7 +43,7 @@ namespace SFT::UiWorkbench {
         void build_controls_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
-        void build_text_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        void build_text_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_metrics_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void handle_dock_events(Engine::Engine &engine, Surface &surface,
@@ -59,6 +59,10 @@ namespace SFT::UiWorkbench {
         static constexpr UI::FontId font_id_ = 1;
 
         Text::Font font_{};
+        // Fallback for glyphs font_ (a Latin/symbols/Nerd-Font-icons face) doesn't cover — see
+        // register_font()'s own call site for how this is wired in, and Fonts/NOTO_CJK_LICENSE.txt
+        // for provenance (subsetted from Google's Noto Sans Mono CJK JP, OFL-1.1).
+        Text::Font cjk_font_{};
         Engine::RenderGraph render_graph_{};
         Engine::DockWindowCoordinator dock_coordinator_{};
         std::unordered_map<Platform::Windowing::WindowId, std::unique_ptr<Surface>> surfaces_;

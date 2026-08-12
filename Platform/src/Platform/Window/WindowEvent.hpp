@@ -26,6 +26,7 @@ namespace SFT::Platform::Windowing {
         KeyPressed,
         KeyReleased,
         TextInput,
+        TextEditing,
         MouseMoved,
         MouseButtonPressed,
         MouseButtonReleased,
@@ -48,6 +49,27 @@ namespace SFT::Platform::Windowing {
 
     struct WindowTextInputEvent {
         char utf8[32] = {};
+    };
+
+    // An in-progress IME composition update (the underlined "preedit" text a romaji-to-hiragana,
+    // pinyin, or similar IME shows before the user confirms it) — SDL3's SDL_EVENT_TEXT_EDITING,
+    // GLFW has no equivalent (stock GLFW composes invisibly inside its own platform backend and
+    // only ever surfaces the final committed text via its char callback, so this event never fires
+    // on the GLFW backend). A larger buffer than WindowTextInputEvent's: a whole in-progress
+    // conversion (e.g. a long compound word typed before pressing space to convert) routinely needs
+    // more than 31 bytes, where one commit is normally just the characters typed since the last one.
+    //
+    // Per SDL3's own documented contract, an **empty** `utf8` means composition has ended (either
+    // confirmed — a WindowTextInputEvent with the final text follows — or cancelled) and nothing
+    // should be shown; do not infer "still composing" from anything other than utf8 being non-empty.
+    struct WindowTextEditingEvent {
+        char utf8[128] = {};
+        // Caret position within `utf8`, and the length of the currently-selected span within it —
+        // both as reported by the backend, `-1` for either when the backend doesn't set it. Optional
+        // to use: a consumer that just wants to show the whole composition string underlined at the
+        // widget's own caret (the common case) can ignore both and only check whether `utf8` is empty.
+        i32 cursor = 0;
+        i32 selection_length = 0;
     };
 
     struct WindowMouseMoveEvent {
@@ -120,6 +142,7 @@ namespace SFT::Platform::Windowing {
         WindowResize resize = {};
         WindowKeyboardEvent keyboard = {};
         WindowTextInputEvent text = {};
+        WindowTextEditingEvent editing = {};
         WindowMouseMoveEvent mouse_move = {};
         WindowMouseButtonEvent mouse_button = {};
         WindowMouseWheelEvent mouse_wheel = {};

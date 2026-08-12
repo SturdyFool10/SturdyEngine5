@@ -105,6 +105,23 @@ namespace SFT::UI {
         vector<i32> *z_stack_ = nullptr;
     };
 
+    // Identifies one glyph within one specific registered font face (primary/emoji/fallback) for
+    // Context's outline_cache_ — see that member's own doc comment for why this can't be packed
+    // into a single integer by shifting.
+    struct OutlineCacheKey {
+        u64 font_id = 0;
+        u32 glyph_id = 0;
+        [[nodiscard]] friend constexpr bool operator==(const OutlineCacheKey &, const OutlineCacheKey &) = default;
+    };
+
+    struct OutlineCacheKeyHash {
+        [[nodiscard]] usize operator()(const OutlineCacheKey &key) const noexcept {
+            u64 hashed = key.font_id;
+            hashed ^= static_cast<u64>(key.glyph_id) + 0x9e3779b97f4a7c15ULL + (hashed << 6) + (hashed >> 2);
+            return static_cast<usize>(hashed);
+        }
+    };
+
     // One quad render command (RECTANGLE/BORDER/IMAGE) already resolved out of Clay's output.
     // `image_ref` is non-null only for IMAGE commands — UiRenderer resolves it to an actual texture
     // view at prepare() time (that resolution is Renderer-state-dependent, not Context-state-
@@ -199,8 +216,12 @@ namespace SFT::UI {
         // which it isn't yet at this point in its own definition. Pass Config{} explicitly.
         [[nodiscard]] static Core::RendererExpected<Context> create(const Config &config);
 
-        // `font`/`emoji_fallback` must outlive every later frame that references `font_id`.
-        void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr);
+        // `font`/`emoji_fallback`/every font in `fallbacks` must outlive every later frame that
+        // references `font_id` — see TextBridge::register_font's own doc comment for what
+        // `fallbacks` is for (per-application, coverage-driven fonts for glyphs `font` lacks — CJK,
+        // Arabic, or anything else, not hardcoded to one category).
+        void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr,
+                           std::span<const Text::Font *const> fallbacks = {});
 
         // Starts a new layout tree. Clears the previous frame's image/text scratch storage — call
         // only after any previous frame's FrameSnapshot has already been produced by
@@ -399,10 +420,15 @@ namespace SFT::UI {
         deque<string> text_storage_;
         deque<ImageRef> image_storage_;
         deque<CustomShaderRef> custom_storage_;
-        // Keyed by (font_id << 32 | glyph_id) — mirrors
-        // Renderer/RendererTextOverlay.cpp's own per-glyph outline cache, just keyed across every
-        // font this Context has registered instead of one.
-        unordered_map<u64, Text::GlyphOutline> outline_cache_;
+        // Keyed by (font_id, glyph_id) — mirrors Renderer/RendererTextOverlay.cpp's own per-glyph
+        // outline cache, just keyed across every font this Context has registered instead of one.
+        // `font_id` here is itself a composite key (TextBridge::register_font packs which face —
+        // primary/emoji/fallback — into its own high bits), so it cannot be packed into a single
+        // u64 alongside glyph_id by shifting: shifting a value that already uses its own upper 32
+        // bits discards exactly the bits that distinguish one registered face from another,
+        // collapsing every face of the same registration onto the same key whenever glyph_id
+        // matches. OutlineCacheKey/Hash below combine the two fields properly instead.
+        unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> outline_cache_;
         Core::Extent2D layout_extent_{1, 1};
 
         // Current pointer sample plus latched transitions, set by begin_layout().

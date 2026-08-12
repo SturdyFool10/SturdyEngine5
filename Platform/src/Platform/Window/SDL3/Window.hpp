@@ -123,6 +123,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] std::string clipboard_text() const noexcept override;
         expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
 
+        expected<void, WindowError> start_text_input() noexcept override;
+        expected<void, WindowError> stop_text_input() noexcept override;
+        expected<void, WindowError> set_text_input_area(TextInputArea area) noexcept override;
+
       private:
         friend class ::SFT::Platform::Windowing::Window;
 

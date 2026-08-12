@@ -255,6 +255,14 @@ namespace SFT::UiWorkbench {
         // shift/ctrl are held-state (tracked across frames from press/release), not per-frame edges.
         std::vector<UI::EditKey> edit_keys;
         std::string typed_text;
+        // Unlike typed_text (a per-frame delta, cleared after each build_frame() consumes it), this
+        // reflects *current* IME composition state and is only ever replaced by a new
+        // TextEditingEvent, never cleared per-frame — a composition can sit open for many frames
+        // while the user thinks, and the field showing it must keep doing so. See
+        // Engine::InputState::composing()'s own doc comment for the exact "empty text == finished"
+        // rule route_input() below follows to derive `composing`.
+        std::string composition_text;
+        bool composing = false;
         bool shift_down = false;
         bool ctrl_down = false;
         // One fade/drag state per panel content region — panel_content_region()'s own id is stable
@@ -307,12 +315,38 @@ namespace SFT::UiWorkbench {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
         font_ = std::move(*loaded);
+
+        // CJK fallback: font_ (Maple Mono NF) has no Hiragana/Katakana/Kanji glyphs — without this,
+        // an IME composing Japanese text renders every character as a "tofu" missing-glyph box (see
+        // Text::FontStack::fallbacks' own doc comment for how a glyph's font gets picked once this
+        // is registered below). Subsetted from Google's Noto Sans Mono CJK JP (OFL-1.1, see
+        // Fonts/NOTO_CJK_LICENSE.txt) down to Latin/CJK-punctuation/Hiragana/Katakana/CJK Unified
+        // Ideographs/Halfwidth-Fullwidth Forms via:
+        //   pyftsubset NotoSansCJK-Regular.ttc --font-number=5 --unicodes="U+0000-00FF,U+2010-2027,
+        //     U+2030-205E,U+3000-303F,U+3040-309F,U+30A0-30FF,U+31F0-31FF,U+4E00-9FFF,U+FF00-FFEF,
+        //     U+FFFD" --layout-features='*' --output-file=NotoSansMonoCJK-JP-Subset.ttf
+        const std::optional<std::string> cjk_font_bytes =
+            Foundation::read_file_to_string("Fonts/NotoSansMonoCJK-JP-Subset.ttf");
+        if (!cjk_font_bytes) {
+            return std::unexpected(Engine::GameLogicError{
+                .message = UString{"UiWorkbench could not read Fonts/NotoSansMonoCJK-JP-Subset.ttf"},
+            });
+        }
+        const std::span<const char> cjk_chars{cjk_font_bytes->data(), cjk_font_bytes->size()};
+        auto cjk_loaded = Text::Font::load(std::as_bytes(cjk_chars));
+        if (!cjk_loaded) {
+            return std::unexpected(Engine::GameLogicError{.message = cjk_loaded.error().message});
+        }
+        cjk_font_ = std::move(*cjk_loaded);
+
         hdr_enabled_ = static_cast<bool>(engine.config().features.presentation.hdr_enabled);
         swapchain_transparent_ =
             static_cast<bool>(engine.config().features.presentation.transparent_composition);
         Foundation::log_info(
-            "UiWorkbench: loaded font 'Fonts/MapleMono-NF-Regular.ttf' ({} bytes) in {}",
+            "UiWorkbench: loaded font 'Fonts/MapleMono-NF-Regular.ttf' ({} bytes) + CJK fallback "
+            "'Fonts/NotoSansMonoCJK-JP-Subset.ttf' ({} bytes) in {}",
             font_bytes->size(),
+            cjk_font_bytes->size(),
             stopwatch.elapsed_human());
         markdown_input_state_.set_text(UString{"# Text Lab\n"
                                                "Edit this buffer and watch the preview follow.\n"
@@ -384,7 +418,8 @@ namespace SFT::UiWorkbench {
             handle, std::move(*context), std::move(*sdr_renderer), std::move(*hdr_renderer),
             UString{"ui-workbench-window-" + std::to_string(numeric_window)},
             dock_style(font_id_), primary);
-        surface->context.register_font(font_id_, font_);
+        const std::array<const Text::Font *, 1> font_fallbacks{&cjk_font_};
+        surface->context.register_font(font_id_, font_, /*emoji_fallback=*/nullptr, font_fallbacks);
 
         Surface *result = surface.get();
         surfaces_.emplace(handle.window_id, std::move(surface));
@@ -422,10 +457,21 @@ namespace SFT::UiWorkbench {
                    Ecs::EventReader<Engine::MouseWheelEvent> wheels,
                    Ecs::EventReader<Engine::KeyboardEvent> keys,
                    Ecs::EventReader<Engine::TextInputEvent> text_events,
+                   Ecs::EventReader<Engine::TextEditingEvent> text_editing_events,
                    Ecs::EventReader<Engine::WindowStateEvent> window_events) noexcept {
                 for (const Engine::TextInputEvent &event : text_events.read()) {
                     if (Surface *surface = find_surface(event.window)) {
                         surface->typed_text += event.text.utf8;
+                        // A commit always ends whatever composition preceded it — same rule
+                        // Engine::InputState::apply(const TextInputEvent&) follows.
+                        surface->composing = false;
+                        surface->composition_text.clear();
+                    }
+                }
+                for (const Engine::TextEditingEvent &event : text_editing_events.read()) {
+                    if (Surface *surface = find_surface(event.window)) {
+                        surface->composition_text = event.text.utf8;
+                        surface->composing = !surface->composition_text.empty();
                     }
                 }
                 for (const Engine::MouseMoveEvent &event : moves.read()) {
@@ -724,7 +770,7 @@ namespace SFT::UiWorkbench {
         if (auto decl = surface.workspace.panel_content_region(UString{"text"})) {
             (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.text_scroll,
                                   delta_seconds, [&](UI::Context &ctx) {
-                                      build_text_panel(surface, ctx, delta_seconds);
+                                      build_text_panel(engine, surface, ctx, delta_seconds);
                                   });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"docking"})) {
@@ -1447,7 +1493,7 @@ namespace SFT::UiWorkbench {
         }
     }
 
-    void WorkbenchUi::build_text_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
+    void WorkbenchUi::build_text_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
@@ -1463,6 +1509,8 @@ namespace SFT::UiWorkbench {
             .keys = {surface.edit_keys.begin(), surface.edit_keys.end()},
             .shift_held = surface.shift_down,
             .word_modifier_held = surface.ctrl_down,
+            .composition_text = surface.composition_text,
+            .composing = surface.composing,
         };
 
         UI::TextEditStyle edit_style{};
@@ -1478,28 +1526,30 @@ namespace SFT::UiWorkbench {
         edit_style.font_size = 13;
 
         section_label(ctx, font_id_, "SINGLE LINE");
-        (void)UI::text_input(ctx,
-                             UI::ElementDecl{
-                                 .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
-                                 .padding = UI::Padding::symmetric(11, 8),
-                                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                                 .id = UString{"workbench-text-single"},
-                             },
-                             edit_style, line_input_state_, edit_input, delta_seconds,
-                             UString{"Type something..."});
+        const UI::TextInputResult single_line_result =
+            UI::text_input(ctx,
+                           UI::ElementDecl{
+                               .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
+                               .padding = UI::Padding::symmetric(11, 8),
+                               .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                               .id = UString{"workbench-text-single"},
+                           },
+                           edit_style, line_input_state_, edit_input, delta_seconds,
+                           UString{"Type something..."});
 
         section_label(ctx, font_id_, "PASSWORD");
         UI::TextEditStyle password_style = edit_style;
         password_style.mask_characters = true;
-        (void)UI::text_input(ctx,
-                             UI::ElementDecl{
-                                 .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
-                                 .padding = UI::Padding::symmetric(11, 8),
-                                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                                 .id = UString{"workbench-text-password"},
-                             },
-                             password_style, password_input_state_, edit_input, delta_seconds,
-                             UString{"Password"});
+        const UI::TextInputResult password_result =
+            UI::text_input(ctx,
+                           UI::ElementDecl{
+                               .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(36.0f)},
+                               .padding = UI::Padding::symmetric(11, 8),
+                               .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                               .id = UString{"workbench-text-password"},
+                           },
+                           password_style, password_input_state_, edit_input, delta_seconds,
+                           UString{"Password"});
 
         section_label(ctx, font_id_, "MARKDOWN + LIVE PREVIEW");
         UI::TextEditStyle markdown_style = edit_style;
@@ -1551,14 +1601,50 @@ namespace SFT::UiWorkbench {
             }
             return spans;
         };
-        (void)UI::text_area(ctx,
-                            UI::ElementDecl{
-                                .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(150.0f)},
-                                .padding = UI::Padding::all(10),
-                                .id = UString{"workbench-text-markdown"},
-                            },
-                            markdown_style, markdown_input_state_, edit_input, delta_seconds, scrollbar_style_,
-                            markdown_input_scroll_state_, UString{"# Write some markdown..."});
+        const UI::TextAreaResult markdown_result =
+            UI::text_area(ctx,
+                         UI::ElementDecl{
+                             .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(150.0f)},
+                             .padding = UI::Padding::all(10),
+                             .id = UString{"workbench-text-markdown"},
+                         },
+                         markdown_style, markdown_input_state_, edit_input, delta_seconds, scrollbar_style_,
+                         markdown_input_scroll_state_, UString{"# Write some markdown..."});
+
+        // At most one of these three fields is focused at a time (focus is exclusive — see
+        // TextEditState::focused_), so at most one has caret_bounds set; forward whichever it is so
+        // the IME's composition candidate window anchors near the field actually being typed into.
+        // Per SDL_SetTextInputArea's own documented intent ("native input methods may place a
+        // window with word suggestions near the cursor, without covering the text being entered"),
+        // `rect` is the *whole field's* bounds — not just the caret's own zero-width point, which
+        // would give the IME nothing to avoid covering — with the caret's offset inside it as
+        // `cursor`. Coordinates are already this surface's own client-area pixels (ElementBounds'
+        // own space), matching what Window::set_text_input_area() expects.
+        const auto forward_text_input_area = [&](const std::optional<UI::ElementBounds> &caret_bounds,
+                                                  const UString &widget_id) {
+            if (!caret_bounds) {
+                return false;
+            }
+            const std::optional<UI::ElementBounds> field_bounds = ctx.element_bounds(widget_id);
+            const UI::ElementBounds &area = field_bounds ? *field_bounds : *caret_bounds;
+            engine.window_requests().set_text_input_area(
+                surface.handle.window_id,
+                Platform::Windowing::TextInputArea{
+                    .x = area.position.x,
+                    .y = area.position.y,
+                    // A zero (or negative, if layout ever settles that way) width/height rect is
+                    // exactly the degenerate case the caret-point-only approach above risked —
+                    // floor both at 1px so the IME always gets a real area to anchor against.
+                    .width = std::max(area.size.x, 1.0f),
+                    .height = std::max(area.size.y, 1.0f),
+                    .cursor_offset_x = std::max(caret_bounds->position.x - area.position.x, 0.0f),
+                });
+            return true;
+        };
+        if (!forward_text_input_area(single_line_result.caret_bounds, UString{"workbench-text-single"}) &&
+            !forward_text_input_area(password_result.caret_bounds, UString{"workbench-text-password"})) {
+            forward_text_input_area(markdown_result.caret_bounds, UString{"workbench-text-markdown"});
+        }
 
         {
             auto preview_card = ctx.element(UI::ElementDecl{

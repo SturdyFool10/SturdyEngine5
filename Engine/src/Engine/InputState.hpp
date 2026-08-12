@@ -77,6 +77,20 @@ namespace SFT::Engine {
             // true rather than trusting the buffer blindly.
             const usize length = strnlen(event.text.utf8, sizeof(event.text.utf8));
             text_this_tick_.append(event.text.utf8, length);
+            // A commit always ends whatever composition preceded it (an IME's own Enter/Space to
+            // confirm a conversion never arrives as a *second*, separate event) — see composing()'s
+            // own doc comment for why this can't be inferred from composition_text() alone.
+            composing_ = false;
+            composition_text_.clear();
+        }
+
+        void apply(const TextEditingEvent &event) noexcept {
+            const usize length = strnlen(event.text.utf8, sizeof(event.text.utf8));
+            // Per SDL3's documented TextEditing contract, empty composition text means the edit is
+            // finished (confirmed or cancelled) and nothing further should be shown — the same rule
+            // this engine's InputState applies here rather than needing a separate "ended" event.
+            composing_ = length != 0;
+            composition_text_.assign(event.text.utf8, length);
         }
 
         void apply(const MouseMoveEvent &event) noexcept {
@@ -142,6 +156,18 @@ namespace SFT::Engine {
 
         [[nodiscard]] std::string_view text_this_tick() const noexcept { return text_this_tick_; }
 
+        // Unlike text_this_tick() (a per-tick delta, cleared every begin_tick()), these describe
+        // ongoing IME state and persist across ticks where nothing changed — a composition can sit
+        // idle for many frames while the user thinks, and a text field showing it must keep doing so
+        // without a new TextEditingEvent arriving every frame. Per SDL3's documented TextEditing
+        // contract (empty composition text == composition finished, see apply(const
+        // TextEditingEvent&)'s own comment), `composing()` is always exactly `!composition_text().
+        // empty()` — kept as its own named query only for readability at call sites that just want
+        // to know "is an IME mid-edit right now," e.g. to swallow Enter/Escape instead of treating
+        // them as widget commands.
+        [[nodiscard]] std::string_view composition_text() const noexcept { return composition_text_; }
+        [[nodiscard]] bool composing() const noexcept { return composing_; }
+
         [[nodiscard]] bool mouse_down(Platform::Windowing::MouseButton button) const noexcept {
             return get(mouse_pressed_, button);
         }
@@ -181,6 +207,8 @@ namespace SFT::Engine {
         std::vector<bool> key_just_pressed_ = std::vector<bool>(key_count, false);
         std::vector<bool> key_just_released_ = std::vector<bool>(key_count, false);
         std::string text_this_tick_;
+        std::string composition_text_;
+        bool composing_ = false;
 
         static constexpr usize mouse_button_count = 16; // MouseButton's dense range fits comfortably
         std::vector<bool> mouse_pressed_ = std::vector<bool>(mouse_button_count, false);

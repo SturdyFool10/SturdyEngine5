@@ -363,8 +363,9 @@ namespace SFT::UI {
         }
     }
 
-    void Context::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback) {
-        text_bridge_.register_font(font_id, font, emoji_fallback);
+    void Context::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback,
+                                std::span<const Text::Font *const> fallbacks) {
+        text_bridge_.register_font(font_id, font, emoji_fallback, fallbacks);
     }
 
     void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer, f32 delta_seconds) {
@@ -835,13 +836,37 @@ namespace SFT::UI {
             return RHI::Rect2D{.x = x0, .y = y0, .width = static_cast<u32>(x1 - x0), .height = static_cast<u32>(y1 - y0)};
         }
 
+        // Resolves which loaded Font a shaped glyph actually belongs to — shape_with_fallback()
+        // (Text::FontStack) may have shaped any given glyph against the primary font, the dedicated
+        // emoji font, or any registered fallback font (CJK, ...), and stamps which one onto
+        // PositionedGlyph::font_id. Outline extraction and rasterization both need the *matching*
+        // font, not always the primary one, or a fallback-font glyph's index is looked up in the
+        // wrong font's glyph table entirely (garbage/empty geometry, not just a wrong glyph).
+        [[nodiscard]] const Text::Font *font_for_glyph(const Text::FontStack &fonts, u64 font_id, bool is_color) noexcept {
+            if (is_color) {
+                return fonts.emoji;
+            }
+            if (font_id == fonts.primary_font_id) {
+                return fonts.primary;
+            }
+            for (const Text::FallbackFont &fallback : fonts.fallbacks) {
+                if (fallback.font_id == font_id) {
+                    return fallback.font;
+                }
+            }
+            // Every font_id a glyph carries was stamped by shape_with_fallback() from this exact
+            // FontStack, so this shouldn't happen — fall back to primary rather than risk a null
+            // Font* reaching the outline/rasterization path below.
+            return fonts.primary;
+        }
+
         // Builds GlyphPlacements for one shaped text run at `origin` (the Clay TEXT command's
         // bounding-box top-left) — the same pen-advance loop Renderer/RendererTextOverlay.cpp uses,
         // adapted to read from a UI::CachedShape instead of its own line cache.
         void append_glyph_placements(vector<Renderer::GlyphPlacement> &out, vector<RHI::Rect2D> &out_scissors,
                                      vector<PaintKey> &out_paint, const RHI::Rect2D &scissor, const PaintKey &paint,
                                      const CachedShape &shape, u16 font_size, glm::vec4 color, glm::vec2 origin,
-                                     unordered_map<u64, Text::GlyphOutline> &outline_cache) {
+                                     unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> &outline_cache) {
             if (shape.fonts == nullptr || shape.fonts->primary == nullptr) {
                 return;
             }
@@ -856,12 +881,13 @@ namespace SFT::UI {
                 const f32 run_scale = static_cast<f32>(font_size) / static_cast<f32>(std::max(run.units_per_em, 1u));
                 glm::vec2 cursor{visual_run_x + run.pen_origin_em * static_cast<f32>(font_size), pen.y};
                 for (const Text::PositionedGlyph &glyph : run.glyphs) {
+                    const Text::Font *glyph_font = font_for_glyph(*shape.fonts, glyph.font_id, glyph.is_color);
                     const Text::GlyphOutline *outline = nullptr;
-                    if (!glyph.is_color) {
-                        const u64 key = (static_cast<u64>(glyph.font_id) << 32) | glyph.glyph_id;
+                    if (!glyph.is_color && glyph_font != nullptr) {
+                        const OutlineCacheKey key{.font_id = glyph.font_id, .glyph_id = glyph.glyph_id};
                         auto cached = outline_cache.find(key);
                         if (cached == outline_cache.end()) {
-                            if (auto extracted = Text::glyph_outline(primary_font, glyph.glyph_id)) {
+                            if (auto extracted = Text::glyph_outline(*glyph_font, glyph.glyph_id)) {
                                 cached = outline_cache.emplace(key, std::move(*extracted)).first;
                             } else {
                                 cached = outline_cache.emplace(key, Text::GlyphOutline{}).first;
@@ -880,7 +906,7 @@ namespace SFT::UI {
                         .pixel_size = static_cast<f32>(font_size),
                         .format = glyph.is_color ? Text::RasterFormat::Color : Text::select_raster_format(static_cast<f32>(font_size)),
                         .outline = outline,
-                        .font = glyph.is_color ? shape.fonts->emoji : shape.fonts->primary,
+                        .font = glyph_font,
                     });
                     out_scissors.push_back(scissor);
                     out_paint.push_back(paint);

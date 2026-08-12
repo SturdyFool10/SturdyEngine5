@@ -93,8 +93,24 @@ namespace SFT::Engine {
         bool enabled = false;
     };
 
+    // See Window::set_text_input_area()'s own doc comment — positions an IME composition candidate
+    // window at a focused text field's caret. Fire-and-forget for the same reason as
+    // SetCursorIconRequest above: a UI re-sends this every frame a focused field's bounds might have
+    // changed, with nothing for a caller to await.
+    struct SetTextInputAreaRequest {
+        Platform::Windowing::WindowId window{};
+        Platform::Windowing::TextInputArea area{};
+    };
+
+    // Toggles start_text_input()/stop_text_input() — see their own doc comments (Window.hpp).
+    struct SetTextInputActiveRequest {
+        Platform::Windowing::WindowId window{};
+        bool active = true;
+    };
+
     using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest,
-                                  SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest>;
+                                  SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest,
+                                  SetTextInputAreaRequest, SetTextInputActiveRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close };
 
@@ -155,6 +171,19 @@ namespace SFT::Engine {
         void set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled) {
             auto guard = state_.lock();
             guard->pending.emplace_back(SetBlurRequest{window, kind, enabled});
+        }
+
+        // See SetTextInputAreaRequest's own doc comment for why this has no id/completion. Typically
+        // driven straight from a focused text_input()/text_area() result's own caret_bounds
+        // (UI/TextInput.hpp, UI/TextArea.hpp) every frame it has one.
+        void set_text_input_area(Platform::Windowing::WindowId window, Platform::Windowing::TextInputArea area) {
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetTextInputAreaRequest{window, area});
+        }
+
+        void set_text_input_active(Platform::Windowing::WindowId window, bool active) {
+            auto guard = state_.lock();
+            guard->pending.emplace_back(SetTextInputActiveRequest{window, active});
         }
 
         [[nodiscard]] vector<WindowRequest> drain() {

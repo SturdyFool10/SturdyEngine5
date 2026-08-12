@@ -1,9 +1,11 @@
 #include <UI/UI.hpp>
+#include <UI/src/UI/TextBridge.hpp>
 
 #include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <unordered_map>
 #include <utility>
 
 namespace {
@@ -396,6 +398,155 @@ namespace {
         state.set_caret_to(0, false);
         (void)state.apply_input(TextEditInput{.keys = {EditKey::Left}}, false, TextEditFeatures{}, bindings);
         assert(state.caret() == 0);
+    }
+
+    // Regression test for a real bug found via a live screenshot: CJK fallback glyphs rendered as
+    // the *wrong* (garbled, not blank) shapes because Context::outline_cache_'s old key —
+    // (font_id << 32) | glyph_id — discarded font_id's own high 32 bits when shifting. font_id is
+    // itself a composite TextBridge::register_font stamps (low 32 bits = registered slot, high 32
+    // = which face: primary=0, emoji=1, fallback=2,3,...), so two faces of the *same* registration
+    // collided in the cache whenever glyph_id matched — a fallback-font glyph would silently reuse
+    // whatever outline a same-numbered primary-font glyph had already cached.
+    void outline_cache_key_distinguishes_font_faces_with_shared_low_bits() {
+        using namespace SFT::UI;
+        constexpr u64 slot = 1;
+        const OutlineCacheKey primary_key{.font_id = slot, .glyph_id = 5};
+        const OutlineCacheKey fallback_key{.font_id = slot | (u64{2} << 32), .glyph_id = 5};
+        assert(!(primary_key == fallback_key));
+
+        std::unordered_map<OutlineCacheKey, int, OutlineCacheKeyHash> map;
+        map[primary_key] = 100;
+        map[fallback_key] = 200;
+        assert(map.size() == 2);
+        assert(map[primary_key] == 100);
+        assert(map[fallback_key] == 200);
+    }
+
+    // Regression test for the register_font()/FontStack::fallbacks wiring added for CJK/IME glyph
+    // coverage: fallback fonts must be stored with stable addresses (FontStack::fallbacks is a
+    // non-owning span into TextBridge's own storage) and keep working after re-registering the same
+    // font_id or after fonts_ reallocates internally (growing past its initial capacity).
+    void register_font_stores_fallback_fonts_with_stable_addresses() {
+        using namespace SFT::UI;
+        using namespace SFT::Text;
+        Font primary; // default-constructed (invalid/empty) — register_font never dereferences it
+        Font fallback_a;
+        Font fallback_b;
+        TextBridge bridge;
+
+        constexpr FontId font_id = 7;
+        const std::array<const Font *, 2> fallbacks{&fallback_a, &fallback_b};
+        bridge.register_font(font_id, primary, /*emoji_fallback=*/nullptr, fallbacks);
+
+        const FontStack *stack = bridge.font_stack(font_id);
+        assert(stack != nullptr);
+        assert(stack->primary == &primary);
+        assert(stack->fallbacks.size() == 2);
+        assert(stack->fallbacks[0].font == &fallback_a);
+        assert(stack->fallbacks[1].font == &fallback_b);
+        // Every registered face (primary/emoji-slot/each fallback) must get a distinct font_id so
+        // the glyph atlas never aliases two different fonts' glyph indices onto the same cache key.
+        assert(stack->fallbacks[0].font_id != stack->fallbacks[1].font_id);
+        assert(stack->fallbacks[0].font_id != stack->primary_font_id);
+        assert(!stack->fallbacks[0].is_color && !stack->fallbacks[1].is_color);
+
+        // Force fonts_ to reallocate internally by registering many other font_ids — this moves
+        // every already-registered FontEntry (including font_id's own), which must not invalidate
+        // the fallbacks span (see FontEntry::owned_fallbacks' own doc comment, TextBridge.hpp).
+        for (FontId other = 100; other < 164; ++other) {
+            bridge.register_font(other, primary);
+        }
+        const FontStack *after_growth = bridge.font_stack(font_id);
+        assert(after_growth != nullptr);
+        assert(after_growth->fallbacks.size() == 2);
+        assert(after_growth->fallbacks[0].font == &fallback_a);
+        assert(after_growth->fallbacks[1].font == &fallback_b);
+
+        // Re-registering the same font_id with a *different* fallback list must replace, not append.
+        const std::array<const Font *, 1> replacement_fallbacks{&fallback_b};
+        bridge.register_font(font_id, primary, nullptr, replacement_fallbacks);
+        const FontStack *after_replace = bridge.font_stack(font_id);
+        assert(after_replace != nullptr);
+        assert(after_replace->fallbacks.size() == 1);
+        assert(after_replace->fallbacks[0].font == &fallback_b);
+    }
+
+    // While an IME composition is open, Enter/Escape belong to the IME (confirming/cancelling the
+    // conversion), not the widget's own submit/unfocus behavior — most platforms never even forward
+    // those keypresses to the app during composition, but TextEditState defends against whichever
+    // backend/compositor combination does. See TextEditInput::composing's own doc comment.
+    void ime_composition_swallows_enter_and_escape() {
+        using namespace SFT::UI;
+        TextEditState single_line;
+        single_line.set_text(UString{"alpha"});
+        single_line.set_focused(true);
+
+        const TextEditState::ApplyResult swallowed_enter =
+            single_line.apply_input(TextEditInput{.keys = {EditKey::Enter}, .composing = true}, /*multiline=*/false);
+        assert(!swallowed_enter.submitted);
+        assert(single_line.focused()); // still focused — Escape below is the unfocus case, not Enter
+
+        const TextEditState::ApplyResult swallowed_escape =
+            single_line.apply_input(TextEditInput{.keys = {EditKey::Escape}, .composing = true}, /*multiline=*/false);
+        assert(!swallowed_escape.submitted);
+        assert(single_line.focused()); // Escape must not unfocus while composing
+
+        // The exact same keys, not composing, behave normally — proves the swallow is conditional on
+        // `composing`, not a regression that disabled Enter/Escape outright.
+        const TextEditState::ApplyResult normal_enter =
+            single_line.apply_input(TextEditInput{.keys = {EditKey::Enter}, .composing = false}, /*multiline=*/false);
+        assert(normal_enter.submitted);
+        assert(single_line.focused());
+
+        const TextEditState::ApplyResult normal_escape =
+            single_line.apply_input(TextEditInput{.keys = {EditKey::Escape}, .composing = false}, /*multiline=*/false);
+        assert(!normal_escape.submitted);
+        assert(!single_line.focused()); // Escape unfocuses when not composing
+
+        // Multiline: Enter normally inserts '\n'; still swallowed while composing.
+        TextEditState multiline;
+        multiline.set_text(UString{"line"});
+        multiline.set_focused(true);
+        multiline.set_caret_to(multiline.text().size(), false);
+        const TextEditState::ApplyResult swallowed_newline =
+            multiline.apply_input(TextEditInput{.keys = {EditKey::Enter}, .composing = true}, /*multiline=*/true);
+        assert(!swallowed_newline.changed);
+        assert(multiline.text().cpp_string() == "line");
+        const TextEditState::ApplyResult normal_newline =
+            multiline.apply_input(TextEditInput{.keys = {EditKey::Enter}, .composing = false}, /*multiline=*/true);
+        assert(normal_newline.changed);
+        assert(multiline.text().cpp_string() == "line\n");
+    }
+
+    // The composition (preedit) string is visible (TextEditState::composition_text(), which
+    // render_line() paints underlined at the caret) but must never itself become part of the
+    // committed buffer — only typed_text, arriving once the IME actually commits, does that. Also
+    // covers that a stale composition never survives losing focus.
+    void ime_composition_text_is_visible_but_not_inserted() {
+        using namespace SFT::UI;
+        TextEditState state;
+        state.set_text(UString{"ab"});
+        state.set_focused(true);
+        state.set_caret_to(state.text().size(), false);
+
+        (void)state.apply_input(TextEditInput{.composition_text = "konnichiwa", .composing = true}, /*multiline=*/false);
+        assert(state.composition_text() == "konnichiwa");
+        assert(state.text().cpp_string() == "ab"); // never inserted into the buffer
+
+        // The IME commits: typed_text carries the final characters, composition_text clears.
+        const TextEditState::ApplyResult committed = state.apply_input(
+            TextEditInput{.typed_text = "\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf", .composition_text = "", .composing = false},
+            /*multiline=*/false);
+        assert(committed.changed);
+        assert(state.composition_text().empty());
+        assert(state.text().cpp_string() == "ab\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf");
+
+        // A stale composition must not survive the field losing focus.
+        (void)state.apply_input(TextEditInput{.composition_text = "leftover"}, /*multiline=*/false);
+        assert(state.composition_text() == "leftover");
+        state.set_focused(false);
+        (void)state.apply_input(TextEditInput{.composition_text = "leftover"}, /*multiline=*/false);
+        assert(state.composition_text().empty());
     }
 
     // Widget-level: shift+click must extend the existing caret position into a selection rather
@@ -932,6 +1083,10 @@ int main() {
     text_edit_state_click_streak_and_word_select();
     document_text_area_virtualizes_large_documents();
     text_edit_features_and_rebinding();
+    register_font_stores_fallback_fonts_with_stable_addresses();
+    outline_cache_key_distinguishes_font_faces_with_shared_low_bits();
+    ime_composition_swallows_enter_and_escape();
+    ime_composition_text_is_visible_but_not_inserted();
     text_input_shift_click_extends_selection();
     text_input_drag_acquires_and_releases_pointer_capture();
     scroll_container_moves_child_offset();

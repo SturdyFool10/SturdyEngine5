@@ -101,6 +101,20 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         }
 
         msdfgen::Shape shape = Detail::to_msdfgen_shape(outline);
+        // Outline extraction goes through HarfBuzz's hb-draw (Outline.cpp) rather than FreeType, so
+        // it preserves whichever winding convention the source font's own outline table used
+        // instead of normalizing it — TrueType/glyf and CFF/CFF2 fonts disagree on which direction
+        // means "exterior" (confirmed empirically: MapleMono, TrueType, consistently comes out with
+        // exterior=CW/holes=CCW; Noto Sans Mono CJK, CFF, consistently comes out the opposite).
+        // msdfgen's SDF/MSDF sign and edge-coloring both depend on a *consistent* polarity, so a
+        // shape with the "wrong" absolute orientation renders inverted (background fills solid,
+        // glyph ink becomes a transparent hole) or with garbled MSDF corner coloring — exactly what
+        // every CJK glyph looked like before this call was added. orientContours() fixes this
+        // properly (not just for CFF): it derives the correct non-zero-winding orientation purely
+        // from each contour's actual scanline nesting depth, so it's a geometry-based correction
+        // that works for every source format uniformly, not a per-format special case, and is a
+        // no-op (up to floating-point noise) on a shape whose contours were already correct.
+        shape.orientContours();
         shape.normalize();
         if (format == RasterFormat::MSDF) {
             msdfgen::edgeColoringSimple(shape, 3.0);

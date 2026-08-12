@@ -287,6 +287,20 @@ namespace SFT::Engine {
                 continue;
             }
 
+            if (auto *area = std::get_if<SetTextInputAreaRequest>(&request)) {
+                window_manager_.post_to_window(area->window, [value = area->area](Platform::Windowing::Window &w) {
+                    return w.set_text_input_area(value);
+                });
+                continue;
+            }
+
+            if (auto *active = std::get_if<SetTextInputActiveRequest>(&request)) {
+                window_manager_.post_to_window(active->window, [enabled = active->active](Platform::Windowing::Window &w) {
+                    return enabled ? w.start_text_input() : w.stop_text_input();
+                });
+                continue;
+            }
+
             const CloseWindowRequest &close = std::get<CloseWindowRequest>(request);
             ManagedWindow *target = find_managed_window(close.window);
             if (target != nullptr && !target->pending_close_completion) {

@@ -237,6 +237,7 @@ namespace SFT::Engine {
         Ecs::Events<WindowEvent> window_events_{};
         Ecs::Events<KeyboardEvent> keyboard_events_{};
         Ecs::Events<TextInputEvent> text_input_events_{};
+        Ecs::Events<TextEditingEvent> text_editing_events_{};
         Ecs::Events<MouseMoveEvent> mouse_move_events_{};
         Ecs::Events<MouseButtonEvent> mouse_button_events_{};
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};

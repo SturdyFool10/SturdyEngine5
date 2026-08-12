@@ -121,6 +121,22 @@ namespace SFT::UI {
         bool shift_held = false;
         // Ctrl (or Cmd on macOS) — widens Left/Right/Backspace/Delete to word granularity.
         bool word_modifier_held = false;
+        // This frame's in-progress IME composition (preedit) text — e.g. the romaji not yet
+        // converted to kana, or a pinyin sequence before its candidate is picked. Source it from
+        // Engine::InputState::composition_text() (Platform::Windowing::WindowTextEditingEvent's own
+        // doc comment explains why this needs to stay a separate event/field from typed_text: it is
+        // never committed text). Rendered inline at the caret, underlined, and never inserted into
+        // the buffer — only `typed_text` (which arrives once the IME actually commits) becomes part
+        // of text(). Borrowed like typed_text; must outlive the text_input()/text_area() call.
+        string_view composition_text;
+        // Whether an IME composition is open this frame — normally `!composition_text.empty()`
+        // (see Engine::InputState::composing()'s own doc comment for the one rule this follows),
+        // kept as its own field so a caller sourcing input some other way than InputState isn't
+        // forced to encode "composing but momentarily empty" as a non-empty sentinel string. While
+        // true, Enter/Escape are treated as belonging to the IME (confirming/cancelling the
+        // composition) rather than the widget's own submit/unfocus behavior — see apply_input()'s
+        // EditKey::Enter/EditKey::Escape cases.
+        bool composing = false;
         // Clipboard bridge for Copy/Cut/Paste — text_input()/text_area() never touch a platform
         // clipboard API directly (same platform-agnostic reasoning as everything else here). Leave
         // both null to make Copy/Cut/Paste silent no-ops. See Platform::Windowing::Window::
@@ -249,6 +265,15 @@ namespace SFT::UI {
 
         [[nodiscard]] bool focused() const noexcept { return focused_; }
         void set_focused(bool focused) noexcept { focused_ = focused; }
+
+        // This frame's in-progress IME composition text, captured by apply_input() from
+        // TextEditInput::composition_text — render_line() paints it inline (underlined) at the
+        // caret. Stored as an owned string rather than forwarding TextEditInput's borrowed
+        // string_view: TextEditState outlives any single frame's apply_input() call, and render_line()
+        // (called later the same frame, but still a second call) has no way to know whether a
+        // stored view's backing buffer is still alive — same reasoning as text_/highlight_cache_key_
+        // below being owned rather than borrowed.
+        [[nodiscard]] string_view composition_text() const noexcept { return composition_text_; }
 
         void insert(const UString &value) {
             if (value.empty()) {
@@ -414,8 +439,10 @@ namespace SFT::UI {
                                 const TextEditBindings &bindings = {}) {
             ApplyResult result{};
             if (!focused_) {
+                composition_text_.clear(); // never show a stale preedit on a field that lost focus
                 return result;
             }
+            composition_text_.assign(input.composition_text);
 
             if (features.typing && !input.typed_text.empty()) {
                 UString typed{input.typed_text};
@@ -475,6 +502,15 @@ namespace SFT::UI {
                     // elsewhere, do nothing) rather than this engine guessing.
                     break;
                 case EditKey::Enter:
+                    // While an IME composition is open, Enter belongs to it (confirming the
+                    // conversion) — most platforms never even forward this keypress to the app in
+                    // that case, but treating it as a no-op here too is a cheap defense against
+                    // whichever backend/compositor combination does, instead of the field silently
+                    // submitting/newlining out from under an in-progress composition. See
+                    // TextEditInput::composing's own doc comment.
+                    if (input.composing) {
+                        break;
+                    }
                     if (features.submission) {
                         if (multiline) {
                             insert(UString{"\n"});
@@ -485,6 +521,11 @@ namespace SFT::UI {
                     }
                     break;
                 case EditKey::Escape:
+                    // Same reasoning as Enter above: while composing, Escape cancels the IME's
+                    // composition, not this field's focus.
+                    if (input.composing) {
+                        break;
+                    }
                     if (features.escape_to_unfocus) {
                         set_focused(false);
                     }
@@ -600,6 +641,7 @@ namespace SFT::UI {
         usize caret_ = 0;
         usize selection_anchor_ = 0;
         bool focused_ = false;
+        std::string composition_text_;
 
         ColorTransition color_{};
         f32 blink_elapsed_ = 0.0f;
@@ -761,6 +803,42 @@ namespace SFT::UI {
                 (void)anchor;
             };
 
+            // The in-progress IME composition (preedit) string, if any — rendered as an ordinary
+            // (layout-occupying, unlike the caret above) text run right at the caret position,
+            // underlined so it reads as "not committed yet," with the caret itself landing after it
+            // once emit_caret() runs next. Deliberately not run through the highlighter (it isn't
+            // part of the buffer) or password-masked (an IME never composes into a password field in
+            // any way that would leak the underlying text — the OS's own candidate window shows the
+            // plain composition regardless of what this widget does).
+            const string_view composition = state.composition_text();
+            const bool show_composition = caret_on_this_line && !composition.empty();
+            const auto emit_composition = [&]() {
+                if (!show_composition) {
+                    return;
+                }
+                // A dedicated wrapper scope, same as the ordinary run_scope further below — the
+                // underline's grow() sizing must resolve against the composition text's own width,
+                // not the whole row, and a floating element's "Parent" is whichever element is
+                // currently open when it's declared.
+                auto scope = ctx.element(ElementDecl{});
+                (void)scope;
+                auto decoration = ctx.element(ElementDecl{
+                    .sizing = {SizingAxis::grow(), SizingAxis::fixed(1.0f)},
+                    .background_color = style.text_color,
+                    .floating = FloatingConfig{
+                        .attach_to = FloatingAttachTo::Parent,
+                        .element_attach_point = FloatingAttachPoint::LeftBottom,
+                        .parent_attach_point = FloatingAttachPoint::LeftBottom,
+                        .capture_pointer = false,
+                        .clip_to = FloatingClipTo::AttachedParent,
+                    },
+                });
+                (void)decoration;
+                const UString composition_text{composition};
+                ctx.text(composition_text.as_ustr(), TextStyle{.color = style.text_color, .font_id = style.font_id,
+                                                                .font_size = style.font_size, .wrap_mode = TextWrapMode::None});
+            };
+
             const vector<usize> sorted_cuts(cuts.begin(), cuts.end());
             // Exactly {0, line_len} — no highlight/selection/caret cut fell inside this line, the
             // common case (see this function's own doc comment for why the multi-run case can't
@@ -792,6 +870,7 @@ namespace SFT::UI {
                 const usize run_start = sorted_cuts[i];
                 const usize run_end = sorted_cuts[i + 1];
                 if (caret_on_this_line && run_start == static_cast<usize>(caret_local)) {
+                    emit_composition();
                     emit_caret();
                 }
                 if (run_end == run_start) {
@@ -851,6 +930,7 @@ namespace SFT::UI {
                                    .wrap_mode = run_wrap_mode});
             }
             if (caret_on_this_line && static_cast<usize>(caret_local) == line_len) {
+                emit_composition();
                 emit_caret();
             }
             if (line_len == 0 && !placeholder.empty()) {

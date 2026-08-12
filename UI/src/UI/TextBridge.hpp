@@ -4,6 +4,7 @@
 
 #pragma region Imports
 #include <clay.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -14,6 +15,7 @@
 
 #include "Style.hpp"
 
+using std::span;
 using std::string;
 using std::string_view;
 using std::unordered_map;
@@ -38,9 +40,18 @@ namespace SFT::UI {
 
     class TextBridge {
       public:
-        // `font`/`emoji_fallback` must outlive every subsequent measure/shape call that references
-        // `font_id` — same non-owning contract as Text::FontStack itself.
-        void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr);
+        // `font`/`emoji_fallback`/every font pointed to from `fallbacks` must outlive every
+        // subsequent measure/shape call that references `font_id` — same non-owning contract as
+        // Text::FontStack itself. `fallbacks` lets an application register any number of additional
+        // fonts (CJK, Arabic, a second symbol font, ...) tried in order for glyphs the primary font
+        // doesn't cover — each independently chosen by the application, not hardcoded to one
+        // category. Whichever font in the list actually has a given glyph wins (see
+        // Text::FontStack::fallbacks' own doc comment for the coverage-driven selection this feeds);
+        // order only matters when more than one listed font covers the same codepoint. Always
+        // non-color (an application wanting a color fallback uses `emoji_fallback` instead — the
+        // dedicated emoji face still wins for emoji-presentation runs regardless of `fallbacks`).
+        void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr,
+                           span<const Text::Font *const> fallbacks = {});
 
         [[nodiscard]] const Text::FontStack *font_stack(FontId font_id) const noexcept;
 
@@ -62,6 +73,11 @@ namespace SFT::UI {
         struct FontEntry {
             FontId id = 0;
             Text::FontStack stack{};
+            // Backing storage for stack.fallbacks (a non-owning span) — moving a FontEntry (e.g.
+            // fonts_ reallocating on push_back) moves this vector's heap buffer by pointer, not by
+            // element copy, so the span stays valid; only re-registering the same font_id needs the
+            // span recomputed (see register_font()'s own two call sites for why).
+            vector<Text::FallbackFont> owned_fallbacks;
         };
 
         struct ShapeCacheKey {

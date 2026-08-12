@@ -75,6 +75,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(window_events_);
         ecs_world_.bind_resource(keyboard_events_);
         ecs_world_.bind_resource(text_input_events_);
+        ecs_world_.bind_resource(text_editing_events_);
         ecs_world_.bind_resource(mouse_move_events_);
         ecs_world_.bind_resource(mouse_button_events_);
         ecs_world_.bind_resource(mouse_wheel_events_);
@@ -103,6 +104,7 @@ namespace SFT::Engine {
                Ecs::EventWriter<WindowEvent> window_events,
                Ecs::EventWriter<KeyboardEvent> keyboard_events,
                Ecs::EventWriter<TextInputEvent> text_events,
+               Ecs::EventWriter<TextEditingEvent> text_editing_events,
                Ecs::EventWriter<MouseMoveEvent> mouse_move_events,
                Ecs::EventWriter<MouseButtonEvent> mouse_button_events,
                Ecs::EventWriter<MouseWheelEvent> mouse_wheel_events,
@@ -129,6 +131,9 @@ namespace SFT::Engine {
                             break;
                         case Platform::Windowing::WindowEventKind::TextInput:
                             text_events.send(TextInputEvent{.window = queued.window, .text = event.text, .timestamp_ns = event.timestamp_ns});
+                            break;
+                        case Platform::Windowing::WindowEventKind::TextEditing:
+                            text_editing_events.send(TextEditingEvent{.window = queued.window, .text = event.editing, .timestamp_ns = event.timestamp_ns});
                             break;
                         case Platform::Windowing::WindowEventKind::MouseMoved:
                             mouse_move_events.send(MouseMoveEvent{.window = queued.window, .mouse = event.mouse_move, .timestamp_ns = event.timestamp_ns});
@@ -190,6 +195,7 @@ namespace SFT::Engine {
             [](Ecs::WriteResource<InputState> input,
                Ecs::EventReader<KeyboardEvent> keyboard,
                Ecs::EventReader<TextInputEvent> text,
+               Ecs::EventReader<TextEditingEvent> text_editing,
                Ecs::EventReader<MouseMoveEvent> mouse_move,
                Ecs::EventReader<MouseButtonEvent> mouse_button,
                Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
@@ -198,6 +204,9 @@ namespace SFT::Engine {
                     input->apply(event);
                 }
                 for (const TextInputEvent &event : text.read()) {
+                    input->apply(event);
+                }
+                for (const TextEditingEvent &event : text_editing.read()) {
                     input->apply(event);
                 }
                 for (const MouseMoveEvent &event : mouse_move.read()) {

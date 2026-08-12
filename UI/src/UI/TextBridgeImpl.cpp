@@ -9,29 +9,46 @@
 
 namespace SFT::UI {
 
-    void TextBridge::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback) {
+    void TextBridge::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback,
+                                   span<const Text::Font *const> fallbacks) {
+        // font_id's low 32 bits identify the registered slot; the high bits distinguish primary
+        // (0), emoji (1), and each general fallback (2, 3, ...) within that same slot, so every face
+        // this TextBridge ever hands out to the atlas has a globally unique key.
+        vector<Text::FallbackFont> owned_fallbacks;
+        owned_fallbacks.reserve(fallbacks.size());
+        for (usize i = 0; i < fallbacks.size(); ++i) {
+            owned_fallbacks.push_back(Text::FallbackFont{
+                .font = fallbacks[i],
+                .font_id = static_cast<u64>(font_id) | (u64{2 + i} << 32),
+                .is_color = false,
+            });
+        }
+
         for (FontEntry &entry : fonts_) {
             if (entry.id == font_id) {
+                entry.owned_fallbacks = std::move(owned_fallbacks);
                 entry.stack = Text::FontStack{
                     .primary = &font,
                     .emoji = emoji_fallback,
                     .primary_font_id = static_cast<u64>(font_id),
                     .emoji_font_id = static_cast<u64>(font_id) | (u64{1} << 32),
+                    .fallbacks = entry.owned_fallbacks,
                     .emoji_is_color = true,
                 };
                 return;
             }
         }
-        fonts_.push_back(FontEntry{
-            .id = font_id,
-            .stack = Text::FontStack{
-                .primary = &font,
-                .emoji = emoji_fallback,
-                .primary_font_id = static_cast<u64>(font_id),
-                .emoji_font_id = static_cast<u64>(font_id) | (u64{1} << 32),
-                .emoji_is_color = true,
-            },
-        });
+
+        FontEntry new_entry{.id = font_id, .owned_fallbacks = std::move(owned_fallbacks)};
+        new_entry.stack = Text::FontStack{
+            .primary = &font,
+            .emoji = emoji_fallback,
+            .primary_font_id = static_cast<u64>(font_id),
+            .emoji_font_id = static_cast<u64>(font_id) | (u64{1} << 32),
+            .fallbacks = new_entry.owned_fallbacks,
+            .emoji_is_color = true,
+        };
+        fonts_.push_back(std::move(new_entry));
     }
 
     const TextBridge::FontEntry *TextBridge::find_font(FontId id) const noexcept {
