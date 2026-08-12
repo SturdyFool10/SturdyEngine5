@@ -24,3 +24,4 @@
 #include "Features.hpp"
 #include "Break.hpp"
 #include "Layout.hpp"
+#include "Document.hpp"

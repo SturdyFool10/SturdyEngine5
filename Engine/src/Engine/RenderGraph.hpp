@@ -150,6 +150,12 @@ namespace SFT::Engine {
         u32 max_shadowed_spot_lights = 8;
         u32 max_shadowed_point_lights = 4;
         bool contact_hardening = true;
+        // Bounded same-frame screen-space refinement for small sun-shadow contacts. It does not
+        // replace raster shadow maps and never relies on temporal reconstruction.
+        bool contact_shadows = true;
+        f32 contact_shadow_distance = 0.5f;
+        f32 contact_shadow_thickness = 0.05f;
+        u32 contact_shadow_steps = 8;
     };
 
     struct AmbientOcclusionSettings {

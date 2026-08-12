@@ -221,9 +221,10 @@ namespace SFT::Renderer {
         glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
         f32 background_intensity = 1.0f;
 
-        // Raster shadow stack. The atlas is divided into 8x8 cells: directional cascades receive
-        // 2x2 cells each and local-light faces receive one. Local lights are importance-ranked when
-        // demand exceeds the fixed budget, keeping memory and worst-case raster cost deterministic.
+        // Raster shadow stack. The atlas is divided into 8x8 cells: the two near directional
+        // cascades receive 3x3 cells, distant cascades receive 2x2, and local-light faces receive
+        // one. Local lights are importance-ranked when demand exceeds the fixed budget, keeping
+        // memory and worst-case raster cost deterministic.
         u32 shadow_atlas_size = 4096;
         u32 shadow_cascade_count = 4;
         f32 shadow_max_distance = 250.0f;
@@ -235,6 +236,12 @@ namespace SFT::Renderer {
         u32 max_shadowed_spot_lights = 8;
         u32 max_shadowed_point_lights = 4;
         bool shadow_contact_hardening = true;
+        // Short-range, deterministic screen-space sun-shadow refinement. It only restores
+        // near-field detail; raster shadow maps remain the authoritative visibility source.
+        bool contact_shadows = true;
+        f32 contact_shadow_distance = 0.5f;
+        f32 contact_shadow_thickness = 0.05f;
+        u32 contact_shadow_steps = 8;
         f32 gtao_radius = 1.0f;
         f32 gtao_falloff = 0.8f;
         f32 gtao_thickness = 0.15f;

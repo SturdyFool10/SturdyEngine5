@@ -194,7 +194,8 @@ namespace SFT::Engine {
     TextureStreamer::~TextureStreamer() = default;
 
     StreamedTextureHandle TextureStreamer::request_texture_load(
-        std::filesystem::path source, TextureColorSpace color_space, RHI::ClearColor placeholder, UString label) {
+        std::filesystem::path source, TextureColorSpace color_space, TextureKind kind,
+        RHI::ClearColor placeholder, UString label) {
         ZoneScopedN("TextureStreamer::request_texture_load");
         auto encoded = read_binary_file_streamed(source);
         if (!encoded) {
@@ -220,14 +221,39 @@ namespace SFT::Engine {
         const u32 mip_levels = mip_chain.mip_levels;
         span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
-        // Preserve the BC7 VRAM win by compressing every mip level rather than only the base image.
+        // Preserve the BC VRAM win by compressing every mip level rather than only the base image --
+        // which encoder runs is the same "Compression Manager" policy (Detail::choose_bc_format)
+        // AssetManager::create_texture uses, keyed off `kind`.
         vector<std::byte> compressed_storage;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (decoded->width >= 4 && decoded->height >= 4 && device != nullptr &&
             device->limits().supports_bc_texture_compression) {
-            if (auto compressed = Detail::compress_bc7_mip_chain(
-                    upload_bytes, decoded->width, decoded->height, mip_levels, srgb)) {
-                format = srgb ? RHI::Format::BC7UnormSrgb : RHI::Format::BC7Unorm;
+            std::optional<vector<std::byte>> compressed;
+            switch (kind) {
+                case TextureKind::ColorOpaque:
+                    compressed = Detail::compress_bc1_mip_chain(upload_bytes, decoded->width, decoded->height,
+                        mip_levels, srgb);
+                    break;
+                case TextureKind::Mask:
+                    compressed = Detail::compress_bc4_mip_chain(upload_bytes, decoded->width, decoded->height,
+                        mip_levels);
+                    break;
+                case TextureKind::NormalMap:
+                case TextureKind::MetallicRoughness:
+                    // Both are already R/G-laid-out by this point — see AssetManager::create_texture's
+                    // matching case for why (MetallicRoughness is pre-repacked by the caller, not
+                    // here, so the streaming path stays consistent with the synchronous one).
+                    compressed = Detail::compress_bc5_mip_chain(upload_bytes, decoded->width, decoded->height,
+                        mip_levels);
+                    break;
+                case TextureKind::ColorAlpha:
+                default:
+                    compressed = Detail::compress_bc7_mip_chain(upload_bytes, decoded->width, decoded->height,
+                        mip_levels, srgb);
+                    break;
+            }
+            if (compressed) {
+                format = Detail::choose_bc_format(kind, srgb);
                 compressed_storage = std::move(*compressed);
                 upload_bytes = span<const std::byte>{compressed_storage.data(), compressed_storage.size()};
                 vector<std::byte>{}.swap(mip_chain.data);

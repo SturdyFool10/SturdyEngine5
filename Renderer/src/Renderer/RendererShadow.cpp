@@ -47,6 +47,10 @@ namespace SFT::Renderer {
 
         constexpr u32 kAtlasGridSize = 8;
         constexpr f32 kMinimumLightRange = 0.05f;
+        // Point faces overlap their neighbours so dominant-axis face selection cannot turn an
+        // exactly-90-degree cubemap seam into an unshadowed crack. Keep this modest: it only needs
+        // to cover filtering around an edge, not meaningfully duplicate the six face renders.
+        constexpr f32 kPointShadowFaceFovRadians = 1.6057029f; // 92 degrees.
 
         [[nodiscard]] Core::GraphicsBackendError shadow_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -267,11 +271,11 @@ namespace SFT::Renderer {
         static_assert(sizeof(DirectionalLightGpuData) == 64);
         static_assert(sizeof(SpotLightGpuData) == 64);
         static_assert(sizeof(PointLightGpuData) == 48);
-        static_assert(sizeof(ShadowLightingGpuData) == 5248);
-        static_assert(offsetof(ShadowLightingGpuData, sun) == 256);
-        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 320);
-        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 832);
-        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1216);
+        static_assert(sizeof(ShadowLightingGpuData) == 5328);
+        static_assert(offsetof(ShadowLightingGpuData, sun) == 336);
+        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 400);
+        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 912);
+        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1296);
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !targets.lighting_buffer) {
             return unexpected(shadow_error("Cannot prepare shadow lighting without its per-frame constant buffer."));
@@ -281,6 +285,7 @@ namespace SFT::Renderer {
         ShadowLightingGpuData &gpu = prepared.gpu;
         const glm::mat4 view_projection = submission.camera.projection * submission.camera.view;
         gpu.inverse_view_projection = glm::inverse(view_projection);
+        gpu.view_projection = view_projection;
         gpu.view = submission.camera.view;
         gpu.camera_position_near = glm::vec4{submission.camera.world_position,
                                              std::max(submission.camera.near_plane, 0.0001f)};
@@ -324,6 +329,12 @@ namespace SFT::Renderer {
             std::clamp(finite_or(submission.render_graph.shadow_normal_bias, 0.75f), 0.0f, 4.0f),
             submission.render_graph.shadow_contact_hardening ? 1.0f : 0.0f,
             std::max(finite_or(submission.render_graph.shadow_max_distance, 250.0f), submission.camera.near_plane),
+        };
+        gpu.contact_shadow_params = glm::vec4{
+            std::clamp(finite_or(submission.render_graph.contact_shadow_distance, 0.5f), 0.0f, 5.0f),
+            std::clamp(finite_or(submission.render_graph.contact_shadow_thickness, 0.05f), 0.0f, 1.0f),
+            static_cast<f32>(std::clamp(submission.render_graph.contact_shadow_steps, 2u, 12u)),
+            submission.render_graph.contact_shadows && shadows_enabled && sun.casts_shadows ? 1.0f : 0.0f,
         };
 
         AtlasAllocator allocator;
@@ -595,13 +606,15 @@ namespace SFT::Renderer {
             }
             allocator = candidate_allocator;
             const f32 shadow_near = std::max(0.02f, range * 0.001f);
-            const glm::mat4 projection = glm::perspectiveRH_ZO(glm::half_pi<f32>(), 1.0f, shadow_near, range);
+            const glm::mat4 projection = glm::perspectiveRH_ZO(kPointShadowFaceFovRadians, 1.0f, shadow_near, range);
             const i32 first_view = static_cast<i32>(prepared.render_views.size());
-            const f32 radius_uv_world = std::max(light.source_radius, 0.0f) * 0.5f;
+            const f32 face_span_at_unit_depth = 2.0f * std::tan(kPointShadowFaceFovRadians * 0.5f);
+            const f32 radius_uv_world = std::max(light.source_radius, 0.0f) /
+                                        std::max(face_span_at_unit_depth, 0.001f);
             for (usize face = 0; face < face_directions.size(); ++face) {
                 const glm::mat4 view = glm::lookAtRH(light.position, light.position + face_directions[face], face_ups[face]);
                 (void)append_shadow_view(projection * view, tiles[face], shadow_near, range,
-                                         true, radius_uv_world, 2.0f);
+                                         true, radius_uv_world, face_span_at_unit_depth);
             }
             output.shadow_params.x = static_cast<f32>(first_view);
             ++shadowed_points;

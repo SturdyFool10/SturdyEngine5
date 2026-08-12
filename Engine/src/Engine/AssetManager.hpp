@@ -51,17 +51,48 @@ namespace SFT::Engine {
         Srgb,
     };
 
+    // The "Compression Manager" policy input: what kind of data this texture holds, which decides
+    // which BC format create_texture compresses it into (Detail::choose_bc_format). Every kind
+    // still respects allow_compression/device support the same way — this only picks the format
+    // once compression is otherwise going to happen.
+    enum class TextureKind : u8 {
+        // Full RGBA color where alpha carries real information (cutout/blend alpha, or unknown) —
+        // BC7. This is the default, matching every caller's behavior before TextureKind existed.
+        ColorAlpha,
+        // Full RGB color where alpha is known to be irrelevant (e.g. a glTF material with
+        // alpha_mode OPAQUE) — BC1, half BC7's size. Sampling always reads back alpha = 1.0.
+        ColorOpaque,
+        // A single-channel mask/data texture sampled via `.r` alone (e.g. a standalone occlusion
+        // map) — BC4, half BC7's size. Sampling reads back (r, 0, 0, 1).
+        Mask,
+        // A two-channel tangent-space normal map (X/Y only, shader reconstructs Z) sampled via
+        // `.rg` alone — BC5, same size as BC7 but tuned for uncorrelated 2-channel data. Sampling
+        // reads back (r, g, 0, 1).
+        NormalMap,
+        // A standalone glTF-style metallic-roughness texture (G = roughness, B = metallic, no
+        // occlusion partner to pack with — see AssetManager::create_orm_texture for the packed
+        // case) — BC5, re-encoding the G/B channels into the format's R/G. Sampling reads back
+        // (roughness, metallic, 0, 1) instead of glTF's own (_, roughness, metallic, _) layout, so
+        // GltfImport.cpp also sets the material's metallic_roughness_channels_rg flag to tell
+        // gbuffer_geometry.slang which channels to read.
+        MetallicRoughness,
+    };
+
     struct TextureAssetDesc {
         u32 width = 0;
         u32 height = 0;
         TextureColorSpace color_space = TextureColorSpace::Srgb;
         std::vector<std::byte> rgba8;
         UString label;
-        // True (default) lets create_texture BC7-compress this texture for a real VRAM win, when
+        // Which BC format create_texture compresses this into when compression happens at all —
+        // see TextureKind's own doc comment. Defaults to ColorAlpha (BC7), i.e. every existing
+        // caller that doesn't set this is unaffected.
+        TextureKind kind = TextureKind::ColorAlpha;
+        // True (default) lets create_texture BC-compress this texture for a real VRAM win, when
         // the device supports it and the texture is at least 4x4 (see
-        // RHI::DeviceLimits::supports_bc_texture_compression, Detail::compress_bc7). Set false for
-        // a texture that must stay byte-exact — e.g. a data LUT sampled as non-visual data rather
-        // than a color image, where BC7's lossy artifacts would corrupt the values.
+        // RHI::DeviceLimits::supports_bc_texture_compression, Detail::choose_bc_format). Set false
+        // for a texture that must stay byte-exact — e.g. a data LUT sampled as non-visual data
+        // rather than a color image, where BC's lossy artifacts would corrupt the values.
         bool allow_compression = true;
         // Visual textures default to a complete mip chain. Disable for data textures whose shader
         // requires exact base-level sampling rather than filtered lower-resolution representations.
@@ -127,7 +158,21 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<Asset> create_texture(TextureAssetDesc desc);
         [[nodiscard]] AssetExpected<Asset> load_texture(const std::filesystem::path &source,
                                                         TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                        TextureKind kind = TextureKind::ColorAlpha,
                                                         UString label = {});
+
+        // Packs a standalone occlusion map (R channel) and a glTF-style metallic-roughness map
+        // (G = roughness, B = metallic) into one RGBA8 texture and uploads it as a single
+        // compressed GPU texture, instead of two — the "Texture Set" case this pass wires end to
+        // end (see GltfImport.cpp, which binds the result to both the occlusion_texture and
+        // metallic_roughness_texture material slots; no shader changes needed since each slot
+        // already only reads its own channels). Both inputs must be tightly packed
+        // width*height*4 RGBA8 buffers of identical dimensions (Detail::pack_orm_rgba8's own
+        // contract) — returns an InvalidDescription error otherwise, so callers should fall back
+        // to create_texture()-ing the two sources independently rather than call this speculatively.
+        [[nodiscard]] AssetExpected<Asset> create_orm_texture(
+            std::span<const std::byte> occlusion_rgba8, std::span<const std::byte> metallic_roughness_rgba8,
+            u32 width, u32 height, UString label = {});
 
         // Asynchronous counterpart to load_texture(): returns an Asset immediately, valid and
         // bindable right away (create_model's texture-binding validation needs no changes to accept
@@ -142,6 +187,7 @@ namespace SFT::Engine {
         // path starts a second independent load rather than reusing an in-flight or completed one.
         [[nodiscard]] AssetExpected<Asset> load_texture_streamed(const std::filesystem::path &source,
                                                                   TextureColorSpace color_space = TextureColorSpace::Srgb,
+                                                                  TextureKind kind = TextureKind::ColorAlpha,
                                                                   UString label = {});
         // Call once per frame (alongside, or instead of, calling it directly on your own
         // TextureStreamer instance) so streamed textures requested via load_texture_streamed()
@@ -155,6 +201,7 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<Asset> create_texture_from_encoded_bytes(
             std::span<const std::byte> encoded,
             TextureColorSpace color_space = TextureColorSpace::Srgb,
+            TextureKind kind = TextureKind::ColorAlpha,
             UString label = {});
 
         [[nodiscard]] AssetExpected<Asset> load_sound(const std::filesystem::path &source,

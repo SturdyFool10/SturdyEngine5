@@ -71,22 +71,34 @@ namespace SFT::RHI {
         // Block-compressed (4x4 texel blocks) — lossy. BC7 stores full RGBA and is a drop-in
         // replacement for RGBA8Unorm/RGBA8UnormSrgb in any sampling shader (no shader changes
         // needed). BC5 (2-channel, e.g. tangent-space normal maps with a shader-side Z
-        // reconstruction) and BC4 (1-channel) are declared but not yet wired into any asset-import
-        // policy — see Engine::AssetManager::create_texture.
+        // reconstruction) and BC4 (1-channel, e.g. a standalone mask/occlusion texture) are wired
+        // into Engine::AssetManager::create_texture's kind-aware compression policy
+        // (Engine::TextureKind / Engine::Detail::choose_bc_format). BC1 (opaque RGB, half BC7's
+        // size — used only for confirmed-alpha-irrelevant color textures) and BC3 (RGBA, smooth
+        // interpolated alpha) round out the same policy. BC6H (HDR) and BC2 are not wired into any
+        // pipeline yet — added when a real asset pipeline needs them, same as every format above.
+        BC1Unorm,
+        BC1UnormSrgb,
+        BC3Unorm,
+        BC3UnormSrgb,
+        BC4Unorm,
+        BC5Unorm,
         BC7Unorm,
         BC7UnormSrgb,
-        BC5Unorm,
-        BC4Unorm,
     };
 
     // True for any block-compressed format (4x4 texel blocks, byte size computed per-block rather
     // than per-texel — see Renderer::texture_data_bytes).
     [[nodiscard]] constexpr bool format_is_block_compressed(Format format) noexcept {
         switch (format) {
+            case Format::BC1Unorm:
+            case Format::BC1UnormSrgb:
+            case Format::BC3Unorm:
+            case Format::BC3UnormSrgb:
+            case Format::BC4Unorm:
+            case Format::BC5Unorm:
             case Format::BC7Unorm:
             case Format::BC7UnormSrgb:
-            case Format::BC5Unorm:
-            case Format::BC4Unorm:
                 return true;
             default:
                 return false;

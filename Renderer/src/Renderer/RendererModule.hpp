@@ -345,12 +345,15 @@ namespace SFT::Renderer {
 
         struct alignas(16) ShadowLightingGpuData {
             glm::mat4 inverse_view_projection{1.0f};
+            glm::mat4 view_projection{1.0f};
             glm::mat4 view{1.0f};
             glm::vec4 camera_position_near{};
             glm::vec4 ambient_radiance_exposure{};
             glm::vec4 background_color{};
             glm::vec4 counts{};       // spot lights, point lights, shadow views, shadows enabled
             glm::vec4 shadow_params{}; // atlas texel, normal bias, PCSS enabled, max distance
+            // Screen-space sun-contact refinement: max distance, occluder thickness, steps, enabled.
+            glm::vec4 contact_shadow_params{};
             glm::vec4 gtao_params{};    // radius, falloff start, thin-feature thickness, intensity
             glm::vec4 viewport_params{}; // inverse extent xy, projection Y scale, quality+1 (0=off)
             glm::vec4 spectral_params{}; // x = SpectralRenderMode numeric value, remaining reserved

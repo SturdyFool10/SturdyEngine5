@@ -754,6 +754,9 @@ namespace SFT::Engine {
             !std::isfinite(shadows.depth_bias) || shadows.depth_bias < 0.0f ||
             !std::isfinite(shadows.slope_bias) || shadows.slope_bias < 0.0f ||
             !std::isfinite(shadows.normal_bias) || shadows.normal_bias < 0.0f || shadows.normal_bias > 4.0f ||
+            !std::isfinite(shadows.contact_shadow_distance) || shadows.contact_shadow_distance < 0.0f ||
+            !std::isfinite(shadows.contact_shadow_thickness) || shadows.contact_shadow_thickness < 0.0f ||
+            shadows.contact_shadow_steps < 2 || shadows.contact_shadow_steps > 12 ||
             shadows.max_shadowed_spot_lights > 8 || shadows.max_shadowed_point_lights > 4) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidShadowSettings,
@@ -892,6 +895,13 @@ namespace SFT::Engine {
                                   : 0.75f;
         shadows.max_shadowed_spot_lights = std::min(shadows.max_shadowed_spot_lights, 8u);
         shadows.max_shadowed_point_lights = std::min(shadows.max_shadowed_point_lights, 4u);
+        shadows.contact_shadow_distance = std::isfinite(shadows.contact_shadow_distance)
+                                              ? std::clamp(shadows.contact_shadow_distance, 0.0f, 5.0f)
+                                              : 0.5f;
+        shadows.contact_shadow_thickness = std::isfinite(shadows.contact_shadow_thickness)
+                                               ? std::clamp(shadows.contact_shadow_thickness, 0.0f, 1.0f)
+                                               : 0.05f;
+        shadows.contact_shadow_steps = std::clamp(shadows.contact_shadow_steps, 2u, 12u);
         AmbientOcclusionSettings &ao = desc.ambient_occlusion;
         ao.radius = std::isfinite(ao.radius) && ao.radius > 0.0f ? ao.radius : 1.0f;
         ao.falloff = std::isfinite(ao.falloff) ? std::clamp(ao.falloff, 0.0f, 0.999f) : 0.8f;

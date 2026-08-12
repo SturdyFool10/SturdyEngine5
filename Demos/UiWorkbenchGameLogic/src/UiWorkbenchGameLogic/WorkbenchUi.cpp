@@ -1557,8 +1557,8 @@ namespace SFT::UiWorkbench {
                                 .padding = UI::Padding::all(10),
                                 .id = UString{"workbench-text-markdown"},
                             },
-                            markdown_style, markdown_input_state_, edit_input, delta_seconds,
-                            UString{"# Write some markdown..."});
+                            markdown_style, markdown_input_state_, edit_input, delta_seconds, scrollbar_style_,
+                            markdown_input_scroll_state_, UString{"# Write some markdown..."});
 
         {
             auto preview_card = ctx.element(UI::ElementDecl{

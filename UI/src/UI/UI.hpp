@@ -14,6 +14,7 @@
 #include "Docking/Docking.hpp"
 #include "DragGesture.hpp"
 #include "Dropdown.hpp"
+#include "DocumentTextArea.hpp"
 #include "Easing.hpp"
 #include "Masonry.hpp"
 #include "ScrollArea.hpp"

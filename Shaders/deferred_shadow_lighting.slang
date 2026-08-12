@@ -66,12 +66,14 @@ struct PointLightGpuData {
 
 struct ShadowLightingGpuData {
     float4x4 inverseViewProjection;
+    float4x4 viewProjection;
     float4x4 view;
     float4 cameraPositionNear;
     float4 ambientRadianceExposure;
     float4 backgroundColor;
     float4 counts;
     float4 shadowParams;
+    float4 contactShadowParams;
     float4 gtaoParams;
     float4 viewportParams;
     float4 spectralParams;
@@ -279,6 +281,45 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
         totalWeight += weight;
     }
     return visible / max(totalWeight, SFT_EPSILON);
+}
+
+// Short same-frame refinement for details that are too small to survive the raster-map footprint
+// (feet, thin stems, cables). This deliberately uses fixed, spatially deterministic samples: visible
+// quality does not depend on TAA/history. A ray that leaves the screen or reaches sky depth remains
+// lit, so unavailable screen data can never invent an off-screen occluder.
+float screenSpaceSunContactShadow(float3 worldPosition, float3 sunVector) {
+    if (lightingData.contactShadowParams.w < 0.5 ||
+        lightingData.contactShadowParams.x <= SFT_EPSILON) {
+        return 1.0;
+    }
+
+    uint stepCount = min((uint)lightingData.contactShadowParams.z, 12u);
+    float stepLength = lightingData.contactShadowParams.x / max((float)stepCount, 1.0);
+    float thickness = lightingData.contactShadowParams.y;
+    [unroll]
+    for (uint i = 0; i < 12u; ++i) {
+        if (i >= stepCount) break;
+        float3 candidate = worldPosition + sunVector * (stepLength * (float)(i + 1u));
+        float4 candidateClip = mul(float4(candidate, 1.0), lightingData.viewProjection);
+        if (candidateClip.w <= SFT_EPSILON) return 1.0;
+        float3 candidateNdc = candidateClip.xyz / candidateClip.w;
+        float2 candidateUv = candidateNdc.xy * 0.5 + 0.5;
+        if (candidateNdc.z <= 0.0 || candidateNdc.z >= 1.0 ||
+            any(candidateUv <= 0.0) || any(candidateUv >= 1.0)) {
+            return 1.0;
+        }
+
+        float sceneDepth = gbufferDepth.SampleLevel(gbufferSampler, candidateUv, 0.0);
+        if (sceneDepth >= 0.999999) continue;
+        float4 sceneWorldH = mul(float4(candidateUv * 2.0 - 1.0, sceneDepth, 1.0),
+                                 lightingData.inverseViewProjection);
+        if (abs(sceneWorldH.w) <= SFT_EPSILON) continue;
+        float3 sceneWorld = sceneWorldH.xyz / sceneWorldH.w;
+        float candidateViewDepth = -mul(float4(candidate, 1.0), lightingData.view).z;
+        float sceneViewDepth = -mul(float4(sceneWorld, 1.0), lightingData.view).z;
+        if (candidateViewDepth > sceneViewDepth + thickness) return 0.0;
+    }
+    return 1.0;
 }
 
 float directionalShadow(float3 worldPosition, float3 normal, float3 lightVector,
@@ -544,6 +585,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     float3 sunVisibility = float3(directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
                                                     viewDepth, pixelPosition));
+    sunVisibility *= screenSpaceSunContactShadow(worldPosition, sunVector);
     if (spectralMode == 1u) sunVisibility = saturate(tracedEffect.rrr);
     if (spectralMode == 4u) sunVisibility = max(tracedEffect.rgb, 0.0);
     hdr += evaluateDirect(albedo, metallic, roughness, dielectricF0, normal, viewVector,

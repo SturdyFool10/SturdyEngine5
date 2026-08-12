@@ -270,6 +270,8 @@ namespace {
         TextEditState state;
         state.set_text(UString{"ab\n\ncd"});
         const TextEditStyle style{};
+        const ScrollbarStyle scrollbar_style{};
+        ScrollAreaState scroll_state;
         const ElementDecl decl{
             .sizing = {SizingAxis::fixed(200.0f), SizingAxis::fixed(120.0f)},
             .id = UString{"area-strut"},
@@ -279,7 +281,7 @@ namespace {
             TextEditInput input{};
             input.keys.assign(pressed.begin(), pressed.end());
             context.begin_layout({300.0f, 200.0f}, pointer, 0.016f);
-            (void)text_area(context, decl, style, state, input, 0.016f);
+            (void)text_area(context, decl, style, state, input, 0.016f, scrollbar_style, scroll_state);
             (void)context.finish_frame();
             return context.scroll_metrics(decl.id).content_size.y;
         };
@@ -299,6 +301,181 @@ namespace {
         assert(near(on_last, unfocused_height, 0.01));
         assert(near(on_empty, unfocused_height, 0.01));
         assert(near(on_first, unfocused_height, 0.01));
+    }
+
+    // Pure TextEditState-level coverage for the new click-classification/word/line-select helpers
+    // — no Context/rendering involved, so it's unaffected by the fact these tests never register a
+    // font (hit_test_text_byte_offset() always resolves to 0 without one; the widget-level tests
+    // below work around that by asserting on selection *shape*, not on an exact hit-tested scalar).
+    void text_edit_state_click_streak_and_word_select() {
+        using namespace SFT::UI;
+        TextEditState state;
+        state.set_text(UString{"hello world foo"});
+
+        const glm::vec2 pos{10.0f, 10.0f};
+        assert(state.register_click(pos, /*allow_multi_click=*/true) == 1);
+        assert(state.register_click(pos, /*allow_multi_click=*/true) == 2);
+        assert(state.register_click(pos, /*allow_multi_click=*/true) == 3);
+        assert(state.register_click(pos, /*allow_multi_click=*/true) == 3); // capped at triple-or-more
+
+        // A click far enough away starts a fresh streak.
+        const glm::vec2 far{200.0f, 10.0f};
+        assert(state.register_click(far, /*allow_multi_click=*/true) == 1);
+        assert(state.register_click(far, /*allow_multi_click=*/true) == 2);
+
+        // A shift+click (allow_multi_click=false) always reports a fresh streak of 1, regardless of
+        // whatever streak was already in progress — see register_click()'s own doc comment.
+        assert(state.register_click(far, /*allow_multi_click=*/false) == 1);
+
+        state.select_word_at(2); // inside "hello"
+        assert(state.selected_text().cpp_string() == "hello");
+
+        state.select_word_at(8); // inside "world"
+        assert(state.selected_text().cpp_string() == "world");
+
+        state.select_range(6, 11);
+        assert(state.selected_text().cpp_string() == "world");
+    }
+
+    void document_text_area_virtualizes_large_documents() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        DocumentTextAreaState state;
+        std::string source;
+        for (usize line = 0; line < 10'000; ++line) {
+            source += "line ";
+            source += std::to_string(line);
+            source += '\n';
+        }
+        state.set_text(source);
+        const TextEditStyle style{};
+        const ScrollbarStyle scrollbar_style{};
+        ScrollAreaState scroll_state{};
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(300.0f), SizingAxis::fixed(120.0f)},
+            .padding = Padding::all(4),
+            .id = UString{"virtual-document-area"},
+        };
+        context.begin_layout({400.0f, 200.0f});
+        const DocumentTextAreaResult result =
+            text_area(context, decl, style, state, TextEditInput{}, 0.016f, scrollbar_style, scroll_state, 20.0f);
+        (void)context.finish_frame();
+        assert(result.first_rendered_line == 0);
+        assert(result.rendered_line_count < 32);
+        assert(state.document().snapshot().line_count() == 10'001);
+    }
+
+    void text_edit_features_and_rebinding() {
+        using namespace SFT::UI;
+        TextEditState state;
+        state.set_text(UString{"alpha"});
+        state.set_focused(true);
+
+        TextEditFeatures no_typing{};
+        no_typing.typing = false;
+        const TextEditState::ApplyResult typing_result = state.apply_input(TextEditInput{.typed_text = "!"}, false, no_typing);
+        assert(!typing_result.changed);
+        assert(state.text().cpp_string() == "alpha");
+
+        TextEditFeatures no_deletion{};
+        no_deletion.deletion = false;
+        state.set_caret_to(state.text().size(), false);
+        const TextEditState::ApplyResult delete_result =
+            state.apply_input(TextEditInput{.keys = {EditKey::Backspace}}, false, no_deletion);
+        assert(!delete_result.changed);
+        assert(state.text().cpp_string() == "alpha");
+
+        TextEditBindings bindings{};
+        bindings.keys.push_back(TextEditKeyBinding{.trigger = EditKey::Left, .command = EditKey::End});
+        state.set_caret_to(0, false);
+        (void)state.apply_input(TextEditInput{.keys = {EditKey::Left}}, false, TextEditFeatures{}, bindings);
+        assert(state.caret() == state.text().size());
+
+        // A disabled binding consumes its trigger rather than falling through to identity behavior.
+        bindings.keys[0].enabled = false;
+        state.set_caret_to(0, false);
+        (void)state.apply_input(TextEditInput{.keys = {EditKey::Left}}, false, TextEditFeatures{}, bindings);
+        assert(state.caret() == 0);
+    }
+
+    // Widget-level: shift+click must extend the existing caret position into a selection rather
+    // than collapsing it (the pre-fix behavior). No font is registered in this test harness, so the
+    // click's hit-tested scalar is always 0 (see this function group's own header comment) — that's
+    // fine here since the point under test is that the *anchor* (the caret position before the
+    // click) is preserved, not the exact resolved position.
+    void text_input_shift_click_extends_selection() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        TextEditState state;
+        state.set_text(UString{"hello world"});
+        state.set_caret_to(5, /*extend=*/false); // caret at 5, no selection yet
+        assert(!state.has_selection());
+        const TextEditStyle style{};
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(200.0f), SizingAxis::fixed(30.0f)},
+            .id = UString{"shift-click-input"},
+        };
+
+        context.begin_layout({300.0f, 100.0f});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+
+        const glm::vec2 press{20.0f, 15.0f};
+        TextEditInput shift_input{};
+        shift_input.shift_held = true;
+        context.begin_layout({300.0f, 100.0f}, PointerState{
+                                                    .position = press,
+                                                    .down = true,
+                                                    .pressed = true,
+                                                    .press_position = press,
+                                                });
+        (void)text_input(context, decl, style, state, shift_input, 0.016f);
+        (void)context.finish_frame();
+
+        assert(state.has_selection());
+        assert(state.selection_max() == 5); // the pre-click caret position, preserved as the anchor
+        assert(state.selected_text().cpp_string() == "hello");
+    }
+
+    // Widget-level: a press acquires pointer capture (so a drag can continue tracking the pointer
+    // even if it leaves the box's own bounds), held down keeps it, and release drops it — the same
+    // capture/release contract ScrollArea.hpp's thumb drag already relies on.
+    void text_input_drag_acquires_and_releases_pointer_capture() {
+        using namespace SFT::UI;
+        Context context = make_context();
+        TextEditState state;
+        state.set_text(UString{"hello world"});
+        const TextEditStyle style{};
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(200.0f), SizingAxis::fixed(30.0f)},
+            .id = UString{"drag-input"},
+        };
+
+        context.begin_layout({300.0f, 100.0f});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+
+        const glm::vec2 press{20.0f, 15.0f};
+        context.begin_layout({300.0f, 100.0f}, PointerState{
+                                                    .position = press,
+                                                    .down = true,
+                                                    .pressed = true,
+                                                    .press_position = press,
+                                                });
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+        assert(context.has_pointer_capture(decl.id));
+
+        const glm::vec2 dragged{150.0f, 15.0f};
+        context.begin_layout({300.0f, 100.0f}, PointerState{.position = dragged, .down = true});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+        assert(context.has_pointer_capture(decl.id));
+
+        context.begin_layout({300.0f, 100.0f}, PointerState{.position = dragged, .released = true});
+        (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
+        (void)context.finish_frame();
+        assert(!context.has_pointer_capture(decl.id));
     }
 
     void scroll_container_moves_child_offset() {
@@ -752,6 +929,11 @@ int main() {
     color_picker_component_sliders_follow_selected_space();
     text_caret_has_no_layout_footprint();
     text_area_line_heights_ignore_caret();
+    text_edit_state_click_streak_and_word_select();
+    document_text_area_virtualizes_large_documents();
+    text_edit_features_and_rebinding();
+    text_input_shift_click_extends_selection();
+    text_input_drag_acquires_and_releases_pointer_capture();
     scroll_container_moves_child_offset();
     floating_attached_parent_clips_to_ancestor();
     clicked_respects_ancestor_clip();

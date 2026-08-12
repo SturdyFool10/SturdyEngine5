@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <set>
 #include <string>
 #include <string_view>
@@ -57,6 +58,55 @@ namespace SFT::UI {
         Paste,
     };
 
+    // Which independently useful pieces of editor behavior a widget exposes. Keeping this policy
+    // on TextEditStyle lets a search field, terminal, code editor, or password prompt share the
+    // same editing engine without each growing a fork with subtly different keyboard semantics.
+    struct TextEditFeatures {
+        bool typing = true;
+        bool navigation = true;
+        bool deletion = true;
+        bool selection = true;
+        bool clipboard = true;
+        bool submission = true;
+        bool escape_to_unfocus = true;
+        bool pointer_selection = true;
+        bool horizontal_scroll = true;
+        bool vertical_scroll = true;
+        bool scrollbars = true;
+    };
+
+    // Maps an input-layer key intent to an editing command. The input layer may therefore expose
+    // its own stable, backend-neutral bindings and a consumer can rebind them per widget without
+    // teaching TextEditState about platform key codes. Entries not listed retain their identity
+    // mapping; a listed entry with enabled=false disables that trigger.
+    struct TextEditKeyBinding {
+        EditKey trigger = EditKey::Left;
+        EditKey command = EditKey::Left;
+        bool enabled = true;
+    };
+
+    struct TextEditBindings {
+        vector<TextEditKeyBinding> keys;
+
+        [[nodiscard]] bool enabled(EditKey trigger) const noexcept {
+            for (const TextEditKeyBinding &binding : keys) {
+                if (binding.trigger == trigger) {
+                    return binding.enabled;
+                }
+            }
+            return true;
+        }
+
+        [[nodiscard]] EditKey resolve(EditKey trigger) const noexcept {
+            for (const TextEditKeyBinding &binding : keys) {
+                if (binding.trigger == trigger) {
+                    return binding.command;
+                }
+            }
+            return trigger;
+        }
+    };
+
     struct TextEditInput {
         // This frame's UTF-8 text-input bytes (from Platform::Windowing::WindowTextInputEvent —
         // pass its NUL-terminated utf8[32] straight through, e.g. `std::string_view{event.text.
@@ -80,14 +130,26 @@ namespace SFT::UI {
         function<void(const UString &)> set_clipboard_text;
     };
 
-    // One color override over a scalar-index range of the buffer — e.g. a keyword, a string
-    // literal, a Markdown heading marker. Deliberately just a color (not a full TextStyle): font
-    // weight/size variation would need multiple font registrations per run, which is a much bigger
-    // ask than the common "recolor this token" case syntax highlighting and Markdown actually need.
+    // One inline presentation override over a scalar-index range of the buffer — suitable for
+    // syntax/LSP semantic tokens, Markdown, or a LaTex parser. `font_id` deliberately selects an
+    // application-registered face: bold, italic, math, and code faces vary by application and the
+    // UI renderer does not invent synthetic glyph variants. The scalar range is UTF-8 safe because
+    // UString's editing and substring APIs use the same scalar indices.
     struct RichTextSpan {
         usize scalar_start = 0;
         usize scalar_length = 0;
         Color color{1.0, 1.0, 1.0, 1.0};
+        FontId font_id = 0;
+        // false keeps TextEditStyle::font_id; true uses this span's registered face (including
+        // face id zero, if that is the application's chosen bold/italic/math face).
+        bool use_font_id = false;
+        // Superscript/subscript and math runs can select a smaller registered size. A true
+        // baseline offset is deliberately not exposed until TextStyle gains a renderer-backed
+        // baseline-offset primitive; pretending with a layout element would corrupt caret and hit
+        // testing geometry.
+        f32 font_size_scale = 1.0f;
+        bool underline = false;
+        bool strikethrough = false;
     };
 
     // Optional syntax/Markdown highlighting hook: given the buffer's current text, return the
@@ -128,8 +190,11 @@ namespace SFT::UI {
         // has — the bundled Maple Mono NF has U+2022 (•).
         bool mask_characters = false;
         const char *mask_glyph = "•";
-        // See Highlighter's own doc comment.
+        // See Highlighter's own doc comment. RichTextSpan can select registered bold, italic,
+        // code, or math faces as well as color and baseline/size for super/subscripts.
         Highlighter highlighter = nullptr;
+        TextEditFeatures features{};
+        TextEditBindings bindings{};
         // false (default): lines never word-wrap — a line wider than the box scrolls
         // horizontally instead (Detail::render_line's row is Fit-width inside the caller's own
         // ClipConfig::horizontal box), the same convention a code editor or a plain single-line
@@ -272,6 +337,53 @@ namespace SFT::UI {
             caret_ = text_.size();
         }
 
+        // Selects the word containing `scalar_index`, via the same word-boundary table
+        // Ctrl+Left/Right word-jump already uses (word_boundary_before/after) — double-click's
+        // selection target.
+        void select_word_at(usize scalar_index) noexcept {
+            if (text_.empty()) {
+                caret_ = 0;
+                selection_anchor_ = 0;
+                return;
+            }
+            const usize probe = std::min(scalar_index, text_.size() - 1);
+            selection_anchor_ = word_boundary_before(probe + 1);
+            caret_ = word_boundary_after(probe);
+        }
+
+        // Plain clamped range setter — triple-click's selection target (the widget already knows
+        // the clicked paragraph's own [start, start+length) bounds, no word-boundary lookup needed).
+        void select_range(usize start, usize end) noexcept {
+            selection_anchor_ = std::min(start, text_.size());
+            caret_ = std::min(end, text_.size());
+        }
+
+        // Classifies one click event as continuing (or not) a multi-click gesture — timed
+        // independently of the OS's own double-click setting, the same "self-timed, not
+        // platform-synced" choice caret_blink_on() already makes for the blink rate. Returns the
+        // resulting streak (1 = single, 2 = double, capped at 3 = triple-or-more); callers
+        // typically treat 2 as "select word" and >=3 as "select line/paragraph".
+        //
+        // `allow_multi_click=false` (a shift+click) always resets to a fresh streak of 1 — a
+        // shift+click is never itself part of a multi-click gesture, and must not let a later
+        // plain click spuriously continue a streak that started before it.
+        u8 register_click(glm::vec2 position, bool allow_multi_click) noexcept {
+            constexpr f32 max_interval_seconds = 0.4f;
+            constexpr f32 max_distance_px = 4.0f;
+            if (allow_multi_click) {
+                const glm::vec2 delta = position - last_click_position_;
+                const bool continues_streak = click_streak_ > 0 && time_since_last_click_ <= max_interval_seconds &&
+                                              (delta.x * delta.x + delta.y * delta.y) <=
+                                                  max_distance_px * max_distance_px;
+                click_streak_ = continues_streak ? static_cast<u8>(std::min<int>(click_streak_ + 1, 3)) : u8{1};
+            } else {
+                click_streak_ = 1;
+            }
+            last_click_position_ = position;
+            time_since_last_click_ = 0.0f;
+            return click_streak_;
+        }
+
         // Clamped to the buffer's own bounds — for placing the caret from something other than a
         // keypress, e.g. text_input()/text_area()'s own click-to-position handling (Detail::
         // hit_test_line_scalar(), further down this file).
@@ -298,13 +410,14 @@ namespace SFT::UI {
         // deliberately ignored here — vertical caret movement needs to know about line layout,
         // which only text_area() has, so text_area() intercepts and handles those two itself
         // before calling this.
-        ApplyResult apply_input(const TextEditInput &input, bool multiline) {
+        ApplyResult apply_input(const TextEditInput &input, bool multiline, const TextEditFeatures &features = {},
+                                const TextEditBindings &bindings = {}) {
             ApplyResult result{};
             if (!focused_) {
                 return result;
             }
 
-            if (!input.typed_text.empty()) {
+            if (features.typing && !input.typed_text.empty()) {
                 UString typed{input.typed_text};
                 if (!multiline) {
                     typed = Detail::strip_newlines(typed);
@@ -315,27 +428,43 @@ namespace SFT::UI {
                 }
             }
 
-            for (EditKey key : input.keys) {
+            for (EditKey trigger : input.keys) {
+                if (!bindings.enabled(trigger)) {
+                    continue;
+                }
+                const EditKey key = bindings.resolve(trigger);
                 switch (key) {
                 case EditKey::Backspace:
-                    backspace(input.word_modifier_held);
-                    result.changed = true;
+                    if (features.deletion) {
+                        backspace(input.word_modifier_held);
+                        result.changed = true;
+                    }
                     break;
                 case EditKey::Delete:
-                    delete_forward(input.word_modifier_held);
-                    result.changed = true;
+                    if (features.deletion) {
+                        delete_forward(input.word_modifier_held);
+                        result.changed = true;
+                    }
                     break;
                 case EditKey::Left:
-                    move_caret(-1, input.shift_held, input.word_modifier_held);
+                    if (features.navigation) {
+                        move_caret(-1, features.selection && input.shift_held, input.word_modifier_held);
+                    }
                     break;
                 case EditKey::Right:
-                    move_caret(1, input.shift_held, input.word_modifier_held);
+                    if (features.navigation) {
+                        move_caret(1, features.selection && input.shift_held, input.word_modifier_held);
+                    }
                     break;
                 case EditKey::Home:
-                    move_to_start(input.shift_held);
+                    if (features.navigation) {
+                        move_to_start(features.selection && input.shift_held);
+                    }
                     break;
                 case EditKey::End:
-                    move_to_end(input.shift_held);
+                    if (features.navigation) {
+                        move_to_end(features.selection && input.shift_held);
+                    }
                     break;
                 case EditKey::Up:
                 case EditKey::Down:
@@ -346,33 +475,39 @@ namespace SFT::UI {
                     // elsewhere, do nothing) rather than this engine guessing.
                     break;
                 case EditKey::Enter:
-                    if (multiline) {
-                        insert(UString{"\n"});
-                        result.changed = true;
-                    } else {
-                        result.submitted = true;
+                    if (features.submission) {
+                        if (multiline) {
+                            insert(UString{"\n"});
+                            result.changed = true;
+                        } else {
+                            result.submitted = true;
+                        }
                     }
                     break;
                 case EditKey::Escape:
-                    set_focused(false);
+                    if (features.escape_to_unfocus) {
+                        set_focused(false);
+                    }
                     break;
                 case EditKey::SelectAll:
-                    select_all();
+                    if (features.selection) {
+                        select_all();
+                    }
                     break;
                 case EditKey::Copy:
-                    if (has_selection() && input.set_clipboard_text) {
+                    if (features.clipboard && has_selection() && input.set_clipboard_text) {
                         input.set_clipboard_text(selected_text());
                     }
                     break;
                 case EditKey::Cut:
-                    if (has_selection() && input.set_clipboard_text) {
+                    if (features.clipboard && features.deletion && has_selection() && input.set_clipboard_text) {
                         input.set_clipboard_text(selected_text());
                         delete_selection();
                         result.changed = true;
                     }
                     break;
                 case EditKey::Paste:
-                    if (input.get_clipboard_text) {
+                    if (features.clipboard && features.typing && input.get_clipboard_text) {
                         UString pasted = input.get_clipboard_text();
                         if (!multiline) {
                             pasted = Detail::strip_newlines(pasted);
@@ -398,6 +533,7 @@ namespace SFT::UI {
             const Color &target = !enabled ? style.disabled : focused_ ? style.focused : hovered ? style.hovered : style.idle;
             color_.update(target, delta_seconds, style.transition_seconds, style.color_space, style.easing);
             blink_elapsed_ += delta_seconds;
+            time_since_last_click_ += delta_seconds;
         }
 
         [[nodiscard]] Color current_color() const noexcept { return color_.current(); }
@@ -468,6 +604,10 @@ namespace SFT::UI {
         ColorTransition color_{};
         f32 blink_elapsed_ = 0.0f;
 
+        u8 click_streak_ = 0;
+        f32 time_since_last_click_ = 1.0e6f;
+        glm::vec2 last_click_position_{0.0f};
+
         mutable UString highlight_cache_key_;
         mutable vector<RichTextSpan> highlight_cache_spans_;
     };
@@ -512,14 +652,14 @@ namespace SFT::UI {
             return UString{widget_id.cpp_string() + "#line" + std::to_string(line_scalar_offset)};
         }
 
-        [[nodiscard]] inline Color color_for_run(const vector<RichTextSpan> &spans, usize global_scalar_index,
-                                                 const Color &fallback) noexcept {
+        [[nodiscard]] inline const RichTextSpan *span_for_run(const vector<RichTextSpan> &spans,
+                                                               usize global_scalar_index) noexcept {
             for (const RichTextSpan &span : spans) {
                 if (global_scalar_index >= span.scalar_start && global_scalar_index < span.scalar_start + span.scalar_length) {
-                    return span.color;
+                    return &span;
                 }
             }
-            return fallback;
+            return nullptr;
         }
 
         // Renders one visual line/paragraph of `state.text()` as its own row element (opens and
@@ -657,12 +797,43 @@ namespace SFT::UI {
                 if (run_end == run_start) {
                     continue;
                 }
-                const Color run_color = color_for_run(spans, run_start + line_scalar_offset, style.text_color);
+                const RichTextSpan *span = span_for_run(spans, run_start + line_scalar_offset);
+                const Color run_color = span != nullptr ? span->color : style.text_color;
+                const FontId run_font_id = span != nullptr && span->use_font_id ? span->font_id : style.font_id;
+                const f32 font_scale = span != nullptr ? span->font_size_scale : 1.0f;
+                const u16 run_font_size = static_cast<u16>(std::clamp(
+                    std::round(static_cast<f32>(style.font_size) * std::max(font_scale, 0.1f)), 1.0f,
+                    static_cast<f32>(std::numeric_limits<u16>::max())));
                 const bool run_selected = has_sel && run_start >= sel_min && run_end <= sel_max;
                 auto run_scope = ctx.element(ElementDecl{
                     .background_color = run_selected ? style.selection_color : Color{0.0, 0.0, 0.0, 0.0},
                 });
                 (void)run_scope;
+                // Decorations float over the fitted run scope, so unlike ordinary children they
+                // never change the glyph flow or the editor's hit-test/caret geometry. Their width
+                // resolves from this run scope's text child after Clay lays it out.
+                const auto emit_decoration = [&](bool strikethrough) {
+                    auto decoration = ctx.element(ElementDecl{
+                        .sizing = {SizingAxis::grow(), SizingAxis::fixed(1.0f)},
+                        .background_color = run_color,
+                        .floating = FloatingConfig{
+                            .attach_to = FloatingAttachTo::Parent,
+                            .element_attach_point = strikethrough ? FloatingAttachPoint::LeftCenter
+                                                                  : FloatingAttachPoint::LeftBottom,
+                            .parent_attach_point = strikethrough ? FloatingAttachPoint::LeftCenter
+                                                                 : FloatingAttachPoint::LeftBottom,
+                            .capture_pointer = false,
+                            .clip_to = FloatingClipTo::AttachedParent,
+                        },
+                    });
+                    (void)decoration;
+                };
+                if (span != nullptr && span->underline) {
+                    emit_decoration(/*strikethrough=*/false);
+                }
+                if (span != nullptr && span->strikethrough) {
+                    emit_decoration(/*strikethrough=*/true);
+                }
                 // Password mode substitutes one mask glyph per scalar — run boundaries, selection,
                 // and the caret all stay index-exact because the substitution is 1:1 per character.
                 UString run_text;
@@ -675,8 +846,9 @@ namespace SFT::UI {
                 } else {
                     run_text = line_text.substr(run_start, run_end - run_start);
                 }
-                ctx.text(run_text.as_ustr(), TextStyle{.color = run_color, .font_id = style.font_id,
-                                                       .font_size = style.font_size, .wrap_mode = run_wrap_mode});
+                ctx.text(run_text.as_ustr(),
+                         TextStyle{.color = run_color, .font_id = run_font_id, .font_size = run_font_size,
+                                   .wrap_mode = run_wrap_mode});
             }
             if (caret_on_this_line && static_cast<usize>(caret_local) == line_len) {
                 emit_caret();
@@ -719,6 +891,57 @@ namespace SFT::UI {
             }
             const usize byte_offset = ctx.hit_test_text_byte_offset(text_style, masked.cpp_string_view(), local_x);
             return std::min(byte_offset / mask_glyph_bytes, scalar_count);
+        }
+
+        // One resolved hit against a multi-paragraph buffer: `scalar` is the buffer-wide caret
+        // position the click/drag point maps to, and `paragraph_start`/`paragraph_length` are the
+        // bounds of whichever paragraph it landed in — triple-click line-select uses the latter two
+        // directly instead of re-deriving them.
+        struct ParagraphHit {
+            usize scalar = 0;
+            usize paragraph_start = 0;
+            usize paragraph_length = 0;
+        };
+
+        // Multi-paragraph hit test: finds which paragraph row (from `paragraphs`, each a
+        // (scalar_start, scalar_length) pair from split_paragraphs()) sits closest — by vertical
+        // center — to `pointer`, then hit-tests the point's x within that paragraph's own last-
+        // committed bounds. Shared by text_area()'s click-to-position and drag-to-extend-selection,
+        // which both need exactly this "which row, then where in it" resolution against the same
+        // TextEditStyle. std::nullopt when none of `paragraphs`' rows have committed bounds yet
+        // (e.g. the very first frame text_area() renders).
+        [[nodiscard]] inline std::optional<ParagraphHit>
+        hit_test_paragraphs(Context &ctx, const TextEditStyle &style, const UString &text,
+                            const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer) {
+            std::optional<usize> best_index;
+            f32 best_distance = 0.0f;
+            for (usize i = 0; i < paragraphs.size(); ++i) {
+                const std::optional<ElementBounds> line_bounds = ctx.element_bounds(line_element_id(widget_id, paragraphs[i].first));
+                if (!line_bounds) {
+                    continue;
+                }
+                const f32 center_y = line_bounds->position.y + line_bounds->size.y * 0.5f;
+                const f32 distance = std::abs(pointer.y - center_y);
+                if (!best_index || distance < best_distance) {
+                    best_distance = distance;
+                    best_index = i;
+                }
+            }
+            if (!best_index) {
+                return std::nullopt;
+            }
+            const auto &[pstart, plen] = paragraphs[*best_index];
+            const std::optional<ElementBounds> line_bounds = ctx.element_bounds(line_element_id(widget_id, pstart));
+            if (!line_bounds) {
+                return std::nullopt;
+            }
+            const f32 local_x = pointer.x - line_bounds->position.x;
+            const UString paragraph_text = text.substr(pstart, plen);
+            return ParagraphHit{
+                .scalar = pstart + hit_test_line_scalar(ctx, style, paragraph_text, local_x),
+                .paragraph_start = pstart,
+                .paragraph_length = plen,
+            };
         }
 
     } // namespace Detail

@@ -106,6 +106,11 @@ float occlusion_strength;
 // rather than vec3) and KHR_materials_emissive_strength's multiplier (spec default 1.0).
 float4 emissive_factor;
 float emissive_strength;
+// 0.0 (default): metallic_roughness_texture holds glTF's own G=roughness/B=metallic layout. 1.0:
+// GltfImport.cpp re-channeled it to R=roughness/G=metallic before compressing as BC5 (half BC7's
+// size — see Engine::TextureKind::MetallicRoughness), since BC5 only stores two channels and they
+// decode into R/G regardless of which source channels were encoded.
+float metallic_roughness_channels_rg;
 
 // Combined texture+sampler resources (Slang's Sampler2D, not a split Texture2D+SamplerState pair):
 // Renderer::prepare_material_frame (RendererMaterial.cpp) binds a texture slot's *own* sampler
@@ -155,7 +160,14 @@ GBufferOutput fragmentMain(VertexOutput input) {
     // drift apart across a triangle) before building the TBN basis.
     float3 tangent = normalize(input.worldTangent.xyz - normal * dot(normal, input.worldTangent.xyz));
     float3 bitangent = cross(normal, tangent) * input.worldTangent.w;
-    float3 normalSample = normal_texture.Sample(input.uv).rgb * 2.0 - 1.0;
+    // Reconstruct Z from the sampled X/Y rather than trusting a stored B channel: mathematically
+    // equivalent for any valid tangent-space normal map (a unit vector's Z is determined by its
+    // X/Y up to the always-true positive-hemisphere assumption here), and it's what makes BC5
+    // (2-channel, X/Y only) a safe drop-in compressed format for this slot — see
+    // Engine::TextureKind::NormalMap.
+    float2 normalXY = normal_texture.Sample(input.uv).rg * 2.0 - 1.0;
+    float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
+    float3 normalSample = float3(normalXY, normalZ);
     float3x3 tbn = float3x3(tangent, bitangent, normal);
     normal = normalize(mul(normalSample, tbn));
     output.normal = encodeOctahedralNormal(normal);
@@ -167,10 +179,14 @@ GBufferOutput fragmentMain(VertexOutput input) {
     }
     output.albedo = baseColor;
 
-    // glTF packing convention: G = roughness, B = metallic (R/A unused by this template).
+    // glTF packing convention: G = roughness, B = metallic (R/A unused by this template) — unless
+    // metallic_roughness_channels_rg selects the BC5-friendly R = roughness, G = metallic layout
+    // instead (see that uniform's own doc comment).
     float4 metallicRoughnessSample = metallic_roughness_texture.Sample(input.uv);
-    float perceptualRoughness = saturate(roughness_factor * metallicRoughnessSample.g);
-    float metallic = saturate(metallic_factor * metallicRoughnessSample.b);
+    float roughnessRaw = lerp(metallicRoughnessSample.g, metallicRoughnessSample.r, metallic_roughness_channels_rg);
+    float metallicRaw = lerp(metallicRoughnessSample.b, metallicRoughnessSample.g, metallic_roughness_channels_rg);
+    float perceptualRoughness = saturate(roughness_factor * roughnessRaw);
+    float metallic = saturate(metallic_factor * metallicRaw);
     float ambientOcclusion = saturate(1.0 + occlusion_strength * (occlusion_texture.Sample(input.uv).r - 1.0));
     float dielectricF0Scalar = dielectricF0FromIor(ior) * saturate(specular_factor);
 

@@ -62,6 +62,7 @@ namespace SFT::Engine {
         // once a valid handle is returned, its underlying RHI::TextureHandle is guaranteed bindable.
         [[nodiscard]] StreamedTextureHandle request_texture_load(
             std::filesystem::path source, TextureColorSpace color_space = TextureColorSpace::Srgb,
+            TextureKind kind = TextureKind::ColorAlpha,
             RHI::ClearColor placeholder = RHI::ClearColor{1.0f, 0.0f, 1.0f, 1.0f}, UString label = {});
 
         [[nodiscard]] StreamingState state(StreamedTextureHandle handle) const noexcept;

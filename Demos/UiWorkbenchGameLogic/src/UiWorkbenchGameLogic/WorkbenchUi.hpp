@@ -83,6 +83,9 @@ namespace SFT::UiWorkbench {
         UI::TextEditState line_input_state_{};
         UI::TextEditState password_input_state_{};
         UI::TextEditState markdown_input_state_{};
+        // The text area's horizontal/vertical scrollbar fade and drag state belongs to this
+        // long-lived editor, not to the transient frame-local UI build.
+        UI::ScrollAreaState markdown_input_scroll_state_{};
 
         bool slider_enabled_ = true;
         bool show_slider_markers_ = true;

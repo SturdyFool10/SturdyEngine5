@@ -11,6 +11,9 @@
 # are always transitively visible to anyone who includes it, so every consumer needs these same
 # include paths on its own compile line too.
 sturdy_add_package(Text
+    EXCLUDE_SOURCE_DIRS
+        tests
+
     PUBLIC_DEPS
         Sturdy::Foundation
         Sturdy::Async
@@ -26,3 +29,11 @@ sturdy_add_package(Text
 
     DEBUG_PUBLIC_DEPS
 )
+
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
+    add_executable(TextDocumentTest tests/DocumentTest.cpp)
+    target_link_libraries(TextDocumentTest PRIVATE Sturdy::Text)
+    sturdy_enable_warnings(TextDocumentTest)
+    add_test(NAME TextDocumentTest COMMAND TextDocumentTest)
+    set_tests_properties(TextDocumentTest PROPERTIES TIMEOUT 30)
+endif()

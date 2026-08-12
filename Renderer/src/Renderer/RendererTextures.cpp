@@ -39,8 +39,12 @@ namespace SFT::Renderer {
                 switch (format) {
                     case RHI::Format::BC7Unorm:
                     case RHI::Format::BC7UnormSrgb:
-                    case RHI::Format::BC5Unorm: bytes_per_block = 16; break;
-                    case RHI::Format::BC4Unorm: bytes_per_block = 8; break;
+                    case RHI::Format::BC5Unorm:
+                    case RHI::Format::BC3Unorm:
+                    case RHI::Format::BC3UnormSrgb: bytes_per_block = 16; break;
+                    case RHI::Format::BC4Unorm:
+                    case RHI::Format::BC1Unorm:
+                    case RHI::Format::BC1UnormSrgb: bytes_per_block = 8; break;
                     default: return 0;
                 }
                 const u64 blocks_wide = (static_cast<u64>(width) + 3u) / 4u;
@@ -69,8 +73,12 @@ namespace SFT::Renderer {
             switch (format) {
                 case RHI::Format::BC7Unorm:
                 case RHI::Format::BC7UnormSrgb:
-                case RHI::Format::BC5Unorm: return 16;
-                case RHI::Format::BC4Unorm: return 8;
+                case RHI::Format::BC5Unorm:
+                case RHI::Format::BC3Unorm:
+                case RHI::Format::BC3UnormSrgb: return 16;
+                case RHI::Format::BC4Unorm:
+                case RHI::Format::BC1Unorm:
+                case RHI::Format::BC1UnormSrgb: return 8;
                 case RHI::Format::R8Unorm:
                 case RHI::Format::RGBA8Unorm:
                 case RHI::Format::RGBA8UnormSrgb: return 4;

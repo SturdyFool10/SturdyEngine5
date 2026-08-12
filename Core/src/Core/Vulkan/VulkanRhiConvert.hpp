@@ -69,10 +69,14 @@ namespace SFT::Core::Vulkan {
             case rhi::Format::D24UnormS8Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
             case rhi::Format::D32Float: return VK_FORMAT_D32_SFLOAT;
             case rhi::Format::D32FloatS8Uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+            case rhi::Format::BC1Unorm: return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+            case rhi::Format::BC1UnormSrgb: return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
+            case rhi::Format::BC3Unorm: return VK_FORMAT_BC3_UNORM_BLOCK;
+            case rhi::Format::BC3UnormSrgb: return VK_FORMAT_BC3_SRGB_BLOCK;
+            case rhi::Format::BC4Unorm: return VK_FORMAT_BC4_UNORM_BLOCK;
+            case rhi::Format::BC5Unorm: return VK_FORMAT_BC5_UNORM_BLOCK;
             case rhi::Format::BC7Unorm: return VK_FORMAT_BC7_UNORM_BLOCK;
             case rhi::Format::BC7UnormSrgb: return VK_FORMAT_BC7_SRGB_BLOCK;
-            case rhi::Format::BC5Unorm: return VK_FORMAT_BC5_UNORM_BLOCK;
-            case rhi::Format::BC4Unorm: return VK_FORMAT_BC4_UNORM_BLOCK;
         }
         return VK_FORMAT_UNDEFINED;
     }

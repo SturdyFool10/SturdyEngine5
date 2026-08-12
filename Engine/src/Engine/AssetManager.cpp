@@ -373,16 +373,40 @@ namespace SFT::Engine {
         std::vector<std::byte>{}.swap(desc.rgba8);
         std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
-        // BC7-compress every generated level so mipmapping preserves the normal ~4x VRAM win.
+        // BC-compress every generated level so mipmapping preserves the VRAM win — which encoder
+        // runs is the "Compression Manager" policy (Detail::choose_bc_format), keyed off desc.kind.
         // Any encoder failure falls back to the complete uncompressed RGBA8 chain.
         std::optional<std::vector<std::byte>> compressed;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (desc.allow_compression && desc.width >= 4 && desc.height >= 4 && device != nullptr &&
             device->limits().supports_bc_texture_compression) {
-            compressed = Detail::compress_bc7_mip_chain(
-                upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
+            switch (desc.kind) {
+                case TextureKind::ColorOpaque:
+                    compressed = Detail::compress_bc1_mip_chain(
+                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
+                    break;
+                case TextureKind::Mask:
+                    compressed = Detail::compress_bc4_mip_chain(
+                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
+                    break;
+                case TextureKind::NormalMap:
+                case TextureKind::MetallicRoughness:
+                    // Both are already laid out R/G by the time they reach here — NormalMap by its
+                    // own source convention, MetallicRoughness via the caller's explicit
+                    // Detail::pack_metallic_roughness_rg() pre-repack (see TextureKind's own doc
+                    // comment for why that repack happens before create_texture rather than as a
+                    // compress_bc5 channel-selection argument here).
+                    compressed = Detail::compress_bc5_mip_chain(
+                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
+                    break;
+                case TextureKind::ColorAlpha:
+                default:
+                    compressed = Detail::compress_bc7_mip_chain(
+                        upload_bytes, desc.width, desc.height, mip_chain.mip_levels, srgb);
+                    break;
+            }
             if (compressed) {
-                format = srgb ? RHI::Format::BC7UnormSrgb : RHI::Format::BC7Unorm;
+                format = Detail::choose_bc_format(desc.kind, srgb);
                 upload_bytes = std::span<const std::byte>{compressed->data(), compressed->size()};
                 std::vector<std::byte>{}.swap(mip_chain.data);
             }
@@ -416,10 +440,39 @@ namespace SFT::Engine {
         });
     }
 
+    AssetExpected<Asset> AssetManager::create_orm_texture(
+        std::span<const std::byte> occlusion_rgba8, std::span<const std::byte> metallic_roughness_rgba8,
+        u32 width, u32 height, UString label) {
+        auto packed = Detail::pack_orm_rgba8(occlusion_rgba8, metallic_roughness_rgba8, width, height);
+        if (!packed) {
+            return std::unexpected(error(AssetErrorCode::InvalidDescription,
+                                         "Could not pack occlusion + metallic-roughness textures into one "
+                                         "ORM texture (dimensions must match exactly)."));
+        }
+        if (label.empty()) {
+            label = UString{"orm_texture"_ustr};
+        }
+        // Occlusion/roughness/metallic are packed data, not display color (same reasoning as
+        // GltfImport.cpp's own metallic_roughness_texture/occlusion_texture comments) — Linear, not
+        // Srgb. kind stays ColorAlpha/BC7: three independent, uncorrelated channels is exactly
+        // BC7's strength (BC1/BC4/BC5 each assume a different, narrower channel relationship).
+        return create_texture(TextureAssetDesc{
+            .width = width,
+            .height = height,
+            .color_space = TextureColorSpace::Linear,
+            .rgba8 = std::move(*packed),
+            .label = std::move(label),
+            .kind = TextureKind::ColorAlpha,
+        });
+    }
+
     AssetExpected<Asset> AssetManager::load_texture(const std::filesystem::path &source,
                                                     TextureColorSpace color_space,
+                                                    TextureKind kind,
                                                     UString label) {
-        const std::string dedup_key = source.string() + (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear");
+        const std::string dedup_key = source.string() +
+            (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear") +
+            "|kind" + std::to_string(static_cast<int>(kind));
         {
             std::shared_lock read_lock{impl_->mutex};
             if (const auto it = impl_->path_cache.find(dedup_key); it != impl_->path_cache.end()) {
@@ -448,6 +501,7 @@ namespace SFT::Engine {
             .color_space = color_space,
             .rgba8 = std::move(decoded->pixels),
             .label = std::move(label),
+            .kind = kind,
         });
         if (!texture) {
             return texture;
@@ -467,11 +521,13 @@ namespace SFT::Engine {
     }
 
     AssetExpected<Asset> AssetManager::load_texture_streamed(const std::filesystem::path &source,
-                                                              TextureColorSpace color_space, UString label) {
+                                                              TextureColorSpace color_space, TextureKind kind,
+                                                              UString label) {
         if (label.empty()) {
             label = path_label(source, "texture");
         }
-        const StreamedTextureHandle streamed = impl_->texture_streamer.request_texture_load(source, color_space, {}, label);
+        const StreamedTextureHandle streamed =
+            impl_->texture_streamer.request_texture_load(source, color_space, kind, {}, label);
         if (!streamed) {
             return std::unexpected(error(AssetErrorCode::IoFailure,
                                          "Failed to start streamed texture load for '" + source.string() + "'.", source));
@@ -497,6 +553,7 @@ namespace SFT::Engine {
     AssetExpected<Asset> AssetManager::create_texture_from_encoded_bytes(
         std::span<const std::byte> encoded,
         TextureColorSpace color_space,
+        TextureKind kind,
         UString label) {
         auto decoded = Detail::decode_image_rgba8(encoded, {});
         if (!decoded) {
@@ -511,6 +568,7 @@ namespace SFT::Engine {
             .color_space = color_space,
             .rgba8 = std::move(decoded->pixels),
             .label = std::move(label),
+            .kind = kind,
         });
     }
 

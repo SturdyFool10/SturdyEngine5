@@ -16,6 +16,8 @@
 #include "GltfImport.hpp"
 
 #include "AssetManager.hpp"
+#include "ImageDecode.hpp"
+#include "TextureCompression.hpp"
 
 #include <Renderer/Mesh.hpp>
 
@@ -23,6 +25,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -73,16 +76,114 @@ namespace SFT::Engine {
             }
         };
 
-        // image_index -> {srgb, linear} cached texture assets. A glTF image referenced from both an
-        // sRGB-decoded slot (base color) and a linear-data slot (metallic/roughness) would otherwise
-        // upload the same bytes twice with two different color-space interpretations, so the cache
-        // key includes color space, not just the image index.
+        // image_index -> {srgb, linear} x {TextureKind} cached texture assets. A glTF image
+        // referenced from both an sRGB-decoded slot (base color) and a linear-data slot
+        // (metallic/roughness) would otherwise upload the same bytes twice with two different
+        // color-space interpretations, so the cache key includes color space; it also includes
+        // TextureKind (see AssetManager.hpp) since the same image referenced with two different
+        // kinds (e.g. as ColorOpaque in one material and ColorAlpha in another) must not reuse a
+        // texture compressed for the wrong one.
         struct ImageCache {
-            std::vector<std::array<std::optional<Asset>, 2>> entries;
+            std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>> entries;
         };
 
         [[nodiscard]] usize color_space_slot(TextureColorSpace color_space) noexcept {
             return color_space == TextureColorSpace::Srgb ? 0 : 1;
+        }
+
+        [[nodiscard]] usize kind_slot(TextureKind kind) noexcept {
+            return static_cast<usize>(kind);
+        }
+
+        // Fetches a glTF image's raw encoded (PNG/JPEG/etc.) bytes regardless of how it's stored —
+        // an embedded buffer view, a base64 data URI, or an external file on disk. Shared by
+        // load_image() below (buffer-view/data-uri branches only — its external-file branch keeps
+        // calling AssetManager::load_texture() directly for that path's dedup cache, see its own
+        // comment) and by decode_gltf_image_pixels() (which needs every source uniformly, since
+        // ORM channel-packing has no path-based dedup to preserve).
+        [[nodiscard]] AssetExpected<std::vector<std::byte>> fetch_gltf_image_bytes(
+            const cgltf_image &image, const std::filesystem::path &base_dir) {
+            if (image.buffer_view != nullptr) {
+                const std::uint8_t *bytes = cgltf_buffer_view_data(image.buffer_view);
+                if (bytes == nullptr) {
+                    return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
+                                                       "glTF embedded image has no backing buffer data."));
+                }
+                return std::vector<std::byte>{
+                    reinterpret_cast<const std::byte *>(bytes),
+                    reinterpret_cast<const std::byte *>(bytes) + image.buffer_view->size};
+            }
+            if (image.uri == nullptr) {
+                return std::unexpected(gltf_error(AssetErrorCode::InvalidDescription,
+                                                   "glTF image has neither a buffer view nor a URI."));
+            }
+            if (std::string_view{image.uri}.starts_with("data:")) {
+                const char *comma = std::strchr(image.uri, ',');
+                if (comma == nullptr) {
+                    return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
+                                                       "glTF image data URI is missing its ',' payload separator."));
+                }
+                const std::string_view payload{comma + 1};
+                usize padding = 0;
+                if (payload.ends_with("==")) {
+                    padding = 2;
+                } else if (payload.ends_with('=')) {
+                    padding = 1;
+                }
+                const usize decoded_size = (payload.size() / 4) * 3 - padding;
+                cgltf_options base64_options{};
+                void *decoded = nullptr;
+                const cgltf_result result =
+                    cgltf_load_buffer_base64(&base64_options, decoded_size, comma + 1, &decoded);
+                if (result != cgltf_result_success || decoded == nullptr) {
+                    return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
+                                                       "Could not base64-decode a glTF image data URI."));
+                }
+                std::vector<std::byte> bytes{
+                    reinterpret_cast<const std::byte *>(decoded),
+                    reinterpret_cast<const std::byte *>(decoded) + decoded_size};
+                std::free(decoded);
+                return bytes;
+            }
+
+            std::string decoded_uri = image.uri;
+            const cgltf_size decoded_length = cgltf_decode_uri(decoded_uri.data());
+            decoded_uri.resize(decoded_length);
+            const std::filesystem::path file_path = base_dir / decoded_uri;
+            std::ifstream file(file_path, std::ios::binary | std::ios::ate);
+            if (!file) {
+                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
+                                                   "Could not open glTF image file '" + file_path.string() + "'.",
+                                                   file_path));
+            }
+            const std::streamoff size = file.tellg();
+            if (size < 0) {
+                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
+                                                   "Could not determine the size of glTF image file '" +
+                                                       file_path.string() + "'.",
+                                                   file_path));
+            }
+            file.seekg(0, std::ios::beg);
+            std::vector<std::byte> bytes(static_cast<usize>(size));
+            if (!bytes.empty() && !file.read(reinterpret_cast<char *>(bytes.data()),
+                                              static_cast<std::streamsize>(bytes.size()))) {
+                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
+                                                   "Could not read glTF image file '" + file_path.string() + "'.",
+                                                   file_path));
+            }
+            return bytes;
+        }
+
+        // Fetches + decodes a glTF image to raw RGBA8 pixels without uploading anything — used only
+        // by import_gltf's ORM channel-packing path (see its packed_orm_texture block), which needs
+        // the pixels in hand before it knows whether packing is even possible (matching dimensions).
+        [[nodiscard]] AssetExpected<Detail::DecodedImage> decode_gltf_image_pixels(
+            const cgltf_image &image, const std::filesystem::path &base_dir) {
+            auto encoded = fetch_gltf_image_bytes(image, base_dir);
+            if (!encoded) {
+                return std::unexpected(encoded.error());
+            }
+            return Detail::decode_image_rgba8(*encoded, {});
         }
 
         [[nodiscard]] AssetExpected<Asset> load_image(
@@ -90,71 +191,38 @@ namespace SFT::Engine {
             const cgltf_image &image,
             usize image_index,
             TextureColorSpace color_space,
+            TextureKind kind,
             const std::filesystem::path &base_dir,
             ImageCache &cache) {
-            const usize slot = color_space_slot(color_space);
-            if (std::optional<Asset> &cached = cache.entries[image_index][slot]; cached) {
+            const usize cs_slot = color_space_slot(color_space);
+            const usize k_slot = kind_slot(kind);
+            if (std::optional<Asset> &cached = cache.entries[image_index][cs_slot][k_slot]; cached) {
                 return *cached;
             }
 
             const UString label = label_from_name(image.name, "gltf_image");
 
             AssetExpected<Asset> loaded = [&]() -> AssetExpected<Asset> {
-                if (image.buffer_view != nullptr) {
-                    const std::uint8_t *bytes = cgltf_buffer_view_data(image.buffer_view);
-                    if (bytes == nullptr) {
-                        return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
-                                                           "glTF embedded image has no backing buffer data."));
-                    }
-                    return assets.create_texture_from_encoded_bytes(
-                        std::span<const std::byte>{
-                            reinterpret_cast<const std::byte *>(bytes),
-                            static_cast<usize>(image.buffer_view->size)},
-                        color_space,
-                        label);
-                }
-                if (image.uri == nullptr) {
-                    return std::unexpected(gltf_error(AssetErrorCode::InvalidDescription,
-                                                       "glTF image has neither a buffer view nor a URI."));
-                }
-                if (std::string_view{image.uri}.starts_with("data:")) {
-                    const char *comma = std::strchr(image.uri, ',');
-                    if (comma == nullptr) {
-                        return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
-                                                           "glTF image data URI is missing its ',' payload separator."));
-                    }
-                    const std::string_view payload{comma + 1};
-                    usize padding = 0;
-                    if (payload.ends_with("==")) {
-                        padding = 2;
-                    } else if (payload.ends_with('=')) {
-                        padding = 1;
-                    }
-                    const usize decoded_size = (payload.size() / 4) * 3 - padding;
-                    cgltf_options base64_options{};
-                    void *decoded = nullptr;
-                    const cgltf_result result =
-                        cgltf_load_buffer_base64(&base64_options, decoded_size, comma + 1, &decoded);
-                    if (result != cgltf_result_success || decoded == nullptr) {
-                        return std::unexpected(gltf_error(AssetErrorCode::DecodeFailure,
-                                                           "Could not base64-decode a glTF image data URI."));
-                    }
-                    AssetExpected<Asset> texture = assets.create_texture_from_encoded_bytes(
-                        std::span<const std::byte>{reinterpret_cast<const std::byte *>(decoded), decoded_size},
-                        color_space,
-                        label);
-                    std::free(decoded);
-                    return texture;
+                // The external-file case keeps calling AssetManager::load_texture() directly
+                // (rather than routing through fetch_gltf_image_bytes) so repeated references to
+                // the same file still hit its own path-based dedup cache.
+                if (image.buffer_view == nullptr && image.uri != nullptr &&
+                    !std::string_view{image.uri}.starts_with("data:")) {
+                    std::string decoded_uri = image.uri;
+                    const cgltf_size decoded_length = cgltf_decode_uri(decoded_uri.data());
+                    decoded_uri.resize(decoded_length);
+                    return assets.load_texture(base_dir / decoded_uri, color_space, kind, label);
                 }
 
-                std::string decoded_uri = image.uri;
-                const cgltf_size decoded_length = cgltf_decode_uri(decoded_uri.data());
-                decoded_uri.resize(decoded_length);
-                return assets.load_texture(base_dir / decoded_uri, color_space, label);
+                auto encoded = fetch_gltf_image_bytes(image, base_dir);
+                if (!encoded) {
+                    return std::unexpected(encoded.error());
+                }
+                return assets.create_texture_from_encoded_bytes(*encoded, color_space, kind, label);
             }();
 
             if (loaded) {
-                cache.entries[image_index][slot] = *loaded;
+                cache.entries[image_index][cs_slot][k_slot] = *loaded;
             }
             return loaded;
         }
@@ -239,6 +307,10 @@ namespace SFT::Engine {
             glm::vec4 emissive_factor{0.0f, 0.0f, 0.0f, 0.0f};
             // KHR_materials_emissive_strength default when the extension is absent.
             f32 emissive_strength = 1.0f;
+            // 0.0 (default): metallic_roughness_texture holds glTF's own G=roughness/B=metallic
+            // layout. 1.0: it was BC5-compressed (TextureKind::MetallicRoughness) and instead holds
+            // R=roughness/G=metallic — see gbuffer_geometry.slang's own read of this flag.
+            f32 metallic_roughness_channels_rg = 0.0f;
         };
 
     } // namespace
@@ -280,7 +352,12 @@ namespace SFT::Engine {
         }
 
         const std::filesystem::path base_dir = source.parent_path();
-        ImageCache image_cache{.entries = std::vector<std::array<std::optional<Asset>, 2>>(data.images_count)};
+        ImageCache image_cache{
+            .entries = std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>>(data.images_count)};
+        // ORM-packed textures (AssetManager::create_orm_texture) bypass ImageCache entirely (they
+        // have no single source image_index to key on), so they're tracked separately for the
+        // VRAM-usage log below.
+        std::vector<Asset> packed_texture_assets;
 
         // Lazily created once and shared by every material with no real normalTexture: a flat
         // (128, 128, 255) tangent-space normal (unpacks to (0, 0, 1), a no-op perturbation) — bound
@@ -510,6 +587,52 @@ namespace SFT::Engine {
 
                 PendingMaterial material_values{};
                 if (const cgltf_material *material = primitive.material; material != nullptr) {
+                    const cgltf_texture *mr_gltf_texture =
+                        (material->has_pbr_metallic_roughness &&
+                         material->pbr_metallic_roughness.metallic_roughness_texture.texture != nullptr &&
+                         material->pbr_metallic_roughness.metallic_roughness_texture.texture->image != nullptr)
+                            ? material->pbr_metallic_roughness.metallic_roughness_texture.texture
+                            : nullptr;
+                    const cgltf_texture *occlusion_gltf_texture =
+                        (material->occlusion_texture.texture != nullptr &&
+                         material->occlusion_texture.texture->image != nullptr)
+                            ? material->occlusion_texture.texture
+                            : nullptr;
+
+                    // The "Texture Set" case in scope for this pass: when occlusion and
+                    // metallic-roughness are two DIFFERENT source images (not the common glTF "ORM"
+                    // convention of one shared texture), pack them into a single BC7 texture
+                    // (R = occlusion, G = roughness, B = metallic) instead of uploading two —
+                    // AssetManager::create_orm_texture. Bound to both material slots below with no
+                    // shader changes, since each slot already only reads its own channels. Any
+                    // failure (fetch/decode/dimension mismatch/pack) just falls back to loading the
+                    // two images independently, exactly like before this pass.
+                    std::optional<Asset> packed_orm_texture;
+                    if (mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
+                        mr_gltf_texture->image != occlusion_gltf_texture->image) {
+                        AssetExpected<Detail::DecodedImage> occlusion_pixels =
+                            decode_gltf_image_pixels(*occlusion_gltf_texture->image, base_dir);
+                        AssetExpected<Detail::DecodedImage> mr_pixels =
+                            decode_gltf_image_pixels(*mr_gltf_texture->image, base_dir);
+                        if (occlusion_pixels && mr_pixels && occlusion_pixels->width == mr_pixels->width &&
+                            occlusion_pixels->height == mr_pixels->height) {
+                            AssetExpected<Asset> orm_asset = assets.create_orm_texture(
+                                occlusion_pixels->pixels, mr_pixels->pixels, occlusion_pixels->width,
+                                occlusion_pixels->height, UString{"gltf orm"_ustr});
+                            if (orm_asset) {
+                                packed_orm_texture = *orm_asset;
+                                packed_texture_assets.push_back(*orm_asset);
+                            }
+                        }
+                    }
+                    // Same source image referenced from both slots (the common ORM convention) —
+                    // loaded once below as ColorAlpha/BC7 and bound to both slots, same as before
+                    // this pass (kept as BC7, not BC4/BC5, since it's genuinely still serving two
+                    // different channel groups out of one texture).
+                    const bool occlusion_shares_mr_image =
+                        mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
+                        mr_gltf_texture->image == occlusion_gltf_texture->image;
+
                     if (material->has_pbr_metallic_roughness) {
                         const cgltf_pbr_metallic_roughness &pbr = material->pbr_metallic_roughness;
                         material_values.base_color_factor = glm::vec4{
@@ -524,8 +647,16 @@ namespace SFT::Engine {
                         if (const cgltf_texture *texture = pbr.base_color_texture.texture;
                             texture != nullptr && texture->image != nullptr) {
                             const auto image_index = static_cast<usize>(texture->image - data.images);
+                            // glTF spec: alpha is ignored entirely in OPAQUE mode, so a texture used
+                            // there can drop to BC1 (half BC7's size, alpha always reads back 1.0)
+                            // with no observable difference. MASK/BLEND keep BC7 — MASK genuinely
+                            // needs real alpha for the cutoff test above.
+                            const TextureKind base_color_kind = material->alpha_mode == cgltf_alpha_mode_opaque
+                                ? TextureKind::ColorOpaque
+                                : TextureKind::ColorAlpha;
                             AssetExpected<Asset> base_color_texture = load_image(
-                                assets, *texture->image, image_index, TextureColorSpace::Srgb, base_dir, image_cache);
+                                assets, *texture->image, image_index, TextureColorSpace::Srgb, base_color_kind,
+                                base_dir, image_cache);
                             if (!base_color_texture) {
                                 primitive_failed = true;
                                 primitive_error = base_color_texture.error();
@@ -536,22 +667,60 @@ namespace SFT::Engine {
                                 .texture = *base_color_texture,
                             });
                         }
-                        if (const cgltf_texture *texture = pbr.metallic_roughness_texture.texture;
-                            texture != nullptr && texture->image != nullptr) {
-                            const auto image_index = static_cast<usize>(texture->image - data.images);
-                            // glTF packs roughness/metallic as data (G/B channels), not display color —
-                            // decoding it sRGB would corrupt every value that isn't 0 or 1.
-                            AssetExpected<Asset> mr_texture = load_image(
-                                assets, *texture->image, image_index, TextureColorSpace::Linear, base_dir,
-                                image_cache);
-                            if (!mr_texture) {
-                                primitive_failed = true;
-                                primitive_error = mr_texture.error();
-                                break;
+
+                        if (packed_orm_texture) {
+                            primitive_desc.textures.push_back(ModelTextureBinding{
+                                .slot = UString{"metallic_roughness_texture"_ustr},
+                                .texture = *packed_orm_texture,
+                            });
+                        } else if (mr_gltf_texture != nullptr) {
+                            const auto image_index = static_cast<usize>(mr_gltf_texture->image - data.images);
+                            // A standalone metallic-roughness texture (no occlusion partner to pack
+                            // with, see packed_orm_texture above) is decoded, re-channeled G/B -> R/G
+                            // (Detail::pack_metallic_roughness_rg), and uploaded as
+                            // TextureKind::MetallicRoughness (BC5, half BC7's size). Any failure
+                            // (fetch/decode/repack) falls back to the original G/B-layout BC7 path
+                            // below — never a hard primitive failure, since that path is always valid.
+                            std::optional<Asset> mr_texture_bc5;
+                            if (AssetExpected<Detail::DecodedImage> mr_pixels =
+                                    decode_gltf_image_pixels(*mr_gltf_texture->image, base_dir)) {
+                                if (auto repacked = Detail::pack_metallic_roughness_rg(
+                                        mr_pixels->pixels, mr_pixels->width, mr_pixels->height)) {
+                                    AssetExpected<Asset> created = assets.create_texture(TextureAssetDesc{
+                                        .width = mr_pixels->width,
+                                        .height = mr_pixels->height,
+                                        .color_space = TextureColorSpace::Linear,
+                                        .rgba8 = std::move(*repacked),
+                                        .label = UString{"gltf metallic_roughness (bc5)"_ustr},
+                                        .kind = TextureKind::MetallicRoughness,
+                                    });
+                                    if (created) {
+                                        mr_texture_bc5 = *created;
+                                        packed_texture_assets.push_back(*created);
+                                    }
+                                }
+                            }
+
+                            Asset mr_texture_asset;
+                            if (mr_texture_bc5) {
+                                mr_texture_asset = *mr_texture_bc5;
+                                material_values.metallic_roughness_channels_rg = 1.0f;
+                            } else {
+                                // glTF packs roughness/metallic as data (G/B channels), not display
+                                // color — decoding it sRGB would corrupt every value that isn't 0 or 1.
+                                AssetExpected<Asset> mr_texture = load_image(
+                                    assets, *mr_gltf_texture->image, image_index, TextureColorSpace::Linear,
+                                    TextureKind::ColorAlpha, base_dir, image_cache);
+                                if (!mr_texture) {
+                                    primitive_failed = true;
+                                    primitive_error = mr_texture.error();
+                                    break;
+                                }
+                                mr_texture_asset = *mr_texture;
                             }
                             primitive_desc.textures.push_back(ModelTextureBinding{
                                 .slot = UString{"metallic_roughness_texture"_ustr},
-                                .texture = *mr_texture,
+                                .texture = mr_texture_asset,
                             });
                         }
                     }
@@ -576,31 +745,43 @@ namespace SFT::Engine {
                         material_values.emissive_strength = material->emissive_strength.emissive_strength;
                     }
 
-                    if (const cgltf_texture *texture = material->occlusion_texture.texture;
-                        texture != nullptr && texture->image != nullptr) {
+                    if (occlusion_gltf_texture != nullptr) {
                         material_values.occlusion_strength = material->occlusion_texture.scale;
-                        const auto image_index = static_cast<usize>(texture->image - data.images);
-                        // Occlusion is packed data (conventionally the R channel, often shared with the
-                        // metallic-roughness texture in the "ORM" convention), not display color.
-                        AssetExpected<Asset> occlusion_texture = load_image(
-                            assets, *texture->image, image_index, TextureColorSpace::Linear, base_dir,
-                            image_cache);
-                        if (!occlusion_texture) {
-                            primitive_failed = true;
-                            primitive_error = occlusion_texture.error();
-                            break;
+                        if (packed_orm_texture) {
+                            primitive_desc.textures.push_back(ModelTextureBinding{
+                                .slot = UString{"occlusion_texture"_ustr},
+                                .texture = *packed_orm_texture,
+                            });
+                        } else {
+                            const auto image_index = static_cast<usize>(occlusion_gltf_texture->image - data.images);
+                            // Occlusion is packed data (conventionally the R channel). When it's a
+                            // standalone texture (no metallic-roughness partner sharing the same
+                            // image), it's the only channel any shader reads from this texture, so
+                            // it drops to BC4 (half BC7's size). When it shares its source image
+                            // with metallic-roughness (the ORM convention), it keeps BC7 — see
+                            // occlusion_shares_mr_image's own comment above.
+                            AssetExpected<Asset> occlusion_texture = load_image(
+                                assets, *occlusion_gltf_texture->image, image_index, TextureColorSpace::Linear,
+                                occlusion_shares_mr_image ? TextureKind::ColorAlpha : TextureKind::Mask, base_dir,
+                                image_cache);
+                            if (!occlusion_texture) {
+                                primitive_failed = true;
+                                primitive_error = occlusion_texture.error();
+                                break;
+                            }
+                            primitive_desc.textures.push_back(ModelTextureBinding{
+                                .slot = UString{"occlusion_texture"_ustr},
+                                .texture = *occlusion_texture,
+                            });
                         }
-                        primitive_desc.textures.push_back(ModelTextureBinding{
-                            .slot = UString{"occlusion_texture"_ustr},
-                            .texture = *occlusion_texture,
-                        });
                     }
 
                     if (const cgltf_texture *texture = material->emissive_texture.texture;
                         texture != nullptr && texture->image != nullptr) {
                         const auto image_index = static_cast<usize>(texture->image - data.images);
                         AssetExpected<Asset> emissive_texture = load_image(
-                            assets, *texture->image, image_index, TextureColorSpace::Srgb, base_dir, image_cache);
+                            assets, *texture->image, image_index, TextureColorSpace::Srgb,
+                            TextureKind::ColorAlpha, base_dir, image_cache);
                         if (!emissive_texture) {
                             primitive_failed = true;
                             primitive_error = emissive_texture.error();
@@ -625,9 +806,10 @@ namespace SFT::Engine {
                         const auto image_index = static_cast<usize>(texture->image - data.images);
                         // Normal maps are data (tangent-space directions), not display color —
                         // sRGB-decoding one would corrupt every direction that isn't axis-aligned.
+                        // NormalMap -> BC5 (X/Y only; gbuffer_geometry.slang reconstructs Z).
                         return load_image(
-                            assets, *texture->image, image_index, TextureColorSpace::Linear, base_dir,
-                            image_cache);
+                            assets, *texture->image, image_index, TextureColorSpace::Linear,
+                            TextureKind::NormalMap, base_dir, image_cache);
                     }
                     return get_flat_normal_texture();
                 }();
@@ -702,6 +884,10 @@ namespace SFT::Engine {
                     set = assets.set_model_float(*model, primitive_index, "emissive_strength",
                                                  values.emissive_strength);
                 }
+                if (set) {
+                    set = assets.set_model_float(*model, primitive_index, "metallic_roughness_channels_rg",
+                                                 values.metallic_roughness_channels_rg);
+                }
                 if (!set) {
                     (void)assets.unload(*model);
                     rollback_models();
@@ -743,17 +929,24 @@ namespace SFT::Engine {
                 }
             }
             usize total_texture_bytes = 0;
-            for (const std::array<std::optional<Asset>, 2> &entry : image_cache.entries) {
-                for (const std::optional<Asset> &texture : entry) {
-                    if (texture) {
-                        if (auto texture_info = assets.info(*texture)) {
-                            total_texture_bytes += texture_info->memory_bytes;
+            for (const std::array<std::array<std::optional<Asset>, 5>, 2> &color_space_entry : image_cache.entries) {
+                for (const std::array<std::optional<Asset>, 5> &kind_entry : color_space_entry) {
+                    for (const std::optional<Asset> &texture : kind_entry) {
+                        if (texture) {
+                            if (auto texture_info = assets.info(*texture)) {
+                                total_texture_bytes += texture_info->memory_bytes;
+                            }
                         }
                     }
                 }
             }
             if (flat_normal_texture) {
                 if (auto texture_info = assets.info(*flat_normal_texture)) {
+                    total_texture_bytes += texture_info->memory_bytes;
+                }
+            }
+            for (Asset texture : packed_texture_assets) {
+                if (auto texture_info = assets.info(texture)) {
                     total_texture_bytes += texture_info->memory_bytes;
                 }
             }
