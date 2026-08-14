@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace SFT::UiWorkbench {
@@ -106,6 +107,18 @@ namespace SFT::UiWorkbench {
         // drawn into that alpha channel.
         bool hdr_enabled_ = false;
         bool swapchain_transparent_ = false;
+        // Which windows currently have the legacy Win32 WS_EX_LAYERED/DwmExtendFrameIntoClientArea
+        // transparency effect applied (WindowEffectKind::Transparent). Tracked per window, and
+        // reconciled every frame in build_composition_panel rather than once at toggle time, because
+        // whether a given window's swapchain actually needs that legacy effect isn't known until its
+        // RHI swapchain has been (re)built — apply_presentation_config only marks it dirty for the
+        // renderer to rebuild on an upcoming frame, it doesn't rebuild synchronously. A window whose
+        // swapchain ends up using composition present (RHI::PresentationResolution::
+        // via_composition_present) must NOT also get this legacy effect: DirectComposition already
+        // owns that window's transparent compositing end to end, and layering the legacy mechanism on
+        // top leaves its now-otherwise-unused redirection surface's last frame visible as a frozen
+        // second layer underneath the live composition-present content.
+        std::unordered_set<Platform::Windowing::WindowId> legacy_window_transparency_applied_{};
         f64 ui_background_opacity_ = 0.78;
         UI::SliderState ui_background_opacity_slider_state_{};
         // HDR presentation calibration. Reference white is a scale over the compositor-provided value;
@@ -118,7 +131,14 @@ namespace SFT::UiWorkbench {
         UI::SliderState hdr_peak_luminance_state_{};
         UI::SliderState hdr_max_content_light_level_state_{};
         UI::SliderState hdr_max_frame_average_light_level_state_{};
-        bool window_borderless_fullscreen_ = false;
+        // Index into the fullscreen-mode dropdown's three options, in Platform::Windowing::WindowMode's
+        // own declaration order (0=Windowed/"Off", 1=BorderlessFullscreen, 2=ExclusiveFullscreen) so
+        // the index can be used as the enum's underlying value directly rather than needing a lookup
+        // table. Exclusive is a *request*, not a guarantee — RHI::PresentationResolution::
+        // full_screen_exclusive_active reports whether the backend actually got it (the window still
+        // goes fullscreen either way; only the presentation path underneath it differs).
+        usize selected_fullscreen_mode_index_ = 0;
+        UI::DropdownState fullscreen_mode_dropdown_state_{};
         bool window_decorated_ = true;
         bool window_blur_enabled_ = false;
         // Which entry of supported_blur_kinds_ is picked in the blur-type dropdown; only actually

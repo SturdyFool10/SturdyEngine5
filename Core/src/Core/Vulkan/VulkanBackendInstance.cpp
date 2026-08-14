@@ -135,6 +135,13 @@ namespace SFT::Core::Vulkan {
                                                  VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
         }
 
+        // Instance-level dependency of VK_EXT_full_screen_exclusive (checked opportunistically at
+        // device-creation time, VulkanBackendDevice.cpp) — enabled here whenever the loader reports it
+        // regardless of whether exclusive fullscreen ends up used, for the same "instance extensions
+        // can't be added later without replacing the whole instance" reason hdr_swapchain_colorspace
+        // above is enabled unconditionally too.
+        surface_capabilities2_enabled_ = add_supported_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+
 #ifdef DEBUG
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         requestedLayers.push_back("VK_LAYER_KHRONOS_validation");

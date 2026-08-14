@@ -1042,8 +1042,11 @@ namespace SFT::UiWorkbench {
         style.color_space_text = text_style(font_id_, text_primary, 13);
         style.color_space_text.wrap_mode = UI::TextWrapMode::None;
         style.color_space_dropdown.trigger = action_button_style();
-        style.color_space_dropdown.list_background =
-            background_with_opacity(panel_raised, effective_background_opacity());
+        // Same background as the closed trigger itself, not the panel-opacity-following color — an
+        // open dropdown list is a popover sitting on top of other content, not a static panel where
+        // seeing through to what's behind is the point; following the UI opacity slider left it
+        // unreadable whenever that slider was turned down (or the swapchain was transparent).
+        style.color_space_dropdown.list_background = style.color_space_dropdown.trigger.idle;
         style.color_space_dropdown.option_hovered = UI::Color{0.16, 0.19, 0.28, 1.0};
         style.color_space_dropdown.corner_radius = UI::CornerRadius::all(10.0f);
         style.color_space_dropdown.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
@@ -1338,13 +1341,10 @@ namespace SFT::UiWorkbench {
                        Engine::EngineConfig config = engine.config();
                        config.features.presentation.transparent_composition = swapchain_transparent_;
                        if (const auto applied = apply_presentation_config(config)) {
-                           if (Platform::Windowing::operating_system_may_support_window_effect(
-                                   Platform::Windowing::WindowEffectKind::Transparent)) {
-                               for (const auto &[window, other_surface] : surfaces_) {
-                                   (void)other_surface;
-                                   engine.window_requests().set_transparent(window, swapchain_transparent_);
-                               }
-                           }
+                           // Deliberately NOT calling set_transparent() here — see
+                           // reconcile_legacy_window_transparency's own doc comment just below for why
+                           // that decision has to wait until each window's RHI swapchain has actually
+                           // been rebuilt, which apply_presentation_config only just requested.
                            status_message_ = swapchain_transparent_
                                                  ? "Transparent swapchain enabled; adjust background opacity below."
                                                  : "Opaque swapchain composition restored.";
@@ -1353,6 +1353,33 @@ namespace SFT::UiWorkbench {
                            status_message_ = "Transparency change rejected: " + applied.error().message;
                        }
                    });
+        // Reconciled every frame (not just on the toggle click above) because whether a given window's
+        // swapchain ends up using composition present isn't known until its RHI swapchain has actually
+        // been rebuilt — apply_presentation_config only marks it dirty for the renderer to rebuild on
+        // an upcoming frame. A window whose swapchain fell back to composition present must NOT also
+        // get the legacy WS_EX_LAYERED/DwmExtendFrameIntoClientArea effect: DirectComposition already
+        // owns that window's transparent compositing end to end, and layering the legacy mechanism on
+        // top leaves its now-otherwise-unused redirection surface's last frame visible as a frozen
+        // second layer underneath the live composition-present content — exactly the ghosting
+        // RHI::PresentationResolution::via_composition_present's own doc comment describes.
+        if (Platform::Windowing::operating_system_may_support_window_effect(
+                Platform::Windowing::WindowEffectKind::Transparent)) {
+            for (const auto &[window, other_surface] : surfaces_) {
+                const bool wants_legacy_effect =
+                    swapchain_transparent_ &&
+                    !engine.presentation_resolution(other_surface->handle).via_composition_present;
+                const bool currently_applied = legacy_window_transparency_applied_.contains(window);
+                if (wants_legacy_effect == currently_applied) {
+                    continue;
+                }
+                engine.window_requests().set_transparent(window, wants_legacy_effect);
+                if (wants_legacy_effect) {
+                    legacy_window_transparency_applied_.insert(window);
+                } else {
+                    legacy_window_transparency_applied_.erase(window);
+                }
+            }
+        }
         if (swapchain_transparent_) {
             auto opacity_row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -1388,13 +1415,47 @@ namespace SFT::UiWorkbench {
         }
 
         section_label(ctx, font_id_, "OS WINDOW COMPOSITION");
-        toggle_row(6, "Borderless fullscreen", "Toggle OS borderless fullscreen for this window",
-                   window_borderless_fullscreen_, [&] {
-                       engine.window_requests().set_fullscreen(
-                           surface.handle.window_id,
-                           window_borderless_fullscreen_ ? Platform::Windowing::WindowMode::BorderlessFullscreen
-                                                          : Platform::Windowing::WindowMode::Windowed);
-                   });
+        {
+            // Off/Borderless/Exclusive, in Platform::Windowing::WindowMode's own declaration order —
+            // see selected_fullscreen_mode_index_'s own doc comment (WorkbenchUi.hpp) for why the
+            // dropdown index doubles as the enum's underlying value. Exclusive additionally needs a
+            // swapchain rebuild to actually acquire VK_EXT_full_screen_exclusive (Renderer::
+            // recreate_rhi_swapchain reads Window::fullscreen_mode() for this on its own schedule), so
+            // the effect can lag a frame or two behind the dropdown selection — normal, not a bug.
+            const std::array fullscreen_options{
+                dropdown_option(font_id_, "Off", text_secondary),
+                dropdown_option(font_id_, "Borderless", accent),
+                dropdown_option(font_id_, "Exclusive", accent_hot),
+            };
+            UI::DropdownStyle fullscreen_style{};
+            fullscreen_style.trigger = action_button_style();
+            fullscreen_style.list_background = fullscreen_style.trigger.idle;
+            fullscreen_style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
+            fullscreen_style.corner_radius = UI::CornerRadius::all(11.0f);
+            fullscreen_style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
+            fullscreen_style.option_padding = 10;
+            fullscreen_style.arrow_color = accent;
+            fullscreen_style.arrow_font_id = font_id_;
+
+            draw_text(ctx, "Fullscreen", text_style(font_id_, text_primary, 13));
+            const UI::DropdownResult fullscreen_result = UI::dropdown(
+                ctx, UString{"workbench-fullscreen-dropdown"},
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(38.0f)},
+                    .padding = UI::Padding::symmetric(12, 8),
+                    .child_gap = 8,
+                    .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                    .id = UString{"workbench-fullscreen-dropdown"},
+                },
+                fullscreen_style, fullscreen_mode_dropdown_state_, delta_seconds,
+                selected_fullscreen_mode_index_, fullscreen_options, true);
+            if (fullscreen_result.changed) {
+                selected_fullscreen_mode_index_ = fullscreen_result.selected_index;
+                engine.window_requests().set_fullscreen(
+                    surface.handle.window_id,
+                    static_cast<Platform::Windowing::WindowMode>(selected_fullscreen_mode_index_));
+            }
+        }
         toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border",
                    window_decorated_, [&] {
                        engine.window_requests().set_decorated(surface.handle.window_id, window_decorated_);
@@ -1414,8 +1475,9 @@ namespace SFT::UiWorkbench {
 
             UI::DropdownStyle blur_style{};
             blur_style.trigger = action_button_style();
-            blur_style.list_background =
-                background_with_opacity(panel_raised, effective_background_opacity());
+            // Same background as the closed trigger — see the color-space dropdown's identical fix
+            // above for why the panel-opacity-following color made this unreadable.
+            blur_style.list_background = blur_style.trigger.idle;
             blur_style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
             blur_style.corner_radius = UI::CornerRadius::all(11.0f);
             blur_style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};
@@ -1461,7 +1523,8 @@ namespace SFT::UiWorkbench {
         };
         UI::DropdownStyle style{};
         style.trigger = action_button_style();
-        style.list_background = background_with_opacity(panel_raised, effective_background_opacity());
+        // Same background as the closed trigger — see the color-space dropdown's identical fix above.
+        style.list_background = style.trigger.idle;
         style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
         style.corner_radius = UI::CornerRadius::all(11.0f);
         style.border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)};

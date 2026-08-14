@@ -736,6 +736,24 @@ function(sturdy_fetch_volk)
         FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(volk)
+    if(WIN32 AND TARGET volk)
+        # PRIVATE, not the public VOLK_STATIC_DEFINES mechanism: this only needs to affect volk.c's
+        # own compilation (so volkLoadDevice() actually populates the Win32-only function pointers —
+        # vkImportSemaphoreWin32HandleKHR and friends — that Core/Vulkan/Rhi/VulkanRhiBridgeComposition.cpp
+        # declares and links against for the composition-present fallback). Defining
+        # VK_USE_PLATFORM_WIN32_KHR PUBLICLY on the volk target would instead force every other Core
+        # Vulkan translation unit that plainly #include "volk.h"s (nearly all of them, and none of
+        # them include windows.h first) to suddenly need Win32 types they've never had to declare —
+        # PRIVATE keeps this isolated to the one .c file that actually needs it.
+        #
+        # volk.c reaches vulkan_win32.h (via volk.h -> vulkan.h) as its very first line, before its
+        # own minimal HINSTANCE/HMODULE/LPCSTR/FARPROC shims further down — those types have to already
+        # exist by then, hence force-including windows.h ahead of everything via -include (volk.c's own
+        # `#if defined(_MINWINDEF_)` guard around its FARPROC shim shows this exact scenario, windows.h
+        # already processed before its shims run, is an anticipated case, not an unsupported one).
+        target_compile_definitions(volk PRIVATE VK_USE_PLATFORM_WIN32_KHR NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_compile_options(volk PRIVATE "-include" "windows.h")
+    endif()
     sturdy_mark_dependency_targets_exclude_from_all(volk volk::volk)
     sturdy_register_license(volk "${volk_SOURCE_DIR}")
 endfunction()

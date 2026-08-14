@@ -91,6 +91,7 @@ namespace SFT::Platform::Windowing::GLFW {
         expected<void, WindowError> set_resizable(bool enabled) noexcept override;
         expected<void, WindowError> set_decorated(bool enabled) noexcept override;
         expected<void, WindowError> set_fullscreen(WindowMode mode) noexcept override;
+        [[nodiscard]] WindowMode fullscreen_mode() const noexcept override;
         expected<void, WindowError> set_opacity(f32 opacity) noexcept override;
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override;
 
@@ -151,6 +152,10 @@ namespace SFT::Platform::Windowing::GLFW {
         bool mouse_locked_ = false;
         GLFWcursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
+        // Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see
+        // fullscreen_mode()'s own doc comment (Window.hpp) for why this has to survive past the call
+        // that set it.
+        WindowMode fullscreen_mode_ = WindowMode::Windowed;
     };
 
 } // namespace SFT::Platform::Windowing::GLFW

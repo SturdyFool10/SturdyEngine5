@@ -100,6 +100,11 @@ namespace SFT::Core::Vulkan {
         RHI::FeatureNegotiationReport feature_report_{};
         bool hdr_swapchain_colorspace_enabled_ = false;
         bool hdr_metadata_enabled_ = false;
+        // VK_KHR_get_surface_capabilities2, an instance-level dependency VK_EXT_full_screen_exclusive
+        // requires — set once at instance-creation time (VulkanBackendInstance.cpp), read at device-
+        // creation time (VulkanBackendDevice.cpp) to decide whether the device extension itself is
+        // even worth checking for.
+        bool surface_capabilities2_enabled_ = false;
         std::unique_ptr<RHI::RhiDevice> rhiDevice;
     };
 

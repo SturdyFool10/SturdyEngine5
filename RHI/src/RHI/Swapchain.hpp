@@ -156,6 +156,39 @@ namespace SFT::RHI {
         return PresentMode::Fifo;
     }
 
+    enum class CompositeAlphaMode : u32 {
+        // Prefer opaque presentation when supported; backend falls back to a supported alpha mode.
+        Auto,
+        Opaque,
+        Premultiplied,
+        PostMultiplied,
+        Inherit,
+    };
+
+    // Human-readable names for logs/diagnostics/debug overlays — one spelling per enumerator, same
+    // rationale as present_mode_name() above.
+    [[nodiscard]] constexpr std::string_view composite_alpha_mode_name(CompositeAlphaMode mode) noexcept {
+        switch (mode) {
+            case CompositeAlphaMode::Auto: return "Auto";
+            case CompositeAlphaMode::Opaque: return "Opaque";
+            case CompositeAlphaMode::Premultiplied: return "Premultiplied";
+            case CompositeAlphaMode::PostMultiplied: return "PostMultiplied";
+            case CompositeAlphaMode::Inherit: return "Inherit";
+        }
+        return "Unknown";
+    }
+
+    // Every non-opaque mode, in the order a transparency request should fall back through them.
+    // Premultiplied is the mode the renderer's own output convention already matches (the UI overlay
+    // clears to a premultiplied transparent black — RendererLifecycle.cpp), PostMultiplied is the
+    // straight-alpha equivalent, and Inherit hands the decision to the native window system, which
+    // is exactly what the Win32/DWM layered-window path wants. Opaque is deliberately absent: it is
+    // the one mode that makes a transparency request meaningless, so it is only ever reached as the
+    // final "nothing else is supported" answer, never preferred over a working non-opaque mode.
+    [[nodiscard]] constexpr std::array<CompositeAlphaMode, 3> transparent_composite_alpha_preference() noexcept {
+        return {CompositeAlphaMode::Premultiplied, CompositeAlphaMode::PostMultiplied, CompositeAlphaMode::Inherit};
+    }
+
     // Requested-vs-effective presentation state, for diagnostics (logs, a future debug overlay,
     // support reports) — the engine must never silently claim the requested strategy took effect
     // when the surface actually forced a fallback. `degraded` is true whenever `effective_mode`
@@ -170,15 +203,49 @@ namespace SFT::RHI {
         // that field's doc comment). False whenever the request was denied, disabled, or the device
         // has no compute queue at all — presentation stays on the graphics queue in every such case.
         bool present_queue_is_compute = false;
-    };
-
-    enum class CompositeAlphaMode : u32 {
-        // Prefer opaque presentation when supported; backend falls back to a supported alpha mode.
-        Auto,
-        Opaque,
-        Premultiplied,
-        PostMultiplied,
-        Inherit,
+        // The composite alpha mode the surface actually accepted, which is *not* always the one
+        // requested: a surface only supports the modes it advertises, and a great many Win32 Vulkan
+        // drivers (all current AMD ones, for instance) advertise Opaque and nothing else. Reported
+        // here for the same reason effective_mode is — a transparent-window feature that silently
+        // resolved to Opaque looks to the user like "the compositor is ignoring my alpha", and the
+        // engine must be able to say so instead of claiming the request took effect.
+        CompositeAlphaMode effective_composite_alpha = CompositeAlphaMode::Opaque;
+        // True when a non-opaque composite alpha was requested and the surface forced Opaque, i.e.
+        // per-pixel window transparency is impossible on this surface no matter what alpha the app
+        // renders. Distinct from `degraded`, which is only about present modes.
+        bool composite_alpha_degraded = false;
+        // True when this swapchain presents through an OS-compositor path rather than the graphics
+        // API's native swapchain. This distinction matters to window-level code: a
+        // *native*-transparent swapchain still needs the OS told to make the window itself capable of
+        // showing through (e.g. Win32's WS_EX_LAYERED + DwmExtendFrameIntoClientArea, applied by
+        // WindowEffectKind::Transparent) so its own redirection surface composites with real alpha. A
+        // composition-present swapchain already owns that job end to end (on Windows, via an
+        // IDCompositionTarget bound directly to the HWND). *Also* applying the legacy per-window
+        // mechanism on top does not combine the two: it leaves the otherwise-unused legacy redirection
+        // surface's last frame visible as a frozen layer below the live composition content. Callers
+        // must gate WindowEffectKind::Transparent (or any equivalent per-window OS mechanism) on
+        // `!via_composition_present`, not just on whether transparency was requested at all.
+        bool via_composition_present = false;
+        // Whether PresentDesc::completion_fence is honored for *this* swapchain. Not simply the
+        // device-level RHI::Feature::SwapchainMaintenance bit: a composition-present swapchain never
+        // goes through vkQueuePresentKHR at all, so there is no native present-completion fence
+        // mechanism to attach to regardless of whether the device feature is enabled. Callers must
+        // check this per-swapchain value, not RhiDevice::is_enabled() directly, before requesting a
+        // completion fence — the backend returns Unsupported for a fence it reported false here for,
+        // rather than silently accepting and never signaling it.
+        bool supports_completion_fence = false;
+        // Whether SwapchainDesc::request_full_screen_exclusive was actually granted — VK_EXT_
+        // full_screen_exclusive is a NiceToHave device extension (may not exist at all), the surface
+        // must actually report itself exclusive-capable (vkGetPhysicalDeviceSurfacePresentModes2EXT /
+        // VkSurfaceCapabilitiesFullScreenExclusiveEXT), and the window must actually be in
+        // WindowMode::ExclusiveFullscreen — this is false whenever any of that isn't true, so the
+        // caller never has to guess whether the compositor is actually being bypassed. Composition
+        // present and full-screen exclusive are mutually exclusive by construction: composition
+        // present exists specifically to route through the compositor for transparency, the opposite
+        // of what exclusive mode buys — a swapchain that ended up composition-presented
+        // (via_composition_present above) never sets this, and exclusive mode is only ever attempted
+        // on the native vkQueuePresentKHR path.
+        bool full_screen_exclusive_active = false;
     };
 
     enum class ColorSpace : u32 {
@@ -265,18 +332,33 @@ namespace SFT::RHI {
         // backend resolves this against real per-family surface support at creation time, the same
         // "never assume, always ask the surface" discipline present_strategy above already follows.
         bool allow_present_from_compute = true;
+        // Requests VK_EXT_full_screen_exclusive's application-controlled exclusive mode — bypassing
+        // the OS compositor entirely for the lowest achievable latency, distinct from a borderless
+        // window that merely covers the display while DWM/the compositor still owns presentation.
+        // Purely a request: the backend resolves it against real per-surface/device support (same
+        // "never assume, always ask" discipline present_strategy/allow_present_from_compute above
+        // already follow) and reports what it actually got via
+        // PresentationResolution::full_screen_exclusive_active — never silently claims exclusivity a
+        // surface didn't grant. Ignored (stays inactive) unless the window is ALSO in
+        // Platform::Windowing::WindowMode::ExclusiveFullscreen; requesting this for a windowed or
+        // merely-borderless-fullscreen surface has no defined meaning and is left unresolved by the
+        // backend rather than guessed at.
+        bool request_full_screen_exclusive = false;
         const char *label = nullptr;
     };
 
     // One acquired swapchain image, ready to render into and then present. `image_index` identifies
     // the backing image for the matching present() call; `suboptimal` is set when the swapchain
-    // still works but should be rebuilt soon (e.g. a resize is pending).
+    // still works but should be rebuilt soon (e.g. a resize is pending). Composition-backed images
+    // are external D3D resources rather than Vulkan WSI images, so renderers must release them in a
+    // generally usable layout instead of TextureLayout::Present.
     struct SurfaceTexture {
         SwapchainHandle swapchain{};
         TextureHandle texture{};
         TextureViewHandle view{};
         u32 image_index = 0;
         bool suboptimal = false;
+        bool composition_present = false;
     };
 
     struct PresentDesc {

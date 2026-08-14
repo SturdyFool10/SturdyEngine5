@@ -597,6 +597,10 @@ namespace SFT::Platform::Windowing::GLFW {
 
         try {
             auto wrapper = unique_ptr<GLFWWindow>(new GLFWWindow(key, window));
+            // monitor_for_mode(config.mode) above already applied config.mode's GLFW-level effect to
+            // the window being created — this just makes fullscreen_mode() report it accurately from
+            // construction onward, matching what set_fullscreen() does for every mode change after.
+            wrapper->fullscreen_mode_ = config.mode;
             glfwSetWindowUserPointer(window, wrapper.get());
             glfwSetWindowCloseCallback(window, glfw_close_callback);
             glfwSetWindowPosCallback(window, glfw_window_pos_callback);
@@ -1112,6 +1116,7 @@ namespace SFT::Platform::Windowing::GLFW {
                 extent.x,
                 extent.y);
             glfwSetWindowMonitor(window_, nullptr, 0, 0, static_cast<int>(extent.x), static_cast<int>(extent.y), GLFW_DONT_CARE);
+            fullscreen_mode_ = mode;
             return glfw_success();
         }
 
@@ -1149,7 +1154,15 @@ namespace SFT::Platform::Windowing::GLFW {
                             mode_info->height,
                             mode_info->refreshRate);
         glfwSetWindowMonitor(window_, monitor, 0, 0, mode_info->width, mode_info->height, mode_info->refreshRate);
+        // GLFW, like SDL3, has no notion of "exclusive" distinct from a monitor-covering windowed-
+        // fullscreen window at this layer — see fullscreen_mode()'s own doc comment (Window.hpp) for
+        // why the requested mode is still recorded precisely rather than collapsed here.
+        fullscreen_mode_ = mode;
         return glfw_success();
+    }
+
+    WindowMode GLFWWindow::fullscreen_mode() const noexcept {
+        return fullscreen_mode_;
     }
 
     expected<void, WindowError> GLFWWindow::set_opacity(f32 opacity) noexcept {

@@ -101,8 +101,14 @@ namespace SFT::Core::Vulkan {
             }
             waits.push_back(swapchain->image_available_semaphores[image_available_index].submit_info(
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0));
+            // Native WSI only needs rendering through the graphics pipeline before it can present.
+            // Composition images instead leave the command stream in GENERAL for an external D3D
+            // consumer, so signal only after its final release barrier and every earlier command ran.
+            const VkPipelineStageFlags2 render_complete_stage = swapchain->is_composition_present()
+                ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+                : VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
             signals.push_back(swapchain->render_finished_semaphores[texture.image_index].submit_info(
-                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0));
+                render_complete_stage, 0));
         }
 
         VkFence fence = VK_NULL_HANDLE;

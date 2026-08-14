@@ -360,6 +360,14 @@ namespace SFT::Platform::Windowing {
         //       change) must go through `recreate()` instead.
         virtual expected<void, WindowError> set_fullscreen(WindowMode mode) noexcept = 0;
 
+        // The mode last accepted by set_fullscreen() (Windowed until first called). Exists so a
+        // graphics backend rebuilding this window's swapchain — which happens on its own schedule,
+        // independent of when set_fullscreen() was called — can tell whether ExclusiveFullscreen is
+        // currently wanted and should chain VK_EXT_full_screen_exclusive (Vulkan) or the equivalent
+        // exclusive-fullscreen request onto that rebuild, without the caller having to separately track
+        // and thread the last-requested mode through every layer between UI and swapchain creation.
+        [[nodiscard]] virtual WindowMode fullscreen_mode() const noexcept = 0;
+
         // Set whole-window opacity in `[0, 1]` (`1` = opaque), where the platform supports it.
         virtual expected<void, WindowError> set_opacity(f32 opacity) noexcept = 0;
 

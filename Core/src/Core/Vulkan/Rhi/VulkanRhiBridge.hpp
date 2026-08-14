@@ -30,6 +30,8 @@
 #include <Core/Vulkan/VulkanPhysicalDevice.hpp>
 #include <Core/Vulkan/VulkanPipeline.hpp>
 #include <Core/Vulkan/Rhi/VulkanNativeAccessExtension.hpp>
+#include <Core/Vulkan/Rhi/VulkanRhiBridgeComposition.hpp>
+#include <Core/Vulkan/Rhi/VulkanRhiBridgeFullScreenExclusive.hpp>
 #include <Core/Vulkan/VulkanQueryPool.hpp>
 #include <Core/Vulkan/VulkanQueue.hpp>
 #include <Core/Vulkan/Rhi/VulkanRhiResourcePool.hpp>
@@ -278,6 +280,54 @@ namespace SFT::Core::Vulkan {
             // luminance range shouldn't need re-querying on every scene-light-level update.
             VkHdrMetadataEXT stored_hdr_metadata{};
             bool has_hdr_metadata = false;
+            // Non-null exactly when this swapchain presents through the OS compositor instead of
+            // vkQueuePresentKHR. On Windows this is attempted for every generation, including opaque
+            // ones, so enabling transparency later does not layer a DirectComposition visual over the
+            // final image retained by a native WSI swapchain. When set, `textures`/`views` above hold
+            // the imported composition images instead of native swapchain images, and `swapchain`
+            // itself is left default-constructed/invalid — every other field on this record
+            // (image_available_semaphores, render_finished_semaphores, presentation_resolution, ...)
+            // is populated exactly as it would be for a native swapchain, so only
+            // acquire_next_texture()/present()/destroy_swapchain() need to branch on this being set.
+            CompositionSwapchainResources composition{};
+            // 0 = present without waiting for vblank, 1 = wait for vblank — DXGI's own Present()
+            // meaning, resolved once at create_swapchain() time from the negotiated present mode
+            // (composition present has no per-present concept of "which mode" the way
+            // vkQueuePresentKHR does, so this is the closest equivalent this record can carry).
+            u32 composition_sync_interval = 1;
+            // Format/alpha-mode this record's composition presenter was actually built with — both are
+            // fixed at DXGI swap-chain creation and can't change through CompositionPresenter::resize.
+            // create_swapchain() compares these against a fresh request to decide whether an in-place
+            // resize (reusing the presenter, and critically its already-attached DirectComposition
+            // target — see resize_composition_swapchain_resources's own doc comment,
+            // VulkanRhiBridgeComposition.hpp, for why that reuse matters) is even possible, or whether
+            // a full rebuild is unavoidable because the format or transparency request itself changed.
+            VkFormat composition_vk_format = VK_FORMAT_UNDEFINED;
+            GraphicsPlatform::CompositionAlphaMode composition_alpha_mode =
+                GraphicsPlatform::CompositionAlphaMode::Ignore;
+            // True once this record ever became composition-present, and stays true even after
+            // composition.presenter is released early (see create_swapchain()'s own handling of
+            // desc.old_swapchain for why that happens: DirectComposition supports only one
+            // IDCompositionTarget per HWND at a time, so a retiring composition-present record has its
+            // presenter torn down synchronously — detaching that target from the window — the moment a
+            // replacement swapchain for the same surface starts being built, rather than waiting for
+            // the normal several-frames-later deferred retirement the rest of this record's resources
+            // still go through). destroy_swapchain() checks *this*, not is_composition_present(), to
+            // decide whether destroy_composition_swapchain_resources() still needs to run for the
+            // memory/semaphores that early release deliberately left behind.
+            bool owns_composition_resources = false;
+            // True exactly when acquire_full_screen_exclusive_mode() actually succeeded for this
+            // swapchain — release_full_screen_exclusive_mode() must only be called when this is true
+            // (see its own doc comment, VulkanRhiBridgeFullScreenExclusive.hpp, for why releasing an
+            // exclusive mode that was never acquired is undefined per spec rather than a safe no-op).
+            // Mirrored into presentation_resolution.full_screen_exclusive_active for callers, but kept
+            // as its own bool too so destroy_swapchain() can check it without reasoning about the rest
+            // of that struct — same rationale as present_via_compute above.
+            bool full_screen_exclusive_active = false;
+
+            [[nodiscard]] bool is_composition_present() const noexcept {
+                return composition.presenter != nullptr;
+            }
         };
 
         friend VkAccelerationStructureGeometryKHR to_vk_geometry(

@@ -596,6 +596,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         SDL3Window *raw_wrapper = nullptr;
         try {
             raw_wrapper = new SDL3Window(key, window);
+            // window_flags(config) above already applied config.mode's SDL-level effect to the window
+            // being created (SDL_WINDOW_BORDERLESS/SDL_WINDOW_FULLSCREEN) — this just makes
+            // fullscreen_mode() report it accurately from window creation onward, matching what
+            // set_fullscreen() does for every mode change after construction.
+            raw_wrapper->fullscreen_mode_ = config.mode;
             sdl_window_registry().emplace(SDL_GetWindowID(window), raw_wrapper);
             auto wrapper = unique_ptr<SDL3Window>(raw_wrapper);
             raw_wrapper = nullptr;
@@ -1248,7 +1253,24 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         Foundation::log_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
-        return sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed), WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
+        // SDL3's own fullscreen API is boolean (SDL_SetWindowFullscreen) — Borderless and Exclusive
+        // both need the identical borderless, monitor-covering window treatment at the OS/window level;
+        // the actual distinction between them is entirely a swapchain-presentation concern
+        // (VK_EXT_full_screen_exclusive bypassing the compositor), not a window-chrome one, so there is
+        // deliberately no separate SDL call for Exclusive here. fullscreen_mode_ still records the
+        // *requested* mode precisely (not collapsed to a bool) so a graphics backend rebuilding this
+        // window's swapchain later can tell Exclusive apart from Borderless — see fullscreen_mode()'s
+        // own doc comment (Window.hpp) for why that distinction has to survive past this call.
+        auto result = sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed),
+                                      WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
+        if (result) {
+            fullscreen_mode_ = mode;
+        }
+        return result;
+    }
+
+    WindowMode SDL3Window::fullscreen_mode() const noexcept {
+        return fullscreen_mode_;
     }
 
     expected<void, WindowError> SDL3Window::set_opacity(f32 opacity) noexcept {

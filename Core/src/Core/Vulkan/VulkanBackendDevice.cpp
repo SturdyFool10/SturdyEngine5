@@ -259,6 +259,28 @@ namespace SFT::Core::Vulkan {
             supportedSwapchainMaintenance1Features.swapchainMaintenance1) {
             supported_rhi_features.set(RHI::Feature::SwapchainMaintenance);
         }
+#if defined(_WIN32)
+        // No VkPhysicalDeviceXXXFeatures struct to check for either of these — both extensions add
+        // structs/functions, not a VkBool32 feature bit, so extension support is the whole story.
+        // Named as plain literals (not the VK_KHR_EXTERNAL_..._WIN32_EXTENSION_NAME macros) because
+        // those live in vulkan_win32.h, gated behind VK_USE_PLATFORM_WIN32_KHR — not worth pulling
+        // windows.h into this cross-platform file just for two string constants; the real Win32
+        // interop work that does need those headers lives in VulkanRhiBridgeComposition.cpp.
+        if (this->physicalDevice.supports_extension("VK_KHR_external_memory_win32")) {
+            supported_rhi_features.set(RHI::Feature::ExternalMemory).set(RHI::Feature::ExternalMemoryWin32);
+        }
+        if (this->physicalDevice.supports_extension("VK_KHR_external_semaphore_win32")) {
+            supported_rhi_features.set(RHI::Feature::ExternalSemaphore).set(RHI::Feature::ExternalSemaphoreWin32);
+        }
+        // VK_EXT_full_screen_exclusive is entirely Win32-specific in the Vulkan headers (even its own
+        // extension-name macro lives in vulkan_win32.h, not vulkan_core.h) — same reason as the two
+        // extensions above for naming it as a plain literal instead of the macro, and requires its
+        // instance-level dependency (surface_capabilities2_enabled_, VulkanBackendInstance.cpp) too.
+        if (surface_capabilities2_enabled_ &&
+            this->physicalDevice.supports_extension("VK_EXT_full_screen_exclusive")) {
+            supported_rhi_features.set(RHI::Feature::FullScreenExclusive);
+        }
+#endif
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         const auto probed_dedicated_compute_family = find_dedicated_queue_family(
             this->physicalDevice, VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT);
@@ -371,6 +393,23 @@ namespace SFT::Core::Vulkan {
         // tradeoff, enabled whenever the device reports it. Detection/enablement only for now — see
         // the query-time struct's own doc comment above for what's not wired up yet.
         optional_rhi_features.set(RHI::Feature::SwapchainMaintenance);
+#if defined(_WIN32)
+        // Same opportunistic-enable reasoning again: enabling these extensions changes nothing about
+        // default rendering, so there's no tradeoff for an app to weigh. They back the composition-
+        // present fallback (VulkanRhiBridgeComposition.cpp) that keeps a transparent window working on
+        // Win32/Vulkan surfaces whose composite alpha only supports Opaque — see
+        // resolve_composite_alpha's own doc comment (VulkanRhiBridgeSwapchain.cpp) for when that path
+        // is actually needed.
+        optional_rhi_features.set(RHI::Feature::ExternalMemory)
+            .set(RHI::Feature::ExternalMemoryWin32)
+            .set(RHI::Feature::ExternalSemaphore)
+            .set(RHI::Feature::ExternalSemaphoreWin32);
+        // Same reasoning once more: enabling the extension by itself changes nothing — exclusive mode
+        // is only ever entered when a swapchain explicitly requests it
+        // (RHI::SwapchainDesc::request_full_screen_exclusive), which only happens when the window is
+        // actually in WindowMode::ExclusiveFullscreen.
+        optional_rhi_features.set(RHI::Feature::FullScreenExclusive);
+#endif
 
         feature_report_ = RHI::negotiate_features(supported_rhi_features, required_rhi_features, optional_rhi_features);
         if (!feature_report_.required_satisfied()) {
@@ -425,6 +464,11 @@ namespace SFT::Core::Vulkan {
         const bool enable_bindless_descriptor_heap = enabled_rhi_features.has(RHI::Feature::BindlessResources);
         const bool enable_present_mode_fifo_latest_ready = enabled_rhi_features.has(RHI::Feature::PresentModeFifoLatestReady);
         const bool enable_swapchain_maintenance1 = enabled_rhi_features.has(RHI::Feature::SwapchainMaintenance);
+#if defined(_WIN32)
+        const bool enable_external_memory_win32 = enabled_rhi_features.has(RHI::Feature::ExternalMemoryWin32);
+        const bool enable_external_semaphore_win32 = enabled_rhi_features.has(RHI::Feature::ExternalSemaphoreWin32);
+        const bool enable_full_screen_exclusive = enabled_rhi_features.has(RHI::Feature::FullScreenExclusive);
+#endif
 
         // Build the enable chain — only request what we verified above.
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoLatestReadyFeatures{
@@ -579,6 +623,17 @@ namespace SFT::Core::Vulkan {
             // present-fence retirement path.
             extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
         }
+#if defined(_WIN32)
+        if (enable_external_memory_win32) {
+            extensions.push_back("VK_KHR_external_memory_win32");
+        }
+        if (enable_external_semaphore_win32) {
+            extensions.push_back("VK_KHR_external_semaphore_win32");
+        }
+        if (enable_full_screen_exclusive) {
+            extensions.push_back("VK_EXT_full_screen_exclusive");
+        }
+#endif
         if (video_decode_family.has_value() || video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_QUEUE_EXTENSION_NAME);
         }

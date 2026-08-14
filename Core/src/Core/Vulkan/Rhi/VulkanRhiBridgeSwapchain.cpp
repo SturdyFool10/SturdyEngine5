@@ -247,24 +247,46 @@ namespace SFT::Core::Vulkan {
             }
         }
 
-        [[nodiscard]] VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkCompositeAlphaFlagsKHR supported,
-                                                                         rhi::CompositeAlphaMode requested) noexcept {
-            const VkCompositeAlphaFlagBitsKHR preferred = composite_alpha_to_vk(requested);
-            if ((supported & preferred) != 0) {
-                return preferred;
-            }
-            constexpr VkCompositeAlphaFlagBitsKHR choices[] = {
-                VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-                VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-                VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
-                VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        // Resolves the requested composite alpha against the surface's real, freshly-queried
+        // supported set — same "never assume a mode is available" discipline as resolve_present_mode
+        // above, and with the same requested-vs-effective reporting, because the failure mode here is
+        // otherwise invisible: a surface that only supports Opaque will happily create a swapchain
+        // that discards every alpha value the app writes, and the window then composites over black
+        // with no error anywhere. Very common in practice — current Win32 AMD drivers advertise
+        // Opaque and nothing else, so per-pixel window transparency through the Vulkan WSI is simply
+        // unavailable there regardless of what the window manager is told.
+        //
+        // The fallback deliberately never prefers Opaque over a supported non-opaque mode when a
+        // non-opaque one was asked for: Opaque doesn't approximate transparency, it cancels it.
+        [[nodiscard]] rhi::CompositeAlphaMode resolve_composite_alpha(VkCompositeAlphaFlagsKHR supported,
+                                                                     rhi::CompositeAlphaMode requested) noexcept {
+            const auto is_supported = [supported](rhi::CompositeAlphaMode mode) noexcept {
+                return (supported & composite_alpha_to_vk(mode)) != 0;
             };
-            for (VkCompositeAlphaFlagBitsKHR choice : choices) {
-                if ((supported & choice) != 0) {
-                    return choice;
+
+            if (requested != rhi::CompositeAlphaMode::Auto && is_supported(requested)) {
+                return requested;
+            }
+            // Auto documents itself as "prefer opaque"; only an explicit non-opaque request means the
+            // caller actually wants the compositor to see alpha.
+            const bool wants_transparency =
+                requested != rhi::CompositeAlphaMode::Auto && requested != rhi::CompositeAlphaMode::Opaque;
+            if (wants_transparency) {
+                for (rhi::CompositeAlphaMode candidate : rhi::transparent_composite_alpha_preference()) {
+                    if (is_supported(candidate)) {
+                        return candidate;
+                    }
                 }
             }
-            return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+            if (is_supported(rhi::CompositeAlphaMode::Opaque)) {
+                return rhi::CompositeAlphaMode::Opaque;
+            }
+            for (rhi::CompositeAlphaMode candidate : rhi::transparent_composite_alpha_preference()) {
+                if (is_supported(candidate)) {
+                    return candidate;
+                }
+            }
+            return rhi::CompositeAlphaMode::Opaque;
         }
 
         // Builds the VkHdrMetadataEXT this bridge sends via vkSetHdrMetadataEXT, preferring the
@@ -501,6 +523,215 @@ namespace SFT::Core::Vulkan {
         }
         resolution.present_queue_is_compute = present_via_compute;
 
+        const rhi::CompositeAlphaMode effective_composite_alpha =
+            resolve_composite_alpha(caps->supportedCompositeAlpha, desc.composite_alpha);
+        const bool transparency_requested = desc.composite_alpha != rhi::CompositeAlphaMode::Auto &&
+                                            desc.composite_alpha != rhi::CompositeAlphaMode::Opaque;
+        resolution.effective_composite_alpha = effective_composite_alpha;
+        resolution.composite_alpha_degraded =
+            transparency_requested && effective_composite_alpha == rhi::CompositeAlphaMode::Opaque;
+        if (resolution.composite_alpha_degraded) {
+            // Loud, not silent: this is the difference between "the window shows what's behind it"
+            // and "the window is black where the app wrote alpha", and nothing further down the
+            // pipeline can detect or fix it.
+            Foundation::log_warn(
+                "Swapchain requested composite alpha {} for transparent composition, but this surface only "
+                "supports {:#x} — falling back to Opaque. The compositor will discard the alpha this "
+                "surface renders and the window will composite over black. (Vulkan on Win32 commonly "
+                "advertises Opaque only; per-pixel window transparency needs a surface that advertises a "
+                "non-opaque mode.)",
+                rhi::composite_alpha_mode_name(desc.composite_alpha),
+                static_cast<u32>(caps->supportedCompositeAlpha));
+        } else if (transparency_requested) {
+            Foundation::log_info("Swapchain composite alpha resolved to {} for transparent composition.",
+                                 rhi::composite_alpha_mode_name(effective_composite_alpha));
+        }
+
+        // Default (native-path) answer for PresentationResolution::supports_completion_fence — the
+        // composition-mode branch immediately below overrides this to false once it knows it's taking
+        // that path, since a composition-present swapchain has no vkQueuePresentKHR to attach
+        // VkSwapchainPresentFenceInfoKHR to regardless of whether the device feature is enabled.
+        resolution.supports_completion_fence = enabled_features_.has(rhi::Feature::SwapchainMaintenance);
+
+        // On Windows, try composition present for every swapchain generation — including the initial
+        // opaque one. Switching this HWND from native vkQueuePresentKHR to DirectComposition only when
+        // transparency is enabled leaves the native swapchain's final opaque image in the window's
+        // redirection surface beneath the new transparent visual. Starting on one presenter model
+        // avoids that persistent underlay; a transparency toggle then only replaces one composition
+        // presenter with another. The native path remains the fallback when the platform compositor or
+        // required Vulkan/D3D interop is unavailable. Exclusive fullscreen is intentionally native:
+        // it bypasses the compositor, which is fundamentally incompatible with composition present.
+        // The compile-time capability gate avoids asking the portable unsupported stub on every
+        // non-Windows swapchain creation.
+        if (GraphicsPlatform::composition_present_compiled() && !desc.request_full_screen_exclusive) {
+            // STORAGE_BIT has no counterpart among the D3D11 bind flags the composition presenter's
+            // shared textures are created with (render target + shader resource only, no UAV) —
+            // stripped here rather than requested-and-rejected by the import. COLOR_ATTACHMENT_BIT is
+            // always forced on: rendering into this image is the entire reason it's acquired.
+            const VkImageUsageFlags composition_usage =
+                (usage & ~static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_STORAGE_BIT)) | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            const u32 composition_image_count = choose_image_count(*caps, desc.image_count);
+            const GraphicsPlatform::NativeSurfaceHandle platform_surface{
+                .system = rhi::to_graphics_platform(surface->desc.system),
+                .display = surface->desc.display,
+                .window = surface->desc.window,
+                .label = surface->desc.label != nullptr ? std::string_view{surface->desc.label} : std::string_view{},
+            };
+            // Ignore (compositor treats every pixel as fully opaque) for a caller that never asked for
+            // transparency at all — faithfully reproducing an opaque request rather than quietly
+            // upgrading it to Premultiplied, which would cost a real (if usually invisible) blend at
+            // composite time for no reason the caller asked for.
+            const GraphicsPlatform::CompositionAlphaMode composition_alpha_mode =
+                transparency_requested ? GraphicsPlatform::CompositionAlphaMode::Premultiplied
+                                       : GraphicsPlatform::CompositionAlphaMode::Ignore;
+
+            // Reuse-in-place vs. rebuild: format, alpha mode, and image-ring size are fixed at DXGI
+            // swap-chain creation. CompositionPresenter::resize() invalidates its shared images, so it
+            // is only valid for an actual extent change with the same image-ring configuration. A
+            // same-size policy rebuild (vsync/image-count/etc.) must build a fresh presenter instead:
+            // moving the presenter without replacing its image imports would leave the new record with
+            // an empty image ring.
+            const bool can_resize_in_place = old_record != nullptr && old_record->owns_composition_resources &&
+                old_record->composition.presenter != nullptr &&
+                old_record->composition_vk_format == format.format &&
+                old_record->composition_alpha_mode == composition_alpha_mode &&
+                static_cast<u32>(old_record->composition.images.size()) == composition_image_count &&
+                (old_record->composition.presenter->width() != extent.width ||
+                 old_record->composition.presenter->height() != extent.height);
+
+            RendererExpected<CompositionSwapchainResources> composition = [&]() -> RendererExpected<CompositionSwapchainResources> {
+                if (can_resize_in_place) {
+                    // Reuses the same D3D device, DXGI factory, and — critically — the same already-
+                    // attached DirectComposition target/visual, instead of paying full device creation
+                    // plus a target detach/reattach on every single resize event. That
+                    // detach-then-reattach is what caused visible flicker during live window resizing
+                    // before this path existed: for the brief window between the old target's
+                    // SetRoot(nullptr) and the new target's SetRoot(visual), the compositor has nothing
+                    // to show for this HWND at all.
+                    auto resized = resize_composition_swapchain_resources(
+                        logical_device_->vk_handle(), physical_device_->vk_handle(),
+                        std::move(old_record->composition), format.format, composition_usage, extent.width,
+                        extent.height);
+                    if (resized) {
+                        return resized;
+                    }
+                    // Resize failed (rare — a real DXGI/driver-level failure, not just "the old
+                    // presenter doesn't exist"): `old_record->composition.presenter` was already moved
+                    // into the failed attempt and is now gone regardless of outcome (its RAII teardown
+                    // already ran), so falling through to a fresh build below is both the only option
+                    // left and exactly as safe as the ordinary no-old-presenter case — there is no
+                    // longer an old target attached to this HWND to conflict with a new one.
+                    Foundation::log_warn(
+                        "Composition presenter resize-in-place failed ({}); rebuilding from scratch.",
+                        resized.error().message);
+                }
+
+                // DirectComposition supports exactly one IDCompositionTarget per HWND at a time. The old
+                // presenter's target must detach before the replacement attaches, but first all Vulkan
+                // work using its shared images must complete; the D3D presenter can then drain its own
+                // queued copies during destruction without releasing an image out from under Vulkan.
+                if (old_record != nullptr && old_record->owns_composition_resources &&
+                    old_record->composition.presenter != nullptr) {
+                    const VkResult idle_result = vkDeviceWaitIdle(logical_device_->vk_handle());
+                    if (idle_result != VK_SUCCESS) {
+                        return graphics_backend_error(
+                            idle_result == VK_ERROR_DEVICE_LOST ? GraphicsBackendErrorCode::DeviceLost
+                                                                : GraphicsBackendErrorCode::OperationFailed,
+                            "Composition presenter replacement could not wait for the Vulkan device to become idle.");
+                    }
+                    old_record->composition.presenter.reset();
+                }
+                return create_composition_swapchain_resources(
+                    logical_device_->vk_handle(), physical_device_->vk_handle(), platform_surface, format.format,
+                    composition_usage, extent.width, extent.height, composition_image_count, composition_alpha_mode);
+            }();
+            if (composition) {
+                SwapchainRecord record{};
+                record.surface = desc.surface;
+                record.composition = std::move(*composition);
+                record.owns_composition_resources = true;
+                record.composition_vk_format = format.format;
+                record.composition_alpha_mode = composition_alpha_mode;
+
+                // Composition present delivers exactly what was asked for — real transparency when
+                // requested (the degraded/Opaque verdict above described only the native WSI path, and
+                // no longer describes what this swapchain will do), or a faithfully opaque surface
+                // when it wasn't.
+                resolution.effective_composite_alpha =
+                    transparency_requested ? rhi::CompositeAlphaMode::Premultiplied : rhi::CompositeAlphaMode::Opaque;
+                resolution.composite_alpha_degraded = false;
+                // Tells window-level code not to also apply a legacy per-window OS transparency
+                // mechanism on top of this — see via_composition_present's own doc comment
+                // (RHI/Swapchain.hpp) for the ghosted-stale-frame symptom that combination produces.
+                resolution.via_composition_present = true;
+                // No vkQueuePresentKHR on this path — see supports_completion_fence's own doc comment
+                // (RHI/Swapchain.hpp) for why that's true independent of the device-level feature bit.
+                resolution.supports_completion_fence = false;
+                record.presentation_resolution = resolution;
+                record.present_via_compute = false;
+                Foundation::log_info(
+                    "Swapchain presenting via composition present (DXGI + DirectComposition) instead of "
+                    "vkQueuePresentKHR (composite alpha: {}).",
+                    rhi::composite_alpha_mode_name(resolution.effective_composite_alpha));
+
+                const u32 image_count = static_cast<u32>(record.composition.images.size());
+                record.textures.reserve(image_count);
+                record.views.reserve(image_count);
+                record.render_finished_semaphores.reserve(image_count);
+                record.image_available_signal_indices.resize(image_count, 0);
+                const auto discard_record = [&]() noexcept {
+                    for (rhi::TextureViewHandle view : record.views) {
+                        texture_views_.erase(view);
+                    }
+                    for (rhi::TextureHandle texture : record.textures) {
+                        textures_.erase(texture);
+                    }
+                    destroy_composition_swapchain_resources(logical_device_->vk_handle(), record.composition);
+                };
+                for (u32 i = 0; i < image_count; ++i) {
+                    rhi::TextureHandle texture =
+                        textures_.insert(TextureRecord{std::move(record.composition.images[i].image), desc.format});
+                    record.textures.push_back(texture);
+                    record.views.push_back(texture_views_.insert(std::move(record.composition.views[i])));
+
+                    auto render_finished = VulkanSemaphore::create_binary(logical_device_->vk_handle());
+                    if (!render_finished) {
+                        discard_record();
+                        return rhi_error_from_graphics(render_finished.error());
+                    }
+                    record.render_finished_semaphores.push_back(std::move(*render_finished));
+                }
+
+                const u32 frames_in_flight_count =
+                    desc.frames_in_flight != 0 ? desc.frames_in_flight : std::max<u32>(1, image_count);
+                record.image_available_semaphores.reserve(frames_in_flight_count);
+                for (u32 i = 0; i < frames_in_flight_count; ++i) {
+                    auto image_available = VulkanSemaphore::create_binary(logical_device_->vk_handle());
+                    if (!image_available) {
+                        discard_record();
+                        return rhi_error_from_graphics(image_available.error());
+                    }
+                    record.image_available_semaphores.push_back(std::move(*image_available));
+                }
+
+                // DXGI's own Present() vsync meaning is the closest equivalent this record can carry —
+                // composition present has no per-present concept of "which present mode" the way
+                // vkQueuePresentKHR does. Immediate/Mailbox both mean "don't wait for vblank" in
+                // spirit; every other PresentMode is a vsync'd mode.
+                record.composition_sync_interval = (resolution.effective_mode == rhi::PresentMode::Immediate ||
+                                                    resolution.effective_mode == rhi::PresentMode::Mailbox)
+                                                       ? 0u
+                                                       : 1u;
+
+                return swapchains_.insert(std::move(record));
+            }
+            // Composition present wasn't available (unsupported format, unavailable compositor,
+            // disabled Vulkan/D3D interop, ...) — fall through to the native vkQueuePresentKHR path.
+            Foundation::log_info(
+                "Composition present unavailable ({}); falling back to vkQueuePresentKHR.",
+                composition.error().message);
+        }
+
         // Presenting from a different queue *family* than the one that rendered into the image is a
         // real queue-family-ownership concern for an EXCLUSIVE-sharing-mode swapchain image (the
         // default below) — CONCURRENT sharing across exactly the two families that ever touch this
@@ -514,8 +745,28 @@ namespace SFT::Core::Vulkan {
             compute_queue_ != nullptr ? compute_queue_->family_index() : graphics_queue_->family_index(),
         };
 
+        // Only ever attempted on this, the native vkQueuePresentKHR path — composition present exists
+        // specifically to route around a surface's own compositing (for transparency), which is the
+        // opposite of what exclusive mode buys, so the two are mutually exclusive by construction (see
+        // PresentationResolution::full_screen_exclusive_active's own doc comment, RHI/Swapchain.hpp).
+        // Built before VkSwapchainCreateInfoKHR below so its pNext chain can be attached at creation —
+        // VK_EXT_full_screen_exclusive requires the chain be present at swapchain creation time, not
+        // just at the later vkAcquireFullScreenExclusiveModeEXT call. Must stay alive at least through
+        // that vkCreateSwapchainKHR call (including the Fifo-retry below), which is why it's declared
+        // in this scope rather than a narrower one.
+        std::unique_ptr<FullScreenExclusiveRequest> full_screen_exclusive_request;
+        if (desc.request_full_screen_exclusive && enabled_features_.has(rhi::Feature::FullScreenExclusive)) {
+            full_screen_exclusive_request = build_full_screen_exclusive_request(GraphicsPlatform::NativeSurfaceHandle{
+                .system = rhi::to_graphics_platform(surface->desc.system),
+                .display = surface->desc.display,
+                .window = surface->desc.window,
+                .label = surface->desc.label != nullptr ? std::string_view{surface->desc.label} : std::string_view{},
+            });
+        }
+
         VkSwapchainCreateInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+            .pNext = full_screen_exclusive_request ? full_screen_exclusive_request->pnext() : nullptr,
             .surface = surface->surface,
             .minImageCount = choose_image_count(*caps, desc.image_count),
             .imageFormat = format.format,
@@ -527,7 +778,7 @@ namespace SFT::Core::Vulkan {
             .queueFamilyIndexCount = present_via_compute ? static_cast<u32>(concurrent_queue_families.size()) : 0,
             .pQueueFamilyIndices = present_via_compute ? concurrent_queue_families.data() : nullptr,
             .preTransform = caps->currentTransform,
-            .compositeAlpha = choose_composite_alpha(caps->supportedCompositeAlpha, desc.composite_alpha),
+            .compositeAlpha = composite_alpha_to_vk(effective_composite_alpha),
             .presentMode = present_mode_to_vk(resolution.effective_mode),
             .clipped = desc.clipped ? VK_TRUE : VK_FALSE,
             .oldSwapchain = old_record != nullptr ? old_record->swapchain.vk_handle() : VK_NULL_HANDLE,
@@ -553,6 +804,26 @@ namespace SFT::Core::Vulkan {
         if (!swapchain) {
             return rhi_error_from_graphics(swapchain.error());
         }
+
+        // Acquiring after creation (not just requesting via the pNext chain above) is required by
+        // spec — the chain alone only makes acquisition legal, it doesn't itself grant exclusivity.
+        // Failure here is ordinary and expected (window not focused, another app holds the monitor,
+        // ...), not fatal: the swapchain is already fully usable non-exclusively, so this only ever
+        // logs and leaves full_screen_exclusive_active false rather than failing create_swapchain.
+        bool full_screen_exclusive_active = false;
+        if (full_screen_exclusive_request) {
+            if (auto acquired = acquire_full_screen_exclusive_mode(logical_device_->vk_handle(), swapchain->vk_handle());
+                acquired) {
+                full_screen_exclusive_active = true;
+                Foundation::log_info("Swapchain acquired VK_EXT_full_screen_exclusive exclusive mode.");
+            } else {
+                Foundation::log_info(
+                    "Exclusive fullscreen was requested but could not be acquired ({}); presenting normally "
+                    "(still fullscreen, still through the compositor) instead.",
+                    acquired.error().message);
+            }
+        }
+        resolution.full_screen_exclusive_active = full_screen_exclusive_active;
 
         // Flip-model composed presentation on Windows (the fast "Composed: Flip" path vs. the
         // legacy blit-copy "Composed: Copy with GPU/CPU" path) needs imageCount >= 2 and an opaque
@@ -582,6 +853,7 @@ namespace SFT::Core::Vulkan {
         // Fifo-retry-on-creation-failure path above.
         record.presentation_resolution = resolution;
         record.present_via_compute = present_via_compute;
+        record.full_screen_exclusive_active = full_screen_exclusive_active;
         // Retained so update_hdr_content_light_level() can resend this metadata with just the
         // content-light-level fields overwritten, without re-querying display primaries — see
         // SwapchainRecord::stored_hdr_metadata's own doc comment (VulkanRhiBridge.hpp).
@@ -694,6 +966,29 @@ namespace SFT::Core::Vulkan {
             for (rhi::TextureHandle texture : record->textures) {
                 textures_.erase(texture);
             }
+            // Views/textures above already destroyed the actual VkImage/VkImageView handles for a
+            // composition-present record (they were inserted into the same texture_views_/textures_
+            // pools as any native swapchain image) — this only releases what's left: the VkDeviceMemory
+            // still recorded in record->composition (moved-from VulkanImage objects there no longer
+            // own anything, so destroying them again is a no-op), the two imported semaphores, and the
+            // presenter itself. Checking owns_composition_resources rather than is_composition_present()
+            // deliberately: a retired record whose presenter create_swapchain() already released early
+            // (see that release's own doc comment for why) still needs this call to free everything it
+            // left behind — destroy_composition_swapchain_resources() resetting an already-null
+            // presenter is a safe no-op, so calling it unconditionally here for such a record is exactly
+            // right, not redundant.
+            if (record->owns_composition_resources) {
+                destroy_composition_swapchain_resources(logical_device_->vk_handle(), record->composition);
+            }
+            // Must run before record->swapchain's own destructor (below, via swapchains_.erase())
+            // destroys the underlying VkSwapchainKHR — releasing exclusive mode operates on that
+            // still-live handle. Gated on full_screen_exclusive_active, not merely "is this a native
+            // swapchain": see release_full_screen_exclusive_mode's own doc comment
+            // (VulkanRhiBridgeFullScreenExclusive.hpp) for why releasing one that never actually
+            // acquired exclusive mode is unsafe to do unconditionally.
+            if (record->full_screen_exclusive_active) {
+                release_full_screen_exclusive_mode(logical_device_->vk_handle(), record->swapchain.vk_handle());
+            }
         }
         swapchains_.erase(handle);
     }
@@ -725,6 +1020,58 @@ namespace SFT::Core::Vulkan {
         // call for a reused slot). A timeout/not-ready result below never touches this index, so it
         // can never desynchronize semaphore-reuse tracking from actual GPU completion.
         const u32 semaphore_index = frame_slot_index;
+
+        if (record->is_composition_present()) {
+            GraphicsPlatform::QueryResult<GraphicsPlatform::CompositionAcquisition> acquisition =
+                record->composition.presenter->acquire_next_image();
+            if (!acquisition) {
+                return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                      string("acquire_next_texture: composition presenter acquire failed: ") +
+                                          acquisition.message.message);
+            }
+            const u32 image_index = acquisition.value.image_index;
+            if (image_index >= record->textures.size()) {
+                return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                      "acquire_next_texture: composition presenter returned an out-of-range "
+                                      "image index.");
+            }
+
+            // Bridges the presenter's imported timeline fence into this record's ordinary per-frame
+            // binary semaphore, so every consumer downstream of acquire_next_texture (in particular
+            // RendererLifecycle's frame-submission wait list) keeps working exactly as it does for a
+            // native swapchain image without knowing this path exists. An empty submit — no command
+            // buffer — whose only job is that wait/signal translation. wait_fence_value == 0 means this
+            // image slot has never been presented (CompositionAcquisition's own doc comment) and needs
+            // no wait at all.
+            const VkSemaphoreSubmitInfo wait_info = record->composition.present_complete_semaphore.submit_info(
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, acquisition.value.wait_fence_value);
+            const VkSemaphoreSubmitInfo signal_info =
+                record->image_available_semaphores[semaphore_index].submit_info(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+            const VkSubmitInfo2 bridge_submit{
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+                .waitSemaphoreInfoCount = acquisition.value.wait_fence_value != 0 ? 1u : 0u,
+                .pWaitSemaphoreInfos = &wait_info,
+                .signalSemaphoreInfoCount = 1,
+                .pSignalSemaphoreInfos = &signal_info,
+            };
+            auto submitted = graphics_queue_->submit(span<const VkSubmitInfo2>(&bridge_submit, 1));
+            if (!submitted) {
+                return rhi_error_from_graphics(submitted.error());
+            }
+
+            record->image_available_signal_indices[image_index] = semaphore_index;
+            record->current_image = image_index;
+            record->current_suboptimal = false;
+            return rhi::SurfaceTexture{
+                .swapchain = handle,
+                .texture = record->textures[image_index],
+                .view = record->views[image_index],
+                .image_index = image_index,
+                .suboptimal = false,
+                .composition_present = true,
+            };
+        }
+
         VkAcquireNextImageInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
             .swapchain = record->swapchain.vk_handle(),
@@ -776,6 +1123,55 @@ namespace SFT::Core::Vulkan {
         }
         if (desc.texture.image_index >= record->render_finished_semaphores.size()) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "present: image index is out of range.");
+        }
+
+        if (record->is_composition_present()) {
+            if (desc.completion_fence) {
+                // SwapchainMaintenance's present-completion fence is a native-WSI mechanism
+                // (VkSwapchainPresentFenceInfoKHR, attached to vkQueuePresentKHR below) with nothing
+                // to attach to here — there is no VkSwapchainKHR in this record at all. Honest failure
+                // rather than silently accepting and never signaling the fence.
+                return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                      "present: completion fences are not supported for a composition-present "
+                                      "swapchain.");
+            }
+            const u32 image_index = desc.texture.image_index;
+            const VkSemaphoreSubmitInfo wait_info =
+                record->render_finished_semaphores[image_index].submit_info(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+            ++record->composition.render_complete_value;
+            const VkSemaphoreSubmitInfo signal_info = record->composition.render_complete_semaphore.submit_info(
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, record->composition.render_complete_value);
+            const VkSubmitInfo2 bridge_submit{
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+                .waitSemaphoreInfoCount = 1,
+                .pWaitSemaphoreInfos = &wait_info,
+                .signalSemaphoreInfoCount = 1,
+                .pSignalSemaphoreInfos = &signal_info,
+            };
+            auto submitted = graphics_queue_->submit(span<const VkSubmitInfo2>(&bridge_submit, 1));
+            if (!submitted) {
+                return rhi_error_from_graphics(submitted.error());
+            }
+            if (queue_lock_wait_ms != nullptr) {
+                // Nothing here waits on the queue-present lock vkQueuePresentKHR would (this path
+                // never calls it) — 0 is the correct value, not a stale one left over from a previous
+                // native-path call through this same out-param.
+                *queue_lock_wait_ms = 0.0;
+            }
+
+            GraphicsPlatform::QueryMessage present_message = record->composition.presenter->present(
+                image_index, record->composition.render_complete_value, record->composition_sync_interval);
+            if (!present_message) {
+                return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
+                                      string("present: composition presenter present failed: ") +
+                                          present_message.message);
+            }
+            // Composition present has no native OutOfDate/Suboptimal signal of its own — a resize is
+            // instead driven by the renderer noticing its window size changed and calling
+            // create_swapchain again (RendererLifecycle.cpp), exactly as it already does for the
+            // native path. desc.texture.suboptimal still passes through so a stale acquire is reported
+            // the same way it would be for a native swapchain.
+            return desc.texture.suboptimal ? rhi::PresentOutcome::Suboptimal : rhi::PresentOutcome::Success;
         }
 
         const VkSwapchainKHR swapchain = record->swapchain.vk_handle();

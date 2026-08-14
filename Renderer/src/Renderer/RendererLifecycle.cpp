@@ -907,6 +907,13 @@ namespace SFT::Renderer {
         const RHI::SwapchainHandle old_swapchain = record.rhi_swapchain;
         const RHI::TextureHandle old_depth_texture = record.depth_texture;
         const RHI::TextureViewHandle old_depth_view = record.depth_view;
+        // Completion-fence support belongs to the retiring generation, not merely the device: a
+        // composition presenter cannot attach a native present-completion fence even when the device
+        // supports swapchain maintenance. Query before replacing record.rhi_swapchain below so its
+        // resources follow the conservative device-idle retirement path when needed.
+        const RHI::PresentationResolution old_presentation =
+            old_swapchain ? device->presentation_resolution(old_swapchain) : RHI::PresentationResolution{};
+        const bool old_swapchain_supports_completion_fence = old_presentation.supports_completion_fence;
 
         RHI::SwapchainDesc swapchain_desc{
             .surface = record.rhi_surface,
@@ -934,6 +941,13 @@ namespace SFT::Renderer {
             .frames_in_flight = capabilities_.max_frames_in_flight,
             .old_swapchain = old_swapchain,
             .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
+            // record.window->fullscreen_mode(), not a cached/tracked-by-Renderer copy of the last
+            // WindowRequests::set_fullscreen() call — see Window::fullscreen_mode()'s own doc comment
+            // (Platform/Window/Window.hpp) for why querying the window directly is what lets this stay
+            // correct regardless of when set_fullscreen() was actually called relative to this rebuild.
+            .request_full_screen_exclusive =
+                record.window != nullptr &&
+                record.window->fullscreen_mode() == Platform::Windowing::WindowMode::ExclusiveFullscreen,
             .label = "renderer swapchain",
         };
         auto swapchain = device->create_swapchain(swapchain_desc);
@@ -946,8 +960,35 @@ namespace SFT::Renderer {
         record.depth_view = {};
         record.swapchain_extent = extent;
         record.rhi_swapchain_dirty = false;
+        // A native WSI image lives in the HWND redirection surface, whereas the composition presenter
+        // is a transparent DirectComposition visual layered over that surface. Deferred retirement
+        // would leave the native swapchain's last opaque frame visible below the first transparent
+        // composition frame, so this one cross-presenter handoff is deliberately synchronous. The
+        // normal composition-to-composition and native-to-native paths retain their usual deferred
+        // lifetime behavior.
+        const RHI::PresentationResolution new_presentation = device->presentation_resolution(record.rhi_swapchain);
+        const bool must_retire_native_before_composition = old_swapchain &&
+            !old_presentation.via_composition_present && new_presentation.via_composition_present;
+        const auto destroy_old_presentation_resources = [&]() noexcept {
+            for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
+                device->destroy_fence(fence);
+            }
+            record.active_presentation_completion_fences.clear();
+            if (old_depth_view) {
+                device->destroy_texture_view(old_depth_view);
+            }
+            if (old_depth_texture) {
+                device->destroy_texture(old_depth_texture);
+            }
+            if (old_swapchain) {
+                device->destroy_swapchain(old_swapchain);
+            }
+        };
         if (old_swapchain || old_depth_texture || old_depth_view) {
-            if (device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+            if (must_retire_native_before_composition) {
+                device->wait_idle();
+                destroy_old_presentation_resources();
+            } else if (old_swapchain_supports_completion_fence) {
                 // A present-completion fence signals after the presentation engine has finished with
                 // the image, which is the missing lifetime proof a graphics submission fence cannot
                 // provide. Move every still-live fence with this exact swapchain generation.
@@ -976,15 +1017,7 @@ namespace SFT::Renderer {
                     }
                 } else {
                     // No frame ring exists yet, so nothing has acquired or presented through this swapchain.
-                    if (old_depth_view) {
-                        device->destroy_texture_view(old_depth_view);
-                    }
-                    if (old_depth_texture) {
-                        device->destroy_texture(old_depth_texture);
-                    }
-                    if (old_swapchain) {
-                        device->destroy_swapchain(old_swapchain);
-                    }
+                    destroy_old_presentation_resources();
                 }
             }
         }
@@ -1777,6 +1810,11 @@ namespace SFT::Renderer {
         const RHI::TextureViewHandle output_view = offscreen_output
             ? resolved_offscreen->view
             : acquired_surface->view;
+        // A composition-present image is an imported D3D texture. Its next reader is the presenter
+        // after the external timeline-semaphore handoff, not vkQueuePresentKHR, so PRESENT_SRC_KHR is
+        // invalid here; leave it in GENERAL with an explicit read dependency for that external use.
+        const bool output_uses_composition_present =
+            !offscreen_output && acquired_surface->composition_present;
 
         // Deliberately NOT hoisted above acquire with the TLAS work:
         // prepare_spectral_photon_mapping marks
@@ -1843,12 +1881,15 @@ namespace SFT::Renderer {
                 : RHI::AccessFlags::None,
             .final_layout = offscreen_output
                 ? RHI::TextureLayout::ShaderReadOnly
-                : RHI::TextureLayout::Present,
+                : output_uses_composition_present ? RHI::TextureLayout::General : RHI::TextureLayout::Present,
             .final_stage = offscreen_output
                 ? RHI::PipelineStage::AllGraphics | RHI::PipelineStage::ComputeShader
-                : RHI::PipelineStage::None,
-            .final_access = offscreen_output ? RHI::AccessFlags::ShaderRead : RHI::AccessFlags::None,
-            .label = offscreen_output ? "off-screen final color" : "swapchain color",
+                : output_uses_composition_present ? RHI::PipelineStage::AllCommands : RHI::PipelineStage::None,
+            .final_access = offscreen_output
+                ? RHI::AccessFlags::ShaderRead
+                : output_uses_composition_present ? RHI::AccessFlags::MemoryRead : RHI::AccessFlags::None,
+            .label = offscreen_output ? "off-screen final color"
+                                      : output_uses_composition_present ? "composition color" : "swapchain color",
         });
         graph.mark_output(final_output);
         const RenderGraphTextureHandle ui_overlay_target = direct_overlay_display_transform
@@ -3061,8 +3102,14 @@ namespace SFT::Renderer {
             // by drain_pending_present() instead of here -- see WindowSurfaceRecord::pending_present's
             // doc comment for the ordering invariant that keeps this safe.
             ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
+            // Per-swapchain, not RhiDevice::is_enabled(SwapchainMaintenance) directly — a
+            // composition-present swapchain (RHI::PresentationResolution::composite_alpha_degraded's
+            // own doc comment) never goes through vkQueuePresentKHR, so it can't honor a completion
+            // fence even when the device-level feature is enabled. See
+            // supports_completion_fence's own doc comment (RHI/Swapchain.hpp).
+            const RHI::PresentationResolution presentation = device->presentation_resolution(record.rhi_swapchain);
             RHI::FenceHandle completion_fence{};
-            if (device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
+            if (presentation.supports_completion_fence) {
                 auto created_fence = device->create_fence(RHI::FenceDesc{.label = "renderer present completion fence"});
                 if (!created_fence) {
                     return unexpected(graphics_error_from_rhi(created_fence.error(), "create present completion fence"));
@@ -3076,8 +3123,7 @@ namespace SFT::Renderer {
                 .completion_fence = completion_fence,
                 .label = "renderer present",
             };
-            const bool present_via_compute = device->presentation_resolution(record.rhi_swapchain).present_queue_is_compute;
-            record.pending_present = presentation_coordinator_for(present_via_compute).enqueue(
+            record.pending_present = presentation_coordinator_for(presentation.present_queue_is_compute).enqueue(
                 device, present_desc, &record.last_present_lock_wait_ms);
         }
 
@@ -3794,10 +3840,21 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::maybe_flush_retired_swapchains");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr && device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
-            // Every retired generation has exact presentation-completion fences, so polling is enough:
-            // do not ever idle unrelated windows just because this one is being resized.
+            // Native WSI generations with completion fences can retire through cheap polling. A
+            // composition-present generation has no such fence and remains on a frame slot below, where
+            // it must eventually take the conservative device-idle path instead of being destroyed as
+            // soon as an empty fence list is observed.
             reclaim_completed_retired_presentations(record);
-            return;
+            bool has_fence_less_retirement = false;
+            for (const FrameInFlight &slot : record.frames_in_flight) {
+                if (!slot.retired_swapchains.empty()) {
+                    has_fence_less_retirement = true;
+                    break;
+                }
+            }
+            if (!has_fence_less_retirement) {
+                return;
+            }
         }
 
         usize retired_count = 0;

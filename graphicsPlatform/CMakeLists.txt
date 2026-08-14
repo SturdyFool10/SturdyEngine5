@@ -69,5 +69,11 @@ sturdy_add_package(graphicsPlatform
 )
 
 if(WIN32 AND _sturdy_graphics_platform_effective_os STREQUAL "Windows")
-    target_link_libraries(graphicsPlatform PUBLIC dxgi)
+    # dxgi: display/output identity plus the composition swapchain (CreateSwapChainForComposition).
+    # dcomp: DirectComposition, which supplies the HWND-bound visual tree that composition swapchain
+    #   is attached to — see CompositionPresent.hpp for why both halves are required.
+    # d3d11: the interop device that owns the shared textures and fences the presenting graphics API
+    #   imports, and that performs the per-frame copy into the back buffer.
+    # dwmapi: composition-availability check before any of the above is attempted.
+    target_link_libraries(graphicsPlatform PUBLIC dxgi dcomp d3d11 dwmapi)
 endif()
