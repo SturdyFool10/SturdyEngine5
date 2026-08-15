@@ -263,9 +263,10 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
     // SDL's Windows move/resize modal loop sends an EXPOSED event from its timer even when the
-    // provider defers its normal resize event until the client extent is committed. Sample the
-    // physical extent on those exposes; PIXEL_SIZE_CHANGED remains an immediate fast path whenever
-    // SDL does dispatch it during the drag. The callback publishes state only, never renders here.
+    // provider defers its normal resize event until the client extent is committed. This is the
+    // fallback for windows without the Win32 message-hook registration below; when WM_SIZING is
+    // available, it is the sole source of live extents so a proposed size cannot alternate with a
+    // separately sampled SDL pixel size. The callback publishes state only, never renders here.
     bool SDLCALL SDL3Window::sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept {
         ZoneScopedN("SDL3Window::sdl_live_resize_watch");
 #if defined(_WIN32)
@@ -283,6 +284,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (!lock || self->window_ == nullptr ||
             SDL_GetWindowID(self->window_) != event->window.windowID ||
             !self->live_resize_callback_) {
+            return true;
+        }
+        if (self->use_windows_sizing_hook_) {
+            // WM_SIZING already publishes one stable proposed client extent per drag step. SDL's
+            // event watch observes the same step before/after it is applied, so forwarding both
+            // sources creates a small but visible resize oscillation.
             return true;
         }
 
@@ -444,6 +451,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                 ++it;
             }
         }
+        use_windows_sizing_hook_ = false;
 #endif
         live_resize_callback_ = std::move(callback);
         if (live_resize_callback_) {
@@ -454,6 +462,7 @@ namespace SFT::Platform::Windowing::SDL3 {
             if (auto native = native_window_handle_locked(); native &&
                 native->system == NativeWindowSystem::Win32 && native->window != nullptr) {
                 sdl_win32_window_registry().emplace(static_cast<HWND>(native->window), this);
+                use_windows_sizing_hook_ = true;
                 SDL_SetWindowsMessageHook(sdl_windows_message_hook, nullptr);
             }
 #endif

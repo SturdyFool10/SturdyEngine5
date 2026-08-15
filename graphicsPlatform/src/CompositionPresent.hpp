@@ -196,8 +196,28 @@ namespace SFT::GraphicsPlatform {
 
         // Rebuilds the swapchain and the shared-image ring at a new size. Invalidates every handle
         // previously returned by shared_images(); the caller must re-import them afterwards. The
-        // fence handles survive a resize and do not need re-importing.
+        // fence handles survive a resize and do not need re-importing. Clears any live scale.
         [[nodiscard]] virtual QueryMessage resize(std::uint32_t width, std::uint32_t height) = 0;
+
+        // Makes the already-presented content cover a `width` x `height` client area *without*
+        // reallocating anything: a compositor-only rescale of the existing surface, no GPU work, no
+        // fence wait, no handle invalidation. Cheap enough to call on every step of an interactive
+        // resize.
+        //
+        // This exists because an OS compositor visual is not implicitly tied to its window's client
+        // size the way a native HWND swapchain is. When the window manager resizes the frame, the
+        // frame moves immediately while the next rendered frame is still in flight, and nothing
+        // stretches the old content to cover the gap — the content visibly trails the border, which
+        // reads as a "jelly" attachment. Rescaling here keeps the surface locked to the frame during
+        // that interval, which is the same thing the desktop compositor does for opaque windows for
+        // free.
+        //
+        // The tradeoff is deliberate: content is *scaled*, so it is momentarily soft and laid out for
+        // the previous size. That is a stopgap for the frames between a size change and a real
+        // resize(), not a substitute for one. Callers should still resize() at whatever cadence they
+        // can sustain; each resize() re-establishes crisp, correctly laid out content and resets the
+        // scale. Scaling is relative to the current backing size, so repeated calls do not compound.
+        [[nodiscard]] virtual QueryMessage set_live_scale(std::uint32_t width, std::uint32_t height) = 0;
 
         [[nodiscard]] virtual std::uint32_t width() const noexcept = 0;
         [[nodiscard]] virtual std::uint32_t height() const noexcept = 0;

@@ -354,8 +354,13 @@ namespace SFT::Engine {
             }
         }
 
+        const u64 packed_extent =
+            (static_cast<u64>(extent.x) << 32U) | static_cast<u64>(extent.y);
         if (resized) {
-            managed.resize_pending.store(true, std::memory_order_release);
+            // Do not use a bare dirty bit here. The render thread can still have an older live-resize
+            // task queued when SDL delivers the final committed extent; that older task must not steal
+            // the final notification and recreate at its stale captured size.
+            managed.pending_resize_extent.store(packed_extent, std::memory_order_release);
         }
 
         constexpr f64 hitch_log_threshold_seconds = 0.1;
@@ -392,9 +397,18 @@ namespace SFT::Engine {
                             &managed,
                             surface,
                             extent,
+                            packed_extent,
+                            resized,
                             prepared_frame = std::move(prepared_frame)]() -> Core::RendererResult {
-            if (managed.resize_pending.exchange(false, std::memory_order_acq_rel)) {
-                engine_->on_surface_resize_needed(surface, extent);
+            if (resized) {
+                // Only this task may consume a notification for this exact extent. If a newer resize
+                // was accepted while this task waited in the render queue, leave that newer request
+                // intact for its corresponding task instead of resizing the surface backwards.
+                u64 expected_extent = packed_extent;
+                if (managed.pending_resize_extent.compare_exchange_strong(
+                        expected_extent, 0, std::memory_order_acq_rel, std::memory_order_acquire)) {
+                    engine_->on_surface_resize_needed(surface, extent);
+                }
             }
             return engine_->render(prepared_frame);
         };
@@ -425,7 +439,10 @@ namespace SFT::Engine {
             }
 
             WindowSnapshot &snapshot = managed->window_snapshot;
-            if (events.framebuffer_size) {
+            // While Windows owns its modal resize loop, the channel still carries its last committed
+            // framebuffer size. The live-resize callback has a newer extent in window_snapshot, so do
+            // not overwrite it with that stale sample before UI/game systems consume WindowState.
+            if (events.framebuffer_size && !managed->live_resize_active) {
                 snapshot.framebuffer_size = *events.framebuffer_size;
             }
             for (const Platform::Windowing::WindowEvent &event : events.events) {
@@ -616,6 +633,11 @@ namespace SFT::Engine {
                 if (managed.live_resize) {
                     if (optional<WindowExtent> extent = managed.live_resize->consume()) {
                         managed.pending_live_resize = *extent;
+                        // Publish the same fresh physical extent to WindowState before update() and
+                        // request_render_frame(). This makes immediate-mode UI layout observe the
+                        // current tab bounds in the same tick as the render path, rather than slowly
+                        // catching up from SDL's last pre-modal framebuffer sample.
+                        managed.window_snapshot.framebuffer_size = *extent;
                         // The matching normal event is unavailable until SDL returns from the Windows
                         // modal pump. Keep this state latched until that event arrives rather than
                         // guessing based on elapsed time: users can pause mid-drag indefinitely.
@@ -669,7 +691,10 @@ namespace SFT::Engine {
                 if (events.resized) {
                     if (ManagedWindow *managed = find_managed_window(events.window_id)) {
                         managed->pending_live_resize.reset();
-                        managed->submitted_live_resize.reset();
+                        // Keep submitted_live_resize through the normal-render loop below. When the
+                        // final SDL framebuffer extent matches it, that loop can retain the already
+                        // recreated composition presenter instead of needlessly rebuilding it at the
+                        // same size (a one-frame flash on mouse release).
                         managed->attempted_live_resize.reset();
                         managed->live_resize_active = false;
                         managed->live_resize_nonblocking_until =
@@ -708,9 +733,21 @@ namespace SFT::Engine {
                 }
                 const bool in_live_resize_settle_interval =
                     high_resolution_clock::now() < managed->live_resize_nonblocking_until;
+                const bool final_extent_already_submitted =
+                    managed->submitted_live_resize &&
+                    managed->submitted_live_resize->x == events.framebuffer_size->x &&
+                    managed->submitted_live_resize->y == events.framebuffer_size->y;
+                // The live path has already scheduled this exact extent. Re-marking it dirty here
+                // would turn the final SDL notification into a same-size composition-presenter
+                // rebuild, briefly detaching its visual and flashing on mouse release. A genuinely
+                // different final extent still takes the normal authoritative resize path.
+                const bool resize_requires_notification = events.resized && !final_extent_already_submitted;
                 (void)render_managed_window(
-                    *managed, *events.framebuffer_size, events.resized,
+                    *managed, *events.framebuffer_size, resize_requires_notification,
                     in_live_resize_settle_interval);
+                if (events.resized) {
+                    managed->submitted_live_resize.reset();
+                }
             }
 
             for (auto it = windows_.begin(); it != windows_.end();) {

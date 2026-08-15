@@ -368,15 +368,39 @@ namespace SFT::Core::Vulkan {
                                           "resize_composition_swapchain_resources: `previous` has no presenter "
                                           "to reuse.");
         }
-        // The D3D presenter may still be waiting for Vulkan writes to its shared images. Complete every
-        // Vulkan submission before resize() releases those images, otherwise its D3D-side teardown can
-        // invalidate memory that an in-flight command buffer still references.
-        const VkResult idle_result = vkDeviceWaitIdle(device);
-        if (idle_result != VK_SUCCESS) {
-            return graphics_backend_error(
-                idle_result == VK_ERROR_DEVICE_LOST ? GraphicsBackendErrorCode::DeviceLost
-                                                    : GraphicsBackendErrorCode::OperationFailed,
-                "Composition presenter resize could not wait for the Vulkan device to become idle.");
+        // Attach the visible surface to the new client extent *first*, before any of the work below.
+        // Everything after this point — the fence wait, ResizeBuffers, and the per-image re-import —
+        // takes long enough that a window being dragged has already moved its border several times by
+        // the time it finishes. A composition visual does not track its window's client size on its
+        // own (unlike a native HWND swapchain, which the desktop compositor stretches for free), so
+        // without this the old surface simply sits at its old size while the border moves, which is
+        // what makes an interactive resize of a transparent or blurred window look like it is lagging
+        // behind the frame. Scaling is compositor-only and costs no GPU work, so it lands immediately.
+        //
+        // The scaled content is soft and still laid out for the previous size; that is the point of
+        // the rebuild below, which replaces it with a crisp, correctly laid out surface and resets the
+        // scale. Failure is not fatal — it only costs this cosmetic bridging, so the real resize
+        // still proceeds.
+        (void)previous.presenter->set_live_scale(width, height);
+
+        // The D3D presenter may still be waiting for Vulkan writes to its shared images. Wait for the
+        // last composition handoff instead of idling the entire device: render_complete_value is
+        // signaled only after the frame's final release barrier, so reaching it proves every Vulkan
+        // submission that can access any of this presenter's images has completed. The presenter's
+        // resize() below separately waits for its D3D copy/present work before releasing those images.
+        //
+        // A device-wide idle here made an interactive resize wait on unrelated work (including other
+        // windows), causing the UI to visibly lag behind a contracting window even when this surface's
+        // own present work had already finished.
+        if (previous.render_complete_value != 0) {
+            if (RendererResult waited = previous.render_complete_semaphore.wait(previous.render_complete_value);
+                !waited) {
+                return graphics_backend_error(
+                    waited.error().code == GraphicsBackendErrorCode::DeviceLost
+                        ? GraphicsBackendErrorCode::DeviceLost
+                        : GraphicsBackendErrorCode::OperationFailed,
+                    "Composition presenter resize could not wait for the Vulkan render-complete fence.");
+            }
         }
 
         CompositionSwapchainResources resources{};

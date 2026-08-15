@@ -138,12 +138,18 @@ namespace SFT::Engine {
             // frame, so process_window_requests() compares against this and drops the unchanged repeats
             // instead of posting an op per frame. Empty until the first request for this window.
             optional<Platform::Windowing::CursorIcon> applied_cursor_icon;
-            atomic<bool> resize_pending{false};
+            // The requested extent is carried alongside the resize notification. A boolean lets an
+            // older queued live-resize task consume a newer final SDL notification and recreate the
+            // surface at its stale extent; the task for an extent may only consume its own request.
+            // All renderable framebuffer extents are non-zero, so zero is the empty sentinel.
+            atomic<u64> pending_resize_extent{0};
             shared_ptr<LiveResizeState> live_resize;
             optional<Platform::Windowing::WindowExtent> pending_live_resize;
             // Last extent handed to the renderer from pending_live_resize. Keeping it separate lets
             // Application retry a frame while the WSI catches up without needlessly marking the
-            // already-current swapchain dirty again.
+            // already-current swapchain dirty again. It also survives until the final ordinary SDL
+            // resize event is consumed, so that identical handoff extent does not force a same-size
+            // DirectComposition presenter rebuild.
             optional<Platform::Windowing::WindowExtent> submitted_live_resize;
             // Last extent this window *tried* to render, whether or not the renderer accepted it.
             // Distinct from submitted_live_resize so a declined attempt (previous present still in

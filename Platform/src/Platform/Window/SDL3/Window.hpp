@@ -143,9 +143,15 @@ namespace SFT::Platform::Windowing::SDL3 {
         optional<WindowResize> pending_resize_;
         WindowExtent last_size_ = {};
         WindowExtent last_framebuffer_size_ = {};
-        // Updated by the Windows modal-loop event watch under sdl_window_mutex(). Kept separate
+        // Updated by the selected Windows live-resize source under sdl_window_mutex(). Kept separate
         // from last_framebuffer_size_, which is committed only when the ordinary event pump drains.
         WindowExtent last_live_resize_extent_ = {};
+#if defined(_WIN32)
+        // True once this window has a Win32 message-hook registration. WM_SIZING then remains the
+        // sole live source: mixing its proposed client extent with SDL's sampled pixel extent causes
+        // alternating swapchain sizes during a drag.
+        bool use_windows_sizing_hook_ = false;
+#endif
         atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
         // Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see

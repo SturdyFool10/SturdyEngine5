@@ -1,5 +1,35 @@
 include_guard(GLOBAL)
 
+# Applies the engine stack's effective build profile to one first-party target. CMake configurations
+# are build-tree-wide, so a Debug product cannot give only its static-library dependencies a distinct
+# CMAKE_BUILD_TYPE. Appending RelWithDebInfo's language flags after the active configuration flags is
+# the supported target-level equivalent: -O/-g/NDEBUG override Debug or Release for this target while
+# the executable and product code retain the profile the user selected. Dist already has its own
+# shipping flags and must never be overridden.
+function(sturdy_apply_engine_optimized_profile target_name)
+  if(NOT target_name IN_LIST STURDY_ENGINE_OPTIMIZED_TARGETS)
+    return()
+  endif()
+
+  get_target_property(_sturdy_target_type "${target_name}" TYPE)
+  if(_sturdy_target_type STREQUAL "INTERFACE_LIBRARY")
+    return()
+  endif()
+
+  foreach(_sturdy_language C CXX)
+    separate_arguments(
+      _sturdy_relwithdebinfo_options
+      NATIVE_COMMAND
+      "${CMAKE_${_sturdy_language}_FLAGS_RELWITHDEBINFO}"
+    )
+    foreach(_sturdy_option IN LISTS _sturdy_relwithdebinfo_options)
+      target_compile_options("${target_name}" PRIVATE
+        "$<$<AND:$<OR:$<CONFIG:Debug>,$<CONFIG:Release>>,$<COMPILE_LANGUAGE:${_sturdy_language}>>:${_sturdy_option}>"
+      )
+    endforeach()
+  endforeach()
+endfunction()
+
 function(sturdy_add_package package_name)
   set(options EXECUTABLE)
   set(one_value_args ARCHIVE_TIMEOUT_SECONDS)
@@ -268,6 +298,7 @@ function(sturdy_add_package package_name)
         PUBLIC_DEFINES ${STURDY_PACKAGE_PUBLIC_DEFINES}
         PRIVATE_DEFINES ${STURDY_PACKAGE_PRIVATE_DEFINES}
     )
+  sturdy_apply_engine_optimized_profile("${package_name}")
   sturdy_enable_static_dead_stripping("${package_name}")
 
   if(STURDY_PACKAGE_EXECUTABLE AND _compile_sources)
@@ -389,10 +420,18 @@ function(sturdy_configure_package_target target_name)
     )
   endforeach()
 
+  set(_sturdy_debug_definition "$<$<CONFIG:Debug>:DEBUG>")
+  if(target_name IN_LIST STURDY_ENGINE_OPTIMIZED_TARGETS)
+    # The engine stack is compiled with RelWithDebInfo flags even while a consuming product is Debug,
+    # so DEBUG would incorrectly enable debug-only behavior (notably Vulkan validation) in optimized
+    # engine code. RelWithDebInfo's own -DNDEBUG flag is added by sturdy_apply_engine_optimized_profile.
+    set(_sturdy_debug_definition)
+  endif()
+
   target_compile_definitions("${target_name}"
         ${_public_scope}
             ${STURDY_TARGET_PUBLIC_DEFINES}
-            "$<$<CONFIG:Debug>:DEBUG>"
+            ${_sturdy_debug_definition}
             # DIST marks a shipping build (Release-optimized, no console). It is defined ONLY for the
             # Dist configuration — a plain Release build is optimized but keeps DIST undefined, so it
             # still gets the console main(). On Windows this gates the WinMain entry point.

@@ -279,13 +279,26 @@ namespace SFT::GraphicsPlatform {
                                         "Composition presenter resize requires a non-zero extent."};
                 }
                 if (width == width_ && height == height_) {
-                    return QueryMessage{};
+                    // Already the right size, so there is nothing to rebuild — but a set_live_scale()
+                    // from an earlier drag step may still be published, and leaving it on would keep
+                    // presenting a correctly-sized surface stretched to some other size. Cheap and a
+                    // no-op whenever the scale is already identity, which is the common case.
+                    return apply_visual_scale(1.0f, 1.0f);
                 }
 
-                // ResizeBuffers fails while any back-buffer reference is outstanding, and the shared
-                // textures are sized to the old extent, so both have to go first — after the GPU is
-                // done with them.
-                wait_for_gpu_idle();
+                // No wait_for_gpu_idle() here, deliberately. D3D11 tracks resource lifetime against
+                // queued GPU work itself: releasing the last reference to a texture a pending
+                // CopyResource still reads defers the actual free until that command retires, rather
+                // than freeing underneath it. (This is the standing D3D11 difference from D3D12, where
+                // the application owns that lifetime and a stall here really would be required.) The
+                // one ordering this path genuinely needs is on the *importing* API's side — its own
+                // submissions must be done with these images before it destroys its views of them —
+                // and that is the caller's fence wait, not something a stall here could provide.
+                //
+                // That matters because this used to be a blocking WaitForSingleObject(INFINITE) on the
+                // present fence, on the exact path an interactive resize runs every step. It bought no
+                // safety D3D11 wasn't already providing and cost a full present round-trip per step,
+                // which is most of why resizing a composed window could not keep up with the drag.
                 release_shared_images();
 
                 width_ = width;
@@ -295,7 +308,29 @@ namespace SFT::GraphicsPlatform {
                     FAILED(hr)) {
                     return platform_error("IDXGISwapChain3::ResizeBuffers", hr);
                 }
+                // The back buffers now match the client area on their own, so drop any live scale a
+                // previous set_live_scale() left behind. Committing identity here (rather than at the
+                // next present) is correct because the swapchain content is resized in the same
+                // compositor batch: the visual never shows old-size content at identity.
+                if (QueryMessage scaled = apply_visual_scale(1.0f, 1.0f); !scaled) {
+                    return scaled;
+                }
                 return create_shared_images();
+            }
+
+            [[nodiscard]] QueryMessage set_live_scale(std::uint32_t width, std::uint32_t height) override {
+                if (width == 0 || height == 0) {
+                    return QueryMessage{QueryStatus::InvalidArgument,
+                                        "Composition presenter live scale requires a non-zero extent."};
+                }
+                if (width_ == 0 || height_ == 0) {
+                    return QueryMessage{QueryStatus::NotAvailable,
+                                        "Composition presenter has no backing surface to scale."};
+                }
+                // Always relative to the backing size, never to the previously applied scale, so a
+                // drag that issues hundreds of these does not accumulate error or drift.
+                return apply_visual_scale(static_cast<float>(width) / static_cast<float>(width_),
+                                          static_cast<float>(height) / static_cast<float>(height_));
             }
 
             [[nodiscard]] std::uint32_t width() const noexcept override { return width_; }
@@ -513,6 +548,38 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            // Sets the visual's scale about its top-left origin and publishes it. Compositor-only: no
+            // GPU work is queued and nothing is reallocated, so this is orders of magnitude cheaper
+            // than resize() and safe to call at input rate.
+            [[nodiscard]] QueryMessage apply_visual_scale(float scale_x, float scale_y) {
+                if (!composition_visual_ || !composition_device_) {
+                    return QueryMessage{};
+                }
+                // A Commit is a compositor round-trip. Redundant ones are common here (a drag along one
+                // axis leaves the other unchanged, and the settle frame re-asserts identity), so skip
+                // any that would not move a pixel.
+                if (scale_x == applied_scale_x_ && scale_y == applied_scale_y_) {
+                    return QueryMessage{};
+                }
+                const D2D_MATRIX_3X2_F transform{
+                    .m11 = scale_x,
+                    .m12 = 0.0f,
+                    .m21 = 0.0f,
+                    .m22 = scale_y,
+                    .dx = 0.0f,
+                    .dy = 0.0f,
+                };
+                if (const HRESULT hr = composition_visual_->SetTransform(transform); FAILED(hr)) {
+                    return platform_error("IDCompositionVisual2::SetTransform", hr);
+                }
+                if (const HRESULT hr = composition_device_->Commit(); FAILED(hr)) {
+                    return platform_error("IDCompositionDesktopDevice::Commit visual scale", hr);
+                }
+                applied_scale_x_ = scale_x;
+                applied_scale_y_ = scale_y;
+                return QueryMessage{};
+            }
+
             void release_shared_images() noexcept {
                 for (CompositionSharedImage &image : images_) {
                     if (image.nt_handle != nullptr) {
@@ -536,10 +603,12 @@ namespace SFT::GraphicsPlatform {
                 }
             }
 
-            // Blocks until every present this presenter has queued has retired. Only used on the
-            // teardown and resize paths, where the alternative is destroying textures the GPU is
-            // still reading. This is a lifetime proof, not a responsiveness budget: a timeout would
-            // merely turn a slow compositor into a use-after-free.
+            // Blocks until every present this presenter has queued has retired. Teardown only — see
+            // resize()'s comment for why that path does not need it and must not pay for it. Here the
+            // wait is not about the D3D textures (whose lifetime the runtime tracks) but about the
+            // visual tree and fences going away underneath queued compositor work. This is a lifetime
+            // proof, not a responsiveness budget: a timeout would merely turn a slow compositor into a
+            // use-after-free, and nothing is interactive during destruction anyway.
             void wait_for_gpu_idle() noexcept {
                 if (!present_complete_fence_ || !context_ || present_fence_value_ == 0) {
                     return;
@@ -574,6 +643,11 @@ namespace SFT::GraphicsPlatform {
             ComPtr<IDCompositionDesktopDevice> composition_device_;
             ComPtr<IDCompositionTarget> composition_target_;
             ComPtr<IDCompositionVisual2> composition_visual_;
+            // Scale currently published on composition_visual_, so apply_visual_scale() can drop
+            // no-op commits. Identity until the first set_live_scale(), matching a freshly created
+            // visual's transform.
+            float applied_scale_x_ = 1.0f;
+            float applied_scale_y_ = 1.0f;
 
             ComPtr<ID3D11Fence> render_complete_fence_;
             ComPtr<ID3D11Fence> present_complete_fence_;

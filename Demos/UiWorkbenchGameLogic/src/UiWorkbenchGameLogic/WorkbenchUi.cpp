@@ -672,12 +672,16 @@ namespace SFT::UiWorkbench {
         Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds) {
         UI::PointerState framebuffer_pointer = surface.pointer;
         if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
-            const glm::vec2 logical_size{window->size};
-            if (logical_size.x > 0.0f && logical_size.y > 0.0f) {
-                const glm::vec2 logical_to_framebuffer = viewport / logical_size;
-                framebuffer_pointer.position *= logical_to_framebuffer;
+            // Layout and live-resize extents are physical framebuffer pixels. Use the matching
+            // snapshot field for pointer conversion: logical window size can remain stale while
+            // Windows is in its modal resize loop, which would otherwise make controls lag behind
+            // their freshly laid-out tab bounds.
+            const glm::vec2 framebuffer_size{window->framebuffer_size};
+            if (framebuffer_size.x > 0.0f && framebuffer_size.y > 0.0f) {
+                const glm::vec2 snapshot_to_framebuffer = viewport / framebuffer_size;
+                framebuffer_pointer.position *= snapshot_to_framebuffer;
                 if (framebuffer_pointer.press_position) {
-                    *framebuffer_pointer.press_position *= logical_to_framebuffer;
+                    *framebuffer_pointer.press_position *= snapshot_to_framebuffer;
                 }
             }
         }

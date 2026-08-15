@@ -100,7 +100,9 @@ namespace SFT::Core::Vulkan {
     //
     // `previous` is consumed: its presenter, already-imported timeline semaphores, and the current
     // render-complete value are moved into the result (resize() leaves the underlying D3D fences
-    // untouched, so re-importing them would only reproduce the same semaphores at extra cost). Its
+    // untouched, so re-importing them would only reproduce the same semaphores at extra cost). Before
+    // invalidating the old shared images, the implementation waits for that render-complete value — the
+    // exact Vulkan lifetime proof for this presenter — rather than idling unrelated device work. Its
     // images/views are deliberately NOT moved — resize() invalidates every previously-returned shared
     // image handle — so the caller's *own* copy of `previous` (the object this was called on, e.g. an
     // old SwapchainRecord's `composition` field) still correctly holds everything

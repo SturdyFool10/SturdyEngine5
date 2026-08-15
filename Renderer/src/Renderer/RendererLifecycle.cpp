@@ -963,12 +963,18 @@ namespace SFT::Renderer {
         // A native WSI image lives in the HWND redirection surface, whereas the composition presenter
         // is a transparent DirectComposition visual layered over that surface. Deferred retirement
         // would leave the native swapchain's last opaque frame visible below the first transparent
-        // composition frame, so this one cross-presenter handoff is deliberately synchronous. The
-        // normal composition-to-composition and native-to-native paths retain their usual deferred
-        // lifetime behavior.
+        // composition frame, so this one cross-presenter handoff is deliberately synchronous.
         const RHI::PresentationResolution new_presentation = device->presentation_resolution(record.rhi_swapchain);
         const bool must_retire_native_before_composition = old_swapchain &&
             !old_presentation.via_composition_present && new_presentation.via_composition_present;
+        // Composition-to-composition resize has already proved both halves of the old generation are
+        // finished: VulkanRhiBridgeComposition waits for the final external render-complete value, and
+        // CompositionPresenter::resize waits for the D3D copy/present fence before invalidating its
+        // shared images. Deferring it like a native WSI swapchain would accumulate fence-less records,
+        // periodically force Renderer::drain_frames_in_flight(), and introduce a visible live-resize
+        // hitch every retired-swapchain flush interval.
+        const bool can_retire_composition_immediately = old_swapchain &&
+            old_presentation.via_composition_present && new_presentation.via_composition_present;
         const auto destroy_old_presentation_resources = [&]() noexcept {
             for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
                 device->destroy_fence(fence);
@@ -987,6 +993,8 @@ namespace SFT::Renderer {
         if (old_swapchain || old_depth_texture || old_depth_view) {
             if (must_retire_native_before_composition) {
                 device->wait_idle();
+                destroy_old_presentation_resources();
+            } else if (can_retire_composition_immediately) {
                 destroy_old_presentation_resources();
             } else if (old_swapchain_supports_completion_fence) {
                 // A present-completion fence signals after the presentation engine has finished with

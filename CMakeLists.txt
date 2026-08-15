@@ -150,6 +150,24 @@ include(SturdyLicenses)
 include(SturdyShaders)
 include(SturdyPackage)
 
+# The reusable engine stack is performance-sensitive infrastructure. Product layers above it
+# (Runtime, hosts, demos, and tests) retain the requested profile for normal debugging, while the
+# engine and every first-party library it directly builds on compile as RelWithDebInfo unless the
+# whole build is Dist. SturdyPackage.cmake consumes this list when it creates each target.
+set(STURDY_ENGINE_OPTIMIZED_TARGETS
+    Foundation
+    Async
+    Ecs
+    Text
+    graphicsPlatform
+    RHI
+    Platform
+    Core
+    Renderer
+    UI
+    EngineComponents
+)
+
 sturdy_configure_dependencies()
 # Must run before add_subdirectory(Core) below, since Core/CMakeLists.txt's sturdy_add_package()
 # call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
