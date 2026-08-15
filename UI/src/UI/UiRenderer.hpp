@@ -3,8 +3,10 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <atomic>
 #include <glm/vec2.hpp>
 #include <memory>
+#include <utility>
 #include <vector>
 #pragma endregion
 
@@ -50,6 +52,10 @@ namespace SFT::UI {
     class UiRenderer {
       public:
         UiRenderer() noexcept = default;
+        UiRenderer(UiRenderer &&other) noexcept { *this = std::move(other); }
+        UiRenderer &operator=(UiRenderer &&other) noexcept;
+        UiRenderer(const UiRenderer &) = delete;
+        UiRenderer &operator=(const UiRenderer &) = delete;
 
         [[nodiscard]] static Core::RendererExpected<UiRenderer> create(
             RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
@@ -72,7 +78,14 @@ namespace SFT::UI {
 
         void destroy(RHI::RhiDevice &device) noexcept;
         [[nodiscard]] bool ready() const noexcept { return ready_; }
-        [[nodiscard]] u64 generation() const noexcept { return generation_; }
+        // Acquire-paired with the release stores in create()/destroy() (UiRendererImpl.cpp) — a
+        // caller like WorkbenchUi::build_overlay_hooks() reads this from a different thread than the
+        // one that called create()/destroy(), with no mutex held (that's the whole point: a stale
+        // hook must be able to detect staleness without blocking on operation_mutex_, which the
+        // in-flight destroy()/create() it's racing against may be holding). A plain non-atomic field
+        // here would make that read a data race with no ordering guarantee, letting a hook observe a
+        // pre-destroy() generation value even after destroy() has already run on another thread.
+        [[nodiscard]] u64 generation() const noexcept { return generation_.load(std::memory_order_acquire); }
 
       private:
         Renderer::TextPipeline text_pipeline_;
@@ -99,7 +112,7 @@ namespace SFT::UI {
         // Stashed from create() — UiCustomElementPipeline's shader cache is keyed by color_format,
         // and needs it again at both prepare() and draw() time, neither of which otherwise takes it.
         RHI::Format color_format_{};
-        u64 generation_ = 0;
+        std::atomic<u64> generation_{0};
         // Stashed from create() — custom_element_pipeline_.prepare() needs it every frame (a custom
         // element's shader is only compiled lazily, on the first frame it's actually drawn).
         bool enable_shader_disk_cache_ = true;
@@ -109,7 +122,10 @@ namespace SFT::UI {
 
         // prepare()/draw() can arrive from overlapping managed-window frame tasks. Keep the
         // mutable atlas/pipeline/frame caches serialized across those callbacks and destroy(). A
-        // shared mutex keeps UiRenderer movable, which its expected-returning factory requires.
+        // shared_ptr (rather than the mutex living inline) means moving a UiRenderer never
+        // invalidates a lock another thread is mid-acquire on; the explicit move ctor/assignment
+        // above exist because generation_'s atomic-ness makes this class no longer trivially
+        // movable by the compiler-generated default.
         std::shared_ptr<Async::Mutex<u8>> operation_mutex_ = std::make_shared<Async::Mutex<u8>>(0);
         bool ready_ = false;
     };

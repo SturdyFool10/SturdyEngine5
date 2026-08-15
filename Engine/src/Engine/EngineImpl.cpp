@@ -437,13 +437,17 @@ namespace SFT::Engine {
                                              old_presentation.hdr_color_space != new_presentation.hdr_color_space;
         const bool hdr_changed = hdr_enabled_changed || hdr_color_space_changed;
         const RHI::RhiDevice *active_rhi = renderer_.rhi_device();
+        // Vulkan instance/device extensions are immutable. The Vulkan backend enables the lightweight
+        // HDR colorspace/metadata extensions opportunistically during initial SDR startup, so an HDR
+        // mode change never needs to destroy GPU-only meshes/textures just to rebuild the instance. If
+        // the colorspace extension is genuinely unsupported, reject the toggle while the existing SDR
+        // scene remains intact instead of attempting a destructive rebuild that cannot make it
+        // supported. Other backends (e.g. D3D12) negotiate HDR color space per-swapchain via
+        // SetColorSpace1 at swapchain-recreation time and have no equivalent immutable-extension gate,
+        // so this check only applies to Vulkan.
         const bool hdr_colorspace_enabled = active_rhi != nullptr &&
-                                            active_rhi->is_extension_enabled(RHI::ExtensionId{"vulkan", "VK_EXT_swapchain_colorspace", 1});
-        // Vulkan instance/device extensions are immutable. The backend now enables the lightweight HDR
-        // colorspace/metadata extensions opportunistically during initial SDR startup, so an HDR mode
-        // change never needs to destroy GPU-only meshes/textures just to rebuild the instance. If the
-        // colorspace extension is genuinely unsupported, reject the toggle while the existing SDR scene
-        // remains intact instead of attempting a destructive rebuild that cannot make it supported.
+                                            (active_rhi->backend_type() != RHI::BackendType::Vulkan ||
+                                             active_rhi->is_extension_enabled(RHI::ExtensionId{"vulkan", "VK_EXT_swapchain_colorspace", 1}));
         if (hdr_enabled_changed && static_cast<bool>(new_presentation.hdr_enabled) &&
             !hdr_colorspace_enabled) {
             return unexpected(Core::GraphicsBackendError{

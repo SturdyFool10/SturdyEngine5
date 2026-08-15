@@ -509,6 +509,20 @@ namespace SFT::D3D12 {
         if (!record) {
             return;
         }
+        // A composition swapchain's visual tree outlives the swapchain object in DWM's eyes: simply
+        // releasing the ComPtrs below detaches this process's references, but DWM keeps compositing
+        // the last frame the visual ever committed until the root is explicitly cleared and that
+        // clear is committed. Skipping this (e.g. on a resize, which recreates the whole composition
+        // device/target/visual trio via create_swapchain's old_swapchain path) leaves the old,
+        // now-destroyed swapchain's last presented frame visible underneath/alongside the new one —
+        // read as a frozen/pasted-over frame. Mirrors CompositionPresent.cpp's teardown on the Vulkan
+        // side.
+        if (record->composition_target != nullptr) {
+            (void)record->composition_target->SetRoot(nullptr);
+        }
+        if (record->composition_device != nullptr) {
+            (void)record->composition_device->Commit();
+        }
         // Back buffers are referenced by the presentation engine until every queued present has
         // retired, and releasing them earlier is a use-after-free the runtime reports as a device
         // removal. Draining is the only way to know they are free.

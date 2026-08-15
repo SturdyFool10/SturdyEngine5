@@ -21,6 +21,23 @@ namespace SFT::UI {
         std::atomic<u64> next_ui_renderer_generation{1};
     }
 
+    UiRenderer &UiRenderer::operator=(UiRenderer &&other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        text_pipeline_ = std::move(other.text_pipeline_);
+        quad_pipeline_ = std::move(other.quad_pipeline_);
+        custom_element_pipeline_ = std::move(other.custom_element_pipeline_);
+        surface_frame_resources_ = std::move(other.surface_frame_resources_);
+        color_format_ = other.color_format_;
+        generation_.store(other.generation_.load(std::memory_order_acquire), std::memory_order_release);
+        enable_shader_disk_cache_ = other.enable_shader_disk_cache_;
+        white_texture_ = other.white_texture_;
+        operation_mutex_ = std::move(other.operation_mutex_);
+        ready_ = other.ready_;
+        return *this;
+    }
+
     Core::RendererExpected<UiRenderer> UiRenderer::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         UiRenderer renderer;
@@ -40,7 +57,8 @@ namespace SFT::UI {
         renderer.color_format_ = color_format;
         renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
 
-        renderer.generation_ = next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed);
+        renderer.generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),
+                                   std::memory_order_release);
         renderer.ready_ = true;
         return renderer;
     }
@@ -69,7 +87,15 @@ namespace SFT::UI {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
         if (!ready_) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UiRenderer was not created.");
+            // Mirrors draw()'s own "not found" case below, not an error: the caller-side generation
+            // check (WorkbenchUi::build_overlay_hooks(), for instance) is a best-effort pre-check
+            // that reads generation() without holding operation_mutex_, so it can lose a race against
+            // a concurrent destroy() that has already cleared ready_ by the time this call acquires
+            // the lock — exactly the "backend reconstruction intentionally drops frames assembled
+            // against the old device" scenario draw() documents. There is correctly no prepared UI
+            // work in that case, so behave like draw() and return the empty-but-successful result
+            // rather than surfacing it as a hard failure.
+            return {};
         }
 
         if (texture_resolver == nullptr) {
@@ -340,6 +366,23 @@ namespace SFT::UI {
         custom_element_pipeline_.destroy(device);
         text_pipeline_.destroy(device);
         ready_ = false;
+        // Bumping generation_ here (not just in create()) closes the race a caller like
+        // WorkbenchUi's "Reconstruct graphics" hits: a frame hook captured on another window's
+        // render thread before this destroy() snapshots the *old* generation, then executes after
+        // destroy() but before the matching create() runs. Without this, that stale hook's
+        // generation check (renderer->generation() != captured_generation) still passes — nothing
+        // has changed generation_ yet — so it falls through to prepare()/draw() against a destroyed
+        // instance instead of being caught as stale. A fresh value here (not reachable by any future
+        // create(), since both draw from the same monotonic counter) makes every previously-captured
+        // generation immediately stale the instant destroy() runs, not just after the next create().
+        // The release store (paired with generation()'s acquire load) is load-bearing, not just
+        // correct-by-convention: the hook's staleness check deliberately reads this without taking
+        // operation_mutex_ (the whole point is detecting staleness without blocking on a lock the
+        // in-flight destroy() call may be holding), so a plain relaxed/non-atomic write here could
+        // let that read observe a pre-destroy() value on another core even after this line has
+        // already executed on this one.
+        generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),
+                          std::memory_order_release);
     }
 
 } // namespace SFT::UI
