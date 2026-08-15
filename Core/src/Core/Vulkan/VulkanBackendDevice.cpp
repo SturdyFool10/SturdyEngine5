@@ -228,6 +228,8 @@ namespace SFT::Core::Vulkan {
             RHI::Feature::Synchronization2,
             RHI::Feature::DynamicRendering,
             RHI::Feature::ShaderDrawParameters,
+            // Vulkan render bundles use core secondary command buffers and need no native feature bit.
+            RHI::Feature::RenderBundles,
             RHI::Feature::BufferDeviceAddress,
         });
         if (supportedFeatures.features.imageCubeArray) {
@@ -424,6 +426,9 @@ namespace SFT::Core::Vulkan {
         // — a lower-latency Fifo variant with no tradeoff for an app to weigh, unlike raytracing/
         // async-compute/etc. above (all real capacity/power tradeoffs the app opts into deliberately).
         optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
+        // Vulkan render bundles are backed by core secondary command buffers; no native feature bit
+        // or extension must be enabled, so expose the already-working implementation opportunistically.
+        optional_rhi_features.set(RHI::Feature::RenderBundles);
         // Same reasoning as PresentModeFifoLatestReady immediately above: a pure capability with no
         // tradeoff, enabled whenever the device reports it. Detection/enablement only for now — see
         // the query-time struct's own doc comment above for what's not wired up yet.

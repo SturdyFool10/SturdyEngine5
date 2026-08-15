@@ -206,6 +206,9 @@ namespace SFT::D3D12 {
         // Bound with IASetPrimitiveTopology at draw time: the PSO stores only the topology *type*
         // (point/line/triangle), not list-vs-strip, which is dynamic state in D3D12.
         D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        // D3D12 puts the byte stride in each bound vertex-buffer view rather than in the PSO. Retain
+        // the RHI pipeline's per-slot values so set_vertex_buffer() can form valid views.
+        vector<u32> vertex_strides;
         bool is_mesh_pipeline = false;
     };
 
@@ -242,6 +245,14 @@ namespace SFT::D3D12 {
         // Heaps swapped out mid-recording after exhaustion. Retained (not freed) until this record is
         // recycled, because the submitted command list still references descriptors inside them.
         vector<ShaderVisibleDescriptorHeap> retired_heaps;
+        // Upload allocations referenced by CopyBufferRegion commands recorded through update/fill.
+        // They remain alive until this command record is retired and recycled.
+        vector<ComPtr<ID3D12Resource>> transient_uploads;
+        // CPU descriptors used by commands such as ClearUnorderedAccessViewUint must outlive GPU
+        // execution just like the command list's shader-visible descriptor copies.
+        vector<DescriptorRange> transient_resource_descriptors;
+        vector<DescriptorRange> transient_rtv_descriptors;
+        vector<DescriptorRange> transient_dsv_descriptors;
         rhi::QueueLane queue{};
         D3D12_COMMAND_LIST_TYPE list_type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     };
@@ -305,6 +316,9 @@ namespace SFT::D3D12 {
         u32 sync_interval = 1;
         UINT present_flags = 0;
         rhi::PresentationResolution presentation_resolution{};
+        // The color space SetColorSpace1 successfully selected, or sRGB when negotiation fell back.
+        // Metadata behavior keys off this effective value rather than the caller's original request.
+        rhi::ColorSpace effective_color_space = rhi::ColorSpace::SrgbNonlinear;
         // Non-null exactly when this swapchain composites through DirectComposition rather than
         // presenting to the HWND directly. Unlike the Vulkan backend — which must round-trip through a
         // shared-texture interop device because DXGI back buffers cannot be imported into Vulkan —
@@ -318,6 +332,8 @@ namespace SFT::D3D12 {
         // the CPU is throttled by the presentation engine rather than by the frame it queued three
         // frames ago — the closest DXGI equivalent of Vulkan's acquire-blocks-until-an-image-is-free.
         HANDLE frame_latency_waitable = nullptr;
+        // The exact metadata last accepted by SetHDRMetaData. Retained so CLL/FALL updates preserve
+        // mastering primaries, white point, and luminance while changing only the two content fields.
         bool has_hdr_metadata = false;
         DXGI_HDR_METADATA_HDR10 stored_hdr_metadata{};
 

@@ -169,7 +169,6 @@ namespace SFT::D3D12 {
                  rhi::Feature::MultiDrawIndirect,
                  rhi::Feature::DrawIndirectFirstInstance,
                  rhi::Feature::DrawIndirectCount,
-                 rhi::Feature::IndirectCommandsLayout,
                  rhi::Feature::OcclusionQueries,
                  rhi::Feature::PreciseOcclusionQueries,
                  rhi::Feature::TimestampQueries,
@@ -180,19 +179,12 @@ namespace SFT::D3D12 {
                  // per-frame reset command the Vulkan path needs.
                  rhi::Feature::HostQueryReset,
                  rhi::Feature::AnisotropicFiltering,
-                 rhi::Feature::SamplerMirrorClampToEdge,
-                 rhi::Feature::SamplerFilterMinMax,
-                 rhi::Feature::CustomBorderColor,
                  rhi::Feature::IndependentBlend,
-                 rhi::Feature::DualSourceBlending,
-                 rhi::Feature::LogicOp,
                  rhi::Feature::SampleRateShading,
                  rhi::Feature::MultiViewport,
                  rhi::Feature::DepthClamp,
                  rhi::Feature::DepthBiasClamp,
                  rhi::Feature::WireframeFill,
-                 rhi::Feature::GeometryShader,
-                 rhi::Feature::TessellationShader,
                  rhi::Feature::ShaderDrawParameters,
                  rhi::Feature::ShaderClipDistance,
                  rhi::Feature::ShaderCullDistance,
@@ -201,22 +193,15 @@ namespace SFT::D3D12 {
                  rhi::Feature::FragmentStoresAndAtomics,
                  rhi::Feature::StorageImageExtendedFormats,
                  rhi::Feature::StorageImageWriteWithoutFormat,
-                 rhi::Feature::DepthStencilResolve,
                  rhi::Feature::SeparateDepthStencilLayouts,
                  rhi::Feature::BufferDeviceAddress,
-                 rhi::Feature::DescriptorHeap,
-                 rhi::Feature::PushDescriptors,
                  rhi::Feature::CopyCommands2,
-                 rhi::Feature::VertexAttributeDivisor,
                  rhi::Feature::ExtendedDynamicState,
                  rhi::Feature::AsyncCompute,
                  rhi::Feature::AsyncTransfer,
-                 rhi::Feature::PipelineCreationCacheControl,
-                 rhi::Feature::PrivateData,
                  rhi::Feature::SwapchainColorspace,
                  rhi::Feature::HdrMetadata,
                  rhi::Feature::HdrOutput,
-                 rhi::Feature::FullScreenExclusive,
                  rhi::Feature::DriverProperties,
              }) {
             features.set(feature);
@@ -236,26 +221,23 @@ namespace SFT::D3D12 {
             if (options0.TypedUAVLoadAdditionalFormats != FALSE) {
                 features.set(rhi::Feature::StorageImageReadWithoutFormat);
             }
-            if (options0.ConservativeRasterizationTier != D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED) {
-                features.set(rhi::Feature::ConservativeRasterization);
-            }
 
-            // ResourceBindingTier is the tier-to-bundle fan-out this file's header comment describes.
-            // Tier 2 already gives unbounded SRV/sampler arrays and full dynamic indexing; tier 3 adds
-            // unbounded CBV/UAV arrays, which is what a real bindless renderer needs.
+            // Tier 2 supports the table-backed descriptor arrays and shader indexing this backend
+            // exposes. Bind groups are immutable after creation, so update-after-bind is deliberately
+            // not included. The scalar RHI limit must also be safe for sampler-bearing bindings.
             if (options0.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2) {
                 for (rhi::Feature feature : {rhi::Feature::DescriptorIndexing,
                                              rhi::Feature::RuntimeDescriptorArrays,
                                              rhi::Feature::DescriptorBindingPartiallyBound,
                                              rhi::Feature::DescriptorBindingVariableCount,
-                                             rhi::Feature::DescriptorBindingUpdateAfterBind,
-                                             rhi::Feature::DescriptorBindingUpdateUnusedWhilePending,
                                              rhi::Feature::SampledImageArrayDynamicIndexing,
                                              rhi::Feature::UniformBufferArrayDynamicIndexing,
                                              rhi::Feature::StorageBufferArrayDynamicIndexing,
                                              rhi::Feature::StorageImageArrayDynamicIndexing}) {
                     features.set(feature);
                 }
+                caps.properties.descriptor_indexing.max_variable_descriptor_count =
+                    D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE;
             }
             if (options0.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3) {
                 for (rhi::Feature feature : {rhi::Feature::BindlessResources,
@@ -282,15 +264,6 @@ namespace SFT::D3D12 {
             }
         }
 
-        D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2{};
-        if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS2, options2)) {
-            if (options2.DepthBoundsTestSupported != FALSE) {
-                features.set(rhi::Feature::DepthBoundsTest);
-            }
-            if (options2.ProgrammableSamplePositionsTier != D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED) {
-                features.set(rhi::Feature::SampleLocations);
-            }
-        }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3{};
         if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS3, options3)) {
@@ -311,49 +284,38 @@ namespace SFT::D3D12 {
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
         if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS5, options5)) {
             if (options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0) {
-                for (rhi::Feature feature : {rhi::Feature::AccelerationStructures,
-                                             rhi::Feature::RayTracingPipeline,
-                                             rhi::Feature::DeferredHostOperations}) {
-                    features.set(feature);
-                }
+                features.set(rhi::Feature::AccelerationStructures);
+                features.set(rhi::Feature::RayTracingPipeline);
                 // DXR's fixed limits — the spec's, not a per-device query, because D3D12 exposes no
-                // equivalent of VkPhysicalDeviceRayTracingPipelinePropertiesKHR.
+                // equivalent of VkPhysicalDeviceRayTracingPipelinePropertiesKHR. The portable base
+                // alignment applies to the shader-table start, not merely each shader record's stride.
                 caps.properties.ray_tracing.max_ray_recursion_depth = D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH;
                 caps.properties.ray_tracing.shader_group_handle_size = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 caps.properties.ray_tracing.shader_group_base_alignment =
-                    D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT;
+                    D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
                 caps.properties.ray_tracing.max_ray_hit_attribute_size =
                     D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES;
                 caps.properties.ray_tracing.min_acceleration_structure_scratch_offset_alignment =
                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT;
             }
             if (options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1) {
-                for (rhi::Feature feature : {rhi::Feature::RayQuery,
-                                             rhi::Feature::RayTracingPipelineTraceRaysIndirect,
-                                             rhi::Feature::RayTraversalPrimitiveCulling,
-                                             rhi::Feature::RayTracingMaintenance1,
-                                             rhi::Feature::AccelerationStructureIndirectBuild,
-                                             rhi::Feature::PipelineLibrary,
-                                             rhi::Feature::RayTracingPipelineLibrary}) {
-                    features.set(feature);
-                }
+                features.set(rhi::Feature::RayQuery);
+                features.set(rhi::Feature::RayTraversalPrimitiveCulling);
             }
         }
 
-        D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6{};
-        if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS6, options6)) {
-            if (options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_1) {
-                features.set(rhi::Feature::VariableRateShading);
-                features.set(rhi::Feature::PipelineFragmentShadingRate);
-            }
-            if (options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2) {
-                features.set(rhi::Feature::PrimitiveFragmentShadingRate);
-                features.set(rhi::Feature::AttachmentFragmentShadingRate);
-                caps.properties.variable_rate_shading.min_tile_width = options6.ShadingRateImageTileSize;
-                caps.properties.variable_rate_shading.min_tile_height = options6.ShadingRateImageTileSize;
-                caps.properties.variable_rate_shading.max_tile_width = options6.ShadingRateImageTileSize;
-                caps.properties.variable_rate_shading.max_tile_height = options6.ShadingRateImageTileSize;
-            }
+
+        D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
+        if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS7, options7) &&
+            options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1) {
+            features.set(rhi::Feature::MeshShader);
+            features.set(rhi::Feature::TaskShader);
+            // DX12 mesh/amplification shader model limits are fixed by the API specification.
+            caps.properties.mesh_shader.max_task_work_group_invocations = 128;
+            caps.properties.mesh_shader.max_mesh_work_group_invocations = 128;
+            caps.properties.mesh_shader.max_mesh_output_vertices = 256;
+            caps.properties.mesh_shader.max_mesh_output_primitives = 256;
+            caps.properties.mesh_shader.max_mesh_payload_size = 16 * 1024;
         }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9{};
@@ -410,9 +372,6 @@ namespace SFT::D3D12 {
             features.set(rhi::Feature::SubgroupPartitioned);
         }
         if (shader_model >= D3D_SHADER_MODEL_6_6) {
-            // SM 6.6 adds ResourceDescriptorHeap[]/SamplerDescriptorHeap[] — direct heap indexing with
-            // no descriptor table at all, the strongest form of bindless D3D12 offers.
-            features.set(rhi::Feature::BindlessResources);
             features.set(rhi::Feature::ShaderClock);
         }
         if (shader_model >= D3D_SHADER_MODEL_6_7) {
@@ -436,9 +395,7 @@ namespace SFT::D3D12 {
         limits.max_vertex_attributes = D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT;
         limits.max_color_attachments = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
         limits.supports_bc_texture_compression = true;
-        // ResolveSubresourceRegion (ID3D12GraphicsCommandList1) takes an explicit D3D12_RESOLVE_MODE,
-        // MIN among them — the depth-resolve mode DepthStencilAttachment::depth_resolve_mode needs.
-        limits.supports_minimum_depth_resolve = true;
+        limits.supports_minimum_depth_resolve = false;
         limits.max_compute_workgroup_size_x = D3D12_CS_THREAD_GROUP_MAX_X;
         limits.max_compute_workgroup_size_y = D3D12_CS_THREAD_GROUP_MAX_Y;
         limits.max_compute_workgroup_size_z = D3D12_CS_THREAD_GROUP_MAX_Z;
@@ -465,8 +422,7 @@ namespace SFT::D3D12 {
         });
         caps.queue_infos.push_back(rhi::QueueInfo{
             .queue = rhi::QueueClass::Compute,
-            .capabilities = rhi::QueueCapability::Compute | rhi::QueueCapability::Transfer |
-                            rhi::QueueCapability::Present,
+            .capabilities = rhi::QueueCapability::Compute | rhi::QueueCapability::Transfer,
             .lane_count = 1,
             .physical_group = 1,
             .likely_parallel_with_graphics = true,
@@ -483,8 +439,6 @@ namespace SFT::D3D12 {
             .label = "D3D12 copy queue",
         });
 
-        caps.properties.descriptor_indexing.max_update_after_bind_descriptors = 1'000'000;
-        caps.properties.descriptor_indexing.max_variable_descriptor_count = 1'000'000;
         return caps;
     }
 

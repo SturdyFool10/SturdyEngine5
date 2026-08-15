@@ -24,6 +24,8 @@
 #include <dcomp.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
 #pragma endregion
 
@@ -117,6 +119,81 @@ namespace SFT::D3D12 {
                     break;
             }
             return resolved;
+        }
+
+        [[nodiscard]] constexpr rhi::HdrDisplayMetadata default_hdr10_display_metadata() noexcept {
+            return rhi::HdrDisplayMetadata{
+                .red_primary = {.x = 0.680f, .y = 0.320f},
+                .green_primary = {.x = 0.265f, .y = 0.690f},
+                .blue_primary = {.x = 0.150f, .y = 0.060f},
+                .white_point = {.x = 0.3127f, .y = 0.3290f},
+                .min_luminance_nits = 0.001f,
+                .max_luminance_nits = 1000.0f,
+                .max_full_frame_luminance_nits = 400.0f,
+                .source = rhi::HdrMetadataSource::EngineDefault,
+                .confidence = rhi::HdrMetadataConfidence::Estimated,
+            };
+        }
+
+        [[nodiscard]] bool valid_chromaticity(const rhi::Chromaticity &value) noexcept {
+            return std::isfinite(value.x) && std::isfinite(value.y) && value.x > 0.0f && value.x <= 1.0f &&
+                   value.y > 0.0f && value.y <= 1.0f;
+        }
+
+        template <typename Integer>
+        [[nodiscard]] Integer encode_hdr_metadata_value(f32 value, f64 scale) noexcept {
+            if (!std::isfinite(value) || value <= 0.0f) {
+                return 0;
+            }
+            const f64 encoded = static_cast<f64>(value) * scale;
+            const f64 maximum = static_cast<f64>((std::numeric_limits<Integer>::max)());
+            return static_cast<Integer>(std::min(encoded + 0.5, maximum));
+        }
+
+        [[nodiscard]] DXGI_HDR_METADATA_HDR10 build_hdr10_metadata(
+            const rhi::SurfaceHdrCapabilityQuery &hdr_query) noexcept {
+            rhi::HdrDisplayMetadata display = default_hdr10_display_metadata();
+            if (hdr_query && hdr_query.capabilities.display_metadata.has_value()) {
+                const rhi::HdrDisplayMetadata &reported = *hdr_query.capabilities.display_metadata;
+                if (valid_chromaticity(reported.red_primary)) {
+                    display.red_primary = reported.red_primary;
+                }
+                if (valid_chromaticity(reported.green_primary)) {
+                    display.green_primary = reported.green_primary;
+                }
+                if (valid_chromaticity(reported.blue_primary)) {
+                    display.blue_primary = reported.blue_primary;
+                }
+                if (valid_chromaticity(reported.white_point)) {
+                    display.white_point = reported.white_point;
+                }
+                if (std::isfinite(reported.min_luminance_nits) && reported.min_luminance_nits >= 0.0f) {
+                    display.min_luminance_nits = reported.min_luminance_nits;
+                }
+                if (std::isfinite(reported.max_luminance_nits) && reported.max_luminance_nits > 0.0f) {
+                    display.max_luminance_nits = reported.max_luminance_nits;
+                }
+                if (std::isfinite(reported.max_full_frame_luminance_nits) &&
+                    reported.max_full_frame_luminance_nits > 0.0f) {
+                    display.max_full_frame_luminance_nits = reported.max_full_frame_luminance_nits;
+                }
+            }
+
+            DXGI_HDR_METADATA_HDR10 metadata{};
+            metadata.RedPrimary[0] = encode_hdr_metadata_value<UINT16>(display.red_primary.x, 50000.0);
+            metadata.RedPrimary[1] = encode_hdr_metadata_value<UINT16>(display.red_primary.y, 50000.0);
+            metadata.GreenPrimary[0] = encode_hdr_metadata_value<UINT16>(display.green_primary.x, 50000.0);
+            metadata.GreenPrimary[1] = encode_hdr_metadata_value<UINT16>(display.green_primary.y, 50000.0);
+            metadata.BluePrimary[0] = encode_hdr_metadata_value<UINT16>(display.blue_primary.x, 50000.0);
+            metadata.BluePrimary[1] = encode_hdr_metadata_value<UINT16>(display.blue_primary.y, 50000.0);
+            metadata.WhitePoint[0] = encode_hdr_metadata_value<UINT16>(display.white_point.x, 50000.0);
+            metadata.WhitePoint[1] = encode_hdr_metadata_value<UINT16>(display.white_point.y, 50000.0);
+            metadata.MaxMasteringLuminance = encode_hdr_metadata_value<UINT>(display.max_luminance_nits, 1.0);
+            metadata.MinMasteringLuminance = encode_hdr_metadata_value<UINT>(display.min_luminance_nits, 10000.0);
+            metadata.MaxContentLightLevel = encode_hdr_metadata_value<UINT16>(display.max_luminance_nits, 1.0);
+            metadata.MaxFrameAverageLightLevel =
+                encode_hdr_metadata_value<UINT16>(display.max_full_frame_luminance_nits, 1.0);
+            return metadata;
         }
 
     } // namespace
@@ -283,21 +360,26 @@ namespace SFT::D3D12 {
         record.sync_interval = resolved.sync_interval;
         record.present_flags = resolved.wants_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
 
-        // One frame of latency, not DXGI's default of three: the waitable object is what stands in for
-        // a Vulkan acquire (see this file's header comment), and a 3-frame default would let the CPU
-        // run far enough ahead that the substitution stopped behaving like one.
-        (void)record.swapchain->SetMaximumFrameLatency(1);
-        record.frame_latency_waitable = record.swapchain->GetFrameLatencyWaitableObject();
+        // Match DXGI's queued-frame limit to the caller's already-resolved CPU frame-slot count. The
+        // documented zero fallback mirrors SwapchainDesc::frames_in_flight and the Vulkan backend.
+        const u32 frames_in_flight_count =
+            desc.frames_in_flight != 0 ? desc.frames_in_flight : std::max<u32>(1, record.image_count);
+        if (const HRESULT hr = record.swapchain->SetMaximumFrameLatency(frames_in_flight_count); FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (SetMaximumFrameLatency)");
+        }
 
         // Color space is negotiated, never assumed: an HDR color space on a display the OS has HDR
-        // switched off for is rejected here rather than silently producing wrong colors.
+        // switched off for is rejected here rather than silently producing wrong colors. Retain what
+        // was actually selected so metadata operations cannot key off the request after a fallback.
+        record.effective_color_space = rhi::ColorSpace::SrgbNonlinear;
         DXGI_COLOR_SPACE_TYPE color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
         bool color_space_degraded = false;
         if (to_dxgi_color_space(desc.color_space, color_space)) {
             UINT support = 0;
             if (SUCCEEDED(record.swapchain->CheckColorSpaceSupport(color_space, &support)) &&
-                (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) != 0) {
-                (void)record.swapchain->SetColorSpace1(color_space);
+                (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) != 0 &&
+                SUCCEEDED(record.swapchain->SetColorSpace1(color_space))) {
+                record.effective_color_space = desc.color_space;
             } else if (desc.color_space != rhi::ColorSpace::SrgbNonlinear) {
                 color_space_degraded = true;
                 Foundation::log_warn(
@@ -306,6 +388,25 @@ namespace SFT::D3D12 {
             }
         } else if (desc.color_space != rhi::ColorSpace::SrgbNonlinear) {
             color_space_degraded = true;
+        }
+
+        if (record.effective_color_space == rhi::ColorSpace::Hdr10St2084) {
+            const rhi::SurfaceHdrCapabilityQuery hdr_query =
+                rhi::query_platform_hdr_display_capabilities(surface->desc);
+            if (!hdr_query || !hdr_query.capabilities.display_metadata.has_value()) {
+                Foundation::log_info(
+                    "HDR metadata: no real display metadata available for this surface ({}); using conservative "
+                    "default primaries/luminance instead.",
+                    hdr_query.message.message.empty() ? "platform did not report any" : hdr_query.message.message);
+            }
+            DXGI_HDR_METADATA_HDR10 metadata = build_hdr10_metadata(hdr_query);
+            if (const HRESULT hr = record.swapchain->SetHDRMetaData(
+                    DXGI_HDR_METADATA_TYPE_HDR10, static_cast<UINT>(sizeof(metadata)), &metadata);
+                FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (SetHDRMetaData)");
+            }
+            record.stored_hdr_metadata = metadata;
+            record.has_hdr_metadata = true;
         }
 
         record.presentation_resolution = rhi::PresentationResolution{
@@ -331,13 +432,16 @@ namespace SFT::D3D12 {
         (void)desc.allow_present_from_compute;
         (void)desc.request_full_screen_exclusive;
         (void)desc.clipped;
-        (void)desc.frames_in_flight;
-
 
         if (auto created = create_swapchain_textures(record, desc.format, desc.width, desc.height, desc.usage);
             !created) {
             destroy_swapchain_textures(record);
             return std::unexpected(created.error());
+        }
+        record.frame_latency_waitable = record.swapchain->GetFrameLatencyWaitableObject();
+        if (record.frame_latency_waitable == nullptr) {
+            destroy_swapchain_textures(record);
+            return operation_failed("create_swapchain: DXGI did not provide the requested frame-latency waitable object.");
         }
         set_debug_name(record.swapchain.Get(), desc.label);
         return swapchains_.insert(std::move(record));
@@ -426,17 +530,25 @@ namespace SFT::D3D12 {
         if (record == nullptr) {
             return invalid_argument("update_hdr_content_light_level: unknown swapchain handle.");
         }
-        // MaxCLL/MaxFALL are the only fields this call updates; the mastering-display primaries and
-        // luminance range stay as first sent, exactly as HdrContentLightLevelUpdate documents.
-        DXGI_HDR_METADATA_HDR10 &metadata = record->stored_hdr_metadata;
-        metadata.MaxContentLightLevel = static_cast<UINT16>(update.max_content_light_level_nits);
-        metadata.MaxFrameAverageLightLevel = static_cast<UINT16>(update.max_frame_average_light_level_nits);
-        record->has_hdr_metadata = true;
+        if (record->effective_color_space != rhi::ColorSpace::Hdr10St2084 || !record->has_hdr_metadata) {
+            return unsupported(
+                "update_hdr_content_light_level: only an HDR10 ST2084 swapchain has HDR10 metadata to update.");
+        }
 
-        if (const HRESULT hr = record->swapchain->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(metadata), &metadata);
+        // Work on a copy so both the mastering-display fields and the last successfully-submitted CLL
+        // values remain intact if DXGI rejects the update. Only MaxCLL and MaxFALL are overwritten.
+        DXGI_HDR_METADATA_HDR10 metadata = record->stored_hdr_metadata;
+        metadata.MaxContentLightLevel =
+            encode_hdr_metadata_value<UINT16>(update.max_content_light_level_nits, 1.0);
+        metadata.MaxFrameAverageLightLevel =
+            encode_hdr_metadata_value<UINT16>(update.max_frame_average_light_level_nits, 1.0);
+
+        if (const HRESULT hr = record->swapchain->SetHDRMetaData(
+                DXGI_HDR_METADATA_TYPE_HDR10, static_cast<UINT>(sizeof(metadata)), &metadata);
             FAILED(hr)) {
             return hresult_error(hr, "update_hdr_content_light_level (SetHDRMetaData)");
         }
+        record->stored_hdr_metadata = metadata;
         return {};
     }
 

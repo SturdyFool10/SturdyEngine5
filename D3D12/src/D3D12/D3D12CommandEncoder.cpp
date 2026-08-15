@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <utility>
 #pragma endregion
 
@@ -135,11 +136,11 @@ namespace SFT::D3D12 {
         return tables;
     }
 
-    void D3D12CommandEncoder::flush_bindings(BindingState &state, bool graphics) {
+    bool D3D12CommandEncoder::flush_bindings(BindingState &state, bool graphics) {
         const PipelineLayoutRecord *layout = device_->pipeline_layouts_.find(state.layout);
         if (layout == nullptr) {
             fail("A draw or dispatch was recorded before a pipeline (and therefore a pipeline layout) was bound.");
-            return;
+            return false;
         }
 
         if (state.layout_dirty) {
@@ -173,12 +174,20 @@ namespace SFT::D3D12 {
                 const BindGroupRecord *group = device_->bind_groups_.find(pending.handle);
                 if (group == nullptr) {
                     fail("set_bind_group was given a bind group handle that has since been destroyed.");
-                    return;
+                    return false;
                 }
                 const BindGroupLayoutRecord *group_layout = device_->bind_group_layouts_.find(group->layout);
                 if (group_layout == nullptr) {
                     fail("A bound bind group's layout has been destroyed.");
-                    return;
+                    return false;
+                }
+                if (set_index >= layout->set_layouts.size() || group->layout != layout->set_layouts[set_index]) {
+                    fail("A bound bind group's layout is incompatible with the current pipeline layout at that set index.");
+                    return false;
+                }
+                if (pending.dynamic_offsets.size() != group_layout->dynamic_slots.size()) {
+                    fail("set_bind_group supplied the wrong number of dynamic offsets for its layout.");
+                    return false;
                 }
 
                 const std::optional<BoundTables> tables = upload_bind_group(*group, *group_layout, attempt == 0);
@@ -215,7 +224,7 @@ namespace SFT::D3D12 {
                     const D3D12_GPU_VIRTUAL_ADDRESS base = group->dynamic_addresses[slot];
                     if (base == 0) {
                         fail("A dynamic-offset binding was never given a buffer when its bind group was created.");
-                        return;
+                        return false;
                     }
                     const u64 dynamic_offset = slot < pending.dynamic_offsets.size() ? pending.dynamic_offsets[slot] : 0;
                     const UINT parameter = static_cast<UINT>(mapping.dynamic_root_parameters[slot]);
@@ -252,7 +261,7 @@ namespace SFT::D3D12 {
             }
             if (attempt == 1) {
                 fail("A single command list bound more descriptors than a fresh shader-visible heap can hold.");
-                return;
+                return false;
             }
 
             // Retire the exhausted heaps rather than freeing them: commands already recorded into this
@@ -265,7 +274,7 @@ namespace SFT::D3D12 {
                 record_.resource_heap = std::move(*resource_heap);
             } else {
                 fail("Allocating a replacement shader-visible descriptor heap failed.");
-                return;
+                return false;
             }
             if (auto sampler_heap = device_->create_shader_visible_heap(
                     D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
@@ -274,19 +283,26 @@ namespace SFT::D3D12 {
                 record_.sampler_heap = std::move(*sampler_heap);
             } else {
                 fail("Allocating a replacement shader-visible sampler heap failed.");
-                return;
+                return false;
             }
             bind_descriptor_heaps();
-            for (PendingBindGroup &group : state.groups) {
-                if (group.handle.is_valid()) {
-                    group.dirty = true;
+            // SetDescriptorHeaps invalidates descriptor-table root arguments for both graphics and
+            // compute/ray bindings, not only whichever family triggered the replacement.
+            for (BindingState *tracked : {&graphics_bindings_, &compute_bindings_}) {
+                for (PendingBindGroup &group : tracked->groups) {
+                    if (group.handle.is_valid()) {
+                        group.dirty = true;
+                    }
                 }
             }
         }
 
+        if (state.push_constants.size() > static_cast<usize>(layout->push_constant_values) * sizeof(u32)) {
+            fail("Push-constant data exceeds the current pipeline layout's declared range.");
+            return false;
+        }
         if (state.push_constants_dirty && layout->push_constant_root_parameter >= 0) {
-            const UINT values = std::min<UINT>(layout->push_constant_values,
-                                               static_cast<UINT>(state.push_constants.size() / 4));
+            const UINT values = static_cast<UINT>(state.push_constants.size() / 4);
             if (values > 0) {
                 if (graphics) {
                     list_->SetGraphicsRoot32BitConstants(static_cast<UINT>(layout->push_constant_root_parameter),
@@ -302,6 +318,44 @@ namespace SFT::D3D12 {
             }
             state.push_constants_dirty = false;
         }
+        return !deferred_error_.has_value();
+    }
+
+    bool D3D12CommandEncoder::can_record_outside_pass(const char *operation) {
+        if (finished_ || list_ == nullptr) {
+            fail(std::string(operation) + ": the command encoder is already finished.");
+            return false;
+        }
+        if (pass_open_) {
+            fail(std::string(operation) + ": this command must be recorded outside a render or compute pass.");
+            return false;
+        }
+        return true;
+    }
+
+    rhi::RhiExpected<ComPtr<ID3D12Resource>> D3D12CommandEncoder::create_transient_upload(
+        span<const std::byte> data, const char *operation) {
+        if (data.empty()) {
+            return invalid_argument(std::string(operation) + ": upload data cannot be empty.");
+        }
+        const CD3DX12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_UPLOAD};
+        const CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(data.size());
+        ComPtr<ID3D12Resource> upload;
+        if (const HRESULT hr = device_->device_->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr, IID_PPV_ARGS(&upload));
+            FAILED(hr)) {
+            return hresult_error(hr, std::string(operation) + " (CreateCommittedResource)");
+        }
+        void *mapped = nullptr;
+        const D3D12_RANGE no_read{0, 0};
+        if (const HRESULT hr = upload->Map(0, &no_read, &mapped); FAILED(hr)) {
+            return hresult_error(hr, std::string(operation) + " (Map)");
+        }
+        std::memcpy(mapped, data.data(), data.size());
+        const D3D12_RANGE written{0, data.size()};
+        upload->Unmap(0, &written);
+        return upload;
     }
 
     // ─── Barriers ────────────────────────────────────────────────────────────────
@@ -312,6 +366,12 @@ namespace SFT::D3D12 {
         }
         const D3D12_RESOURCE_STATES before = texture.legacy_states[subresource];
         if (before == after) {
+            if (after == D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
+                D3D12_RESOURCE_BARRIER barrier{};
+                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+                barrier.UAV.pResource = texture.resource.Get();
+                list_->ResourceBarrier(1, &barrier);
+            }
             return;
         }
         D3D12_RESOURCE_BARRIER barrier{};
@@ -505,13 +565,26 @@ namespace SFT::D3D12 {
     // ─── Copies and clears ───────────────────────────────────────────────────────
 
     void D3D12CommandEncoder::copy_buffer_to_buffer(rhi::BufferHandle src, rhi::BufferHandle dst, const rhi::BufferCopy &region) {
+        if (!can_record_outside_pass("copy_buffer_to_buffer")) {
+            return;
+        }
         const BufferRecord *source = device_->buffers_.find(src);
         const BufferRecord *destination = device_->buffers_.find(dst);
         if (source == nullptr || destination == nullptr) {
             fail("copy_buffer_to_buffer names an unknown buffer handle.");
             return;
         }
+        if (region.src_offset > source->size || region.dst_offset > destination->size ||
+            !rhi::has_any(source->usage, rhi::BufferUsage::TransferSrc) ||
+            !rhi::has_any(destination->usage, rhi::BufferUsage::TransferDst)) {
+            fail("copy_buffer_to_buffer: invalid offset or transfer usage.");
+            return;
+        }
         const u64 size = region.size != 0 ? region.size : source->size - region.src_offset;
+        if (size > source->size - region.src_offset || size > destination->size - region.dst_offset) {
+            fail("copy_buffer_to_buffer: copy range exceeds a buffer.");
+            return;
+        }
         list_->CopyBufferRegion(destination->resource.Get(), region.dst_offset, source->resource.Get(), region.src_offset, size);
     }
 
@@ -550,6 +623,9 @@ namespace SFT::D3D12 {
     } // namespace
 
     void D3D12CommandEncoder::copy_buffer_to_texture(rhi::BufferHandle src, rhi::TextureHandle dst, const rhi::BufferTextureCopy &region) {
+        if (!can_record_outside_pass("copy_buffer_to_texture")) {
+            return;
+        }
         const BufferRecord *source = device_->buffers_.find(src);
         const TextureRecord *destination = device_->textures_.find(dst);
         if (source == nullptr || destination == nullptr) {
@@ -577,6 +653,9 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::copy_texture_to_buffer(rhi::TextureHandle src, rhi::BufferHandle dst, const rhi::BufferTextureCopy &region) {
+        if (!can_record_outside_pass("copy_texture_to_buffer")) {
+            return;
+        }
         const TextureRecord *source = device_->textures_.find(src);
         const BufferRecord *destination = device_->buffers_.find(dst);
         if (source == nullptr || destination == nullptr) {
@@ -604,6 +683,9 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::copy_texture_to_texture(rhi::TextureHandle src, rhi::TextureHandle dst, const rhi::TextureCopy &region) {
+        if (!can_record_outside_pass("copy_texture_to_texture")) {
+            return;
+        }
         const TextureRecord *source = device_->textures_.find(src);
         const TextureRecord *destination = device_->textures_.find(dst);
         if (source == nullptr || destination == nullptr) {
@@ -623,6 +705,9 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::blit_texture(rhi::TextureHandle, rhi::TextureHandle, const rhi::TextureBlit &, rhi::Filter) {
+        if (!can_record_outside_pass("blit_texture")) {
+            return;
+        }
         // D3D12 has no scaled, filtered texture blit. vkCmdBlitImage's closest relatives are
         // CopyTextureRegion (same size, no filtering) and ResolveSubresource (MSAA only, no scaling) —
         // neither of which can do what this asks. A real implementation is a full-screen draw through
@@ -635,67 +720,74 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::fill_buffer(rhi::BufferHandle buffer, u64 offset, u64 size, u32 value) {
-        // ClearUnorderedAccessViewUint needs both a shader-visible and a non-shader-visible descriptor
-        // for the same UAV, and the RHI's fill_buffer carries no view. Building one here per call would
-        // mean allocating two descriptors mid-recording; instead the buffer's own Storage usage is
-        // required and the clear goes through a transient UAV in the list's shader-visible heap.
-        const BufferRecord *record = device_->buffers_.find(buffer);
-        if (record == nullptr) {
-            fail("fill_buffer names an unknown buffer handle.");
+        if (!can_record_outside_pass("fill_buffer")) {
             return;
         }
-        if (!rhi::has_any(record->usage, rhi::BufferUsage::Storage)) {
-            fail("fill_buffer: the buffer must have been created with BufferUsage::Storage — D3D12 clears a buffer "
-                 "through an unordered-access view, which a non-Storage buffer cannot have.");
+        const BufferRecord *destination = device_->buffers_.find(buffer);
+        if (destination == nullptr || destination->memory != rhi::MemoryLocation::DeviceLocal ||
+            !rhi::has_any(destination->usage, rhi::BufferUsage::TransferDst) || offset > destination->size) {
+            fail("fill_buffer: destination must be a valid DeviceLocal TransferDst buffer and offset.");
             return;
         }
-
-        const u64 clear_size = size != 0 ? size : record->size - offset;
-        auto staging = device_->cpu_resource_descriptors_.allocate(1);
-        if (!staging) {
-            fail("fill_buffer: allocating a staging descriptor failed.");
+        const u64 clear_size = size != 0 ? size : destination->size - offset;
+        if (clear_size > destination->size - offset || offset % sizeof(u32) != 0 ||
+            clear_size % sizeof(u32) != 0) {
+            fail("fill_buffer: offset and size must be in range and four-byte aligned.");
             return;
         }
-        const std::optional<u32> heap_offset = record_.resource_heap.allocate(1);
-        if (!heap_offset.has_value()) {
-            device_->cpu_resource_descriptors_.release(*staging);
-            fail("fill_buffer: the command list's shader-visible descriptor heap is full.");
+        if (clear_size == 0) {
             return;
         }
 
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-        uav.Format = DXGI_FORMAT_R32_TYPELESS;
-        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer = {.FirstElement = offset / 4,
-                      .NumElements = static_cast<UINT>(clear_size / 4),
-                      .StructureByteStride = 0,
-                      .CounterOffsetInBytes = 0,
-                      .Flags = D3D12_BUFFER_UAV_FLAG_RAW};
-        const D3D12_CPU_DESCRIPTOR_HANDLE staging_handle = device_->cpu_resource_descriptors_.cpu_handle(*staging, 0);
-        device_->device_->CreateUnorderedAccessView(record->resource.Get(), nullptr, &uav, staging_handle);
-        device_->device_->CopyDescriptorsSimple(1, record_.resource_heap.cpu_handle(*heap_offset), staging_handle, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        const UINT values[4] = {value, value, value, value};
-        list_->ClearUnorderedAccessViewUint(record_.resource_heap.gpu_handle(*heap_offset), staging_handle, record->resource.Get(), values, 0, nullptr);
-        // The staging descriptor must stay valid until the GPU executes the clear, so it is not
-        // released here — it is retained for the life of the command record, the same lifetime rule the
-        // retired heaps follow.
+        constexpr usize max_pattern_bytes = 64 * 1024;
+        const usize pattern_size = static_cast<usize>(std::min<u64>(clear_size, max_pattern_bytes));
+        vector<std::byte> pattern(pattern_size);
+        for (usize byte_offset = 0; byte_offset < pattern.size(); byte_offset += sizeof(value)) {
+            std::memcpy(pattern.data() + byte_offset, &value, sizeof(value));
+        }
+        auto upload = create_transient_upload(pattern, "fill_buffer");
+        if (!upload) {
+            fail(upload.error().message);
+            return;
+        }
+        for (u64 copied = 0; copied < clear_size; copied += pattern_size) {
+            const u64 copy_size = std::min<u64>(pattern_size, clear_size - copied);
+            list_->CopyBufferRegion(destination->resource.Get(), offset + copied, upload->Get(), 0, copy_size);
+        }
+        record_.transient_uploads.push_back(std::move(*upload));
     }
 
     void D3D12CommandEncoder::update_buffer(rhi::BufferHandle buffer, u64 offset, span<const std::byte> data) {
-        // D3D12 has no vkCmdUpdateBuffer — no inline data in the command stream at all. The honest
-        // equivalent is a staged copy, which is what the device's own blocking upload path does; doing
-        // it here would mean submitting work in the middle of recording, changing the ordering the
-        // caller asked for. Reported instead, so a caller uses write_buffer() (outside recording) or a
-        // per-frame upload buffer plus copy_buffer_to_buffer().
-        (void)buffer;
-        (void)offset;
-        (void)data;
-        fail("update_buffer: D3D12 has no inline command-stream buffer update. Use RhiDevice::write_buffer() "
-             "outside recording, or copy from a HostUpload buffer with copy_buffer_to_buffer().");
+        if (!can_record_outside_pass("update_buffer")) {
+            return;
+        }
+        const BufferRecord *destination = device_->buffers_.find(buffer);
+        if (destination == nullptr || destination->memory != rhi::MemoryLocation::DeviceLocal ||
+            !rhi::has_any(destination->usage, rhi::BufferUsage::TransferDst) ||
+            offset > destination->size || data.size() > destination->size - offset) {
+            fail("update_buffer: destination must be an in-range DeviceLocal TransferDst buffer.");
+            return;
+        }
+        if (data.empty()) {
+            return;
+        }
+        if (offset % sizeof(u32) != 0 || data.size() % sizeof(u32) != 0 || data.size() > 65'536) {
+            fail("update_buffer: offset/data size must be four-byte aligned and data cannot exceed 65536 bytes.");
+            return;
+        }
+        auto upload = create_transient_upload(data, "update_buffer");
+        if (!upload) {
+            fail(upload.error().message);
+            return;
+        }
+        list_->CopyBufferRegion(destination->resource.Get(), offset, upload->Get(), 0, data.size());
+        record_.transient_uploads.push_back(std::move(*upload));
     }
 
     void D3D12CommandEncoder::clear_color_texture(rhi::TextureHandle texture, const rhi::ClearColor &color, const rhi::TextureSubresourceRange &range) {
+        if (!can_record_outside_pass("clear_color_texture")) {
+            return;
+        }
         const TextureRecord *record = device_->textures_.find(texture);
         if (record == nullptr) {
             fail("clear_color_texture names an unknown texture handle.");
@@ -723,6 +815,7 @@ namespace SFT::D3D12 {
                                .PlaneSlice = 0};
         const D3D12_CPU_DESCRIPTOR_HANDLE handle = device_->cpu_rtv_descriptors_.cpu_handle(*rtv, 0);
         device_->device_->CreateRenderTargetView(record->resource.Get(), &view, handle);
+        record_.transient_rtv_descriptors.push_back(*rtv);
         const float components[4] = {color.r, color.g, color.b, color.a};
         list_->ClearRenderTargetView(handle, components, 0, nullptr);
     }
@@ -730,6 +823,9 @@ namespace SFT::D3D12 {
     void D3D12CommandEncoder::clear_depth_stencil_texture(rhi::TextureHandle texture,
                                                           const rhi::ClearDepthStencil &value,
                                                           const rhi::TextureSubresourceRange &range) {
+        if (!can_record_outside_pass("clear_depth_stencil_texture")) {
+            return;
+        }
         const TextureRecord *record = device_->textures_.find(texture);
         if (record == nullptr) {
             fail("clear_depth_stencil_texture names an unknown texture handle.");
@@ -750,6 +846,7 @@ namespace SFT::D3D12 {
                                                 : range.array_layer_count};
         const D3D12_CPU_DESCRIPTOR_HANDLE handle = device_->cpu_dsv_descriptors_.cpu_handle(*dsv, 0);
         device_->device_->CreateDepthStencilView(record->resource.Get(), &view, handle);
+        record_.transient_dsv_descriptors.push_back(*dsv);
         D3D12_CLEAR_FLAGS flags = D3D12_CLEAR_FLAG_DEPTH;
         if (rhi::format_has_stencil(record->format)) {
             flags |= D3D12_CLEAR_FLAG_STENCIL;
@@ -761,6 +858,9 @@ namespace SFT::D3D12 {
 
     void D3D12CommandEncoder::build_acceleration_structures(span<const rhi::AccelerationStructureBuildDesc> builds) {
         ZoneScopedN("D3D12CommandEncoder::build_acceleration_structures");
+        if (!can_record_outside_pass("build_acceleration_structures")) {
+            return;
+        }
         if (list4_ == nullptr) {
             fail("build_acceleration_structures: this device/runtime provides no DXR command list.");
             return;
@@ -802,6 +902,9 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::copy_acceleration_structure(const rhi::AccelerationStructureCopyDesc &copy) {
+        if (!can_record_outside_pass("copy_acceleration_structure")) {
+            return;
+        }
         if (list4_ == nullptr) {
             fail("copy_acceleration_structure: this device/runtime provides no DXR command list.");
             return;
@@ -831,6 +934,9 @@ namespace SFT::D3D12 {
     }
 
     void D3D12CommandEncoder::trace_rays(const rhi::TraceRaysDesc &desc) {
+        if (!can_record_outside_pass("trace_rays")) {
+            return;
+        }
         if (list4_ == nullptr) {
             fail("trace_rays: this device/runtime provides no DXR command list.");
             return;
@@ -976,8 +1082,11 @@ namespace SFT::D3D12 {
         if (finished_ || pass_open_) {
             return operation_failed("begin_render_pass: the command encoder is finished or already has an open pass.");
         }
-        if (record_.list_type == D3D12_COMMAND_LIST_TYPE_COPY) {
-            return unsupported("begin_render_pass: a copy-queue command encoder cannot record rendering.");
+        if (record_.list_type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+            return unsupported("begin_render_pass: only a D3D12 direct-queue encoder can record rendering.");
+        }
+        if (desc.allow_bundles) {
+            return unsupported("begin_render_pass: D3D12 render bundles are not implemented; record this pass inline.");
         }
         if (desc.view_mask != 0) {
             return unsupported("begin_render_pass: D3D12 multiview rendering is not implemented.");
@@ -1080,8 +1189,22 @@ namespace SFT::D3D12 {
         }
         parent_->list_->SetPipelineState(record->pipeline.Get());
         parent_->list_->IASetPrimitiveTopology(record->topology);
-        parent_->graphics_bindings_.layout = record->layout;
-        parent_->graphics_bindings_.layout_dirty = true;
+        if (parent_->graphics_bindings_.layout != record->layout) {
+            parent_->graphics_bindings_.layout = record->layout;
+            parent_->graphics_bindings_.layout_dirty = true;
+            parent_->graphics_bindings_.push_constants.clear();
+            parent_->graphics_bindings_.push_constants_dirty = false;
+        }
+        pipeline_bound_ = true;
+        mesh_pipeline_bound_ = record->is_mesh_pipeline;
+        vertex_strides_ = record->vertex_strides;
+        if (!mesh_pipeline_bound_) {
+            for (u32 slot = 0; slot < vertex_strides_.size(); ++slot) {
+                if (vertex_buffers_[slot].buffer.is_valid()) {
+                    bind_vertex_buffer(slot);
+                }
+            }
+        }
     }
     void D3D12RenderPassEncoder::set_bind_group(u32 index, rhi::BindGroupHandle group, span<const u32> offsets) {
         if (ended_ || index >= max_tracked_bind_groups || !group.is_valid()) {
@@ -1093,22 +1216,50 @@ namespace SFT::D3D12 {
         pending.dynamic_offsets.assign(offsets.begin(), offsets.end());
         pending.dirty = true;
     }
-    void D3D12RenderPassEncoder::set_vertex_buffer(u32 slot, rhi::BufferHandle buffer, u64 offset) {
-        const BufferRecord *record = parent_->device_->buffers_.find(buffer);
-        if (ended_ || record == nullptr || offset > record->size) {
-            parent_->fail("set_vertex_buffer: invalid buffer, offset, or ended pass.");
+    void D3D12RenderPassEncoder::bind_vertex_buffer(u32 slot) {
+        if (!pipeline_bound_ || mesh_pipeline_bound_ || slot >= vertex_strides_.size()) {
+            parent_->fail("set_vertex_buffer: the slot is not declared by the bound vertex pipeline.");
             return;
         }
-        const D3D12_VERTEX_BUFFER_VIEW view{record->gpu_address + offset, static_cast<UINT>(record->size - offset), 0};
+        const PendingVertexBuffer &pending = vertex_buffers_[slot];
+        const BufferRecord *record = parent_->device_->buffers_.find(pending.buffer);
+        if (record == nullptr || pending.offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Vertex)) {
+            parent_->fail("set_vertex_buffer: invalid buffer, usage, or offset.");
+            return;
+        }
+        const u64 remaining = record->size - pending.offset;
+        const D3D12_VERTEX_BUFFER_VIEW view{
+            record->gpu_address + pending.offset,
+            static_cast<UINT>(std::min<u64>(remaining, std::numeric_limits<UINT>::max())),
+            vertex_strides_[slot],
+        };
         parent_->list_->IASetVertexBuffers(slot, 1, &view);
+    }
+    void D3D12RenderPassEncoder::set_vertex_buffer(u32 slot, rhi::BufferHandle buffer, u64 offset) {
+        const BufferRecord *record = parent_->device_->buffers_.find(buffer);
+        if (ended_ || slot >= vertex_buffers_.size() || record == nullptr || offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Vertex)) {
+            parent_->fail("set_vertex_buffer: invalid slot, buffer, usage, offset, or ended pass.");
+            return;
+        }
+        vertex_buffers_[slot] = PendingVertexBuffer{.buffer = buffer, .offset = offset};
+        if (pipeline_bound_) {
+            bind_vertex_buffer(slot);
+        }
     }
     void D3D12RenderPassEncoder::set_index_buffer(rhi::BufferHandle buffer, rhi::IndexFormat format, u64 offset) {
         const BufferRecord *record = parent_->device_->buffers_.find(buffer);
-        if (ended_ || record == nullptr || offset > record->size) {
-            parent_->fail("set_index_buffer: invalid buffer, offset, or ended pass.");
+        if (ended_ || record == nullptr || offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Index)) {
+            parent_->fail("set_index_buffer: invalid buffer, usage, offset, or ended pass.");
             return;
         }
-        const D3D12_INDEX_BUFFER_VIEW view{record->gpu_address + offset, static_cast<UINT>(record->size - offset), to_dxgi(format)};
+        const D3D12_INDEX_BUFFER_VIEW view{
+            record->gpu_address + offset,
+            static_cast<UINT>(std::min<u64>(record->size - offset, std::numeric_limits<UINT>::max())),
+            to_dxgi(format),
+        };
         parent_->list_->IASetIndexBuffer(&view);
     }
     void D3D12RenderPassEncoder::set_push_constants(rhi::ShaderStage, u32 offset, span<const std::byte> data) {
@@ -1165,7 +1316,13 @@ namespace SFT::D3D12 {
             parent_->fail("draw: direct draws are not legal in this pass.");
             return;
         }
-        parent_->flush_bindings(parent_->graphics_bindings_, true);
+        if (!pipeline_bound_ || mesh_pipeline_bound_) {
+            parent_->fail("draw: a vertex pipeline must be bound before drawing.");
+            return;
+        }
+        if (!parent_->flush_bindings(parent_->graphics_bindings_, true)) {
+            return;
+        }
         parent_->list_->DrawInstanced(args.vertex_count, args.instance_count, args.first_vertex, args.first_instance);
     }
     void D3D12RenderPassEncoder::draw_indexed(const rhi::DrawIndexedArgs &args) {
@@ -1173,7 +1330,13 @@ namespace SFT::D3D12 {
             parent_->fail("draw_indexed: direct draws are not legal in this pass.");
             return;
         }
-        parent_->flush_bindings(parent_->graphics_bindings_, true);
+        if (!pipeline_bound_ || mesh_pipeline_bound_) {
+            parent_->fail("draw_indexed: a vertex pipeline must be bound before drawing.");
+            return;
+        }
+        if (!parent_->flush_bindings(parent_->graphics_bindings_, true)) {
+            return;
+        }
         parent_->list_->DrawIndexedInstanced(args.index_count, args.instance_count, args.first_index, args.base_vertex, args.first_instance);
     }
     void D3D12RenderPassEncoder::draw_mesh_tasks(const rhi::DrawMeshTasksArgs &args) {
@@ -1181,15 +1344,37 @@ namespace SFT::D3D12 {
             parent_->fail("draw_mesh_tasks: mesh dispatch is unavailable or not legal in this pass.");
             return;
         }
-        parent_->flush_bindings(parent_->graphics_bindings_, true);
+        if (!pipeline_bound_ || !mesh_pipeline_bound_) {
+            parent_->fail("draw_mesh_tasks: a mesh pipeline must be bound before dispatching mesh tasks.");
+            return;
+        }
+        if (!parent_->flush_bindings(parent_->graphics_bindings_, true)) {
+            return;
+        }
         parent_->list6_->DispatchMesh(args.group_count_x, args.group_count_y, args.group_count_z);
     }
 
     void D3D12RenderPassEncoder::record_indirect(D3D12Device::IndirectKind kind, rhi::BufferHandle indirect, u64 offset, rhi::BufferHandle count, u64 count_offset, u32 max_draws, u32 stride) {
         const BufferRecord *arguments = parent_->device_->buffers_.find(indirect);
         const BufferRecord *counter = count.is_valid() ? parent_->device_->buffers_.find(count) : nullptr;
-        if (ended_ || bundles_only_ || arguments == nullptr || (count.is_valid() && counter == nullptr)) {
-            parent_->fail("indirect draw: invalid buffer or pass state.");
+        if (ended_ || bundles_only_ || arguments == nullptr || (count.is_valid() && counter == nullptr) ||
+            !rhi::has_any(arguments->usage, rhi::BufferUsage::Indirect) ||
+            (counter != nullptr && !rhi::has_any(counter->usage, rhi::BufferUsage::Indirect))) {
+            parent_->fail("indirect draw: invalid buffer usage or pass state.");
+            return;
+        }
+        const u64 argument_size = kind == D3D12Device::IndirectKind::Draw
+                                      ? sizeof(D3D12_DRAW_ARGUMENTS)
+                                  : kind == D3D12Device::IndirectKind::DrawIndexed
+                                      ? sizeof(D3D12_DRAW_INDEXED_ARGUMENTS)
+                                      : sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
+        const u64 required_arguments = max_draws == 0
+                                           ? 0
+                                           : static_cast<u64>(max_draws - 1) * stride + argument_size;
+        if (offset > arguments->size || required_arguments > arguments->size - offset ||
+            (counter != nullptr && (count_offset % sizeof(u32) != 0 || count_offset > counter->size ||
+                                    sizeof(u32) > counter->size - count_offset))) {
+            parent_->fail("indirect draw: argument or count range exceeds its buffer.");
             return;
         }
         auto signature = parent_->device_->indirect_signature(kind, stride);
@@ -1197,7 +1382,14 @@ namespace SFT::D3D12 {
             parent_->fail(signature.error().message);
             return;
         }
-        parent_->flush_bindings(parent_->graphics_bindings_, true);
+        const bool mesh_command = kind == D3D12Device::IndirectKind::DispatchMesh;
+        if (!pipeline_bound_ || mesh_pipeline_bound_ != mesh_command || (mesh_command && parent_->list6_ == nullptr)) {
+            parent_->fail("indirect draw command is incompatible with the bound render pipeline.");
+            return;
+        }
+        if (!parent_->flush_bindings(parent_->graphics_bindings_, true)) {
+            return;
+        }
         parent_->list_->ExecuteIndirect(*signature, max_draws, arguments->resource.Get(), offset, counter ? counter->resource.Get() : nullptr, count_offset);
     }
     void D3D12RenderPassEncoder::draw_indirect(rhi::BufferHandle b, u64 o) { record_indirect(D3D12Device::IndirectKind::Draw, b, o, {}, 0, 1, sizeof(D3D12_DRAW_ARGUMENTS)); }
@@ -1206,8 +1398,14 @@ namespace SFT::D3D12 {
     void D3D12RenderPassEncoder::draw_indexed_indirect(rhi::BufferHandle b, u64 o, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::DrawIndexed, b, o, {}, 0, n, s); }
     void D3D12RenderPassEncoder::draw_indirect_count(rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::Draw, b, o, c, co, n, s); }
     void D3D12RenderPassEncoder::draw_indexed_indirect_count(rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::DrawIndexed, b, o, c, co, n, s); }
-    void D3D12RenderPassEncoder::draw_mesh_tasks_indirect(rhi::BufferHandle, u64) { parent_->fail("draw_mesh_tasks_indirect: D3D12 mesh indirect commands are not implemented."); }
-    void D3D12RenderPassEncoder::draw_mesh_tasks_indirect_count(rhi::BufferHandle, u64, rhi::BufferHandle, u64, u32, u32) { parent_->fail("draw_mesh_tasks_indirect_count: D3D12 mesh indirect commands are not implemented."); }
+    void D3D12RenderPassEncoder::draw_mesh_tasks_indirect(rhi::BufferHandle b, u64 o) {
+        record_indirect(D3D12Device::IndirectKind::DispatchMesh, b, o, {}, 0, 1,
+                        sizeof(D3D12_DISPATCH_MESH_ARGUMENTS));
+    }
+    void D3D12RenderPassEncoder::draw_mesh_tasks_indirect_count(
+        rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) {
+        record_indirect(D3D12Device::IndirectKind::DispatchMesh, b, o, c, co, n, s);
+    }
     void D3D12RenderPassEncoder::execute_bundles(span<const rhi::RenderBundleHandle>) { parent_->fail("execute_bundles: D3D12 render bundles are not implemented."); }
     void D3D12RenderPassEncoder::begin_occlusion_query(rhi::QuerySetHandle set, u32 index) {
         const QuerySetRecord *q = parent_->device_->query_sets_.find(set);
@@ -1249,8 +1447,12 @@ namespace SFT::D3D12 {
             return;
         }
         parent_->list_->SetPipelineState(record->pipeline.Get());
-        parent_->compute_bindings_.layout = record->layout;
-        parent_->compute_bindings_.layout_dirty = true;
+        if (parent_->compute_bindings_.layout != record->layout) {
+            parent_->compute_bindings_.layout = record->layout;
+            parent_->compute_bindings_.layout_dirty = true;
+            parent_->compute_bindings_.push_constants.clear();
+            parent_->compute_bindings_.push_constants_dirty = false;
+        }
     }
     void D3D12ComputePassEncoder::set_bind_group(u32 index, rhi::BindGroupHandle group, span<const u32> offsets) {
         if (ended_ || index >= max_tracked_bind_groups || !group.is_valid()) {
@@ -1278,13 +1480,16 @@ namespace SFT::D3D12 {
             parent_->fail("dispatch: ended pass.");
             return;
         }
-        parent_->flush_bindings(parent_->compute_bindings_, false);
+        if (!parent_->flush_bindings(parent_->compute_bindings_, false)) {
+            return;
+        }
         parent_->list_->Dispatch(x, y, z);
     }
     void D3D12ComputePassEncoder::dispatch_indirect(rhi::BufferHandle buffer, u64 offset) {
         const BufferRecord *record = parent_->device_->buffers_.find(buffer);
-        if (ended_ || record == nullptr) {
-            parent_->fail("dispatch_indirect: invalid buffer or ended pass.");
+        if (ended_ || record == nullptr || !rhi::has_any(record->usage, rhi::BufferUsage::Indirect) ||
+            offset > record->size || sizeof(D3D12_DISPATCH_ARGUMENTS) > record->size - offset) {
+            parent_->fail("dispatch_indirect: invalid buffer usage, range, or ended pass.");
             return;
         }
         auto signature = parent_->device_->indirect_signature(D3D12Device::IndirectKind::Dispatch, sizeof(D3D12_DISPATCH_ARGUMENTS));
@@ -1292,7 +1497,9 @@ namespace SFT::D3D12 {
             parent_->fail(signature.error().message);
             return;
         }
-        parent_->flush_bindings(parent_->compute_bindings_, false);
+        if (!parent_->flush_bindings(parent_->compute_bindings_, false)) {
+            return;
+        }
         parent_->list_->ExecuteIndirect(*signature, 1, record->resource.Get(), offset, nullptr, 0);
     }
     void D3D12ComputePassEncoder::end() {
@@ -1332,6 +1539,10 @@ namespace SFT::D3D12 {
             case IndirectKind::Dispatch:
                 type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
                 minimum_stride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+                break;
+            case IndirectKind::DispatchMesh:
+                type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
+                minimum_stride = sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
                 break;
             default:
                 return unsupported("indirect_signature: this indirect command kind is not implemented.");

@@ -2228,6 +2228,7 @@ namespace SFT::Renderer {
                 // See RenderGraphRenderPassBuilder::set_allow_bundles' own doc comment for the crash
                 // this fixes (VUID-vkCmdExecuteCommands-flags-06024, hit and root-caused this session).
                 const bool shadow_atlas_uses_bundles =
+                    device->is_enabled(RHI::Feature::RenderBundles) &&
                     shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
                 graph.add_render_pass("raster shadow atlas"_ustr)
                     .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
@@ -2397,6 +2398,7 @@ namespace SFT::Renderer {
                 }
             }
             const bool zprepass_uses_bundles =
+                device->is_enabled(RHI::Feature::RenderBundles) &&
                 zprepass_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
             graph.add_render_pass("z prepass"_ustr)
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
@@ -2435,6 +2437,7 @@ namespace SFT::Renderer {
                 }
             }
             const bool gbuffer_uses_bundles =
+                device->is_enabled(RHI::Feature::RenderBundles) &&
                 gbuffer_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
             RenderGraphRenderPassBuilder &gbuffer_pass = graph.add_render_pass("deferred gbuffer geometry"_ustr);
             gbuffer_pass.add_color_attachment(RenderGraphColorAttachmentDesc{

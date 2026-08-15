@@ -111,8 +111,13 @@ namespace SFT::D3D12 {
 
         // Applies `state` to the list's root arguments. `graphics` selects the
         // SetGraphicsRoot*/SetComputeRoot* family; D3D12 keeps two entirely separate root-argument sets,
-        // so a compute dispatch cannot see anything a graphics bind wrote and vice versa.
-        void flush_bindings(BindingState &state, bool graphics);
+        // so a compute dispatch cannot see anything a graphics bind wrote and vice versa. False means
+        // validation or descriptor upload failed and the caller must not emit its draw/dispatch.
+        [[nodiscard]] bool flush_bindings(BindingState &state, bool graphics);
+
+        [[nodiscard]] bool can_record_outside_pass(const char *operation);
+        [[nodiscard]] rhi::RhiExpected<ComPtr<ID3D12Resource>> create_transient_upload(
+            span<const std::byte> data, const char *operation);
 
         // Records the current legacy state of `subresource` and emits a transition when the caller's
         // stated old/new layouts disagree with it. Only reached on the pre-enhanced-barrier path.
@@ -186,9 +191,19 @@ namespace SFT::D3D12 {
         void end() override;
 
       private:
+        struct PendingVertexBuffer {
+            rhi::BufferHandle buffer{};
+            u64 offset = 0;
+        };
+
+        void bind_vertex_buffer(u32 slot);
         void record_indirect(D3D12Device::IndirectKind kind, rhi::BufferHandle indirect_buffer, u64 offset, rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws, u32 stride);
 
         D3D12CommandEncoder *parent_ = nullptr;
+        std::array<PendingVertexBuffer, D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT> vertex_buffers_{};
+        vector<u32> vertex_strides_;
+        bool pipeline_bound_ = false;
+        bool mesh_pipeline_bound_ = false;
         std::vector<ColorResolve> color_resolves_;
         // RenderPassDesc::allow_bundles — a pass opened this way records only through bundles, mirroring
         // Vulkan's INLINE-vs-SECONDARY split. Tracked so an inline draw in a bundles-only pass is caught.

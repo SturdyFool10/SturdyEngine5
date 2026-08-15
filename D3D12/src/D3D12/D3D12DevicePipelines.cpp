@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -271,6 +272,13 @@ namespace SFT::D3D12 {
         RenderPipelineRecord record{};
         record.layout = desc.layout;
         record.topology = to_d3d12_topology(desc.topology);
+        record.vertex_strides.reserve(desc.vertex_buffers.size());
+        for (const rhi::VertexBufferLayout &buffer_layout : desc.vertex_buffers) {
+            if (buffer_layout.stride == 0 || buffer_layout.stride > std::numeric_limits<UINT>::max()) {
+                return invalid_argument("create_render_pipeline: every vertex-buffer stride must fit in a non-zero D3D12 UINT.");
+            }
+            record.vertex_strides.push_back(static_cast<u32>(buffer_layout.stride));
+        }
         record.is_mesh_pipeline = is_mesh_pipeline;
         ComPtr<ID3D12InfoQueue> info_queue;
         if (SUCCEEDED(device_.As(&info_queue))) arm_info_queue(info_queue.Get());

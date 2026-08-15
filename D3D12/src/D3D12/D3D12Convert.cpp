@@ -654,9 +654,10 @@ namespace SFT::D3D12 {
         };
 
         add(rhi::PipelineStage::DrawIndirect, D3D12_BARRIER_SYNC_EXECUTE_INDIRECT);
-        // D3D12 has no separate input-assembler sync scope; index/vertex fetch is covered by the
-        // VERTEX_SHADING scope, which is where the fetched data is consumed.
-        add(rhi::PipelineStage::VertexInput, D3D12_BARRIER_SYNC_INDEX_INPUT);
+        // The RHI combines index and vertex fetch in one stage, while D3D12 splits index input from
+        // the vertex-shading scope that consumes vertex-buffer data.
+        add(rhi::PipelineStage::VertexInput,
+            D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::VertexShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::TessControlShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::TessEvalShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
@@ -670,9 +671,9 @@ namespace SFT::D3D12 {
         add(rhi::PipelineStage::LateFragmentTests, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
         add(rhi::PipelineStage::ColorAttachmentOutput, D3D12_BARRIER_SYNC_RENDER_TARGET);
         add(rhi::PipelineStage::ComputeShader, D3D12_BARRIER_SYNC_COMPUTE_SHADING);
-        // The RHI Transfer stage accompanies TransferRead/TransferWrite, which map to COPY_SOURCE/
-        // COPY_DEST. RESOLVE and CLEAR_UAV are distinct D3D12 scopes with incompatible access masks;
-        // including them here makes an otherwise ordinary buffer-to-texture copy barrier invalid.
+        // The RHI Transfer stage normally accompanies TransferRead/TransferWrite, which map to
+        // COPY_SOURCE/COPY_DEST. D3D12 resolve uses distinct, mutually constrained sync/access/layout
+        // values, so resolve transitions are emitted explicitly by the render-pass resolve path.
         add(rhi::PipelineStage::Transfer, D3D12_BARRIER_SYNC_COPY);
         add(rhi::PipelineStage::RayTracingShader, D3D12_BARRIER_SYNC_RAYTRACING);
         add(rhi::PipelineStage::AccelerationStructureBuild,
@@ -730,7 +731,7 @@ namespace SFT::D3D12 {
             case rhi::TextureLayout::Undefined:
                 return D3D12_BARRIER_LAYOUT_UNDEFINED;
             case rhi::TextureLayout::General:
-                return D3D12_BARRIER_LAYOUT_COMMON;
+                return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
             case rhi::TextureLayout::ColorAttachment:
                 return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
             case rhi::TextureLayout::DepthStencilAttachment:
@@ -755,8 +756,9 @@ namespace SFT::D3D12 {
     D3D12_RESOURCE_STATES to_legacy_texture_state(rhi::TextureLayout layout) noexcept {
         switch (layout) {
             case rhi::TextureLayout::Undefined:
-            case rhi::TextureLayout::General:
                 return D3D12_RESOURCE_STATE_COMMON;
+            case rhi::TextureLayout::General:
+                return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             case rhi::TextureLayout::ColorAttachment:
                 return D3D12_RESOURCE_STATE_RENDER_TARGET;
             case rhi::TextureLayout::DepthStencilAttachment:

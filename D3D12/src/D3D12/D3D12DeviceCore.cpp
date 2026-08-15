@@ -297,6 +297,19 @@ namespace SFT::D3D12 {
         record.resource_heap.reset();
         record.sampler_heap.reset();
         record.retired_heaps.clear();
+        record.transient_uploads.clear();
+        for (DescriptorRange descriptor : record.transient_resource_descriptors) {
+            cpu_resource_descriptors_.release(descriptor);
+        }
+        for (DescriptorRange descriptor : record.transient_rtv_descriptors) {
+            cpu_rtv_descriptors_.release(descriptor);
+        }
+        for (DescriptorRange descriptor : record.transient_dsv_descriptors) {
+            cpu_dsv_descriptors_.release(descriptor);
+        }
+        record.transient_resource_descriptors.clear();
+        record.transient_rtv_descriptors.clear();
+        record.transient_dsv_descriptors.clear();
         const u32 key = static_cast<u32>(record.list_type);
         command_buffer_free_list_.lock()->operator[](key).push_back(std::move(record));
     }
