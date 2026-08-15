@@ -40,16 +40,26 @@ namespace SFT::UiWorkbench {
         [[nodiscard]] Platform::Windowing::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
             switch (icon) {
                 case UI::CursorIcon::Auto:
-                case UI::CursorIcon::Default: return Platform::Windowing::CursorIcon::Default;
-                case UI::CursorIcon::Pointer: return Platform::Windowing::CursorIcon::Pointer;
-                case UI::CursorIcon::Text: return Platform::Windowing::CursorIcon::Text;
-                case UI::CursorIcon::Grab: return Platform::Windowing::CursorIcon::Grab;
-                case UI::CursorIcon::Grabbing: return Platform::Windowing::CursorIcon::Grabbing;
-                case UI::CursorIcon::ResizeHorizontal: return Platform::Windowing::CursorIcon::ResizeHorizontal;
-                case UI::CursorIcon::ResizeVertical: return Platform::Windowing::CursorIcon::ResizeVertical;
-                case UI::CursorIcon::ResizeNwse: return Platform::Windowing::CursorIcon::ResizeNwse;
-                case UI::CursorIcon::ResizeNesw: return Platform::Windowing::CursorIcon::ResizeNesw;
-                case UI::CursorIcon::NotAllowed: return Platform::Windowing::CursorIcon::NotAllowed;
+                case UI::CursorIcon::Default:
+                    return Platform::Windowing::CursorIcon::Default;
+                case UI::CursorIcon::Pointer:
+                    return Platform::Windowing::CursorIcon::Pointer;
+                case UI::CursorIcon::Text:
+                    return Platform::Windowing::CursorIcon::Text;
+                case UI::CursorIcon::Grab:
+                    return Platform::Windowing::CursorIcon::Grab;
+                case UI::CursorIcon::Grabbing:
+                    return Platform::Windowing::CursorIcon::Grabbing;
+                case UI::CursorIcon::ResizeHorizontal:
+                    return Platform::Windowing::CursorIcon::ResizeHorizontal;
+                case UI::CursorIcon::ResizeVertical:
+                    return Platform::Windowing::CursorIcon::ResizeVertical;
+                case UI::CursorIcon::ResizeNwse:
+                    return Platform::Windowing::CursorIcon::ResizeNwse;
+                case UI::CursorIcon::ResizeNesw:
+                    return Platform::Windowing::CursorIcon::ResizeNesw;
+                case UI::CursorIcon::NotAllowed:
+                    return Platform::Windowing::CursorIcon::NotAllowed;
             }
             return Platform::Windowing::CursorIcon::Default;
         }
@@ -62,8 +72,7 @@ namespace SFT::UiWorkbench {
         // deciding whether a drag ended over another managed window instead of empty desktop.
         constexpr glm::vec2 kWorkspaceOrigin{18.0f, 58.0f};
 
-        [[nodiscard]] UI::TextStyle text_style(UI::FontId font, UI::Color color = text_primary,
-                                                u16 size = 14) {
+        [[nodiscard]] UI::TextStyle text_style(UI::FontId font, UI::Color color = text_primary, u16 size = 14) {
             return UI::TextStyle{
                 .color = color,
                 .font_id = font,
@@ -95,8 +104,7 @@ namespace SFT::UiWorkbench {
 
         [[nodiscard]] std::string rgba_text(const UI::Color &color) {
             std::array<char, 128> buffer{};
-            std::snprintf(buffer.data(), buffer.size(), "sRGB  %.3f   %.3f   %.3f   alpha %.3f",
-                          color.r, color.g, color.b, color.a);
+            std::snprintf(buffer.data(), buffer.size(), "sRGB  %.3f   %.3f   %.3f   alpha %.3f", color.r, color.g, color.b, color.a);
             return std::string{buffer.data()};
         }
 
@@ -104,7 +112,6 @@ namespace SFT::UiWorkbench {
             const ustr borrowed{content};
             ctx.text(borrowed, style);
         }
-
 
         [[nodiscard]] UI::ButtonStyle action_button_style() {
             return UI::ButtonStyle{
@@ -171,8 +178,7 @@ namespace SFT::UiWorkbench {
             return style;
         }
 
-        void panel_heading(UI::Context &ctx, UI::FontId font, std::string_view eyebrow,
-                           std::string_view title, std::string_view description) {
+        void panel_heading(UI::Context &ctx, UI::FontId font, std::string_view eyebrow, std::string_view title, std::string_view description) {
             draw_text(ctx, eyebrow, text_style(font, accent, 12));
             draw_text(ctx, title, text_style(font, text_primary, 23));
             draw_text(ctx, description, text_style(font, text_secondary, 13));
@@ -204,8 +210,7 @@ namespace SFT::UiWorkbench {
             draw_text(ctx, text, text_style(font, color, 11));
         }
 
-        [[nodiscard]] UI::DropdownOption dropdown_option(UI::FontId font, const char *label,
-                                                          UI::Color swatch) {
+        [[nodiscard]] UI::DropdownOption dropdown_option(UI::FontId font, const char *label, UI::Color swatch) {
             return UI::DropdownOption{.build = [font, label, swatch](UI::Context &ctx) {
                 auto row = ctx.element(UI::ElementDecl{
                     .sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fit()},
@@ -231,9 +236,7 @@ namespace SFT::UiWorkbench {
     } // namespace
 
     struct WorkbenchUi::Surface {
-        Surface(Core::RenderSurfaceHandle surface_handle, UI::Context &&ui_context,
-                UI::UiRenderer &&sdr_ui_renderer, UI::UiRenderer &&hdr_ui_renderer,
-                UString workspace_id, UI::Docking::DockWorkspaceStyle workspace_style, bool is_primary)
+        Surface(Core::RenderSurfaceHandle surface_handle, UI::Context &&ui_context, UI::UiRenderer &&sdr_ui_renderer, UI::UiRenderer &&hdr_ui_renderer, UString workspace_id, UI::Docking::DockWorkspaceStyle workspace_style, bool is_primary)
             : handle(surface_handle),
               context(std::move(ui_context)),
               sdr_renderer(std::move(sdr_ui_renderer)),
@@ -385,7 +388,9 @@ namespace SFT::UiWorkbench {
     }
 
     WorkbenchUi::Surface *WorkbenchUi::ensure_surface(
-        Engine::Engine &engine, Core::RenderSurfaceHandle handle, bool primary) {
+        Engine::Engine &engine,
+        Core::RenderSurfaceHandle handle,
+        bool primary) {
         if (Surface *existing = find_surface(handle.window_id)) {
             return existing;
         }
@@ -415,9 +420,13 @@ namespace SFT::UiWorkbench {
         }
         const usize numeric_window = static_cast<usize>(handle.window_id);
         auto surface = std::make_unique<Surface>(
-            handle, std::move(*context), std::move(*sdr_renderer), std::move(*hdr_renderer),
+            handle,
+            std::move(*context),
+            std::move(*sdr_renderer),
+            std::move(*hdr_renderer),
             UString{"ui-workbench-window-" + std::to_string(numeric_window)},
-            dock_style(font_id_), primary);
+            dock_style(font_id_),
+            primary);
         const std::array<const Text::Font *, 1> font_fallbacks{&cjk_font_};
         surface->context.register_font(font_id_, font_, /*emoji_fallback=*/nullptr, font_fallbacks);
 
@@ -427,27 +436,72 @@ namespace SFT::UiWorkbench {
 
         if (primary) {
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"composition"}, .title = UString{"Composition"}, .closable = true});
+                .id = UString{"composition"},
+                .title = UString{"Composition"},
+                .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"controls"}, .title = UString{"Slider Lab"}, .closable = true});
+                .id = UString{"controls"},
+                .title = UString{"Slider Lab"},
+                .closable = true});
             const UI::Docking::DockNodeId controls_leaf = *result->workspace.focused_leaf();
             (void)result->workspace.add_panel(
                 UI::Docking::DockPanelDesc{
-                    .id = UString{"color"}, .title = UString{"Color Studio"}, .closable = true},
+                    .id = UString{"color"},
+                    .title = UString{"Color Studio"},
+                    .closable = true},
                 UI::Docking::DockPlacement{
-                    .target_node = controls_leaf, .zone = UI::Docking::DockDropZone::Right});
+                    .target_node = controls_leaf,
+                    .zone = UI::Docking::DockDropZone::Right});
             const UI::Docking::DockNodeId color_leaf = *result->workspace.focused_leaf();
             (void)result->workspace.add_panel(
                 UI::Docking::DockPanelDesc{
-                    .id = UString{"docking"}, .title = UString{"Docking Guide"}, .closable = false},
+                    .id = UString{"docking"},
+                    .title = UString{"Docking Guide"},
+                    .closable = false},
                 UI::Docking::DockPlacement{
-                    .target_node = color_leaf, .zone = UI::Docking::DockDropZone::Bottom});
+                    .target_node = color_leaf,
+                    .zone = UI::Docking::DockDropZone::Bottom});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"text"}, .title = UString{"Text Lab"}, .closable = true});
+                .id = UString{"text"},
+                .title = UString{"Text Lab"},
+                .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"metrics"}, .title = UString{"Performance"}, .closable = true});
+                .id = UString{"metrics"},
+                .title = UString{"Performance"},
+                .closable = true});
         }
         return result;
+    }
+
+    void WorkbenchUi::destroy_surface_renderers(RHI::RhiDevice &device) noexcept {
+        for (auto &[window, surface] : surfaces_) {
+            (void)window;
+            surface->sdr_renderer.destroy(device);
+            surface->hdr_renderer.destroy(device);
+        }
+    }
+
+    Core::RendererResult WorkbenchUi::recreate_surface_renderers(RHI::RhiDevice &device) {
+        for (auto &[window, surface] : surfaces_) {
+            (void)window;
+            auto sdr_renderer = UI::UiRenderer::create(device, RHI::Format::BGRA8UnormSrgb);
+            if (!sdr_renderer) {
+                return std::unexpected(sdr_renderer.error());
+            }
+            auto hdr_renderer = UI::UiRenderer::create(device, RHI::Format::RGBA16Float);
+            if (!hdr_renderer) {
+                sdr_renderer->destroy(device);
+                return std::unexpected(hdr_renderer.error());
+            }
+            surface->sdr_renderer = std::move(*sdr_renderer);
+            surface->hdr_renderer = std::move(*hdr_renderer);
+            if (!surface->sdr_renderer.ready() || !surface->hdr_renderer.ready()) {
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    "UiRenderer creation did not produce a ready renderer.");
+            }
+        }
+        return {};
     }
 
     void WorkbenchUi::route_input(Engine::Engine &engine) {
@@ -537,25 +591,55 @@ namespace SFT::UiWorkbench {
                     // plus a modifier the widget would have to interpret).
                     if (surface->ctrl_down) {
                         switch (event.key_code) {
-                            case Engine::KeyboardKey::A: surface->edit_keys.push_back(UI::EditKey::SelectAll); break;
-                            case Engine::KeyboardKey::C: surface->edit_keys.push_back(UI::EditKey::Copy); break;
-                            case Engine::KeyboardKey::X: surface->edit_keys.push_back(UI::EditKey::Cut); break;
-                            case Engine::KeyboardKey::V: surface->edit_keys.push_back(UI::EditKey::Paste); break;
-                            default: break;
+                            case Engine::KeyboardKey::A:
+                                surface->edit_keys.push_back(UI::EditKey::SelectAll);
+                                break;
+                            case Engine::KeyboardKey::C:
+                                surface->edit_keys.push_back(UI::EditKey::Copy);
+                                break;
+                            case Engine::KeyboardKey::X:
+                                surface->edit_keys.push_back(UI::EditKey::Cut);
+                                break;
+                            case Engine::KeyboardKey::V:
+                                surface->edit_keys.push_back(UI::EditKey::Paste);
+                                break;
+                            default:
+                                break;
                         }
                     }
                     switch (event.key_code) {
-                        case Engine::KeyboardKey::Left: surface->edit_keys.push_back(UI::EditKey::Left); break;
-                        case Engine::KeyboardKey::Right: surface->edit_keys.push_back(UI::EditKey::Right); break;
-                        case Engine::KeyboardKey::Up: surface->edit_keys.push_back(UI::EditKey::Up); break;
-                        case Engine::KeyboardKey::Down: surface->edit_keys.push_back(UI::EditKey::Down); break;
-                        case Engine::KeyboardKey::Home: surface->edit_keys.push_back(UI::EditKey::Home); break;
-                        case Engine::KeyboardKey::End: surface->edit_keys.push_back(UI::EditKey::End); break;
-                        case Engine::KeyboardKey::Backspace: surface->edit_keys.push_back(UI::EditKey::Backspace); break;
-                        case Engine::KeyboardKey::Delete: surface->edit_keys.push_back(UI::EditKey::Delete); break;
-                        case Engine::KeyboardKey::Enter: surface->edit_keys.push_back(UI::EditKey::Enter); break;
-                        case Engine::KeyboardKey::Escape: surface->edit_keys.push_back(UI::EditKey::Escape); break;
-                        default: break;
+                        case Engine::KeyboardKey::Left:
+                            surface->edit_keys.push_back(UI::EditKey::Left);
+                            break;
+                        case Engine::KeyboardKey::Right:
+                            surface->edit_keys.push_back(UI::EditKey::Right);
+                            break;
+                        case Engine::KeyboardKey::Up:
+                            surface->edit_keys.push_back(UI::EditKey::Up);
+                            break;
+                        case Engine::KeyboardKey::Down:
+                            surface->edit_keys.push_back(UI::EditKey::Down);
+                            break;
+                        case Engine::KeyboardKey::Home:
+                            surface->edit_keys.push_back(UI::EditKey::Home);
+                            break;
+                        case Engine::KeyboardKey::End:
+                            surface->edit_keys.push_back(UI::EditKey::End);
+                            break;
+                        case Engine::KeyboardKey::Backspace:
+                            surface->edit_keys.push_back(UI::EditKey::Backspace);
+                            break;
+                        case Engine::KeyboardKey::Delete:
+                            surface->edit_keys.push_back(UI::EditKey::Delete);
+                            break;
+                        case Engine::KeyboardKey::Enter:
+                            surface->edit_keys.push_back(UI::EditKey::Enter);
+                            break;
+                        case Engine::KeyboardKey::Escape:
+                            surface->edit_keys.push_back(UI::EditKey::Escape);
+                            break;
+                        default:
+                            break;
                     }
                     switch (event.key_code) {
                         case Engine::KeyboardKey::Left:
@@ -631,7 +715,9 @@ namespace SFT::UiWorkbench {
     }
 
     std::optional<Engine::RenderFrameParameters> WorkbenchUi::render(
-        Engine::Engine &engine, Core::RenderSurfaceHandle handle, const Core::FrameInput &frame) {
+        Engine::Engine &engine,
+        Core::RenderSurfaceHandle handle,
+        const Core::FrameInput &frame) {
         process_window_completions(engine);
         if (!primary_window_) {
             primary_window_ = handle.window_id;
@@ -641,6 +727,26 @@ namespace SFT::UiWorkbench {
             return std::nullopt;
         }
 
+        // A backend reconstruction deliberately destroys the old UI GPU resources. Do not submit a
+        // hook with a renderer that has not yet been recreated (for example, if the reconstruction
+        // completed between two managed-window frame tasks); rebuild it against the device currently
+        // owned by Engine and defer this frame if that cannot happen yet.
+        if (!surface->sdr_renderer.ready() || !surface->hdr_renderer.ready()) {
+            if (ui_renderer_rebuild_failed_) {
+                return std::nullopt;
+            }
+            RHI::RhiDevice *device = engine.rhi_device();
+            if (device == nullptr) {
+                return std::nullopt;
+            }
+            if (auto ui_rebuilt = recreate_surface_renderers(*device); !ui_rebuilt) {
+                ui_renderer_rebuild_failed_ = true;
+                Foundation::log_error("UiWorkbench: failed to recreate UI renderers after graphics reconstruction: {}",
+                                      ui_rebuilt.error().message);
+                return std::nullopt;
+            }
+            ui_renderer_rebuild_failed_ = false;
+        }
 
         if (Renderer::Renderer *renderer = engine.renderer(); renderer != nullptr) {
             surface->last_timing_snapshot = renderer->last_frame_timings(handle);
@@ -651,6 +757,16 @@ namespace SFT::UiWorkbench {
         UI::Docking::DockWorkspaceEvents dock_events =
             build_frame(engine, *surface, viewport, static_cast<f32>(frame.delta_seconds));
         handle_dock_events(engine, *surface, std::move(dock_events));
+
+        // The reconstruction above invalidates resources while this UI frame still contains
+        // work recorded for the previous device. Complete the UI transaction but do not pass
+        // that stale work to the renderer; the next frame builds it against the new backend.
+        if (frames_to_skip_after_graphics_reconstruction_ != 0) {
+            --frames_to_skip_after_graphics_reconstruction_;
+            (void)surface->context.finish_frame();
+            return std::nullopt;
+        }
+
         // Fire-and-forget through the same deferred WindowRequests queue spawn/close already use —
         // GameLogic never holds a live Platform::Windowing::Window* (see WindowRequests.hpp's own
         // doc comment). One frame of latency between a hover changing and the OS cursor actually
@@ -669,7 +785,10 @@ namespace SFT::UiWorkbench {
     }
 
     UI::Docking::DockWorkspaceEvents WorkbenchUi::build_frame(
-        Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds) {
+        Engine::Engine &engine,
+        Surface &surface,
+        glm::vec2 viewport,
+        f32 delta_seconds) {
         UI::PointerState framebuffer_pointer = surface.pointer;
         if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
             // Layout and live-resize extents are physical framebuffer pixels. Use the matching
@@ -769,8 +888,7 @@ namespace SFT::UiWorkbench {
                     .direction = UI::LayoutDirection::TopToBottom,
                 });
                 draw_text(surface.context, "Sturdy UI Workbench", text_style(font_id_, text_primary, 16));
-                draw_text(surface.context, "composable controls · perceptual color · live docking",
-                          text_style(font_id_, text_secondary, 10));
+                draw_text(surface.context, "composable controls · perceptual color · live docking", text_style(font_id_, text_secondary, 10));
             }
             {
                 // Braced so this closes here — otherwise status_pill() below nests inside this
@@ -782,11 +900,9 @@ namespace SFT::UiWorkbench {
                 (void)spacer;
             }
             if (surface.fps_smoothed >= 0.0f) {
-                status_pill(surface.context, font_id_, fps_text(surface.fps_smoothed),
-                            fps_color(surface.fps_smoothed, success, warning, danger));
+                status_pill(surface.context, font_id_, fps_text(surface.fps_smoothed), fps_color(surface.fps_smoothed, success, warning, danger));
             }
-            status_pill(surface.context, font_id_, surface.primary ? "PRIMARY SURFACE" : "DETACHED SURFACE",
-                        surface.primary ? success : accent_hot);
+            status_pill(surface.context, font_id_, surface.primary ? "PRIMARY SURFACE" : "DETACHED SURFACE", surface.primary ? success : accent_hot);
         }
 
         const glm::vec2 workspace_size{std::max(viewport.x - 36.0f, 1.0f),
@@ -802,40 +918,34 @@ namespace SFT::UiWorkbench {
         // carries a stable id and .clip.vertical=true from panel_content_region(), so it's passed
         // straight through rather than opened as a plain ctx.element() first.
         if (auto decl = surface.workspace.panel_content_region(UString{"controls"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.controls_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_controls_panel(surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.controls_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_controls_panel(surface, ctx, delta_seconds);
+            });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"color"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.color_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_color_panel(surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.color_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_color_panel(surface, ctx, delta_seconds);
+            });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"composition"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.composition_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_composition_panel(engine, surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.composition_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_composition_panel(engine, surface, ctx, delta_seconds);
+            });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"text"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.text_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_text_panel(engine, surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.text_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_text_panel(engine, surface, ctx, delta_seconds);
+            });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"docking"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.docking_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_docking_panel(surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.docking_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_docking_panel(surface, ctx, delta_seconds);
+            });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"metrics"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.metrics_scroll,
-                                  delta_seconds, [&](UI::Context &ctx) {
-                                      build_metrics_panel(surface, ctx, delta_seconds);
-                                  });
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.metrics_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_metrics_panel(surface, ctx, delta_seconds);
+            });
         }
 
         UI::Docking::DockWorkspaceEvents events = surface.workspace.end_frame(surface.context);
@@ -854,8 +964,7 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-controls-body"},
         });
-        panel_heading(ctx, font_id_, "RANGE INPUT", "Slider Lab",
-                      "Track-click, drag, focus, tick, reverse and keyboard semantics in engine-native UI.");
+        panel_heading(ctx, font_id_, "RANGE INPUT", "Slider Lab", "Track-click, drag, focus, tick, reverse and keyboard semantics in engine-native UI.");
 
         {
             auto badges = ctx.element(UI::ElementDecl{
@@ -868,12 +977,13 @@ namespace SFT::UiWorkbench {
         }
 
         section_label(ctx, font_id_, "EXPOSURE — CUSTOM COMPOSITION");
-        draw_text(ctx, number_text("Current value  ", exposure_, "%"),
-                  text_style(font_id_, text_primary, 14));
+        draw_text(ctx, number_text("Current value  ", exposure_, "%"), text_style(font_id_, text_primary, 14));
 
         const std::array ticks{
-            UI::SliderTick{.value = 0.0}, UI::SliderTick{.value = 25.0},
-            UI::SliderTick{.value = 50.0}, UI::SliderTick{.value = 75.0},
+            UI::SliderTick{.value = 0.0},
+            UI::SliderTick{.value = 25.0},
+            UI::SliderTick{.value = 50.0},
+            UI::SliderTick{.value = 75.0},
             UI::SliderTick{.value = 100.0},
         };
         UI::SliderConfig config{
@@ -909,10 +1019,9 @@ namespace SFT::UiWorkbench {
         composition.marker.visible = show_slider_markers_;
         composition.marker_label.visible = show_slider_markers_;
         composition.marker_label.build = [](UI::Context &part_ctx,
-                                                const UI::SliderPartContext &part) {
+                                            const UI::SliderPartContext &part) {
             if (part.marker_value) {
-                draw_text(part_ctx, number_text("", *part.marker_value),
-                          text_style(font_id_, text_secondary, 9));
+                draw_text(part_ctx, number_text("", *part.marker_value), text_style(font_id_, text_secondary, 9));
             }
         };
         composition.thumb.alter_decl = [this](UI::ElementDecl &decl,
@@ -951,8 +1060,7 @@ namespace SFT::UiWorkbench {
                 .corner_radius = UI::CornerRadius::all(7.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
-            draw_text(part_ctx, number_text("", part.value, "%"),
-                      text_style(font_id_, text_primary, 12));
+            draw_text(part_ctx, number_text("", part.value, "%"), text_style(font_id_, text_primary, 12));
         };
 
         const UI::SliderResult exposure_result = UI::slider(
@@ -961,8 +1069,13 @@ namespace SFT::UiWorkbench {
                 .sizing = {UI::SizingAxis::fixed(340.0f), UI::SizingAxis::fixed(42.0f)},
                 .id = UString{"workbench-exposure"},
             },
-            config, style, exposure_slider_state_, exposure_,
-            UI::SliderInput{.keys = surface.slider_keys}, slider_enabled_, composition);
+            config,
+            style,
+            exposure_slider_state_,
+            exposure_,
+            UI::SliderInput{.keys = surface.slider_keys},
+            slider_enabled_,
+            composition);
         exposure_ = exposure_result.value;
 
         section_label(ctx, font_id_, "CONTINUOUS + REVERSED VERTICAL");
@@ -990,8 +1103,12 @@ namespace SFT::UiWorkbench {
                     .sizing = {UI::SizingAxis::fixed(46.0f), UI::SizingAxis::fixed(170.0f)},
                     .id = UString{"workbench-rotation"},
                 },
-                vertical_config, vertical_style, rotation_slider_state_, rotation_,
-                UI::SliderInput{.keys = surface.slider_keys}, slider_enabled_);
+                vertical_config,
+                vertical_style,
+                rotation_slider_state_,
+                rotation_,
+                UI::SliderInput{.keys = surface.slider_keys},
+                slider_enabled_);
             rotation_ = rotation_result.value;
             {
                 auto details = ctx.element(UI::ElementDecl{
@@ -1003,12 +1120,9 @@ namespace SFT::UiWorkbench {
                     .corner_radius = UI::CornerRadius::all(12.0f),
                     .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
                 });
-                draw_text(ctx, number_text("Rotation  ", rotation_, "°"),
-                          text_style(font_id_, text_primary, 15));
-                draw_text(ctx, "step=any · min at top · full captured drag",
-                          text_style(font_id_, text_secondary, 11));
-                draw_text(ctx, "Click either track, then use arrows, Page Up/Down, Home or End.",
-                          text_style(font_id_, text_secondary, 11));
+                draw_text(ctx, number_text("Rotation  ", rotation_, "°"), text_style(font_id_, text_primary, 15));
+                draw_text(ctx, "step=any · min at top · full captured drag", text_style(font_id_, text_secondary, 11));
+                draw_text(ctx, "Click either track, then use arrows, Page Up/Down, Home or End.", text_style(font_id_, text_secondary, 11));
             }
         }
     }
@@ -1021,8 +1135,7 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-color-body"},
         });
-        panel_heading(ctx, font_id_, "FOUNDATION COLOR", "Color Studio",
-                      "Pick visually, preserve alpha, then inspect the selected strongly typed color space.");
+        panel_heading(ctx, font_id_, "FOUNDATION COLOR", "Color Studio", "Pick visually, preserve alpha, then inspect the selected strongly typed color space.");
 
         UI::ColorPickerConfig config{
             .show_color_space_dropdown = true,
@@ -1088,7 +1201,8 @@ namespace SFT::UiWorkbench {
         };
 
         const UI::ColorPickerResult result = UI::color_picker(
-            ctx, UString{"workbench-color-picker"},
+            ctx,
+            UString{"workbench-color-picker"},
             UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(14),
@@ -1098,9 +1212,13 @@ namespace SFT::UiWorkbench {
                 .corner_radius = UI::CornerRadius::all(14.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             },
-            config, style, color_picker_state_, selected_color_,
+            config,
+            style,
+            color_picker_state_,
+            selected_color_,
             UI::ColorPickerInput{.keys = surface.color_keys, .delta_seconds = delta_seconds},
-            picker_enabled_, composition);
+            picker_enabled_,
+            composition);
         selected_color_ = result.color;
         selected_color_value_ = result.value;
         selected_color_space_ = result.color_space;
@@ -1123,12 +1241,7 @@ namespace SFT::UiWorkbench {
                 UI::color_picker_components(selected_color_space_);
             const std::array<f64, 4> values = UI::color_picker_component_values(selected_color_value_);
             std::array<char, 160> typed_line{};
-            std::snprintf(typed_line.data(), typed_line.size(), "%s   %s %.3f   %s %.3f   %s %.3f   alpha %.3f",
-                          UI::color_picker_space_name(selected_color_space_),
-                          components[0].label, values[0],
-                          components[1].label, values[1],
-                          components[2].label, values[2],
-                          values[3]);
+            std::snprintf(typed_line.data(), typed_line.size(), "%s   %s %.3f   %s %.3f   %s %.3f   alpha %.3f", UI::color_picker_space_name(selected_color_space_), components[0].label, values[0], components[1].label, values[1], components[2].label, values[2], values[3]);
             draw_text(ctx, typed_line.data(), text_style(font_id_, text_primary, 12));
         }
     }
@@ -1141,8 +1254,7 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-composition-body"},
         });
-        panel_heading(ctx, font_id_, "PART SLOTS", "Composition",
-                      "Enable, disable, hide or replace widget internals without forking interaction logic.");
+        panel_heading(ctx, font_id_, "PART SLOTS", "Composition", "Enable, disable, hide or replace widget internals without forking interaction logic.");
 
         const auto apply_presentation_config = [&](const Engine::EngineConfig &config) {
             Surface *primary_surface = primary_window_ ? find_surface(*primary_window_) : nullptr;
@@ -1157,18 +1269,147 @@ namespace SFT::UiWorkbench {
                     continue;
                 }
                 if (const Core::RendererResult mirrored = engine.set_presentation_settings(
-                        other_surface->handle, config.features.presentation);
+                        other_surface->handle,
+                        config.features.presentation);
                     !mirrored) {
                     Foundation::log_warn(
                         "UiWorkbench: failed to mirror presentation settings to window {}: {}",
-                        static_cast<usize>(window), mirrored.error().message);
+                        static_cast<usize>(window),
+                        mirrored.error().message);
                 }
             }
             return applied;
         };
 
-        const auto toggle_row = [&](usize index, const char *label, const char *description,
-                                    bool &value, const std::function<void()> &on_change = [] {}) {
+        const std::span<const RHI::PhysicalGpu> adapters = engine.gpu_inventory().gpus;
+        if (!adapters.empty()) {
+            selected_graphics_adapter_index_ = std::min(selected_graphics_adapter_index_, adapters.size() - 1);
+            UI::DropdownStyle graphics_dropdown_style{};
+            graphics_dropdown_style.trigger = action_button_style();
+            graphics_dropdown_style.list_background = panel_raised;
+            graphics_dropdown_style.option_hovered = UI::Color{accent.r, accent.g, accent.b, 0.22};
+            graphics_dropdown_style.arrow_font_id = font_id_;
+
+            section_label(ctx, font_id_, "Graphics adapter");
+            std::vector<UI::DropdownOption> adapter_options;
+            for (const RHI::PhysicalGpu &gpu : adapters) {
+                const std::string label = gpu.name + " — " + gpu.vendor;
+                adapter_options.push_back({.build = [label](UI::Context &option_ctx) {
+                    draw_text(option_ctx, label, text_style(font_id_, text_primary, 12));
+                }});
+            }
+            const UI::DropdownResult adapter_result = UI::dropdown(
+                ctx,
+                UString{"workbench-graphics-adapter-dropdown"},
+                UI::ElementDecl{.sizing = {UI::SizingAxis::fixed(330.0f), UI::SizingAxis::fixed(38.0f)},
+                                .padding = UI::Padding::symmetric(12, 8),
+                                .id = UString{"workbench-graphics-adapter-dropdown"}},
+                graphics_dropdown_style,
+                graphics_adapter_dropdown_state_,
+                delta_seconds,
+                selected_graphics_adapter_index_,
+                adapter_options,
+                true,
+                UI::DropdownComposition{});
+            selected_graphics_adapter_index_ = adapter_result.selected_index;
+            if (adapter_result.changed)
+                selected_graphics_api_index_ = 0;
+
+            const RHI::PhysicalGpu &adapter = adapters[selected_graphics_adapter_index_];
+            selected_graphics_api_index_ = std::min(selected_graphics_api_index_, adapter.api_support.size() - 1);
+            section_label(ctx, font_id_, "Graphics API");
+            std::vector<UI::DropdownOption> api_options;
+            for (const RHI::GpuApiSupport &api : adapter.api_support) {
+                const std::string label = RHI::backend_type_name(api.adapter.backend);
+                api_options.push_back({.build = [label](UI::Context &option_ctx) {
+                    draw_text(option_ctx, label, text_style(font_id_, text_primary, 12));
+                }});
+            }
+            const UI::DropdownResult api_result = UI::dropdown(
+                ctx,
+                UString{"workbench-graphics-api-dropdown"},
+                UI::ElementDecl{.sizing = {UI::SizingAxis::fixed(330.0f), UI::SizingAxis::fixed(38.0f)},
+                                .padding = UI::Padding::symmetric(12, 8),
+                                .id = UString{"workbench-graphics-api-dropdown"}},
+                graphics_dropdown_style,
+                graphics_api_dropdown_state_,
+                delta_seconds,
+                selected_graphics_api_index_,
+                api_options,
+                true,
+                UI::DropdownComposition{});
+            selected_graphics_api_index_ = api_result.selected_index;
+
+            const UI::ButtonResult reconstruct = UI::button(ctx,
+                                                            UI::ElementDecl{.sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(36.0f)},
+                                                                            .padding = UI::Padding::symmetric(12, 8),
+                                                                            .child_alignment = {UI::AlignX::Center, UI::AlignY::Center},
+                                                                            .id = UString{"workbench-reconstruct-graphics"}},
+                                                            action_button_style(),
+                                                            reconstruct_graphics_button_state_,
+                                                            delta_seconds);
+            draw_text(ctx, "Reconstruct graphics", text_style(font_id_, text_primary, 12));
+            if (reconstruct.clicked) {
+                ui_renderer_rebuild_failed_ = false;
+                Engine::EngineConfig requested = engine.config();
+                requested.graphics_backend = adapter.api_support[selected_graphics_api_index_].adapter.backend;
+                requested.graphics_physical_device_id = adapter.physical_device_id;
+
+                // UiRenderer owns pipelines, atlases, and renderer texture handles outside the
+                // Renderer recovery registry. GPU completion must precede their destruction; draining
+                // only CPU render tasks does not make submitted descriptor sets/pipelines safe to free.
+                // Release them while their original RHI device still exists, then create replacement
+                // instances once the new backend is live.
+                engine.wait_idle();
+                if (RHI::RhiDevice *old_device = engine.rhi_device()) {
+                    destroy_surface_renderers(*old_device);
+                }
+                // Every outcome below is mirrored to the log, not just to status_message_. When a
+                // reconstruction fails it usually takes the UI renderers with it, and a status string
+                // is only readable through the very UI that just stopped rendering — which turns a
+                // specific backend error into a blank window and a bare "UiRenderer was not created"
+                // once per 120 frames.
+                Foundation::log_info("UiWorkbench: reconstructing graphics on {} using {}...",
+                                     adapter.name, RHI::backend_type_name(requested.graphics_backend));
+                if (auto rebuilt = apply_presentation_config(requested); rebuilt) {
+                    RHI::RhiDevice *new_device = engine.rhi_device();
+                    if (new_device == nullptr) {
+                        status_message_ = "Graphics reconstruction failed: replacement RHI device is unavailable.";
+                        Foundation::log_error("UiWorkbench: {}", status_message_);
+                    } else if (auto ui_rebuilt = recreate_surface_renderers(*new_device); !ui_rebuilt) {
+                        ui_renderer_rebuild_failed_ = true;
+                        status_message_ = "Graphics reconstruction succeeded, but UI resources could not be rebuilt: " +
+                                          ui_rebuilt.error().message;
+                        Foundation::log_error("UiWorkbench: {}", status_message_);
+                    } else {
+                        ui_renderer_rebuild_failed_ = false;
+                        frames_to_skip_after_graphics_reconstruction_ = 2;
+                        status_message_ = "Reconstructed " + adapter.name + " using " +
+                                          RHI::backend_type_name(requested.graphics_backend) + ".";
+                        Foundation::log_info("UiWorkbench: {}", status_message_);
+                    }
+                } else {
+                    // A rejected reconfiguration leaves the old backend in place. Restore the UI
+                    // renderers that were deliberately released before making the attempt.
+                    const std::string reconstruction_error = rebuilt.error().message;
+                    if (RHI::RhiDevice *current_device = engine.rhi_device()) {
+                        if (auto ui_restored = recreate_surface_renderers(*current_device); !ui_restored) {
+                            status_message_ = "Graphics reconstruction failed: " + reconstruction_error +
+                                              "; UI resources could not be restored: " + ui_restored.error().message;
+                        } else {
+                            status_message_ = "Graphics reconstruction failed: " + reconstruction_error;
+                        }
+                    } else {
+                        status_message_ = "Graphics reconstruction failed: " + reconstruction_error;
+                    }
+                    Foundation::log_error("UiWorkbench: {}", status_message_);
+                }
+            }
+        } else {
+            draw_text(ctx, "No graphics devices were discovered.", text_style(font_id_, warning, 12));
+        }
+
+        const auto toggle_row = [&](usize index, const char *label, const char *description, bool &value, const std::function<void()> &on_change = [] {}) {
             auto row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(12),
@@ -1197,8 +1438,7 @@ namespace SFT::UiWorkbench {
             if (result.clicked) {
                 value = !value;
                 on_change();
-            }
-        };
+            } };
 
         toggle_row(0, "Slider enabled", "Whole-control interaction gate", slider_enabled_);
         toggle_row(1, "Marker parts", "Hide ticks and generated labels", show_slider_markers_);
@@ -1208,19 +1448,18 @@ namespace SFT::UiWorkbench {
         toggle_row(5, "Preview part", "Remove preview without changing color state", show_preview_);
 
         section_label(ctx, font_id_, "PRESENTATION");
-        toggle_row(10, "HDR", "Use compositor-managed linear scRGB presentation",
-                   hdr_enabled_, [&] {
-                       Engine::EngineConfig config = engine.config();
-                       config.features.presentation.hdr_enabled = hdr_enabled_;
-                       if (const auto applied = apply_presentation_config(config)) {
-                           status_message_ = hdr_enabled_
-                                                 ? "HDR enabled with scRGB presentation; the swapchain will be recreated."
-                                                 : "HDR disabled; SDR presentation will resume.";
-                       } else {
-                           hdr_enabled_ = !hdr_enabled_;
-                           status_message_ = "HDR change rejected: " + applied.error().message;
-                       }
-                   });
+        toggle_row(10, "HDR", "Use compositor-managed linear scRGB presentation", hdr_enabled_, [&] {
+            Engine::EngineConfig config = engine.config();
+            config.features.presentation.hdr_enabled = hdr_enabled_;
+            if (const auto applied = apply_presentation_config(config)) {
+                status_message_ = hdr_enabled_
+                                      ? "HDR enabled with scRGB presentation; the swapchain will be recreated."
+                                      : "HDR disabled; SDR presentation will resume.";
+            } else {
+                hdr_enabled_ = !hdr_enabled_;
+                status_message_ = "HDR change rejected: " + applied.error().message;
+            }
+        });
         if (hdr_enabled_) {
             section_label(ctx, font_id_, "HDR METADATA");
             draw_text(
@@ -1239,10 +1478,7 @@ namespace SFT::UiWorkbench {
                 .thumb_size = 16.0f,
                 .focused_border = UI::BorderStyle{},
             };
-            const auto metadata_slider = [&](const char *id, const char *label, const char *description,
-                                             f64 &value, const UI::SliderConfig &config,
-                                             UI::SliderState &state, f64 display_scale = 1.0,
-                                             const char *suffix = " nits") {
+            const auto metadata_slider = [&](const char *id, const char *label, const char *description, f64 &value, const UI::SliderConfig &config, UI::SliderState &state, f64 display_scale = 1.0, const char *suffix = " nits") {
                 auto row = ctx.element(UI::ElementDecl{
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
                     .padding = UI::Padding::all(12),
@@ -1252,8 +1488,7 @@ namespace SFT::UiWorkbench {
                     .corner_radius = UI::CornerRadius::all(11.0f),
                     .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
                 });
-                draw_text(ctx, number_text((std::string{label} + "  ").c_str(), value * display_scale, suffix),
-                          text_style(font_id_, text_primary, 13));
+                draw_text(ctx, number_text((std::string{label} + "  ").c_str(), value * display_scale, suffix), text_style(font_id_, text_primary, 13));
                 draw_text(ctx, description, text_style(font_id_, text_secondary, 10));
                 const UI::SliderResult result = UI::slider(
                     ctx,
@@ -1261,22 +1496,31 @@ namespace SFT::UiWorkbench {
                         .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
                         .id = UString{id},
                     },
-                    config, metadata_style, state, value, UI::SliderInput{}, true);
+                    config,
+                    metadata_style,
+                    state,
+                    value,
+                    UI::SliderInput{},
+                    true);
                 value = result.value;
                 return result;
             };
 
             const UI::SliderResult reference_result = metadata_slider(
-                "workbench-hdr-reference-white", "Reference white scale",
+                "workbench-hdr-reference-white",
+                "Reference white scale",
                 "Scales the compositor-provided SDR white while preserving monitor-specific calibration.",
                 hdr_reference_white_scale_,
                 UI::SliderConfig{.min = 0.25, .max = 2.0, .step = 0.01},
-                hdr_reference_white_scale_state_, 100.0, "%");
+                hdr_reference_white_scale_state_,
+                100.0,
+                "%");
             const f64 minimum_peak_nits =
                 std::max(80.0, static_cast<f64>(render_graph_.tone_mapping().hdr_paper_white_nits));
             hdr_peak_luminance_nits_ = std::max(hdr_peak_luminance_nits_, minimum_peak_nits);
             const UI::SliderResult peak_result = metadata_slider(
-                "workbench-hdr-peak", "Peak luminance",
+                "workbench-hdr-peak",
+                "Peak luminance",
                 "Highlight ceiling used by HDR-capable tone-mapping operators.",
                 hdr_peak_luminance_nits_,
                 UI::SliderConfig{
@@ -1289,15 +1533,18 @@ namespace SFT::UiWorkbench {
                 static_cast<f32>(hdr_peak_luminance_nits_);
 
             const UI::SliderResult max_cll_result = metadata_slider(
-                "workbench-hdr-max-cll", "MaxCLL",
+                "workbench-hdr-max-cll",
+                "MaxCLL",
                 "Maximum content light level advertised to an HDR10 display.",
                 hdr_max_content_light_level_nits_,
                 UI::SliderConfig{.min = 80.0, .max = 10000.0, .step = 10.0},
                 hdr_max_content_light_level_state_);
             hdr_max_frame_average_light_level_nits_ = std::min(
-                hdr_max_frame_average_light_level_nits_, hdr_max_content_light_level_nits_);
+                hdr_max_frame_average_light_level_nits_,
+                hdr_max_content_light_level_nits_);
             const UI::SliderResult max_fall_result = metadata_slider(
-                "workbench-hdr-max-fall", "MaxFALL",
+                "workbench-hdr-max-fall",
+                "MaxFALL",
                 "Maximum frame-average light level advertised to an HDR10 display.",
                 hdr_max_frame_average_light_level_nits_,
                 UI::SliderConfig{
@@ -1335,28 +1582,27 @@ namespace SFT::UiWorkbench {
                         }
                     }
                     status_message_ = all_updated
-                        ? "HDR10 MaxCLL/MaxFALL metadata updated on every surface."
-                        : "Some surfaces rejected the HDR10 metadata update; see the log.";
+                                          ? "HDR10 MaxCLL/MaxFALL metadata updated on every surface."
+                                          : "Some surfaces rejected the HDR10 metadata update; see the log.";
                 }
             }
         }
-        toggle_row(8, "Transparent swapchain", "Use premultiplied compositor alpha for this surface",
-                   swapchain_transparent_, [&] {
-                       Engine::EngineConfig config = engine.config();
-                       config.features.presentation.transparent_composition = swapchain_transparent_;
-                       if (const auto applied = apply_presentation_config(config)) {
-                           // Deliberately NOT calling set_transparent() here — see
-                           // reconcile_legacy_window_transparency's own doc comment just below for why
-                           // that decision has to wait until each window's RHI swapchain has actually
-                           // been rebuilt, which apply_presentation_config only just requested.
-                           status_message_ = swapchain_transparent_
-                                                 ? "Transparent swapchain enabled; adjust background opacity below."
-                                                 : "Opaque swapchain composition restored.";
-                       } else {
-                           swapchain_transparent_ = !swapchain_transparent_;
-                           status_message_ = "Transparency change rejected: " + applied.error().message;
-                       }
-                   });
+        toggle_row(8, "Transparent swapchain", "Use premultiplied compositor alpha for this surface", swapchain_transparent_, [&] {
+            Engine::EngineConfig config = engine.config();
+            config.features.presentation.transparent_composition = swapchain_transparent_;
+            if (const auto applied = apply_presentation_config(config)) {
+                // Deliberately NOT calling set_transparent() here — see
+                // reconcile_legacy_window_transparency's own doc comment just below for why
+                // that decision has to wait until each window's RHI swapchain has actually
+                // been rebuilt, which apply_presentation_config only just requested.
+                status_message_ = swapchain_transparent_
+                                      ? "Transparent swapchain enabled; adjust background opacity below."
+                                      : "Opaque swapchain composition restored.";
+            } else {
+                swapchain_transparent_ = !swapchain_transparent_;
+                status_message_ = "Transparency change rejected: " + applied.error().message;
+            }
+        });
         // Reconciled every frame (not just on the toggle click above) because whether a given window's
         // swapchain ends up using composition present isn't known until its RHI swapchain has actually
         // been rebuilt — apply_presentation_config only marks it dirty for the renderer to rebuild on
@@ -1394,8 +1640,7 @@ namespace SFT::UiWorkbench {
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
-            draw_text(ctx, number_text("UI background opacity  ", ui_background_opacity_ * 100.0, "%"),
-                      text_style(font_id_, text_primary, 13));
+            draw_text(ctx, number_text("UI background opacity  ", ui_background_opacity_ * 100.0, "%"), text_style(font_id_, text_primary, 13));
             const UI::SliderConfig opacity_config{.min = 0.0, .max = 1.0, .step = 0.01};
             const UI::SliderStyle opacity_style{
                 .track = UI::Color{0.115, 0.130, 0.180, 1.0},
@@ -1413,8 +1658,12 @@ namespace SFT::UiWorkbench {
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
                     .id = UString{"workbench-ui-background-opacity"},
                 },
-                opacity_config, opacity_style, ui_background_opacity_slider_state_,
-                ui_background_opacity_, UI::SliderInput{}, true);
+                opacity_config,
+                opacity_style,
+                ui_background_opacity_slider_state_,
+                ui_background_opacity_,
+                UI::SliderInput{},
+                true);
             ui_background_opacity_ = opacity_result.value;
         }
 
@@ -1443,7 +1692,8 @@ namespace SFT::UiWorkbench {
 
             draw_text(ctx, "Fullscreen", text_style(font_id_, text_primary, 13));
             const UI::DropdownResult fullscreen_result = UI::dropdown(
-                ctx, UString{"workbench-fullscreen-dropdown"},
+                ctx,
+                UString{"workbench-fullscreen-dropdown"},
                 UI::ElementDecl{
                     .sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(38.0f)},
                     .padding = UI::Padding::symmetric(12, 8),
@@ -1451,8 +1701,12 @@ namespace SFT::UiWorkbench {
                     .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                     .id = UString{"workbench-fullscreen-dropdown"},
                 },
-                fullscreen_style, fullscreen_mode_dropdown_state_, delta_seconds,
-                selected_fullscreen_mode_index_, fullscreen_options, true);
+                fullscreen_style,
+                fullscreen_mode_dropdown_state_,
+                delta_seconds,
+                selected_fullscreen_mode_index_,
+                fullscreen_options,
+                true);
             if (fullscreen_result.changed) {
                 selected_fullscreen_mode_index_ = fullscreen_result.selected_index;
                 engine.window_requests().set_fullscreen(
@@ -1460,21 +1714,21 @@ namespace SFT::UiWorkbench {
                     static_cast<Platform::Windowing::WindowMode>(selected_fullscreen_mode_index_));
             }
         }
-        toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border",
-                   window_decorated_, [&] {
-                       engine.window_requests().set_decorated(surface.handle.window_id, window_decorated_);
-                   });
+        toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border", window_decorated_, [&] {
+            engine.window_requests().set_decorated(surface.handle.window_id, window_decorated_);
+        });
 
         section_label(ctx, font_id_, "WINDOW BLUR");
         if (supported_blur_kinds_.empty()) {
-            draw_text(ctx, "No blur-capable window effect is supported on this OS build.",
-                      text_style(font_id_, text_secondary, 11));
+            draw_text(ctx, "No blur-capable window effect is supported on this OS build.", text_style(font_id_, text_secondary, 11));
         } else {
             std::vector<UI::DropdownOption> blur_options;
             blur_options.reserve(supported_blur_kinds_.size());
             for (Platform::Windowing::WindowEffectKind kind : supported_blur_kinds_) {
                 blur_options.push_back(dropdown_option(
-                    font_id_, Platform::Windowing::window_effect_kind_name(kind).data(), accent));
+                    font_id_,
+                    Platform::Windowing::window_effect_kind_name(kind).data(),
+                    accent));
             }
 
             UI::DropdownStyle blur_style{};
@@ -1495,7 +1749,8 @@ namespace SFT::UiWorkbench {
             // than requiring an off/on cycle to pick up the new kind.
             const usize previous_blur_index = selected_blur_kind_index_;
             const UI::DropdownResult blur_dropdown_result = UI::dropdown(
-                ctx, UString{"workbench-blur-dropdown"},
+                ctx,
+                UString{"workbench-blur-dropdown"},
                 UI::ElementDecl{
                     .sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(38.0f)},
                     .padding = UI::Padding::symmetric(12, 8),
@@ -1503,19 +1758,24 @@ namespace SFT::UiWorkbench {
                     .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                     .id = UString{"workbench-blur-dropdown"},
                 },
-                blur_style, blur_dropdown_state_, delta_seconds, selected_blur_kind_index_, blur_options, true);
+                blur_style,
+                blur_dropdown_state_,
+                delta_seconds,
+                selected_blur_kind_index_,
+                blur_options,
+                true);
             selected_blur_kind_index_ = blur_dropdown_result.selected_index;
             if (window_blur_enabled_ && selected_blur_kind_index_ != previous_blur_index) {
                 engine.window_requests().set_blur(surface.handle.window_id,
-                                                  supported_blur_kinds_[selected_blur_kind_index_], true);
+                                                  supported_blur_kinds_[selected_blur_kind_index_],
+                                                  true);
             }
 
-            toggle_row(9, "Blur enabled", "Applies the selected blur type above",
-                       window_blur_enabled_, [&] {
-                           engine.window_requests().set_blur(surface.handle.window_id,
-                                                             supported_blur_kinds_[selected_blur_kind_index_],
-                                                             window_blur_enabled_);
-                       });
+            toggle_row(9, "Blur enabled", "Applies the selected blur type above", window_blur_enabled_, [&] {
+                engine.window_requests().set_blur(surface.handle.window_id,
+                                                  supported_blur_kinds_[selected_blur_kind_index_],
+                                                  window_blur_enabled_);
+            });
         }
 
         section_label(ctx, font_id_, "COMPOSED DROPDOWN");
@@ -1544,7 +1804,7 @@ namespace SFT::UiWorkbench {
             decl.background_color = UI::Color{0.075, 0.088, 0.130, 1.0};
         };
         composition.header.build = [](UI::Context &part_ctx,
-                                          const UI::DropdownPartContext &) {
+                                      const UI::DropdownPartContext &) {
             draw_text(part_ctx, "WORKBENCH PRESETS", text_style(font_id_, accent, 10));
         };
         composition.footer.visible = true;
@@ -1552,9 +1812,8 @@ namespace SFT::UiWorkbench {
             decl.padding = UI::Padding::symmetric(10, 7);
         };
         composition.footer.build = [](UI::Context &part_ctx,
-                                          const UI::DropdownPartContext &) {
-            draw_text(part_ctx, "Disabled rows remain visible and stylable.",
-                      text_style(font_id_, text_secondary, 9));
+                                      const UI::DropdownPartContext &) {
+            draw_text(part_ctx, "Disabled rows remain visible and stylable.", text_style(font_id_, text_secondary, 9));
         };
         composition.option.visual.selected.background_color =
             UI::Color{accent.r, accent.g, accent.b, 0.18};
@@ -1576,7 +1835,8 @@ namespace SFT::UiWorkbench {
         };
 
         const UI::DropdownResult dropdown_result = UI::dropdown(
-            ctx, UString{"workbench-preset-dropdown"},
+            ctx,
+            UString{"workbench-preset-dropdown"},
             UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fixed(260.0f), UI::SizingAxis::fixed(38.0f)},
                 .padding = UI::Padding::symmetric(12, 8),
@@ -1584,7 +1844,12 @@ namespace SFT::UiWorkbench {
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                 .id = UString{"workbench-preset-dropdown"},
             },
-            style, preset_dropdown_state_, delta_seconds, selected_preset_, options, true,
+            style,
+            preset_dropdown_state_,
+            delta_seconds,
+            selected_preset_,
+            options,
+            true,
             composition);
         selected_preset_ = dropdown_result.selected_index;
 
@@ -1596,7 +1861,9 @@ namespace SFT::UiWorkbench {
                 .child_alignment = {UI::AlignX::Center, UI::AlignY::Center},
                 .id = UString{"workbench-reset"},
             },
-            action_button_style(), reset_button_state_, delta_seconds);
+            action_button_style(),
+            reset_button_state_,
+            delta_seconds);
         draw_text(ctx, "Reset composition", text_style(font_id_, text_primary, 12));
         if (reset.clicked) {
             slider_enabled_ = true;
@@ -1616,8 +1883,7 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-text-body"},
         });
-        panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab",
-                      "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
+        panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab", "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
 
         Platform::Windowing::Window *clipboard_window = engine.primary_window();
         const UI::TextEditInput edit_input{
@@ -1627,15 +1893,12 @@ namespace SFT::UiWorkbench {
             .word_modifier_held = surface.ctrl_down,
             .composition_text = surface.composition_text,
             .composing = surface.composing,
-            .get_clipboard_text = [clipboard_window]() {
-                return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{};
-            },
+            .get_clipboard_text = [clipboard_window]() { return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{}; },
             .set_clipboard_text = [clipboard_window](const UString &text) {
                 if (clipboard_window != nullptr) {
                     [[maybe_unused]] const auto result =
                         clipboard_window->set_clipboard_text(text.cpp_string_view());
-                }
-            },
+                } },
         };
 
         UI::TextEditStyle edit_style{};
@@ -1659,7 +1922,10 @@ namespace SFT::UiWorkbench {
                                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                                .id = UString{"workbench-text-single"},
                            },
-                           edit_style, line_input_state_, edit_input, delta_seconds,
+                           edit_style,
+                           line_input_state_,
+                           edit_input,
+                           delta_seconds,
                            UString{"Type something..."});
 
         section_label(ctx, font_id_, "PASSWORD");
@@ -1673,7 +1939,10 @@ namespace SFT::UiWorkbench {
                                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                                .id = UString{"workbench-text-password"},
                            },
-                           password_style, password_input_state_, edit_input, delta_seconds,
+                           password_style,
+                           password_input_state_,
+                           edit_input,
+                           delta_seconds,
                            UString{"Password"});
 
         section_label(ctx, font_id_, "MARKDOWN + LIVE PREVIEW");
@@ -1728,13 +1997,18 @@ namespace SFT::UiWorkbench {
         };
         const UI::TextAreaResult markdown_result =
             UI::text_area(ctx,
-                         UI::ElementDecl{
-                             .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(150.0f)},
-                             .padding = UI::Padding::all(10),
-                             .id = UString{"workbench-text-markdown"},
-                         },
-                         markdown_style, markdown_input_state_, edit_input, delta_seconds, scrollbar_style_,
-                         markdown_input_scroll_state_, UString{"# Write some markdown..."});
+                          UI::ElementDecl{
+                              .sizing = {UI::SizingAxis::fixed(360.0f), UI::SizingAxis::fixed(150.0f)},
+                              .padding = UI::Padding::all(10),
+                              .id = UString{"workbench-text-markdown"},
+                          },
+                          markdown_style,
+                          markdown_input_state_,
+                          edit_input,
+                          delta_seconds,
+                          scrollbar_style_,
+                          markdown_input_scroll_state_,
+                          UString{"# Write some markdown..."});
 
         // At most one of these three fields is focused at a time (focus is exclusive — see
         // TextEditState::focused_), so at most one has caret_bounds set; forward whichever it is so
@@ -1746,7 +2020,7 @@ namespace SFT::UiWorkbench {
         // `cursor`. Coordinates are already this surface's own client-area pixels (ElementBounds'
         // own space), matching what Window::set_text_input_area() expects.
         const auto forward_text_input_area = [&](const std::optional<UI::ElementBounds> &caret_bounds,
-                                                  const UString &widget_id) {
+                                                 const UString &widget_id) {
             if (!caret_bounds) {
                 return false;
             }
@@ -1858,11 +2132,9 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-docking-body"},
         });
-        panel_heading(ctx, font_id_, "WORKSPACE", "Docking Guide",
-                      "The layout tree is live: tabs reorder, split targets preview, and dividers resize.");
+        panel_heading(ctx, font_id_, "WORKSPACE", "Docking Guide", "The layout tree is live: tabs reorder, split targets preview, and dividers resize.");
 
-        const auto instruction = [&](const char *number, const char *title, const char *copy,
-                                     UI::Color color) {
+        const auto instruction = [&](const char *number, const char *title, const char *copy, UI::Color color) {
             auto row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(11),
@@ -1893,12 +2165,9 @@ namespace SFT::UiWorkbench {
             }
         };
 
-        instruction("01", "Reorder or merge tabs",
-                    "Drag a tab across its strip or release it over another panel's center guide.", accent);
-        instruction("02", "Create a split",
-                    "Release over a left, right, top or bottom guide; drag the divider afterward.", accent_hot);
-        instruction("03", "Tear off to an OS window",
-                    "Drag beyond the workspace edge. The deferred coordinator transfers only after spawn succeeds.", success);
+        instruction("01", "Reorder or merge tabs", "Drag a tab across its strip or release it over another panel's center guide.", accent);
+        instruction("02", "Create a split", "Release over a left, right, top or bottom guide; drag the divider afterward.", accent_hot);
+        instruction("03", "Tear off to an OS window", "Drag beyond the workspace edge. The deferred coordinator transfers only after spawn succeeds.", success);
 
         {
             auto status = ctx.element(UI::ElementDecl{
@@ -1911,15 +2180,13 @@ namespace SFT::UiWorkbench {
                 .border = UI::BorderStyle{.color = UI::Color{accent.r, accent.g, accent.b, 0.38},
                                           .width = UI::BorderWidth::all(1)},
             });
-            draw_text(ctx, surface.primary ? "PRIMARY COORDINATOR" : "SECONDARY COORDINATOR",
-                      text_style(font_id_, accent, 10));
+            draw_text(ctx, surface.primary ? "PRIMARY COORDINATOR" : "SECONDARY COORDINATOR", text_style(font_id_, accent, 10));
             draw_text(ctx, status_message_, text_style(font_id_, text_primary, 11));
         }
 
         section_label(ctx, font_id_, "SCROLLING");
 
-        const auto scroll_toggle_row = [&](usize index, const char *label, const char *description,
-                                           bool &value) {
+        const auto scroll_toggle_row = [&](usize index, const char *label, const char *description, bool &value) {
             auto row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(12),
@@ -1944,18 +2211,17 @@ namespace SFT::UiWorkbench {
                     .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
                     .id = UString{"workbench-scroll-toggle-" + std::to_string(index)},
                 },
-                toggle_style(), toggle_states_[index], delta_seconds, value);
+                toggle_style(),
+                toggle_states_[index],
+                delta_seconds,
+                value);
             if (result.clicked) {
                 value = !value;
             }
         };
 
-        scroll_toggle_row(6, "Click-and-drag scroll",
-                          "Off by default — dragging this body's content no longer competes with widget drags.",
-                          scroll_click_drag_);
-        scroll_toggle_row(7, "Smooth wheel scrolling",
-                          "Eases wheel deltas across frames instead of snapping the offset instantly.",
-                          scroll_smooth_);
+        scroll_toggle_row(6, "Click-and-drag scroll", "Off by default — dragging this body's content no longer competes with widget drags.", scroll_click_drag_);
+        scroll_toggle_row(7, "Smooth wheel scrolling", "Eases wheel deltas across frames instead of snapping the offset instantly.", scroll_smooth_);
 
         {
             auto row = ctx.element(UI::ElementDecl{
@@ -1985,8 +2251,12 @@ namespace SFT::UiWorkbench {
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
                     .id = UString{"workbench-scroll-smoothing-rate"},
                 },
-                rate_config, rate_style, scroll_smoothing_rate_state_, scroll_smoothing_rate_,
-                UI::SliderInput{}, scroll_smooth_);
+                rate_config,
+                rate_style,
+                scroll_smoothing_rate_state_,
+                scroll_smoothing_rate_,
+                UI::SliderInput{},
+                scroll_smooth_);
             scroll_smoothing_rate_ = rate_result.value;
         }
 
@@ -2005,9 +2275,8 @@ namespace SFT::UiWorkbench {
             .direction = UI::LayoutDirection::TopToBottom,
             .id = UString{"workbench-metrics-body"},
         });
-        panel_heading(ctx, font_id_, "DIAGNOSTICS", "Performance",
-                      "CPU and GPU render-graph pass timing, read back from Renderer::last_frame_timings() "
-                      "— one frame stale, the same contract the engine's own debug overlay uses.");
+        panel_heading(ctx, font_id_, "DIAGNOSTICS", "Performance", "CPU and GPU render-graph pass timing, read back from Renderer::last_frame_timings() "
+                                                                   "— one frame stale, the same contract the engine's own debug overlay uses.");
 
         const Renderer::FrameTimingSnapshot &timings = surface.last_timing_snapshot;
         if (!timings.has_data) {
@@ -2028,8 +2297,7 @@ namespace SFT::UiWorkbench {
             }
             draw_text(ctx, number_text("Total  ", total_ms, " ms"), text_style(font_id_, text_primary, 14));
             for (const auto &[category, ms] : entries) {
-                draw_text(ctx, number_text((category + "  ").c_str(), ms, " ms"),
-                          text_style(font_id_, text_secondary, 12));
+                draw_text(ctx, number_text((category + "  ").c_str(), ms, " ms"), text_style(font_id_, text_secondary, 12));
             }
         };
 
@@ -2038,8 +2306,7 @@ namespace SFT::UiWorkbench {
         timing_section("CPU PASS RECORDING", timings.cpu_pass_timings_ms);
     }
 
-    void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface,
-                                         UI::Docking::DockWorkspaceEvents events) {
+    void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface, UI::Docking::DockWorkspaceEvents events) {
         for (const UI::Docking::DockTearOffRequest &request : events.tear_off_requests) {
             // Before spawning a brand-new OS window, check whether the drag actually ended on top
             // of another *existing* managed window (dragging a tab back from a torn-off window
@@ -2096,7 +2363,10 @@ namespace SFT::UiWorkbench {
                 .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
             };
             const Engine::WindowRequestId request_id = dock_coordinator_.request_tear_off(
-                surface.handle.window_id, request, config, engine.window_requests());
+                surface.handle.window_id,
+                request,
+                config,
+                engine.window_requests());
             status_message_ = request_id
                                   ? "Creating a secondary UI surface; the source panel remains until acceptance."
                                   : "Tear-off was rejected before window creation; no panel data changed.";
@@ -2105,36 +2375,42 @@ namespace SFT::UiWorkbench {
     }
 
     Renderer::UiOverlayHooks WorkbenchUi::build_overlay_hooks(
-        Engine::Engine &engine, Surface &surface,
+        Engine::Engine &engine,
+        Surface &surface,
         std::shared_ptr<UI::FrameSnapshot> snapshot) {
         Renderer::UiOverlayHooks hooks{};
         // HDR and transparent SDR both use the linear-float renderer. Renderer performs the final
         // transfer-aware premultiplication/encoding after all UI blending in those modes.
         UI::UiRenderer *renderer = (hdr_enabled_ || swapchain_transparent_)
-            ? &surface.hdr_renderer
-            : &surface.sdr_renderer;
+                                       ? &surface.hdr_renderer
+                                       : &surface.sdr_renderer;
         hooks.hdr_reference_white_scale = static_cast<f32>(hdr_reference_white_scale_);
         Renderer::Renderer *texture_resolver = engine.renderer();
-        hooks.prepare = [renderer, snapshot, texture_resolver](
-                            RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
-                            glm::vec2 viewport_size, Core::RenderSurfaceHandle render_surface,
+        const u64 renderer_generation = renderer->generation();
+        hooks.prepare = [renderer, renderer_generation, snapshot, texture_resolver](
+                            RHI::RhiDevice &device,
+                            RHI::CommandEncoder &encoder,
+                            glm::vec2 viewport_size,
+                            Core::RenderSurfaceHandle render_surface,
                             u32 frame_resource_index,
                             std::vector<RHI::BufferHandle> &transient_buffers,
                             Renderer::TextAtlasRetiredResources &retired_resources)
             -> Core::RendererResult {
+            if (renderer->generation() != renderer_generation) {
+                return {};
+            }
             const Core::Extent2D extent = snapshot->viewport_extent();
             if (viewport_size != glm::vec2{extent}) {
                 return Core::graphics_backend_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "UiWorkbench snapshot extent does not match its render surface.");
             }
-            return renderer->prepare(device, encoder, *snapshot, texture_resolver, render_surface, frame_resource_index,
-                                     transient_buffers, retired_resources);
+            return renderer->prepare(device, encoder, *snapshot, texture_resolver, render_surface, frame_resource_index, transient_buffers, retired_resources);
         };
-        hooks.draw = [renderer](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
-                                Core::RenderSurfaceHandle render_surface,
-                                u32 frame_resource_index) -> Core::RendererResult {
-            return renderer->draw(pass, viewport_size, render_surface, frame_resource_index);
+        hooks.draw = [renderer, renderer_generation](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size, Core::RenderSurfaceHandle render_surface, u32 frame_resource_index) -> Core::RendererResult {
+            return renderer->generation() == renderer_generation
+                       ? renderer->draw(pass, viewport_size, render_surface, frame_resource_index)
+                       : Core::RendererResult{};
         };
         return hooks;
     }

@@ -255,6 +255,10 @@ namespace SFT::Core {
     };
 
     struct RendererCreateInfo {
+        // Backend and physical GPU selected from RHI::GpuInventory. An empty physical_device_id lets
+        // the backend apply its normal preference policy; a non-empty ID must match AdapterInfo exactly.
+        RHI::BackendType backend = RHI::BackendType::Vulkan;
+        string physical_device_id;
         RendererFeatureRequest features{};
         const char *app_name = "SturdyEngine";
         // Non-owning pointer to the primary window the backend presents into. Must outlive the

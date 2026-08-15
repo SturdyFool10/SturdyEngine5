@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -98,8 +100,11 @@ namespace SFT::Renderer {
             return unexpected(tonemap_error("Cannot build tonemap resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
@@ -118,12 +123,12 @@ namespace SFT::Renderer {
         guard->vertex_entry_point = "vertexMain";
         guard->fragment_entry_point = "fragmentMain";
 
-        auto vertex_code = guard->shader.entry_point_code(guard->vertex_entry_point);
+        auto vertex_code = guard->shader.entry_point_code(guard->vertex_entry_point, shader_target->slang_target.format);
         if (!vertex_code) {
             return unexpected(tonemap_error("generate tonemap vertex bytecode failed: " + vertex_code.error().message));
         }
         auto vertex_module = device->create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{vertex_code->bytes.data(), vertex_code->bytes.size()},
             .label = "tonemap vertex module",
         });
@@ -132,13 +137,13 @@ namespace SFT::Renderer {
         }
         guard->vertex_module = *vertex_module;
 
-        auto fragment_code = guard->shader.entry_point_code(guard->fragment_entry_point);
+        auto fragment_code = guard->shader.entry_point_code(guard->fragment_entry_point, shader_target->slang_target.format);
         if (!fragment_code) {
             destroy_tonemap_resources_locked(*guard);
             return unexpected(tonemap_error("generate tonemap fragment bytecode failed: " + fragment_code.error().message));
         }
         auto fragment_module = device->create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{fragment_code->bytes.data(), fragment_code->bytes.size()},
             .label = "tonemap fragment module",
         });

@@ -1,0 +1,617 @@
+// Bind group layouts, bind groups, and pipeline layouts (root signatures) — the RHI's descriptor-set
+// model expressed in D3D12's root-signature model. See D3D12Device.hpp's header comment for the
+// mapping and the register-assignment ABI this file implements.
+#include <D3D12/D3D12Device.hpp>
+
+#pragma region Imports
+#include <D3D12/D3D12Convert.hpp>
+
+#include <algorithm>
+#include <limits>
+#include <utility>
+#pragma endregion
+
+#include <tracy/Tracy.hpp>
+
+namespace SFT::D3D12 {
+
+    namespace {
+
+        // Which D3D12 register class a binding type occupies. `CombinedImageSampler` is handled
+        // separately by its callers because it occupies two at once (an SRV *and* a sampler), which a
+        // single return value cannot express.
+        enum class RegisterClass : u32 { Cbv, Srv, Uav, Sampler };
+
+        [[nodiscard]] RegisterClass register_class_of(rhi::BindingType type) noexcept {
+            switch (type) {
+                case rhi::BindingType::UniformBuffer: return RegisterClass::Cbv;
+                case rhi::BindingType::StorageBuffer:
+                case rhi::BindingType::StorageTexture:
+                    return RegisterClass::Uav;
+                case rhi::BindingType::Sampler: return RegisterClass::Sampler;
+                case rhi::BindingType::ReadOnlyStorageBuffer:
+                case rhi::BindingType::SampledTexture:
+                case rhi::BindingType::AccelerationStructure:
+                // D3D12 has no tile-local input attachment (Feature::DynamicRenderingLocalRead is never
+                // reported supported here). The portable, always-correct reading of an input attachment
+                // is "an SRV over the attachment texture", which is what the caller must fall back to
+                // anyway once the feature is absent.
+                case rhi::BindingType::InputAttachment:
+                    return RegisterClass::Srv;
+                case rhi::BindingType::CombinedImageSampler:
+                    return RegisterClass::Srv;
+            }
+            return RegisterClass::Srv;
+        }
+
+        [[nodiscard]] D3D12_DESCRIPTOR_RANGE_TYPE to_range_type(RegisterClass klass) noexcept {
+            switch (klass) {
+                case RegisterClass::Cbv: return D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+                case RegisterClass::Uav: return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+                case RegisterClass::Sampler: return D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+                case RegisterClass::Srv: break;
+            }
+            return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        }
+
+        [[nodiscard]] bool binding_uses_sampler(rhi::BindingType type) noexcept {
+            return type == rhi::BindingType::Sampler || type == rhi::BindingType::CombinedImageSampler;
+        }
+
+        [[nodiscard]] bool binding_uses_resource_descriptor(rhi::BindingType type) noexcept {
+            return type != rhi::BindingType::Sampler;
+        }
+
+        struct BufferDescriptorRange {
+            UINT first_element = 0;
+            UINT element_count = 0;
+            UINT structure_stride = 0;
+
+            [[nodiscard]] bool is_raw() const noexcept { return structure_stride == 0; }
+        };
+
+        [[nodiscard]] rhi::RhiExpected<BufferDescriptorRange> buffer_descriptor_range(
+            const BufferRecord &buffer,
+            const rhi::BindGroupEntry &entry) {
+            if (entry.offset > buffer.size ||
+                (entry.size != 0 && entry.size > buffer.size - entry.offset)) {
+                return invalid_argument("create_bind_group: storage binding range exceeds its buffer.");
+            }
+
+            const u64 structure_stride = entry.structure_stride;
+            if (structure_stride != 0 &&
+                (structure_stride % sizeof(u32) != 0 ||
+                 structure_stride > D3D12_REQ_MULTI_ELEMENT_STRUCTURE_SIZE_IN_BYTES)) {
+                return invalid_argument(
+                    "create_bind_group: a structured-buffer stride must be a four-byte multiple no larger than " +
+                    std::to_string(D3D12_REQ_MULTI_ELEMENT_STRUCTURE_SIZE_IN_BYTES) + " bytes.");
+            }
+
+            const u64 element_stride = structure_stride != 0 ? structure_stride : sizeof(u32);
+            const u64 size = entry.size != 0 ? entry.size : buffer.size - entry.offset;
+            if (entry.offset % element_stride != 0 || size == 0 || size % element_stride != 0) {
+                return invalid_argument(
+                    "create_bind_group: storage binding offset and size must align to its element stride.");
+            }
+
+            const u64 first_element = entry.offset / element_stride;
+            const u64 element_count = size / element_stride;
+            if (first_element > std::numeric_limits<UINT>::max() ||
+                element_count > std::numeric_limits<UINT>::max()) {
+                return invalid_argument("create_bind_group: storage binding range has too many elements for D3D12.");
+            }
+
+            return BufferDescriptorRange{
+                .first_element = static_cast<UINT>(first_element),
+                .element_count = static_cast<UINT>(element_count),
+                .structure_stride = static_cast<UINT>(structure_stride),
+            };
+        }
+
+        // Descriptor-range flags carrying the caller's BindingFlags intent. These are what actually
+        // license the bindless behaviours the RHI names: VOLATILE says the descriptors may change after
+        // the table is bound (Vulkan's update-after-bind), and DESCRIPTORS_VOLATILE additionally allows
+        // slots to be unwritten as long as the shader never reads them (partially-bound).
+        [[nodiscard]] D3D12_DESCRIPTOR_RANGE_FLAGS to_range_flags(rhi::BindingFlags flags,
+                                                                   bool is_sampler) noexcept {
+            D3D12_DESCRIPTOR_RANGE_FLAGS result = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+            if (rhi::has_any(flags, rhi::BindingFlags::UpdateAfterBind)) {
+                result |= is_sampler ? D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
+                                     : D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
+            }
+            if (rhi::has_any(flags, rhi::BindingFlags::PartiallyBound)) {
+                result |= D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+            }
+            return result;
+        }
+
+    } // namespace
+
+    // ─── Bind group layouts ──────────────────────────────────────────────────────
+
+    rhi::RhiExpected<rhi::BindGroupLayoutHandle> D3D12Device::create_bind_group_layout(
+        const rhi::BindGroupLayoutDesc &desc) {
+        ZoneScopedN("D3D12Device::create_bind_group_layout");
+
+        BindGroupLayoutRecord record{};
+        record.entries.assign(desc.entries.begin(), desc.entries.end());
+        // Sorted by binding so table offsets are assigned in a stable, register-ascending order —
+        // which is also the order a D3D12 descriptor range wants, since one range covers
+        // [BaseShaderRegister, BaseShaderRegister + NumDescriptors) contiguously.
+        std::ranges::sort(record.entries, [](const rhi::BindGroupLayoutEntry &a,
+                                             const rhi::BindGroupLayoutEntry &b) { return a.binding < b.binding; });
+
+        for (const rhi::BindGroupLayoutEntry &entry : record.entries) {
+            const u32 count = std::max(1u, entry.count);
+            const u32 shader_register = entry.shader_register == ~0u
+                                            ? entry.binding
+                                            : entry.shader_register;
+
+            if (entry.has_dynamic_offset) {
+                if (entry.type != rhi::BindingType::UniformBuffer &&
+                    entry.type != rhi::BindingType::StorageBuffer &&
+                    entry.type != rhi::BindingType::ReadOnlyStorageBuffer) {
+                    return invalid_argument(
+                        "create_bind_group_layout: has_dynamic_offset is only meaningful for a buffer binding.");
+                }
+                if (count != 1) {
+                    // A root descriptor is a single address, not an array — there is no D3D12 construct
+                    // for an array of root descriptors, so an array binding cannot also be dynamic.
+                    return unsupported(
+                        "create_bind_group_layout: a dynamic-offset binding cannot be an array binding on D3D12.");
+                }
+                record.dynamic_slots.push_back(DynamicSlot{
+                    .binding = entry.binding,
+                    .shader_register = shader_register,
+                    .type = entry.type,
+                    .visibility = entry.visibility,
+                });
+                continue;
+            }
+
+            if (binding_uses_resource_descriptor(entry.type)) {
+                TableSlot slot{};
+                slot.binding = entry.binding;
+                slot.shader_register = shader_register;
+                slot.table_offset = record.resource_descriptor_count;
+                slot.count = count;
+                slot.type = entry.type;
+                slot.visibility = entry.visibility;
+                slot.flags = entry.flags;
+                if (rhi::has_any(entry.flags, rhi::BindingFlags::VariableDescriptorCount)) {
+                    record.variable_slot_index = static_cast<u32>(record.resource_slots.size());
+                }
+                record.resource_slots.push_back(slot);
+                record.resource_descriptor_count += count;
+            }
+
+            if (binding_uses_sampler(entry.type)) {
+                TableSlot slot{};
+                slot.binding = entry.binding;
+                slot.shader_register = shader_register;
+                slot.table_offset = record.sampler_descriptor_count;
+                slot.count = count;
+                slot.type = entry.type;
+                slot.visibility = entry.visibility;
+                slot.flags = entry.flags;
+                record.sampler_slots.push_back(slot);
+                record.sampler_descriptor_count += count;
+            }
+        }
+
+        if (record.variable_slot_index != ~0u &&
+            record.variable_slot_index + 1 != record.resource_slots.size()) {
+            return invalid_argument(
+                "create_bind_group_layout: a VariableDescriptorCount binding must be the last binding in its set.");
+        }
+
+        return bind_group_layouts_.insert(std::move(record));
+    }
+
+    void D3D12Device::destroy_bind_group_layout(rhi::BindGroupLayoutHandle handle) noexcept {
+        bind_group_layouts_.erase(handle);
+    }
+
+    // ─── Pipeline layouts (root signatures) ──────────────────────────────────────
+
+    rhi::RhiExpected<rhi::PipelineLayoutHandle> D3D12Device::create_pipeline_layout(
+        const rhi::PipelineLayoutDesc &desc) {
+        ZoneScopedN("D3D12Device::create_pipeline_layout");
+
+        PipelineLayoutRecord record{};
+        record.set_layouts.assign(desc.bind_group_layouts.begin(), desc.bind_group_layouts.end());
+        record.sets.resize(record.set_layouts.size());
+
+        vector<CD3DX12_ROOT_PARAMETER1> parameters;
+        // Ranges must outlive the D3D12_ROOT_PARAMETER1 objects that point at them, right through
+        // D3D12SerializeVersionedRootSignature — hence one stable arena rather than a local per set.
+        // Reserved up front because a reallocation would dangle every already-initialized parameter.
+        vector<vector<CD3DX12_DESCRIPTOR_RANGE1>> range_storage;
+        range_storage.reserve(record.set_layouts.size() * 2);
+
+        for (usize set_index = 0; set_index < record.set_layouts.size(); ++set_index) {
+            const BindGroupLayoutRecord *layout = bind_group_layouts_.find(record.set_layouts[set_index]);
+            if (layout == nullptr) {
+                return invalid_argument("create_pipeline_layout: unknown bind group layout handle at set " +
+                                        std::to_string(set_index) + ".");
+            }
+            const UINT space = static_cast<UINT>(set_index);
+            SetRootParameters &mapping = record.sets[set_index];
+
+            // Root descriptors first, so their (cheap, one-DWORD-each) parameters cluster at the front
+            // of the root signature — the arrangement D3D12's own guidance recommends for the
+            // most-frequently-changed arguments, which dynamic-offset buffers are by definition.
+            for (const DynamicSlot &slot : layout->dynamic_slots) {
+                CD3DX12_ROOT_PARAMETER1 parameter{};
+                const D3D12_SHADER_VISIBILITY visibility = to_d3d12_visibility(slot.visibility);
+                switch (register_class_of(slot.type)) {
+                    case RegisterClass::Cbv:
+                        parameter.InitAsConstantBufferView(slot.shader_register, space,
+                                                           D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE,
+                                                           visibility);
+                        break;
+                    case RegisterClass::Uav:
+                        parameter.InitAsUnorderedAccessView(slot.shader_register, space,
+                                                            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE, visibility);
+                        break;
+                    default:
+                        parameter.InitAsShaderResourceView(slot.shader_register, space,
+                                                           D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE,
+                                                           visibility);
+                        break;
+                }
+                mapping.dynamic_root_parameters.push_back(static_cast<i32>(parameters.size()));
+                parameters.push_back(parameter);
+            }
+
+            if (!layout->resource_slots.empty()) {
+                vector<CD3DX12_DESCRIPTOR_RANGE1> ranges;
+                ranges.reserve(layout->resource_slots.size());
+                rhi::ShaderStage visibility_union = rhi::ShaderStage::None;
+                for (const TableSlot &slot : layout->resource_slots) {
+                    CD3DX12_DESCRIPTOR_RANGE1 range{};
+                    range.Init(to_range_type(register_class_of(slot.type)), slot.count, slot.shader_register, space,
+                               to_range_flags(slot.flags, false), slot.table_offset);
+                    ranges.push_back(range);
+                    visibility_union |= slot.visibility;
+                }
+                range_storage.push_back(std::move(ranges));
+                CD3DX12_ROOT_PARAMETER1 parameter{};
+                parameter.InitAsDescriptorTable(static_cast<UINT>(range_storage.back().size()),
+                                                range_storage.back().data(),
+                                                to_d3d12_visibility(visibility_union));
+                mapping.resource_table = static_cast<i32>(parameters.size());
+                parameters.push_back(parameter);
+            }
+
+            if (!layout->sampler_slots.empty()) {
+                vector<CD3DX12_DESCRIPTOR_RANGE1> ranges;
+                ranges.reserve(layout->sampler_slots.size());
+                rhi::ShaderStage visibility_union = rhi::ShaderStage::None;
+                for (const TableSlot &slot : layout->sampler_slots) {
+                    CD3DX12_DESCRIPTOR_RANGE1 range{};
+                    range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, slot.count, slot.shader_register, space,
+                               to_range_flags(slot.flags, true), slot.table_offset);
+                    ranges.push_back(range);
+                    visibility_union |= slot.visibility;
+                }
+                range_storage.push_back(std::move(ranges));
+                CD3DX12_ROOT_PARAMETER1 parameter{};
+                parameter.InitAsDescriptorTable(static_cast<UINT>(range_storage.back().size()),
+                                                range_storage.back().data(),
+                                                to_d3d12_visibility(visibility_union));
+                mapping.sampler_table = static_cast<i32>(parameters.size());
+                parameters.push_back(parameter);
+            }
+        }
+
+        // Push constants: one merged root-constant block spanning every range (see D3D12Device.hpp's
+        // push-constant note for why merging is forced rather than chosen).
+        if (!desc.push_constant_ranges.empty()) {
+            u32 end_bytes = 0;
+            rhi::ShaderStage stages = rhi::ShaderStage::None;
+            for (const rhi::PushConstantRange &range : desc.push_constant_ranges) {
+                end_bytes = std::max(end_bytes, range.offset + range.size);
+                stages |= range.stages;
+            }
+            if (end_bytes % 4 != 0) {
+                return invalid_argument("create_pipeline_layout: push constant ranges must be 4-byte sized/aligned.");
+            }
+            if (end_bytes > limits_.max_push_constants_size) {
+                return unsupported("create_pipeline_layout: push constants of " + std::to_string(end_bytes) +
+                                   " bytes exceed this device's " +
+                                   std::to_string(limits_.max_push_constants_size) + "-byte budget.");
+            }
+            record.push_constant_values = end_bytes / 4;
+            CD3DX12_ROOT_PARAMETER1 parameter{};
+            // Slang lowers [[push_constant]] ConstantBuffer<T> for DXIL as b0, space0. Root
+            // constants occupy that same CBV register namespace (but do not collide with SRV/UAV/
+            // sampler descriptor tables), so placing them in a synthetic space after the bind-group
+            // tables makes the root signature incompatible with every such DXIL module.
+            parameter.InitAsConstants(record.push_constant_values, 0, 0,
+                                      to_d3d12_visibility(stages));
+            record.push_constant_root_parameter = static_cast<i32>(parameters.size());
+            parameters.push_back(parameter);
+        }
+
+        // ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT is set unconditionally. It is only *required* for a
+        // vertex-input pipeline, and it costs one root-signature DWORD of budget on nothing else, but
+        // a root signature is shared across every pipeline built from this layout — including mesh and
+        // compute ones — and omitting it would make a later vertex pipeline fail to create against an
+        // otherwise valid layout.
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc{};
+        root_signature_desc.Init_1_1(static_cast<UINT>(parameters.size()),
+                                     parameters.empty() ? nullptr : parameters.data(), 0, nullptr,
+                                     D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+        // Root signature 1.1 is requested and 1.0 accepted as a fallback: the descriptor-range flags
+        // above only exist in 1.1, so a 1.0-only runtime silently loses the volatility annotations,
+        // which is a validity-preserving loss (1.0 semantics are the conservative ones).
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature_support{D3D_ROOT_SIGNATURE_VERSION_1_1};
+        if (FAILED(device_->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &root_signature_support,
+                                                sizeof(root_signature_support)))) {
+            root_signature_support.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+
+        ComPtr<ID3DBlob> blob;
+        ComPtr<ID3DBlob> error;
+        if (const HRESULT hr = D3DX12SerializeVersionedRootSignature(
+                &root_signature_desc, root_signature_support.HighestVersion, &blob, &error);
+            FAILED(hr)) {
+            std::string message = "create_pipeline_layout (SerializeVersionedRootSignature) failed: " +
+                                  hresult_name(hr) + ".";
+            if (error != nullptr && error->GetBufferSize() > 0) {
+                message += " ";
+                message.append(static_cast<const char *>(error->GetBufferPointer()), error->GetBufferSize());
+            }
+            return operation_failed(std::move(message));
+        }
+        if (const HRESULT hr = device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                                             IID_PPV_ARGS(&record.root_signature));
+            FAILED(hr)) {
+            return hresult_error(hr, "create_pipeline_layout (CreateRootSignature)");
+        }
+        set_debug_name(record.root_signature.Get(), desc.label);
+
+        return pipeline_layouts_.insert(std::move(record));
+    }
+
+    void D3D12Device::destroy_pipeline_layout(rhi::PipelineLayoutHandle handle) noexcept {
+        pipeline_layouts_.erase(handle);
+    }
+
+    // ─── Bind groups ─────────────────────────────────────────────────────────────
+
+    rhi::RhiExpected<rhi::BindGroupHandle> D3D12Device::create_bind_group(const rhi::BindGroupDesc &desc) {
+        ZoneScopedN("D3D12Device::create_bind_group");
+
+        const BindGroupLayoutRecord *layout = bind_group_layouts_.find(desc.layout);
+        if (layout == nullptr) {
+            return invalid_argument("create_bind_group: unknown bind group layout handle.");
+        }
+
+        u32 resource_count = layout->resource_descriptor_count;
+        if (layout->variable_slot_index != ~0u && desc.variable_descriptor_count != 0) {
+            const TableSlot &variable = layout->resource_slots[layout->variable_slot_index];
+            if (desc.variable_descriptor_count > variable.count) {
+                return invalid_argument(
+                    "create_bind_group: variable_descriptor_count exceeds the layout's declared maximum.");
+            }
+            // The variable binding is the last one, so shrinking it just shortens the table's tail —
+            // every other slot's table_offset is unaffected, which is exactly why the RHI requires it
+            // to be last.
+            resource_count = variable.table_offset + desc.variable_descriptor_count;
+        }
+
+        BindGroupRecord record{};
+        record.layout = desc.layout;
+        record.dynamic_addresses.assign(layout->dynamic_slots.size(), 0);
+
+        struct Rollback {
+            D3D12Device &device;
+            BindGroupRecord &record;
+            bool committed = false;
+            ~Rollback() {
+                if (!committed) {
+                    device.release_bind_group_descriptors(record);
+                }
+            }
+        } rollback{*this, record};
+
+        if (resource_count > 0) {
+            auto range = cpu_resource_descriptors_.allocate(resource_count);
+            if (!range) {
+                return std::unexpected(range.error());
+            }
+            record.resources = *range;
+        }
+        if (layout->sampler_descriptor_count > 0) {
+            auto range = cpu_sampler_descriptors_.allocate(layout->sampler_descriptor_count);
+            if (!range) {
+                return std::unexpected(range.error());
+            }
+            record.samplers = *range;
+        }
+
+        for (const rhi::BindGroupEntry &entry : desc.entries) {
+            const auto dynamic_it = std::ranges::find_if(
+                layout->dynamic_slots, [&](const DynamicSlot &slot) { return slot.binding == entry.binding; });
+            if (dynamic_it != layout->dynamic_slots.end()) {
+                const BufferRecord *buffer = buffers_.find(entry.buffer);
+                if (buffer == nullptr) {
+                    return invalid_argument("create_bind_group: dynamic-offset binding " +
+                                            std::to_string(entry.binding) + " names an unknown buffer.");
+                }
+                const usize slot_index =
+                    static_cast<usize>(std::distance(layout->dynamic_slots.begin(), dynamic_it));
+                record.dynamic_addresses[slot_index] = buffer->gpu_address + entry.offset;
+                continue;
+            }
+
+            const auto resource_it = std::ranges::find_if(
+                layout->resource_slots, [&](const TableSlot &slot) { return slot.binding == entry.binding; });
+            const auto sampler_it = std::ranges::find_if(
+                layout->sampler_slots, [&](const TableSlot &slot) { return slot.binding == entry.binding; });
+            if (resource_it == layout->resource_slots.end() && sampler_it == layout->sampler_slots.end()) {
+                return invalid_argument("create_bind_group: binding " + std::to_string(entry.binding) +
+                                        " is not declared by this layout.");
+            }
+
+            if (resource_it != layout->resource_slots.end()) {
+                if (entry.array_element >= resource_it->count) {
+                    return invalid_argument("create_bind_group: array_element is out of range for binding " +
+                                            std::to_string(entry.binding) + ".");
+                }
+                const u32 index = resource_it->table_offset + entry.array_element;
+                if (index >= resource_count) {
+                    return invalid_argument(
+                        "create_bind_group: binding " + std::to_string(entry.binding) +
+                        " writes past the descriptor table (variable_descriptor_count is too small).");
+                }
+                const D3D12_CPU_DESCRIPTOR_HANDLE destination =
+                    cpu_resource_descriptors_.cpu_handle(record.resources, index);
+
+                switch (resource_it->type) {
+                    case rhi::BindingType::UniformBuffer: {
+                        const BufferRecord *buffer = buffers_.find(entry.buffer);
+                        if (buffer == nullptr) {
+                            return invalid_argument("create_bind_group: uniform binding names an unknown buffer.");
+                        }
+                        const u64 size = entry.size != 0 ? entry.size : buffer->size - entry.offset;
+                        const D3D12_CONSTANT_BUFFER_VIEW_DESC cbv{
+                            .BufferLocation = buffer->gpu_address + entry.offset,
+                            // A CBV's size must be a 256-byte multiple; rounding up is safe because
+                            // create_buffer() already padded any Uniform-usage buffer's allocation to
+                            // the same alignment, so the rounded range is still inside the resource.
+                            .SizeInBytes = static_cast<UINT>(align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)),
+                        };
+                        device_->CreateConstantBufferView(&cbv, destination);
+                        break;
+                    }
+                    case rhi::BindingType::ReadOnlyStorageBuffer: {
+                        const BufferRecord *buffer = buffers_.find(entry.buffer);
+                        if (buffer == nullptr) {
+                            return invalid_argument("create_bind_group: storage binding names an unknown buffer.");
+                        }
+                        auto range = buffer_descriptor_range(*buffer, entry);
+                        if (!range) {
+                            return std::unexpected(range.error());
+                        }
+                        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+                        srv.Format = range->is_raw() ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_UNKNOWN;
+                        srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+                        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                        srv.Buffer = {
+                            .FirstElement = range->first_element,
+                            .NumElements = range->element_count,
+                            .StructureByteStride = range->structure_stride,
+                            .Flags = range->is_raw() ? D3D12_BUFFER_SRV_FLAG_RAW : D3D12_BUFFER_SRV_FLAG_NONE,
+                        };
+                        device_->CreateShaderResourceView(buffer->resource.Get(), &srv, destination);
+                        break;
+                    }
+                    case rhi::BindingType::StorageBuffer: {
+                        const BufferRecord *buffer = buffers_.find(entry.buffer);
+                        if (buffer == nullptr) {
+                            return invalid_argument("create_bind_group: storage binding names an unknown buffer.");
+                        }
+                        auto range = buffer_descriptor_range(*buffer, entry);
+                        if (!range) {
+                            return std::unexpected(range.error());
+                        }
+                        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+                        uav.Format = range->is_raw() ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_UNKNOWN;
+                        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+                        uav.Buffer = {
+                            .FirstElement = range->first_element,
+                            .NumElements = range->element_count,
+                            .StructureByteStride = range->structure_stride,
+                            .CounterOffsetInBytes = 0,
+                            .Flags = range->is_raw() ? D3D12_BUFFER_UAV_FLAG_RAW : D3D12_BUFFER_UAV_FLAG_NONE,
+                        };
+                        device_->CreateUnorderedAccessView(buffer->resource.Get(), nullptr, &uav, destination);
+                        break;
+                    }
+                    case rhi::BindingType::AccelerationStructure: {
+                        const AccelerationStructureRecord *as =
+                            acceleration_structures_.find(entry.acceleration_structure);
+                        if (as == nullptr) {
+                            return invalid_argument(
+                                "create_bind_group: acceleration-structure binding names an unknown handle.");
+                        }
+                        // The only SRV in D3D12 created with a null resource: a TLAS is referenced by
+                        // GPU virtual address, not by ID3D12Resource.
+                        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+                        srv.Format = DXGI_FORMAT_UNKNOWN;
+                        srv.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+                        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                        srv.RaytracingAccelerationStructure.Location = as->gpu_address;
+                        device_->CreateShaderResourceView(nullptr, &srv, destination);
+                        break;
+                    }
+                    case rhi::BindingType::SampledTexture:
+                    case rhi::BindingType::CombinedImageSampler:
+                    case rhi::BindingType::InputAttachment: {
+                        const TextureViewRecord *view = texture_views_.find(entry.texture_view);
+                        if (view == nullptr || !view->srv.is_valid()) {
+                            return invalid_argument(
+                                "create_bind_group: sampled binding names a texture view with no shader-resource "
+                                "view (was the texture created with TextureUsage::Sampled?).");
+                        }
+                        device_->CopyDescriptorsSimple(1, destination,
+                                                       cpu_resource_descriptors_.cpu_handle(view->srv, 0),
+                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                        break;
+                    }
+                    case rhi::BindingType::StorageTexture: {
+                        const TextureViewRecord *view = texture_views_.find(entry.texture_view);
+                        if (view == nullptr || !view->uav.is_valid()) {
+                            return invalid_argument(
+                                "create_bind_group: storage-texture binding names a texture view with no unordered-"
+                                "access view (was the texture created with TextureUsage::Storage?).");
+                        }
+                        device_->CopyDescriptorsSimple(1, destination,
+                                                       cpu_resource_descriptors_.cpu_handle(view->uav, 0),
+                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                        break;
+                    }
+                    case rhi::BindingType::Sampler:
+                        break; // handled by the sampler branch below
+                }
+            }
+
+            if (sampler_it != layout->sampler_slots.end()) {
+                if (entry.array_element >= sampler_it->count) {
+                    return invalid_argument("create_bind_group: array_element is out of range for sampler binding " +
+                                            std::to_string(entry.binding) + ".");
+                }
+                const SamplerRecord *sampler = samplers_.find(entry.sampler);
+                if (sampler == nullptr) {
+                    return invalid_argument("create_bind_group: sampler binding " + std::to_string(entry.binding) +
+                                            " names an unknown sampler.");
+                }
+                device_->CopyDescriptorsSimple(
+                    1, cpu_sampler_descriptors_.cpu_handle(record.samplers, sampler_it->table_offset + entry.array_element),
+                    cpu_sampler_descriptors_.cpu_handle(sampler->descriptor, 0), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+            }
+        }
+
+        rollback.committed = true;
+        return bind_groups_.insert(std::move(record));
+    }
+
+    void D3D12Device::release_bind_group_descriptors(BindGroupRecord &record) noexcept {
+        cpu_resource_descriptors_.release(record.resources);
+        cpu_sampler_descriptors_.release(record.samplers);
+        record.resources = {};
+        record.samplers = {};
+    }
+
+    void D3D12Device::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
+        ZoneScopedN("D3D12Device::destroy_bind_group");
+        if (auto record = bind_groups_.extract(handle)) {
+            release_bind_group_descriptors(*record);
+        }
+    }
+
+} // namespace SFT::D3D12

@@ -11,6 +11,7 @@
 
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/ShaderTarget.hpp>
 #include <Renderer/TileGrid.hpp>
 
 using std::string;
@@ -62,8 +63,12 @@ namespace SFT::UI {
             if (resource.vertex_module) device.destroy_shader_module(resource.vertex_module);
         };
 
+        const auto shader_target = Renderer::shader_target_for_device(device);
+        if (!shader_target) {
+            return unexpected(shader_target.error());
+        }
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = Renderer::shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = shader.fragment_entry_point, .stage = slang::ShaderStage::Fragment},
@@ -80,13 +85,13 @@ namespace SFT::UI {
                 "compile UI custom element shader failed: " + compiled.error().message + "\n" + compiled.error().diagnostics));
         }
 
-        auto vertex_code = compiled->entry_point_code("vertexMain");
+        auto vertex_code = compiled->entry_point_code("vertexMain", shader_target->slang_target.format);
         if (!vertex_code) {
             return unexpected(custom_element_error(
                 "generate UI custom element vertex bytecode failed: " + vertex_code.error().message));
         }
         auto vertex_module = device.create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{vertex_code->bytes.data(), vertex_code->bytes.size()},
             .label = "ui custom element vertex module",
         });
@@ -95,14 +100,14 @@ namespace SFT::UI {
         }
         resource.vertex_module = *vertex_module;
 
-        auto fragment_code = compiled->entry_point_code(shader.fragment_entry_point);
+        auto fragment_code = compiled->entry_point_code(shader.fragment_entry_point, shader_target->slang_target.format);
         if (!fragment_code) {
             cleanup();
             return unexpected(custom_element_error(
                 "generate UI custom element fragment bytecode failed: " + fragment_code.error().message));
         }
         auto fragment_module = device.create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{fragment_code->bytes.data(), fragment_code->bytes.size()},
             .label = "ui custom element fragment module",
         });

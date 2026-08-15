@@ -6,10 +6,10 @@
 #include <vector>
 #pragma endregion
 
-#include <Renderer/RendererModule.hpp>
 #include <Core/Core.hpp>
-#include <RHI/RHI.hpp>
 #include <Platform/Platform.hpp>
+#include <RHI/RHI.hpp>
+#include <Renderer/RendererModule.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -40,19 +40,16 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                     const char *reason) {
         ZoneScopedN("Renderer::rebuild_backend_from_create_info");
+        auto backend_operation = backend_operation_mutex_.lock();
         if (!initialized_ || create_info.window == nullptr || window_surfaces_.lock()->empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Cannot rebuild graphics backend before renderer initialization state is available.");
         }
 
         recovering_from_device_loss_ = true;
-        // Best-effort: the device is already lost, so a present job still queued on the presentation
-        // coordinator is about to reference a `device` pointer wait_idle()/graphics_backend_.reset()
-        // below are about to invalidate. Draining here can't fully close the window against a
-        // *different* window's render thread concurrently mid-submit/present on the same
-        // (already-lost) device -- that race predates the presentation coordinator (and the
-        // per-window present thread it replaced) and isn't newly introduced by either -- but it does
-        // guarantee this window's own pending_present isn't left referencing a freed device.
+        // Drain queued presentation before invalidating the device pointer it references. The backend
+        // operation guard above also excludes every window's frame recording/submission for the complete
+        // rebuild, so no new submit or present can race wait_idle() and old-device destruction below.
         {
             auto guard = window_surfaces_.lock();
             for (auto &record_ptr : *guard) {
@@ -60,9 +57,22 @@ namespace SFT::Renderer {
             }
         }
         wait_idle();
+        // DXGI permits only one flip-model swapchain per HWND. The generic invalidation path below
+        // intentionally clears old handles without destroying them (normally appropriate for a lost
+        // device), but an intentional backend/API reconstruction still has a live old device and must
+        // release its native swapchains before a D3D12 replacement attempts CreateSwapChainForHwnd.
+        if (RHI::RhiDevice *old_device = rhi_device()) {
+            auto guard = window_surfaces_.lock();
+            for (const auto &record : *guard) {
+                if (record->rhi_swapchain.is_valid()) {
+                    old_device->destroy_swapchain(record->rhi_swapchain);
+                    record->rhi_swapchain = {};
+                }
+            }
+        }
         invalidate_gpu_resource_handles_no_destroy();
         graphics_backend_.reset();
-        graphics_backend_ = Core::create_vulkan_backend();
+        graphics_backend_ = Core::create_engine_backend(create_info.backend);
         if (!graphics_backend_) {
             recovering_from_device_loss_ = false;
             initialized_ = false;

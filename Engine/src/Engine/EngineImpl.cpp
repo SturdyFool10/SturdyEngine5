@@ -14,6 +14,12 @@
 #pragma endregion
 
 #include <Core/Core.hpp>
+#if !defined(STURDY_PLATFORM_WEB)
+#include <Core/Vulkan/VulkanInventory.hpp>
+#endif
+#if defined(STURDY_PLATFORM_WINDOWS)
+#include <D3D12/D3D12Adapter.hpp>
+#endif
 #include <Engine/EngineModule.hpp>
 #include <Platform/Platform.hpp>
 #include <RHI/RHI.hpp>
@@ -35,33 +41,48 @@ namespace SFT::Engine {
     namespace {
         [[nodiscard]] RendererApi::ToneMappingOperator lower_tone_mapping(ToneMappingOperator operation) noexcept {
             switch (operation) {
-                case ToneMappingOperator::None: return RendererApi::ToneMappingOperator::None;
-                case ToneMappingOperator::Reinhard: return RendererApi::ToneMappingOperator::Reinhard;
-                case ToneMappingOperator::Exponential: return RendererApi::ToneMappingOperator::Exponential;
-                case ToneMappingOperator::Agx: return RendererApi::ToneMappingOperator::Agx;
-                case ToneMappingOperator::HermiteSpline: return RendererApi::ToneMappingOperator::HermiteSpline;
-                case ToneMappingOperator::PsychoV: return RendererApi::ToneMappingOperator::PsychoV;
+                case ToneMappingOperator::None:
+                    return RendererApi::ToneMappingOperator::None;
+                case ToneMappingOperator::Reinhard:
+                    return RendererApi::ToneMappingOperator::Reinhard;
+                case ToneMappingOperator::Exponential:
+                    return RendererApi::ToneMappingOperator::Exponential;
+                case ToneMappingOperator::Agx:
+                    return RendererApi::ToneMappingOperator::Agx;
+                case ToneMappingOperator::HermiteSpline:
+                    return RendererApi::ToneMappingOperator::HermiteSpline;
+                case ToneMappingOperator::PsychoV:
+                    return RendererApi::ToneMappingOperator::PsychoV;
             }
             return RendererApi::ToneMappingOperator::Agx;
         }
 
         [[nodiscard]] RendererApi::SpectralRenderMode lower_scene_integrator(SceneIntegrator integrator) noexcept {
             switch (integrator) {
-                case SceneIntegrator::RasterDeferred: return RendererApi::SpectralRenderMode::RasterDeferred;
-                case SceneIntegrator::ShadowOnly: return RendererApi::SpectralRenderMode::ShadowOnly;
-                case SceneIntegrator::ReflectionOnly: return RendererApi::SpectralRenderMode::ReflectionOnly;
-                case SceneIntegrator::AmbientOcclusionOnly: return RendererApi::SpectralRenderMode::AmbientOcclusionOnly;
-                case SceneIntegrator::ShadowAndTransmission: return RendererApi::SpectralRenderMode::ShadowAndTransmission;
-                case SceneIntegrator::FullPathTracing: return RendererApi::SpectralRenderMode::FullPathTracing;
+                case SceneIntegrator::RasterDeferred:
+                    return RendererApi::SpectralRenderMode::RasterDeferred;
+                case SceneIntegrator::ShadowOnly:
+                    return RendererApi::SpectralRenderMode::ShadowOnly;
+                case SceneIntegrator::ReflectionOnly:
+                    return RendererApi::SpectralRenderMode::ReflectionOnly;
+                case SceneIntegrator::AmbientOcclusionOnly:
+                    return RendererApi::SpectralRenderMode::AmbientOcclusionOnly;
+                case SceneIntegrator::ShadowAndTransmission:
+                    return RendererApi::SpectralRenderMode::ShadowAndTransmission;
+                case SceneIntegrator::FullPathTracing:
+                    return RendererApi::SpectralRenderMode::FullPathTracing;
             }
             return RendererApi::SpectralRenderMode::RasterDeferred;
         }
 
         [[nodiscard]] RendererApi::AgxLook lower_agx_look(AgxLook look) noexcept {
             switch (look) {
-                case AgxLook::None: return RendererApi::AgxLook::None;
-                case AgxLook::Punchy: return RendererApi::AgxLook::Punchy;
-                case AgxLook::Golden: return RendererApi::AgxLook::Golden;
+                case AgxLook::None:
+                    return RendererApi::AgxLook::None;
+                case AgxLook::Punchy:
+                    return RendererApi::AgxLook::Punchy;
+                case AgxLook::Golden:
+                    return RendererApi::AgxLook::Golden;
             }
             return RendererApi::AgxLook::None;
         }
@@ -246,25 +267,58 @@ namespace SFT::Engine {
 
         const Foundation::Stopwatch stopwatch;
 
+#if !defined(STURDY_PLATFORM_WEB)
+        RHI::BackendRegistry inventory_backends;
+        inventory_backends.register_backend(Core::Vulkan::vulkan_inventory_backend_registration());
+#if defined(STURDY_PLATFORM_WINDOWS)
+        inventory_backends.register_backend(D3D12::d3d12_backend_registration());
+#endif
+        gpu_inventory_ = RHI::enumerate_gpu_inventory(
+            inventory_backends,
+            RHI::InstanceDesc{.application_name = config.app_name, .engine_name = "SturdyEngine5", .headless = true});
+        for (const RHI::BackendDiscoveryFailure &failure : gpu_inventory_.failures) {
+            Foundation::log_warn("GPU discovery through {} failed: {}", RHI::backend_type_name(failure.backend), failure.message);
+        }
+        for (const RHI::PhysicalGpu &gpu : gpu_inventory_.gpus) {
+            std::string api_names;
+            for (const RHI::GpuApiSupport &api : gpu.api_support) {
+                if (!api_names.empty()) {
+                    api_names += ", ";
+                }
+                api_names += RHI::backend_type_name(api.adapter.backend);
+            }
+            Foundation::log_info("Found GPU: {} (available APIs: {})", gpu.name, api_names);
+        }
+#endif
+
         // Reflect every shader on disk before the graphics backend exists, so the rest of startup
         // can see entry points, bindings, and parameter layouts without having generated any
         // target bytecode yet.
         shaders_ = Core::Slang::discover_shaders(
-            config.shaders_directory, shader_compiler_, Core::Slang::ShaderCompileOptions{}, config.enable_shader_disk_cache);
+            config.shaders_directory,
+            shader_compiler_,
+            Core::Slang::ShaderCompileOptions{},
+            config.enable_shader_disk_cache);
 
-        auto wsi_extensions = window.required_vulkan_instance_extensions();
-        if (!wsi_extensions) {
-            return unexpected(Core::GraphicsBackendError{
-                Core::GraphicsBackendErrorCode::InitializationFailed,
-                format("Failed to query Vulkan WSI extensions from window: {}", wsi_extensions.error().message),
-            });
+        vector<const char *> wsi_extensions;
+        if (config.graphics_backend == RHI::BackendType::Vulkan) {
+            auto queried_extensions = window.required_vulkan_instance_extensions();
+            if (!queried_extensions) {
+                return unexpected(Core::GraphicsBackendError{
+                    Core::GraphicsBackendErrorCode::InitializationFailed,
+                    format("Failed to query Vulkan WSI extensions from window: {}", queried_extensions.error().message),
+                });
+            }
+            wsi_extensions = std::move(*queried_extensions);
         }
 
         Core::RendererCreateInfo renderer_info{};
+        renderer_info.backend = config.graphics_backend;
+        renderer_info.physical_device_id = config.graphics_physical_device_id;
         renderer_info.features = config.features;
         renderer_info.app_name = config.app_name;
         renderer_info.window = &window;
-        renderer_info.wsi_extensions = std::move(*wsi_extensions);
+        renderer_info.wsi_extensions = std::move(wsi_extensions);
         // Hand the backend the shaders we reflected above; it owns compiling them to its native
         // format. shaders_ outlives this call, so the non-owning span stays valid.
         renderer_info.uncompiled_shaders = shaders_;
@@ -354,7 +408,7 @@ namespace SFT::Engine {
     }
 
     RHI::RhiResult Engine::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
-                                                           const RHI::HdrContentLightLevelUpdate &update) {
+                                                          const RHI::HdrContentLightLevelUpdate &update) {
         return renderer_.update_hdr_content_light_level(surface, update);
     }
 
@@ -414,7 +468,9 @@ namespace SFT::Engine {
             config_.features.required_rhi_features != settings.features.required_rhi_features ||
             config_.features.optional_rhi_features != settings.features.optional_rhi_features ||
             config_.features.desired_frames_in_flight != settings.features.desired_frames_in_flight ||
-            static_cast<bool>(config_.features.enable_native_access_extension) != static_cast<bool>(settings.features.enable_native_access_extension);
+            static_cast<bool>(config_.features.enable_native_access_extension) != static_cast<bool>(settings.features.enable_native_access_extension) ||
+            config_.graphics_backend != settings.graphics_backend ||
+            config_.graphics_physical_device_id != settings.graphics_physical_device_id;
 
         const string_view old_app_name = config_.app_name != nullptr ? string_view{config_.app_name} : string_view{};
         const string_view new_app_name = settings.app_name != nullptr ? string_view{settings.app_name} : string_view{};
@@ -428,24 +484,33 @@ namespace SFT::Engine {
         }
 
         if (backend_features_changed || app_name_changed || config_.shaders_directory != settings.shaders_directory) {
-            auto wsi_extensions = primary_window_->required_vulkan_instance_extensions();
-            if (!wsi_extensions) {
-                return unexpected(Core::GraphicsBackendError{
-                    Core::GraphicsBackendErrorCode::InitializationFailed,
-                    format("Failed to query Vulkan WSI extensions while applying runtime settings: {}", wsi_extensions.error().message),
-                });
+            vector<const char *> wsi_extensions;
+            if (settings.graphics_backend == RHI::BackendType::Vulkan) {
+                auto queried_extensions = primary_window_->required_vulkan_instance_extensions();
+                if (!queried_extensions) {
+                    return unexpected(Core::GraphicsBackendError{
+                        Core::GraphicsBackendErrorCode::InitializationFailed,
+                        format("Failed to query Vulkan WSI extensions while applying runtime settings: {}", queried_extensions.error().message),
+                    });
+                }
+                wsi_extensions = std::move(*queried_extensions);
             }
 
             if (config_.shaders_directory != settings.shaders_directory) {
                 shaders_ = Core::Slang::discover_shaders(
-                    settings.shaders_directory, shader_compiler_, Core::Slang::ShaderCompileOptions{}, settings.enable_shader_disk_cache);
+                    settings.shaders_directory,
+                    shader_compiler_,
+                    Core::Slang::ShaderCompileOptions{},
+                    settings.enable_shader_disk_cache);
             }
 
             Core::RendererCreateInfo renderer_info{};
+            renderer_info.backend = settings.graphics_backend;
+            renderer_info.physical_device_id = settings.graphics_physical_device_id;
             renderer_info.features = settings.features;
             renderer_info.app_name = settings.app_name;
             renderer_info.window = primary_window_;
-            renderer_info.wsi_extensions = std::move(*wsi_extensions);
+            renderer_info.wsi_extensions = std::move(wsi_extensions);
             renderer_info.uncompiled_shaders = shaders_;
             renderer_info.enable_shader_disk_cache = settings.enable_shader_disk_cache;
 
@@ -495,7 +560,9 @@ namespace SFT::Engine {
         RenderGraph graph = parameters.render_graph.normalized();
         RenderGraphDescription &graph_settings = graph.description();
         graph_settings.resolution_scale = std::clamp(
-            graph_settings.resolution_scale * parameters.camera.render_scale(), 0.1f, 2.0f);
+            graph_settings.resolution_scale * parameters.camera.render_scale(),
+            0.1f,
+            2.0f);
         if (!graph_settings.scene.background_color) {
             graph_settings.scene.background_color = parameters.camera.clear_color();
         }
@@ -547,7 +614,10 @@ namespace SFT::Engine {
             return handle ? RendererApi::LogicalRenderGraphTexture{.index = handle.index}
                           : RendererApi::LogicalRenderGraphTexture{};
         };
-        enum class TextureDomain : u8 { Unknown, BeforeBloom, AfterBloom, Display };
+        enum class TextureDomain : u8 { Unknown,
+                                        BeforeBloom,
+                                        AfterBloom,
+                                        Display };
         vector<TextureDomain> domains(executable_graph.textures().size(), TextureDomain::Unknown);
         vector<bool> live_pass(executable_graph.passes().size(), false);
         vector<bool> presentation_pass(executable_graph.passes().size(), false);
@@ -567,8 +637,8 @@ namespace SFT::Engine {
         };
         for (const RenderGraphPassDescription &pass : executable_graph.passes()) {
             const TextureDomain input_domain = pass.input && pass.input.index < domains.size()
-                ? domains[pass.input.index]
-                : TextureDomain::Unknown;
+                                                   ? domains[pass.input.index]
+                                                   : TextureDomain::Unknown;
             TextureDomain output_domain = input_domain;
             switch (pass.kind) {
                 case RenderGraphPassKind::DeferredScene:
@@ -606,8 +676,8 @@ namespace SFT::Engine {
                 continue;
             }
             const RendererApi::PostProcessStage stage = input_domain == TextureDomain::AfterBloom
-                ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
-                : RendererApi::PostProcessStage::BeforeBloom;
+                                                            ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
+                                                            : RendererApi::PostProcessStage::BeforeBloom;
             if (pass.kind == RenderGraphPassKind::FullscreenEffect) {
                 custom_graph.passes.push_back(RendererApi::CustomGraphPass{
                     .kind = RendererApi::CustomGraphPassKind::RasterEffect,
@@ -718,9 +788,7 @@ namespace SFT::Engine {
             .gtao_intensity = graph.ambient_occlusion.intensity,
             .gtao_quality = static_cast<u32>(graph.ambient_occlusion.quality),
             .msaa_samples = has_anti_aliasing ? graph.anti_aliasing.msaa_samples : 1u,
-            .post_process_aa = has_anti_aliasing
-                                   ? static_cast<u32>(graph.anti_aliasing.post_process)
-                                   : static_cast<u32>(PostProcessAntiAliasing::None),
+            .post_process_aa = has_anti_aliasing ? static_cast<u32>(graph.anti_aliasing.post_process) : static_cast<u32>(PostProcessAntiAliasing::None),
             .aa_subpixel_quality = graph.anti_aliasing.subpixel_quality,
             .aa_edge_threshold = graph.anti_aliasing.edge_threshold,
             .bloom_threshold = graph.bloom.threshold,
@@ -775,6 +843,10 @@ namespace SFT::Engine {
 
     optional<Core::GpuInfo> Engine::gpu_info() const {
         return renderer_.gpu_info();
+    }
+
+    const RHI::GpuInventory &Engine::gpu_inventory() const noexcept {
+        return gpu_inventory_;
     }
 
     Core::EngineBackend *Engine::graphics_backend() noexcept {

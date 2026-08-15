@@ -12,7 +12,7 @@ struct VertexOutput {
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
     output.uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = float4(output.uv * 2.0 - 1.0, 0.0, 1.0);
+    output.position = fullscreenTrianglePosition(output.uv);
     return output;
 }
 

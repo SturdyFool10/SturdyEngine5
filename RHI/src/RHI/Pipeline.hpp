@@ -41,6 +41,13 @@ namespace SFT::RHI {
         Back,
     };
 
+    // Winding of a front-facing triangle, in Vulkan's terms — framebuffer space, top-left origin,
+    // +Y down. Set it as if you were targeting Vulkan; backends reconcile it.
+    //
+    // Backends do NOT all receive this verbatim. D3D12 reconciles the RHI's clip space by negating
+    // clip-space Y in the shader (see RHI::Viewport), and that mirror reverses how its rasterizer
+    // classifies winding, so the D3D12 backend inverts this value on the way in. That inversion is
+    // measured against Vulkan on identical geometry, not inferred — see D3D12DevicePipelines.cpp.
     enum class FrontFace : u32 {
         CounterClockwise,
         Clockwise,

@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -93,8 +95,11 @@ namespace SFT::Renderer {
     Core::RendererExpected<TextPipeline> TextPipeline::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         ZoneScopedN("TextPipeline::create");
+        const auto shader_target = shader_target_for_device(device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
@@ -115,13 +120,13 @@ namespace SFT::Renderer {
 
         TextPipeline pipeline;
 
-        auto vertex_code = shader->entry_point_code("vertexMain");
+        auto vertex_code = shader->entry_point_code("vertexMain", shader_target->slang_target.format);
         if (!vertex_code) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "generate text_sdf vertex bytecode failed: " + vertex_code.error().message});
         }
         auto vertex_module = device.create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{vertex_code->bytes.data(), vertex_code->bytes.size()},
             .label = "text vertex module",
         });
@@ -130,14 +135,14 @@ namespace SFT::Renderer {
         }
         pipeline.vertex_module_ = *vertex_module;
 
-        auto fragment_code = shader->entry_point_code("fragmentMain");
+        auto fragment_code = shader->entry_point_code("fragmentMain", shader_target->slang_target.format);
         if (!fragment_code) {
             pipeline.destroy(device);
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "generate text_sdf fragment bytecode failed: " + fragment_code.error().message});
         }
         auto fragment_module = device.create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{fragment_code->bytes.data(), fragment_code->bytes.size()},
             .label = "text fragment module",
         });
@@ -383,7 +388,12 @@ namespace SFT::Renderer {
                     }
                     group->entries.push_back(value);
                 };
-                add_entry(instances_binding_, RHI::BindGroupEntry{.buffer = resources.instance_buffer, .offset = 0, .size = 0});
+                add_entry(instances_binding_, RHI::BindGroupEntry{
+                                                  .buffer = resources.instance_buffer,
+                                                  .offset = 0,
+                                                  .size = 0,
+                                                  .structure_stride = sizeof(GlyphInstance),
+                                              });
                 add_entry(texture_binding_, RHI::BindGroupEntry{.texture_view = atlas_view});
                 add_entry(sampler_binding_, RHI::BindGroupEntry{.sampler = sampler_});
                 for (const Group &group : groups) {

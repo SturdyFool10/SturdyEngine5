@@ -69,4 +69,5 @@
 #include "Device.hpp"
 #include "Adapter.hpp"
 #include "Backend.hpp"
+#include "Inventory.hpp"
 #include "Selection.hpp"

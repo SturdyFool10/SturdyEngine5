@@ -200,7 +200,7 @@ namespace SFT::Renderer {
                                                         "Renderer is already initialized."});
         }
         if (!graphics_backend_) {
-            graphics_backend_ = Core::create_vulkan_backend();
+            graphics_backend_ = Core::create_engine_backend(create_info.backend);
         }
         if (!graphics_backend_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::InitializationFailed,
@@ -1036,6 +1036,7 @@ namespace SFT::Renderer {
                                                     const Core::FrameInput &frame,
                                                     FrameSubmission &submission) {
         ZoneScopedN("Renderer::render_frame_rhi");
+        auto backend_operation = backend_operation_mutex_.lock();
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,

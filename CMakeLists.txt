@@ -161,6 +161,7 @@ set(STURDY_ENGINE_OPTIMIZED_TARGETS
     Text
     graphicsPlatform
     RHI
+    D3D12
     Platform
     Core
     Renderer
@@ -178,6 +179,11 @@ add_subdirectory(Ecs)
 add_subdirectory(Text)
 add_subdirectory(graphicsPlatform)
 add_subdirectory(RHI)
+# D3D12's public headers require the Windows SDK and DirectX-Headers, so it is intentionally absent
+# from non-Windows source views as well as non-Windows target builds.
+if(WIN32 AND STURDY_OS STREQUAL "Windows")
+    add_subdirectory(D3D12)
+endif()
 add_subdirectory(Platform)
 add_subdirectory(Core)
 add_subdirectory(Renderer)

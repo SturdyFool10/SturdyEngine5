@@ -97,15 +97,24 @@ namespace SFT::UI {
         static constexpr array<ColorPickerComponent, 3> oklab{{{"L", 0.0, 1.0}, {"a", -0.4, 0.4}, {"b", -0.4, 0.4}}};
         static constexpr array<ColorPickerComponent, 3> oklch{{{"L", 0.0, 1.0}, {"C", 0.0, 0.4}, {"H", 0.0, 360.0}}};
         switch (color_space) {
-            case ColorPickerColorSpace::Xyz: return xyz;
-            case ColorPickerColorSpace::Hsl: return hsl;
-            case ColorPickerColorSpace::Hsv: return hsv;
-            case ColorPickerColorSpace::Hwb: return hwb;
-            case ColorPickerColorSpace::Lab: return lab;
-            case ColorPickerColorSpace::Lch: return lch;
-            case ColorPickerColorSpace::Luv: return luv;
-            case ColorPickerColorSpace::Oklab: return oklab;
-            case ColorPickerColorSpace::Oklch: return oklch;
+            case ColorPickerColorSpace::Xyz:
+                return xyz;
+            case ColorPickerColorSpace::Hsl:
+                return hsl;
+            case ColorPickerColorSpace::Hsv:
+                return hsv;
+            case ColorPickerColorSpace::Hwb:
+                return hwb;
+            case ColorPickerColorSpace::Lab:
+                return lab;
+            case ColorPickerColorSpace::Lch:
+                return lch;
+            case ColorPickerColorSpace::Luv:
+                return luv;
+            case ColorPickerColorSpace::Oklab:
+                return oklab;
+            case ColorPickerColorSpace::Oklch:
+                return oklch;
             case ColorPickerColorSpace::Srgb:
             case ColorPickerColorSpace::Linear:
             case ColorPickerColorSpace::AdobeRgb:
@@ -119,21 +128,36 @@ namespace SFT::UI {
 
     [[nodiscard]] inline const char *color_picker_space_name(ColorPickerColorSpace color_space) noexcept {
         switch (color_space) {
-            case ColorPickerColorSpace::Srgb: return "sRGB";
-            case ColorPickerColorSpace::Linear: return "Linear RGB";
-            case ColorPickerColorSpace::Xyz: return "CIE XYZ";
-            case ColorPickerColorSpace::AdobeRgb: return "Adobe RGB";
-            case ColorPickerColorSpace::DisplayP3: return "Display P3";
-            case ColorPickerColorSpace::Rec2020: return "Rec. 2020";
-            case ColorPickerColorSpace::Hsl: return "HSL";
-            case ColorPickerColorSpace::Hsv: return "HSV";
-            case ColorPickerColorSpace::Hwb: return "HWB";
-            case ColorPickerColorSpace::Lab: return "CIELAB";
-            case ColorPickerColorSpace::Lch: return "CIELCh";
-            case ColorPickerColorSpace::Luv: return "CIELUV";
-            case ColorPickerColorSpace::Oklab: return "Oklab";
-            case ColorPickerColorSpace::Oklch: return "Oklch";
-            case ColorPickerColorSpace::Count: break;
+            case ColorPickerColorSpace::Srgb:
+                return "sRGB";
+            case ColorPickerColorSpace::Linear:
+                return "Linear RGB";
+            case ColorPickerColorSpace::Xyz:
+                return "CIE XYZ";
+            case ColorPickerColorSpace::AdobeRgb:
+                return "Adobe RGB";
+            case ColorPickerColorSpace::DisplayP3:
+                return "Display P3";
+            case ColorPickerColorSpace::Rec2020:
+                return "Rec. 2020";
+            case ColorPickerColorSpace::Hsl:
+                return "HSL";
+            case ColorPickerColorSpace::Hsv:
+                return "HSV";
+            case ColorPickerColorSpace::Hwb:
+                return "HWB";
+            case ColorPickerColorSpace::Lab:
+                return "CIELAB";
+            case ColorPickerColorSpace::Lch:
+                return "CIELCh";
+            case ColorPickerColorSpace::Luv:
+                return "CIELUV";
+            case ColorPickerColorSpace::Oklab:
+                return "Oklab";
+            case ColorPickerColorSpace::Oklch:
+                return "Oklch";
+            case ColorPickerColorSpace::Count:
+                break;
         }
         return "sRGB";
     }
@@ -532,19 +556,14 @@ namespace SFT::UI {
 
         // Per-pixel alpha gradient over a checkerboard (Shaders/ui_color_picker_alpha_bar.slang) —
         // replaces the old flat-segment-over-checker-cell approximation with one real shader draw.
-        [[nodiscard]] inline CustomShaderRef alpha_bar_shader(const Color &foreground, f64 opacity,
-                                                               const Color &checker_light, const Color &checker_dark,
-                                                               f32 checker_cell_size, const CornerRadius &corner_radius) {
+        [[nodiscard]] inline CustomShaderRef alpha_bar_shader(const Color &foreground, f64 opacity, const Color &checker_light, const Color &checker_dark, f32 checker_cell_size, const CornerRadius &corner_radius) {
             return CustomShaderRef{
                 .shader_path = "Shaders/ui_color_picker_alpha_bar.slang",
                 .module_name = "ui_color_picker_alpha_bar",
                 .push_constants = pack_gradient_shader_params({
-                    glm::vec4{static_cast<f32>(foreground.r), static_cast<f32>(foreground.g), static_cast<f32>(foreground.b),
-                              static_cast<f32>(opacity)},
-                    glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g),
-                              static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
-                    glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b),
-                              static_cast<f32>(checker_dark.a)},
+                    glm::vec4{static_cast<f32>(foreground.r), static_cast<f32>(foreground.g), static_cast<f32>(foreground.b), static_cast<f32>(opacity)},
+                    glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g), static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
+                    glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b), static_cast<f32>(checker_dark.a)},
                     corner_radius_vec4(corner_radius),
                     glm::vec4{checker_cell_size, 0.0f, 0.0f, 0.0f},
                 }),
@@ -555,18 +574,13 @@ namespace SFT::UI {
         // sweeps `component_index` across [minimum, maximum] with the other two channels held at
         // `values` — the exact "this slider is the independent variable" preview, converted
         // per-pixel through sturdy_common's GPU mirror of Foundation::Color.
-        [[nodiscard]] inline CustomShaderRef component_bar_shader(ColorPickerColorSpace color_space, usize component_index,
-                                                                  const ColorPickerComponent &component,
-                                                                  const array<f64, 3> &values, f64 opacity,
-                                                                  const CornerRadius &corner_radius) {
+        [[nodiscard]] inline CustomShaderRef component_bar_shader(ColorPickerColorSpace color_space, usize component_index, const ColorPickerComponent &component, const array<f64, 3> &values, f64 opacity, const CornerRadius &corner_radius) {
             return CustomShaderRef{
                 .shader_path = "Shaders/ui_color_picker_component_bar.slang",
                 .module_name = "ui_color_picker_component_bar",
                 .push_constants = pack_gradient_shader_params({
-                    glm::vec4{static_cast<f32>(color_space), static_cast<f32>(component_index),
-                              static_cast<f32>(component.minimum), static_cast<f32>(component.maximum)},
-                    glm::vec4{static_cast<f32>(values[0]), static_cast<f32>(values[1]), static_cast<f32>(values[2]),
-                              static_cast<f32>(opacity)},
+                    glm::vec4{static_cast<f32>(color_space), static_cast<f32>(component_index), static_cast<f32>(component.minimum), static_cast<f32>(component.maximum)},
+                    glm::vec4{static_cast<f32>(values[0]), static_cast<f32>(values[1]), static_cast<f32>(values[2]), static_cast<f32>(opacity)},
                     corner_radius_vec4(corner_radius),
                 }),
             };
@@ -575,20 +589,15 @@ namespace SFT::UI {
         // The preview swatch: the picked color at its *actual* alpha over a checkerboard
         // (Shaders/ui_color_picker_preview.slang) — replaces the old flat composite_opaque()
         // against a single checker color, which erased the transparency cue entirely.
-        [[nodiscard]] inline CustomShaderRef preview_shader(const Color &color, f64 opacity, const Color &checker_light,
-                                                            const Color &checker_dark, f32 checker_cell_size,
-                                                            const CornerRadius &corner_radius) {
+        [[nodiscard]] inline CustomShaderRef preview_shader(const Color &color, f64 opacity, const Color &checker_light, const Color &checker_dark, f32 checker_cell_size, const CornerRadius &corner_radius) {
             return CustomShaderRef{
                 .shader_path = "Shaders/ui_color_picker_preview.slang",
                 .module_name = "ui_color_picker_preview",
                 .push_constants = pack_gradient_shader_params({
-                    glm::vec4{static_cast<f32>(color.r), static_cast<f32>(color.g), static_cast<f32>(color.b),
-                              static_cast<f32>(color.a)},
+                    glm::vec4{static_cast<f32>(color.r), static_cast<f32>(color.g), static_cast<f32>(color.b), static_cast<f32>(color.a)},
                     glm::vec4{static_cast<f32>(opacity), checker_cell_size, 0.0f, 0.0f},
-                    glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g),
-                              static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
-                    glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b),
-                              static_cast<f32>(checker_dark.a)},
+                    glm::vec4{static_cast<f32>(checker_light.r), static_cast<f32>(checker_light.g), static_cast<f32>(checker_light.b), static_cast<f32>(checker_light.a)},
+                    glm::vec4{static_cast<f32>(checker_dark.r), static_cast<f32>(checker_dark.g), static_cast<f32>(checker_dark.b), static_cast<f32>(checker_dark.a)},
                     corner_radius_vec4(corner_radius),
                 }),
             };
@@ -641,25 +650,39 @@ namespace SFT::UI {
         // Rebuilds an sRGB Color from the three color_picker_components() channels of `color_space`
         // plus `alpha` — the write-side inverse of color_picker_component_values(). Out-of-gamut
         // combinations clamp on conversion, same as any CSS color() rule would.
-        [[nodiscard]] inline Color color_from_components(ColorPickerColorSpace color_space, f64 c0, f64 c1, f64 c2,
-                                                         f64 alpha) noexcept {
+        [[nodiscard]] inline Color color_from_components(ColorPickerColorSpace color_space, f64 c0, f64 c1, f64 c2, f64 alpha) noexcept {
             using namespace Foundation::Color;
             switch (color_space) {
-                case ColorPickerColorSpace::Srgb: return Color{c0, c1, c2, alpha};
-                case ColorPickerColorSpace::Linear: return convert_to<Color>(Linear{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Xyz: return convert_to<Color>(Xyz{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::AdobeRgb: return convert_to<Color>(AdobeRgb{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::DisplayP3: return convert_to<Color>(DisplayP3{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Rec2020: return convert_to<Color>(Rec2020{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Hsl: return convert_to<Color>(Hsl{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Hsv: return convert_to<Color>(Hsv{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Hwb: return convert_to<Color>(Hwb{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Lab: return convert_to<Color>(Lab{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Lch: return convert_to<Color>(Lch{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Luv: return convert_to<Color>(Luv{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Oklab: return convert_to<Color>(Oklab{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Oklch: return convert_to<Color>(Oklch{c0, c1, c2, alpha});
-                case ColorPickerColorSpace::Count: break;
+                case ColorPickerColorSpace::Srgb:
+                    return Color{c0, c1, c2, alpha};
+                case ColorPickerColorSpace::Linear:
+                    return convert_to<Color>(Linear{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Xyz:
+                    return convert_to<Color>(Xyz{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::AdobeRgb:
+                    return convert_to<Color>(AdobeRgb{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::DisplayP3:
+                    return convert_to<Color>(DisplayP3{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Rec2020:
+                    return convert_to<Color>(Rec2020{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hsl:
+                    return convert_to<Color>(Hsl{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hsv:
+                    return convert_to<Color>(Hsv{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Hwb:
+                    return convert_to<Color>(Hwb{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Lab:
+                    return convert_to<Color>(Lab{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Lch:
+                    return convert_to<Color>(Lch{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Luv:
+                    return convert_to<Color>(Luv{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Oklab:
+                    return convert_to<Color>(Oklab{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Oklch:
+                    return convert_to<Color>(Oklch{c0, c1, c2, alpha});
+                case ColorPickerColorSpace::Count:
+                    break;
             }
             return Color{c0, c1, c2, alpha};
         }
@@ -866,9 +889,9 @@ namespace SFT::UI {
                 focused = ColorPickerPart::None;
             }
             if (focused != ColorPickerPart::None && active == ColorPickerPart::None) {
-                const f64 small = std::isfinite(config.keyboard_step) && config.keyboard_step > 0.0
-                                      ? config.keyboard_step
-                                      : 0.01;
+                const f64 keyboard_step = std::isfinite(config.keyboard_step) && config.keyboard_step > 0.0
+                                              ? config.keyboard_step
+                                              : 0.01;
                 const f64 page = std::isfinite(config.page_step) && config.page_step > 0.0
                                      ? config.page_step
                                      : 0.1;
@@ -880,16 +903,16 @@ namespace SFT::UI {
                     if (focused == ColorPickerPart::SaturationValue) {
                         switch (key) {
                             case ColorPickerKey::Left:
-                                saturation -= small;
+                                saturation -= keyboard_step;
                                 break;
                             case ColorPickerKey::Right:
-                                saturation += small;
+                                saturation += keyboard_step;
                                 break;
                             case ColorPickerKey::Up:
-                                brightness += small;
+                                brightness += keyboard_step;
                                 break;
                             case ColorPickerKey::Down:
-                                brightness -= small;
+                                brightness -= keyboard_step;
                                 break;
                             case ColorPickerKey::PageDecrement:
                                 brightness -= page;
@@ -909,7 +932,7 @@ namespace SFT::UI {
                         saturation = std::clamp(saturation, 0.0, 1.0);
                         brightness = std::clamp(brightness, 0.0, 1.0);
                     } else if (focused == ColorPickerPart::Hue) {
-                        const f64 degree_step = small * 360.0;
+                        const f64 degree_step = keyboard_step * 360.0;
                         const f64 degree_page = page * 360.0;
                         switch (key) {
                             case ColorPickerKey::Left:
@@ -940,11 +963,11 @@ namespace SFT::UI {
                         switch (key) {
                             case ColorPickerKey::Left:
                             case ColorPickerKey::Down:
-                                alpha -= small;
+                                alpha -= keyboard_step;
                                 break;
                             case ColorPickerKey::Right:
                             case ColorPickerKey::Up:
-                                alpha += small;
+                                alpha += keyboard_step;
                                 break;
                             case ColorPickerKey::PageDecrement:
                                 alpha -= page;
@@ -1144,9 +1167,9 @@ namespace SFT::UI {
             if (composition.saturation_value.alter_decl)
                 composition.saturation_value.alter_decl(plane_decl, plane_context);
             if (plane_decl.cursor == CursorIcon::Auto) {
-                plane_decl.cursor = !sv_enabled ? CursorIcon::NotAllowed
-                                                : plane_visual.active ? CursorIcon::Grabbing
-                                                                      : CursorIcon::Grab;
+                plane_decl.cursor = !sv_enabled           ? CursorIcon::NotAllowed
+                                    : plane_visual.active ? CursorIcon::Grabbing
+                                                          : CursorIcon::Grab;
             }
             plane_decl.id = sv_id;
             auto plane = ctx.element(plane_decl);
@@ -1232,9 +1255,9 @@ namespace SFT::UI {
             if (part_slot.alter_decl)
                 part_slot.alter_decl(bar_decl, part_context);
             if (bar_decl.cursor == CursorIcon::Auto) {
-                bar_decl.cursor = !part_enabled ? CursorIcon::NotAllowed
-                                                : visual.active ? CursorIcon::Grabbing
-                                                                : CursorIcon::Grab;
+                bar_decl.cursor = !part_enabled   ? CursorIcon::NotAllowed
+                                  : visual.active ? CursorIcon::Grabbing
+                                                  : CursorIcon::Grab;
             }
             bar_decl.id = part_id;
             auto bar = ctx.element(bar_decl);
@@ -1246,12 +1269,11 @@ namespace SFT::UI {
                 // what used to be up to 64 flat-colored segments.
                 const f64 opacity = part_opacity(part_enabled);
                 const CustomShaderRef shader =
-                    alpha_bar ? Detail::alpha_bar_shader(Detail::picker_hsv_to_srgb(hue, saturation, brightness), opacity,
-                                                         style.checker_light, style.checker_dark,
-                                                         style.checker_cell_size, bar_decl.corner_radius)
+                    alpha_bar ? Detail::alpha_bar_shader(Detail::picker_hsv_to_srgb(hue, saturation, brightness), opacity, style.checker_light, style.checker_dark, style.checker_cell_size, bar_decl.corner_radius)
                               : Detail::hue_bar_shader(opacity, bar_decl.corner_radius);
                 auto gradient = ctx.custom_element(
-                    ElementDecl{.sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.bar_height)}}, shader);
+                    ElementDecl{.sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.bar_height)}},
+                    shader);
                 (void)gradient;
             }
             if (part_slot.build)
@@ -1355,8 +1377,7 @@ namespace SFT::UI {
                 bar_composition.track.build = [&, i](Context &bar_ctx, const SliderPartContext &) {
                     auto gradient = bar_ctx.custom_element(
                         ElementDecl{.sizing = {SizingAxis::grow(), SizingAxis::grow()}},
-                        Detail::component_bar_shader(color_space, i, component, component_values,
-                                                     picker_enabled ? 1.0 : style.disabled_opacity, CornerRadius{}));
+                        Detail::component_bar_shader(color_space, i, component, component_values, picker_enabled ? 1.0 : style.disabled_opacity, CornerRadius{}));
                     (void)gradient;
                 };
                 bar_composition.thumb.alter_decl = [&](ElementDecl &thumb_decl, const SliderPartContext &) {
@@ -1378,15 +1399,18 @@ namespace SFT::UI {
                         .step = std::nullopt,
                         .keyboard_step = (component.maximum - component.minimum) * 0.01,
                     },
-                    style.component_slider, component_states[i], component_values[i], SliderInput{}, picker_enabled,
+                    style.component_slider,
+                    component_states[i],
+                    component_values[i],
+                    SliderInput{},
+                    picker_enabled,
                     bar_composition);
                 if (slider_result.hovered || slider_result.dragging) {
                     result.hovered = true;
                 }
                 if (slider_result.changed) {
                     component_values[i] = slider_result.value;
-                    const Color edited = Detail::color_from_components(color_space, component_values[0],
-                                                                       component_values[1], component_values[2], alpha);
+                    const Color edited = Detail::color_from_components(color_space, component_values[0], component_values[1], component_values[2], alpha);
                     const Detail::SrgbHsv edited_hsv = Detail::srgb_to_picker_hsv(edited);
                     // Same achromatic-hue preservation as the external-color sync at the top of
                     // this function: dragging L to 0 in Oklch (or R/G/B all equal) must not snap
@@ -1440,8 +1464,7 @@ namespace SFT::UI {
                 // the plane and bars, so the app-resolved corner_radius masks the swatch too.
                 auto swatch = ctx.custom_element(
                     ElementDecl{.sizing = {SizingAxis::fixed(style.plane_size.x), SizingAxis::fixed(style.preview_height)}},
-                    Detail::preview_shader(result.color, part_opacity(preview_enabled), style.checker_light,
-                                           style.checker_dark, style.checker_cell_size, preview_decl.corner_radius));
+                    Detail::preview_shader(result.color, part_opacity(preview_enabled), style.checker_light, style.checker_dark, style.checker_cell_size, preview_decl.corner_radius));
                 (void)swatch;
             }
             if (composition.preview.build)

@@ -9,22 +9,22 @@
 #include <string>
 #pragma endregion
 
+#include "Binding.hpp"
+#include "Command.hpp"
 #include "Error.hpp"
-#include "Types.hpp"
-#include "Handles.hpp"
-#include "Features.hpp"
+#include "Execution.hpp"
 #include "Extensions.hpp"
+#include "Features.hpp"
+#include "Handles.hpp"
+#include "HdrDisplay.hpp"
+#include "Pipeline.hpp"
+#include "Queries.hpp"
 #include "Queues.hpp"
+#include "RayTracing.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
-#include "Binding.hpp"
-#include "Pipeline.hpp"
-#include "RayTracing.hpp"
-#include "Queries.hpp"
-#include "Execution.hpp"
-#include "Command.hpp"
-#include "HdrDisplay.hpp"
 #include "Swapchain.hpp"
+#include "Types.hpp"
 
 using std::span;
 using std::string;
@@ -45,10 +45,14 @@ namespace SFT::RHI {
 
     [[nodiscard]] constexpr const char *backend_type_name(BackendType backend) noexcept {
         switch (backend) {
-            case BackendType::Vulkan: return "Vulkan";
-            case BackendType::D3D12: return "D3D12";
-            case BackendType::Metal: return "Metal";
-            case BackendType::WebGpu: return "WebGPU";
+            case BackendType::Vulkan:
+                return "Vulkan";
+            case BackendType::D3D12:
+                return "D3D12";
+            case BackendType::Metal:
+                return "Metal";
+            case BackendType::WebGpu:
+                return "WebGPU";
         }
         return "<unknown>";
     }
@@ -66,11 +70,16 @@ namespace SFT::RHI {
 
     [[nodiscard]] constexpr const char *device_type_name(DeviceType type) noexcept {
         switch (type) {
-            case DeviceType::Other: return "Other";
-            case DeviceType::IntegratedGpu: return "Integrated GPU";
-            case DeviceType::DiscreteGpu: return "Discrete GPU";
-            case DeviceType::VirtualGpu: return "Virtual GPU";
-            case DeviceType::Cpu: return "CPU (software)";
+            case DeviceType::Other:
+                return "Other";
+            case DeviceType::IntegratedGpu:
+                return "Integrated GPU";
+            case DeviceType::DiscreteGpu:
+                return "Discrete GPU";
+            case DeviceType::VirtualGpu:
+                return "Virtual GPU";
+            case DeviceType::Cpu:
+                return "CPU (software)";
         }
         return "<unknown>";
     }
@@ -87,6 +96,11 @@ namespace SFT::RHI {
         DeviceType device_type = DeviceType::Other;
         u32 vendor_id = 0;
         u32 device_id = 0;
+        // Stable opaque key used only to merge the same physical GPU across API enumerations. Backends
+        // populate it when their platform exposes a cross-API identity (Windows adapter LUID, Metal
+        // registry ID, etc.); an empty value deliberately prevents merging rather than guessing from
+        // marketing names or PCI IDs, which are not unique for multi-GPU systems.
+        string physical_device_id;
         // Retained convenience mirror of `device_type == DeviceType::DiscreteGpu`; the backend sets both.
         bool is_discrete = false;
     };
@@ -301,7 +315,8 @@ namespace SFT::RHI {
         // Hdr10St2084 (nothing to update — HLG/scRGB carry no such metadata, DolbyVision's real
         // dynamic metadata is a different, unproducible format).
         [[nodiscard]] virtual RhiResult update_hdr_content_light_level(
-            SwapchainHandle handle, const HdrContentLightLevelUpdate &update) = 0;
+            SwapchainHandle handle,
+            const HdrContentLightLevelUpdate &update) = 0;
 
         // Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
         // caller to recreate the swapchain.
@@ -343,8 +358,8 @@ namespace SFT::RHI {
         // occur outside a device hang; the distinction still has to exist so a future finite-timeout
         // caller (e.g. a hang watchdog) can't accidentally reclaim fence-protected resources early.
         [[nodiscard]] virtual RhiExpected<bool> wait_fences(span<const FenceHandle> fences,
-                                                    bool wait_all = true,
-                                                    u64 timeout_ns = wait_forever) = 0;
+                                                            bool wait_all = true,
+                                                            u64 timeout_ns = wait_forever) = 0;
         [[nodiscard]] virtual RhiResult reset_fences(span<const FenceHandle> fences) = 0;
 
         // ── Queries ──
@@ -357,9 +372,7 @@ namespace SFT::RHI {
         // QueryResultFlags::Wait it blocks until they're available; without it, InvalidArgument-free
         // partial reads follow the Partial/WithAvailability flags. The host counterpart of
         // resolve_query_set for when results are consumed CPU-side (per-pass GPU timing, occlusion).
-        [[nodiscard]] virtual RhiResult get_query_set_results(QuerySetHandle query_set, u32 first, u32 count,
-                                                              span<std::byte> dst, u64 stride,
-                                                              QueryResultFlags flags = QueryResultFlags::Result64Bit) = 0;
+        [[nodiscard]] virtual RhiResult get_query_set_results(QuerySetHandle query_set, u32 first, u32 count, span<std::byte> dst, u64 stride, QueryResultFlags flags = QueryResultFlags::Result64Bit) = 0;
 
         // Reset a query set's slots on the host without a command buffer (requires Feature::HostQueryReset).
         virtual void reset_query_set(QuerySetHandle query_set, u32 first, u32 count) noexcept = 0;

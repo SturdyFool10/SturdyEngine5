@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -62,8 +64,11 @@ namespace SFT::Renderer {
             return unexpected(deferred_msaa_error("Cannot build deferred MSAA resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
@@ -86,13 +91,13 @@ namespace SFT::Renderer {
 
         auto create_module = [&](const string &entry_point, const char *label)
             -> Core::RendererExpected<RHI::ShaderModuleHandle> {
-            auto code = guard->shader.entry_point_code(entry_point);
+            auto code = guard->shader.entry_point_code(entry_point, shader_target->slang_target.format);
             if (!code) {
                 return unexpected(deferred_msaa_error(
                     "generate deferred MSAA shader bytecode failed: " + code.error().message));
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = label,
             });

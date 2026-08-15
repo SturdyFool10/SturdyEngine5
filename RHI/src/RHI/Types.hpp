@@ -166,6 +166,10 @@ namespace SFT::RHI {
     };
 
     // Integer pixel rectangle — scissor rects, copy/blit regions, render areas.
+    //
+    // Always framebuffer pixels with a top-left origin and +Y running down, on every backend. This
+    // matches D3D12 and Metal natively, so unlike Viewport (below) these rects are never flipped in
+    // translation — only clip space differs between APIs, not pixel space.
     struct Rect2D {
         i32 x = 0;
         i32 y = 0;
@@ -173,8 +177,42 @@ namespace SFT::RHI {
         u32 height = 0;
     };
 
-    // Floating-point viewport. `min_depth`/`max_depth` map the [0,1] clip-space depth range; a
-    // flipped viewport (negative height) is expressed by the backend, not encoded here.
+    // Floating-point viewport, in the same top-left-origin pixel space as Rect2D.
+    // `min_depth`/`max_depth` map the [0,1] clip-space depth range.
+    //
+    // ─── Clip-space convention ──────────────────────────────────────────────────
+    // The RHI standardizes on Vulkan's clip space, and each backend translates into its own native
+    // convention. Shaders are written once against these rules and behave identically everywhere:
+    //
+    //   * NDC X ∈ [-1, 1], +X right.
+    //   * NDC Y ∈ [-1, 1], **+Y down** — y = -1 is the TOP of the viewport.
+    //   * NDC Z ∈ [0, 1], near plane at 0.
+    //   * Face winding is evaluated in framebuffer space (+Y down), so FrontFace means the same
+    //     thing on every backend and needs no per-backend inversion.
+    //   * Texture/UV origin is top-left, matching the pixel spaces above.
+    //
+    // How each backend reaches that convention:
+    //   * Vulkan  — native; viewports are passed through verbatim.
+    //   * D3D12   — native NDC is +Y up. D3D12 exposes no legal API-level way to invert it: viewport,
+    //               rasterizer and pipeline state all lack the knob, and D3D12_VIEWPORT::Height is
+    //               documented as non-negative, so a negative-height viewport is out of spec even
+    //               though hardware accepts it. The reconciliation is therefore a shader-side
+    //               negation, applied by sturdy_clip_position() in Shaders/sturdy_common.slang. The
+    //               sign is injected as STURDY_CLIP_Y_SIGN by the shader compiler (Core::Slang) from
+    //               the target format, so no call site or shader author can forget it. Depth needs
+    //               no adjustment (D3D12 is already [0, 1]).
+    //
+    // Consequences worth knowing:
+    //   * Viewports and scissor rects are never translated on any backend — only clip space differs.
+    //   * FrontFace IS inverted by the D3D12 backend: negating clip Y is a mirror, so it reverses
+    //     the rasterizer's winding classification. See FrontFace in Pipeline.hpp. Get this wrong and
+    //     geometry lands in the right place with the wrong half of it culled away.
+    //   * Every vertex-stage entry point MUST emit SV_Position through sturdy_clip_position() (or a
+    //     shared helper that already does, like fullscreenTrianglePosition/uiQuadClipPosition).
+    //     A shader that writes SV_Position directly renders vertically mirrored on D3D12.
+    //
+    // Do NOT compensate for any of this in matrix code — projection matrices are built once, for
+    // Vulkan's convention, and are correct on every backend.
     struct Viewport {
         f32 x = 0.0f;
         f32 y = 0.0f;

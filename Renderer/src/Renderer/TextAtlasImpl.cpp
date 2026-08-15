@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <expected>
 #include <glm/vec2.hpp>
 #include <limits>
@@ -762,24 +763,40 @@ namespace SFT::Renderer {
         // wait — the throughput win the plan calls for over one round trip per glyph.
         usize total_bytes = 0;
         vector<usize> byte_offsets(misses.size());
+        vector<usize> row_pitches(misses.size());
         for (usize i = 0; i < misses.size(); ++i) {
             const Text::RasterFormat format = requests[misses[i].request_index].format;
             const usize texel_bytes = bytes_per_texel(texture_format(format));
-            total_bytes = (total_bytes + 3u) & ~usize{3u};
+            const usize row_bytes = static_cast<usize>(misses[i].rect.raster_width) * texel_bytes;
+            // D3D12 placed texture footprints require 512-byte offsets and 256-byte row pitches.
+            // Vulkan accepts the same explicit buffer_row_length, so using the strictest portable
+            // packing here avoids a backend branch and keeps one upload representation.
+            total_bytes = (total_bytes + 511u) & ~usize{511u};
             byte_offsets[i] = total_bytes;
-            total_bytes += static_cast<usize>(misses[i].rect.raster_width) * misses[i].rect.raster_height * texel_bytes;
+            row_pitches[i] = (row_bytes + 255u) & ~usize{255u};
+            total_bytes += row_pitches[i] * misses[i].rect.raster_height;
         }
 
         vector<std::byte> staging_bytes(total_bytes);
         for (usize i = 0; i < misses.size(); ++i) {
             const Text::RasterFormat format = requests[misses[i].request_index].format;
             const Text::RasterizedGlyph &glyph = *rasterized[i];
+            const usize texel_bytes = bytes_per_texel(texture_format(format));
+            const usize row_bytes = static_cast<usize>(misses[i].rect.raster_width) * texel_bytes;
+            vector<std::byte> packed_pixels;
+            span<const std::byte> source;
             if (format == Text::RasterFormat::MSDF) {
-                expand_rgb_to_rgba(glyph.pixels, staging_bytes, byte_offsets[i]);
+                packed_pixels.resize(row_bytes * misses[i].rect.raster_height);
+                expand_rgb_to_rgba(glyph.pixels, packed_pixels, 0);
+                source = packed_pixels;
             } else {
-                // SDF (1 channel) and Color (already RGBA8) both copy straight through.
-                std::ranges::transform(glyph.pixels, staging_bytes.begin() + static_cast<isize>(byte_offsets[i]),
-                                       [](u8 value) { return static_cast<std::byte>(value); });
+                source = span<const std::byte>{reinterpret_cast<const std::byte *>(glyph.pixels.data()),
+                                               glyph.pixels.size()};
+            }
+            for (u32 row = 0; row < misses[i].rect.raster_height; ++row) {
+                std::memcpy(staging_bytes.data() + byte_offsets[i] + static_cast<usize>(row) * row_pitches[i],
+                            source.data() + static_cast<usize>(row) * row_bytes,
+                            row_bytes);
             }
         }
 
@@ -832,6 +849,8 @@ namespace SFT::Renderer {
             const Tile &tile = format_atlas(format).tiles[misses[i].rect.tile_index];
             const RHI::BufferTextureCopy copy{
                 .buffer_offset = byte_offsets[i],
+                .buffer_row_length = static_cast<u32>(row_pitches[i] / bytes_per_texel(texture_format(format))),
+                .buffer_image_height = misses[i].rect.raster_height,
                 .mip_level = 0,
                 .base_array_layer = 0,
                 .array_layer_count = 1,

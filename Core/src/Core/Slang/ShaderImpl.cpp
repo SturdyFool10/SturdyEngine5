@@ -766,17 +766,35 @@ namespace SFT::Core::Slang {
             parameter.type = parse_type_layout(layout->getTypeLayout());
             parameter.category = from_slang_category(native_category);
             parameter.stage = from_slang_stage(layout->getStage());
-            parameter.binding = normalize_slang_unsigned(layout->getBindingIndex());
-            parameter.binding_space = normalize_slang_unsigned(layout->getBindingSpace());
-            parameter.offset = normalize_size(layout->getOffset(native_category));
-            parameter.semantic_name = layout->getSemanticName() ? layout->getSemanticName() : "";
-            parameter.semantic_index = normalize_u32(layout->getSemanticIndex());
 
             const unsigned int category_count = layout->getCategoryCount();
             parameter.categories.reserve(category_count);
+            bool has_push_constant_component = native_category == slang::ParameterCategory::PushConstantBuffer;
             for (unsigned int index = 0; index < category_count; ++index) {
-                parameter.categories.push_back(from_slang_category(layout->getCategoryByIndex(index)));
+                const slang::ParameterCategory category = layout->getCategoryByIndex(index);
+                parameter.categories.push_back(from_slang_category(category));
+                has_push_constant_component |= category == slang::ParameterCategory::PushConstantBuffer;
             }
+
+            // Target layouts may report a push-constant declaration as Mixed because it occupies
+            // both its inline-constant byte range and a target-specific binding category. Preserve
+            // the semantic source declaration for API-agnostic consumers instead of exposing the
+            // incidental target layout category as an ordinary descriptor buffer.
+            const slang::ParameterCategory effective_category =
+                has_push_constant_component ? slang::ParameterCategory::PushConstantBuffer : native_category;
+            if (has_push_constant_component) {
+                parameter.category = ShaderParameterCategory::PushConstantBuffer;
+            }
+            // getBindingIndex() is the target-emitted register/binding index. For SPIR-V this is the
+            // globally unique descriptor binding consumed by VkDescriptorSetLayout; getOffset(category)
+            // is only the offset within that category and collapses textures/samplers/buffers onto zero.
+            // DXIL deliberately retains class-local tN/sN/uN/bN indices and must pair this value with
+            // the reflected category when mapping into the RHI's flat binding namespace.
+            parameter.binding = normalize_slang_unsigned(layout->getBindingIndex());
+            parameter.binding_space = normalize_slang_unsigned(layout->getBindingSpace());
+            parameter.offset = normalize_size(layout->getOffset(effective_category));
+            parameter.semantic_name = layout->getSemanticName() ? layout->getSemanticName() : "";
+            parameter.semantic_index = normalize_u32(layout->getSemanticIndex());
 
             if (parameter.type) {
                 slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
@@ -790,11 +808,11 @@ namespace SFT::Core::Slang {
                 // Verified against this engine's shaders: TextViewConstants (one float2) reports
                 // element_uniform_size=8, SceneDrawConstants (two mat4) reports 128 — both exactly
                 // right, vs. the wrapper's PushConstantBuffer-category size of 1 for both.
-                if (native_category == slang::ParameterCategory::PushConstantBuffer && type_layout != nullptr) {
+                if (has_push_constant_component && type_layout != nullptr) {
                     slang::TypeLayoutReflection *element = type_layout->getElementTypeLayout();
                     parameter.size = element != nullptr ? normalize_size(element->getSize()) : parameter.type->size;
                 } else {
-                    parameter.size = type_layout != nullptr ? normalize_size(type_layout->getSize(native_category)) : parameter.type->size;
+                    parameter.size = type_layout != nullptr ? normalize_size(type_layout->getSize(effective_category)) : parameter.type->size;
                 }
                 parameter.stride = parameter.type->stride;
                 parameter.binding_ranges = parameter.type->binding_ranges;
@@ -982,6 +1000,10 @@ namespace SFT::Core::Slang {
                 return shader_error(ShaderErrorCode::InvalidArgument, "At least one Slang shader target is required.");
             }
 
+            // No per-target clip-space fixups here. The engine's clip-space ABI follows Vulkan (NDC
+            // Y increases downward) and each RHI backend translates into its own convention when it
+            // submits the viewport — see RHI::Viewport. Emitting a Y flip into DXIL as well would
+            // double-flip and cancel out, so every target gets the same bytecode semantics.
             vector<slang::TargetDesc> target_descs;
             target_descs.reserve(targets.size());
             for (const ShaderTarget &target : targets) {
@@ -1084,8 +1106,24 @@ namespace SFT::Core::Slang {
                 search_paths.push_back(search_path.c_str());
             }
 
+            // Clip-space ABI (normative definition: RHI::Viewport). Sturdy authors every shader in
+            // Vulkan's clip space, where NDC +Y points down. D3D12's NDC +Y points up and offers no
+            // legal API-level way to invert it, so the reconciliation is a shader-side negation
+            // applied by sturdy_clip_position() in sturdy_common.slang. Deriving the sign here, from
+            // the requested target formats, keeps it out of the ~20 call sites that build
+            // ShaderCompileOptions — none of them can forget it, and user shaders get it too.
+            //
+            // A D3D12 compile requests SPIR-V alongside DXIL purely for canonical layout reflection
+            // (see Renderer::shader_compile_targets_for_device); only the DXIL artifact is ever
+            // executed, so tying the sign to DXIL's presence is correct for the whole session.
+            const bool targets_dxil = std::ranges::any_of(options.targets, [](const ShaderTarget &target) {
+                return target.format == ShaderTargetFormat::Dxil;
+            });
+            const char *const clip_y_sign = targets_dxil ? "-1" : "1";
+
             vector<slang::PreprocessorMacroDesc> macros;
-            macros.reserve(options.macros.size());
+            macros.reserve(options.macros.size() + 1);
+            macros.push_back(slang::PreprocessorMacroDesc{"STURDY_CLIP_Y_SIGN", clip_y_sign});
             for (const ShaderMacro &macro : options.macros) {
                 if (!macro.name.empty()) {
                     macros.push_back(slang::PreprocessorMacroDesc{macro.name.c_str(), macro.value.c_str()});
@@ -1254,6 +1292,21 @@ namespace SFT::Core::Slang {
         return bytecode;
     }
 
+    ShaderExpected<ShaderBytecode> Shader::entry_point_code(usize entry_point_index, ShaderTargetFormat target) const {
+        if (!state_) {
+            return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
+        }
+
+        const auto found = find_if(state_->targets.begin(), state_->targets.end(),
+                                   [target](const ShaderTarget &candidate) { return candidate.format == target; });
+        if (found == state_->targets.end()) {
+            return shader_error(ShaderErrorCode::InvalidArgument,
+                                "The requested Slang shader target was not compiled for this shader.");
+        }
+
+        return entry_point_code(entry_point_index, static_cast<usize>(found - state_->targets.begin()));
+    }
+
     void Shader::release_compiler_state() noexcept {
         if (!state_) {
             return;
@@ -1280,6 +1333,24 @@ namespace SFT::Core::Slang {
         }
 
         return entry_point_code(static_cast<usize>(found - state_->reflection.entry_points.begin()), target_index);
+    }
+
+    ShaderExpected<ShaderBytecode> Shader::entry_point_code(string_view entry_point_name, ShaderTargetFormat target) const {
+        if (!state_) {
+            return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
+        }
+
+        const auto found = find_if(
+            state_->reflection.entry_points.begin(),
+            state_->reflection.entry_points.end(),
+            [entry_point_name](const ShaderEntryPointReflection &entry_point) {
+                return entry_point.name == entry_point_name || entry_point.name_override == entry_point_name;
+            });
+        if (found == state_->reflection.entry_points.end()) {
+            return shader_error(ShaderErrorCode::EntryPointNotFound, "Slang shader entry point was not reflected: " + string{entry_point_name});
+        }
+
+        return entry_point_code(static_cast<usize>(found - state_->reflection.entry_points.begin()), target);
     }
 
     ShaderCompiler::ShaderCompiler()
@@ -1405,6 +1476,58 @@ namespace SFT::Core::Slang {
             auto reflection = parse_reflection(shader_state->linked_program.get(), 0);
             if (!reflection) {
                 return unexpected(reflection.error());
+            }
+
+            // DXIL assigns descriptor registers differently from SPIR-V, but lowers
+            // [[push_constant]] ConstantBuffer<T> into an ordinary HLSL cbuffer and therefore loses
+            // the portable push-constant category. When both targets were requested (the D3D12
+            // renderer path), retain DXIL's descriptor layout and graft only the canonical SPIR-V
+            // push-constant parameters onto it. That produces one RHI layout matching DXIL's t/s/u
+            // registers and D3D12's root-constant b0 declaration simultaneously.
+            const auto spirv_target = std::ranges::find_if(
+                options.targets,
+                [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Spirv; });
+            const auto dxil_target = std::ranges::find_if(
+                options.targets,
+                [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Dxil; });
+            if (spirv_target != options.targets.end() && dxil_target != options.targets.end()) {
+                const usize dxil_index = static_cast<usize>(std::distance(options.targets.begin(), dxil_target));
+                auto dxil_reflection = parse_reflection(shader_state->linked_program.get(), dxil_index);
+                if (!dxil_reflection) {
+                    return unexpected(dxil_reflection.error());
+                }
+                for (const ShaderParameterReflection &parameter : reflection->global_parameters) {
+                    if (parameter.category != ShaderParameterCategory::PushConstantBuffer) {
+                        continue;
+                    }
+                    const auto existing = std::ranges::find(
+                        dxil_reflection->global_parameters, parameter.name, &ShaderParameterReflection::name);
+                    if (existing == dxil_reflection->global_parameters.end()) {
+                        dxil_reflection->global_parameters.push_back(parameter);
+                        continue;
+                    }
+
+                    // DXIL sees this declaration as a normal b-register CBV. Replacing only the
+                    // parameter category is insufficient: descriptor_sets would still emit that
+                    // CBV table range, overlapping the b0 root constants in the D3D12 signature.
+                    // Remove the lowered cbuffer parameter and its matching descriptor range before
+                    // restoring the portable push-constant parameter.
+                    const u32 dxil_binding = existing->binding;
+                    const u32 dxil_space = existing->binding_space;
+                    dxil_reflection->global_parameters.erase(existing);
+                    for (ShaderDescriptorSetReflection &set : dxil_reflection->descriptor_sets) {
+                        if (set.space != dxil_space) {
+                            continue;
+                        }
+                        std::erase_if(set.ranges, [dxil_binding](const ShaderDescriptorRangeReflection &range) {
+                            return range.binding == dxil_binding &&
+                                   (range.type == ShaderBindingType::ConstantBuffer ||
+                                    range.category == ShaderParameterCategory::ConstantBuffer);
+                        });
+                    }
+                    dxil_reflection->global_parameters.push_back(parameter);
+                }
+                reflection = std::move(dxil_reflection);
             }
             shader_state->reflection = std::move(*reflection);
 

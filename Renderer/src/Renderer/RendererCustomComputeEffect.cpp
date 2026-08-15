@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #include <array>
 #include <cstddef>
 #include <expected>
@@ -65,8 +67,11 @@ namespace SFT::Renderer {
             if (resource.module) device->destroy_shader_module(resource.module);
         };
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = effect.compute_entry_point, .stage = slang::ShaderStage::Compute},
             },
@@ -83,13 +88,13 @@ namespace SFT::Renderer {
         }
         resource.shader = *shader;
 
-        auto code = resource.shader.entry_point_code(effect.compute_entry_point);
+        auto code = resource.shader.entry_point_code(effect.compute_entry_point, shader_target->slang_target.format);
         if (!code) {
             return unexpected(custom_compute_error(
                 "generate custom compute effect bytecode failed: " + code.error().message));
         }
         auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
             .label = "custom compute effect module",
         });

@@ -54,6 +54,8 @@ namespace SFT::Core::Vulkan {
             .layout = layout->vk_handle(),
         };
 
+        auto pipeline_cache_guard = pipeline_cache_mutex_.lock();
+        (void)pipeline_cache_guard;
         auto pipeline = VulkanPipeline::create_compute(logical_device_->vk_handle(), pipeline_cache_.vk_handle(), info);
         if (!pipeline) {
             return rhi_error_from_graphics(pipeline.error());

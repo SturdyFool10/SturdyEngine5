@@ -4,11 +4,13 @@
 
 #pragma region Imports
 #include <glm/vec2.hpp>
+#include <memory>
 #include <vector>
 #pragma endregion
 
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
+#include <RHI/Threading.hpp>
 #include <Renderer/RendererModule.hpp>
 #include <Renderer/TextAtlas.hpp>
 #include <Renderer/TextInstance.hpp>
@@ -69,6 +71,8 @@ namespace SFT::UI {
                                                  Core::RenderSurfaceHandle surface, u32 frame_resource_index);
 
         void destroy(RHI::RhiDevice &device) noexcept;
+        [[nodiscard]] bool ready() const noexcept { return ready_; }
+        [[nodiscard]] u64 generation() const noexcept { return generation_; }
 
       private:
         Renderer::TextPipeline text_pipeline_;
@@ -95,6 +99,7 @@ namespace SFT::UI {
         // Stashed from create() — UiCustomElementPipeline's shader cache is keyed by color_format,
         // and needs it again at both prepare() and draw() time, neither of which otherwise takes it.
         RHI::Format color_format_{};
+        u64 generation_ = 0;
         // Stashed from create() — custom_element_pipeline_.prepare() needs it every frame (a custom
         // element's shader is only compiled lazily, on the first frame it's actually drawn).
         bool enable_shader_disk_cache_ = true;
@@ -102,6 +107,10 @@ namespace SFT::UI {
         // comment for why this isn't Renderer::ensure_default_white_texture().
         Renderer::TextureHandle white_texture_{};
 
+        // prepare()/draw() can arrive from overlapping managed-window frame tasks. Keep the
+        // mutable atlas/pipeline/frame caches serialized across those callbacks and destroy(). A
+        // shared mutex keeps UiRenderer movable, which its expected-returning factory requires.
+        std::shared_ptr<Async::Mutex<u8>> operation_mutex_ = std::make_shared<Async::Mutex<u8>>(0);
         bool ready_ = false;
     };
 

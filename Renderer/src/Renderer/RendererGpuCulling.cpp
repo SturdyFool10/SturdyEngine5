@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #include <algorithm>
 #include <array>
@@ -93,10 +95,13 @@ namespace SFT::Renderer {
             return unexpected(instance_cull_error("Cannot build instance-cull resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         // ── Compute cull shader ──
         {
             const slang::ShaderCompileOptions options{
-                .targets = {slang::ShaderTarget{}},
+                .targets = shader_compile_targets_for_device(device),
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "cullMain", .stage = slang::ShaderStage::Compute}},
             };
             slang::ShaderVariantCache shader_cache{
@@ -110,12 +115,12 @@ namespace SFT::Renderer {
             }
             guard->cull_shader = *shader;
 
-            auto code = guard->cull_shader.entry_point_code("cullMain");
+            auto code = guard->cull_shader.entry_point_code("cullMain", shader_target->slang_target.format);
             if (!code) {
                 return unexpected(instance_cull_error("generate instance-cull bytecode failed: " + code.error().message));
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = "instance cull compute module",
             });
@@ -170,7 +175,7 @@ namespace SFT::Renderer {
         // template's own bind-group layout — see gbuffer_geometry_instanced.slang's header comment.
         {
             const slang::ShaderCompileOptions options{
-                .targets = {slang::ShaderTarget{}},
+                .targets = shader_compile_targets_for_device(device),
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "vertexMainInstanced", .stage = slang::ShaderStage::Vertex}},
             };
             slang::ShaderVariantCache shader_cache{
@@ -184,12 +189,12 @@ namespace SFT::Renderer {
             }
             guard->instanced_vertex_shader = *shader;
 
-            auto code = guard->instanced_vertex_shader.entry_point_code("vertexMainInstanced");
+            auto code = guard->instanced_vertex_shader.entry_point_code("vertexMainInstanced", shader_target->slang_target.format);
             if (!code) {
                 return unexpected(instance_cull_error("generate instanced vertex bytecode failed: " + code.error().message));
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = "instanced gbuffer vertex module",
             });

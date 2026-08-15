@@ -1,6 +1,8 @@
 // Basic RHI material shader for GeometryVertex.
 // The renderer's material pipeline feeds position/normal/uv/color at locations 0..3.
 // This pass-through shader is useful for debug geometry and as the simplest material baseline.
+import sturdy_common;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
@@ -24,7 +26,7 @@ struct SceneDrawConstants {
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
     float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
-    output.position = mul(world_position, scene_draw.view_projection);
+    output.position = sturdy_clip_position(mul(world_position, scene_draw.view_projection));
     output.color = input.color;
     return output;
 }

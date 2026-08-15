@@ -32,9 +32,14 @@ namespace SFT::UI {
     // A Slang shader an app supplies for one Context::custom_element() call — the shader-driven-
     // styling seam Clay's CUSTOM render command exists for. Both entry points must live in
     // `shader_path`'s own file (same convention Renderer::CustomPostProcessEffect already uses):
-    // `vertexMain` should build its quad via Shaders/sturdy_common.slang's uiQuadClipPosition()/
+    // `vertexMain` MUST build its quad via Shaders/sturdy_common.slang's uiQuadClipPosition()/
     // uiQuadCorner(), given a `[[push_constant]] ConstantBuffer<T>` whose first three fields match
     // UiElementConstants exactly (see its own doc comment).
+    //
+    // uiQuadClipPosition() is not just a convenience: it applies the engine's clip-space ABI (see
+    // RHI::Viewport), which reconciles Vulkan's NDC with D3D12's. A vertexMain that writes
+    // SV_Position directly renders correctly on Vulkan and vertically mirrored on D3D12. If a custom
+    // shader must compute clip space itself, pass the result through sturdy_clip_position().
     //
     // v1 scope: push-constant parameters only, no texture/buffer bindings — a shader that declares
     // one fails at UiRenderer::prepare() time with a clear error rather than silently drawing wrong.

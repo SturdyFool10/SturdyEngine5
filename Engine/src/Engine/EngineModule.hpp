@@ -8,16 +8,16 @@
 #include <vector>
 #pragma endregion
 
-#include "EcsRendering.hpp"
+#include "AssetManager.hpp"
 #include "EcsEvents.hpp"
+#include "EcsRendering.hpp"
 #include "EcsUi.hpp"
 #include "FrameTime.hpp"
-#include "TimeScale.hpp"
-#include "WindowState.hpp"
-#include "WindowRequests.hpp"
 #include "InputState.hpp"
-#include "AssetManager.hpp"
 #include "RenderTarget.hpp"
+#include "TimeScale.hpp"
+#include "WindowRequests.hpp"
+#include "WindowState.hpp"
 #include <Core/Core.hpp>
 #include <Ecs/src/System.hpp>
 #include <Ecs/src/World.hpp>
@@ -31,6 +31,8 @@ using std::vector;
 namespace SFT::Engine {
 
     struct EngineConfig {
+        RHI::BackendType graphics_backend = RHI::BackendType::Vulkan;
+        string graphics_physical_device_id;
         Core::RendererFeatureRequest features{};
         const char *app_name = "Sturdy Engine 5";
         // Walked recursively for *.slang files at the start of Engine::initialize(), before the
@@ -118,7 +120,8 @@ namespace SFT::Engine {
         // doesn't analyze scene luminance itself). Returns Unsupported for a window not currently
         // presenting Hdr10St2084.
         [[nodiscard]] RHI::RhiResult update_hdr_content_light_level(
-            Core::RenderSurfaceHandle surface, const RHI::HdrContentLightLevelUpdate &update);
+            Core::RenderSurfaceHandle surface,
+            const RHI::HdrContentLightLevelUpdate &update);
 
         // See Renderer::presentation_resolution's own doc comment (RendererModule.hpp) — the
         // requested-vs-effective present mode this surface's swapchain actually resolved to, for a
@@ -217,6 +220,10 @@ namespace SFT::Engine {
         // nullopt until a successful initialize() has selected a physical device.
         [[nodiscard]] optional<Core::GpuInfo> gpu_info() const;
 
+        // Startup snapshot of every physical GPU and the APIs that can enumerate it. This remains
+        // available after renderer selection so settings/UI can explain the chosen fallback.
+        [[nodiscard]] const RHI::GpuInventory &gpu_inventory() const noexcept;
+
         // Shaders discovered and reflected from EngineConfig::shaders_directory during initialize(),
         // before the graphics backend came up. Each one is lazily compiled: target bytecode for an
         // entry point is only generated the first time something asks for it.
@@ -228,6 +235,7 @@ namespace SFT::Engine {
 
       private:
         SFT::Renderer::Renderer renderer_;
+        RHI::GpuInventory gpu_inventory_{};
         AssetManager assets_{renderer_};
         Ecs::ComponentRegistry ecs_component_registry_;
         RenderFrameRequests render_frame_requests_{assets_};

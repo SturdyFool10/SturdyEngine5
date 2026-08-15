@@ -8,6 +8,41 @@
 // engine-specific bindings so API users can import it safely.
 
 // -------------------------------------------------------------------------------------------------
+// Clip-space ABI
+// -------------------------------------------------------------------------------------------------
+//
+// Sturdy's canonical clip space is Vulkan's: NDC +Y points DOWN, so y = -1 is the top of the
+// viewport, and NDC Z is [0, 1]. Author every shader against that convention.
+//
+// D3D12's native NDC +Y points up. There is no legal API-level way to invert it (D3D12 documents
+// D3D12_VIEWPORT::Height as non-negative), and Slang's -fvk-invert-y only rewrites `gl_Position`, so
+// it does nothing for HLSL/DXIL output. The reconciliation therefore happens here, in the one place
+// the convention can be applied portably: every clip-space position an entry point emits is routed
+// through sturdy_clip_position(), which negates Y on backends whose NDC disagrees with Vulkan's.
+//
+// STURDY_CLIP_Y_SIGN is supplied by the shader-compilation policy from the active RHI backend's
+// declared convention (+1 for Vulkan, -1 for D3D12). It defaults to +1 so that a shader compiled
+// without the define keeps Vulkan behaviour rather than silently flipping.
+//
+// Every vertex-stage entry point MUST write its SV_Position through this helper:
+//     output.position = sturdy_clip_position(mul(world, view_projection));
+// On Vulkan the sign is +1 and this is the identity, so it costs nothing and changes no bytecode.
+#ifndef STURDY_CLIP_Y_SIGN
+#define STURDY_CLIP_Y_SIGN 1
+#endif
+
+// Deliberately a preprocessor branch rather than a multiply by the sign: on Vulkan this is an exact
+// identity that inlines away, leaving the emitted SPIR-V byte-for-byte what it was before the ABI
+// existed. Multiplying by +1.0 would instead leave a real instruction in every vertex shader.
+float4 sturdy_clip_position(float4 clip) {
+#if STURDY_CLIP_Y_SIGN < 0
+    return float4(clip.x, -clip.y, clip.z, clip.w);
+#else
+    return clip;
+#endif
+}
+
+// -------------------------------------------------------------------------------------------------
 // Constants
 // -------------------------------------------------------------------------------------------------
 
@@ -114,8 +149,10 @@ float2 fullscreenTriangleUv(uint vertexId) {
     return float2((vertexId << 1) & 2, vertexId & 2);
 }
 
+// Returns clip space already conformed to the engine ABI (see sturdy_clip_position), so callers
+// assign the result straight to SV_Position.
 float4 fullscreenTrianglePosition(float2 uv) {
-    return float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    return sturdy_clip_position(float4(uv * 2.0 - 1.0, 0.0, 1.0));
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -138,10 +175,12 @@ float2 uiQuadCorner(uint vertexId) {
 // Shaders/ui_quad.slang's own vertexMain uses. A custom UI element shader
 // (UI::Context::custom_element()) calls this from its own vertexMain, given the UiElementConstants
 // prefix every such shader's push-constant struct is required to start with.
+// Returns clip space already conformed to the engine ABI (see sturdy_clip_position), so callers
+// assign the result straight to SV_Position.
 float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, float2 viewportSize) {
     float2 localPixelPos = uiQuadCorner(vertexId) * pixelSize;
     float2 ndc = ((pixelPos + localPixelPos) * safeRcp(viewportSize)) * 2.0 - 1.0;
-    return float4(ndc, 0.0, 1.0);
+    return sturdy_clip_position(float4(ndc, 0.0, 1.0));
 }
 
 // Signed distance to a per-corner rounded box, `centerPos` relative to the box center (Y down,

@@ -66,8 +66,6 @@ namespace SFT::Core::Vulkan {
                               bool hdr_swapchain_colorspace_enabled = false,
                               bool hdr_metadata_enabled = false);
 
-        // Persists pipeline_cache_ to disk (best-effort) before the implicit member teardown destroys
-        // the underlying VkPipelineCache -- see pipeline_cache_'s own doc comment.
         ~VulkanRhiDeviceBridge() override;
 
         // ── Introspection ──
@@ -391,12 +389,13 @@ namespace SFT::Core::Vulkan {
         VulkanQueue *present_queue_ = nullptr;
         VulkanAllocator *allocator_ = nullptr;
 
-        // Seeded from `pipeline_cache_path()`'s file (if any) at construction, serialized back to it in
-        // the destructor -- so a second process launch's vkCreateGraphicsPipelines/
-        // vkCreateComputePipelines calls can reuse the driver's already-compiled machine code instead of
-        // recompiling from SPIR-V cold every time. A stale blob (different GPU/driver) is silently
-        // ignored by Vulkan itself via the cache header's UUID, so no manual invalidation is needed here.
+        // In-process-only cache. Persisted driver blobs are intentionally disabled because malformed
+        // or crash-produced AMDVLK data can fault inside pipeline creation instead of being rejected.
         VulkanPipelineCache pipeline_cache_{};
+        // Vulkan requires external synchronization for every operation that uses one VkPipelineCache,
+        // including graphics/compute/ray-tracing pipeline creation. Renderer initialization can create
+        // pipelines from multiple worker tasks, so the cache cannot be shared without this lock.
+        Async::Mutex<u8> pipeline_cache_mutex_{0};
 
         rhi::AdapterInfo adapter_info_{};
         rhi::DeviceLimits limits_{};

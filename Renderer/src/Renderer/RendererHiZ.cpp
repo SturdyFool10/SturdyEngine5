@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #include <algorithm>
 #include <array>
@@ -52,8 +54,11 @@ namespace SFT::Renderer {
             return unexpected(hiz_error("Cannot build Hi-Z resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "reduceMain", .stage = slang::ShaderStage::Fragment},
@@ -75,10 +80,10 @@ namespace SFT::Renderer {
         guard->shader = *shader;
 
         auto create_module = [&](string_view entry, const char *label) -> Core::RendererExpected<RHI::ShaderModuleHandle> {
-            auto code = guard->shader.entry_point_code(entry);
+            auto code = guard->shader.entry_point_code(entry, shader_target->slang_target.format);
             if (!code) return unexpected(hiz_error("generate Hi-Z build bytecode failed: " + code.error().message));
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = label,
             });

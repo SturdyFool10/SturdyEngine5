@@ -6,6 +6,7 @@
 #endif
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <limits>
 #include <span>
 #pragma endregion
@@ -15,6 +16,10 @@
 using std::unexpected;
 
 namespace SFT::UI {
+
+    namespace {
+        std::atomic<u64> next_ui_renderer_generation{1};
+    }
 
     Core::RendererExpected<UiRenderer> UiRenderer::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
@@ -35,6 +40,7 @@ namespace SFT::UI {
         renderer.color_format_ = color_format;
         renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
 
+        renderer.generation_ = next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed);
         renderer.ready_ = true;
         return renderer;
     }
@@ -60,6 +66,8 @@ namespace SFT::UI {
                                              Core::RenderSurfaceHandle surface, u32 frame_resource_index,
                                              vector<RHI::BufferHandle> &out_transient_buffers,
                                              Renderer::TextAtlasRetiredResources &out_retired_atlas_resources) {
+        auto operation_guard = operation_mutex_->lock();
+        (void)operation_guard;
         if (!ready_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UiRenderer was not created.");
         }
@@ -253,13 +261,17 @@ namespace SFT::UI {
 
     Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
                                           Core::RenderSurfaceHandle surface, u32 frame_resource_index) {
+        auto operation_guard = operation_mutex_->lock();
+        (void)operation_guard;
         auto surface_resources = std::ranges::find(
             surface_frame_resources_, surface, &SurfaceFrameResources::surface);
         if (surface_resources == surface_frame_resources_.end() ||
             frame_resource_index >= surface_resources->frames.size()) {
-            return Core::graphics_backend_error(
-                Core::GraphicsBackendErrorCode::OperationFailed,
-                "UiRenderer::draw has no prepared resources for the requested surface/frame slot.");
+            // A backend reconstruction intentionally drops frames assembled against the old device.
+            // Their overlay draw hook may still execute after the replacement renderer is installed,
+            // but there is correctly no prepared UI work for that new generation/slot. Drawing an
+            // empty overlay is the valid result; malformed resources that do exist still fail below.
+            return {};
         }
         FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
 
@@ -314,6 +326,8 @@ namespace SFT::UI {
     }
 
     void UiRenderer::destroy(RHI::RhiDevice &device) noexcept {
+        auto operation_guard = operation_mutex_->lock();
+        (void)operation_guard;
         for (SurfaceFrameResources &surface_resources : surface_frame_resources_) {
             for (FrameResources &resources : surface_resources.frames) {
                 destroy_ui_quad_frame_resources(device, resources.quads);

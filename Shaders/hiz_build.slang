@@ -8,6 +8,8 @@
 // Renderer::record_instance_cull's occlusion test conservative (never wrongly culls something still
 // visible) — see gpu_instance_cull.slang's occlusion test.
 
+import sturdy_common;
+
 struct VertexOutput {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
@@ -17,7 +19,7 @@ struct VertexOutput {
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
     output.uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = float4(output.uv * 2.0 - 1.0, 0.0, 1.0);
+    output.position = fullscreenTrianglePosition(output.uv);
     return output;
 }
 

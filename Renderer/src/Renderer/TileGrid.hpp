@@ -3,6 +3,7 @@
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <list>
 #include <optional>
 #include <string>
@@ -68,18 +69,53 @@ namespace SFT::Renderer {
     template <typename Key, typename Hash = std::hash<Key>>
     class LruIndex {
       public:
+        LruIndex() = default;
+
+        // `nodes_` stores iterators into `order_`, so compiler-generated copy/move would preserve
+        // iterators associated with another list under MSVC's checked-iterator mode. Rebuild the
+        // index after every transfer to keep splice()/erase() tied to this exact list instance.
+        LruIndex(const LruIndex &other) : order_(other.order_) { rebuild_nodes(); }
+
+        LruIndex &operator=(const LruIndex &other) {
+            if (this != &other) {
+                order_ = other.order_;
+                rebuild_nodes();
+            }
+            return *this;
+        }
+
+        LruIndex(LruIndex &&other) : order_(std::move(other.order_)) {
+            rebuild_nodes();
+            other.nodes_.clear();
+        }
+
+        LruIndex &operator=(LruIndex &&other) {
+            if (this != &other) {
+                order_ = std::move(other.order_);
+                rebuild_nodes();
+                other.nodes_.clear();
+            }
+            return *this;
+        }
+
         // Marks `key` as most-recently-used, inserting it if not already tracked. Returns true if
         // this was a new insertion (the caller must still assign it storage), false if `key` was
         // already resident (its position in the LRU order is simply refreshed).
         bool touch(Key key) {
-            auto it = nodes_.find(key);
-            if (it != nodes_.end()) {
-                order_.splice(order_.begin(), order_, it->second);
-                it->second = order_.begin();
+            // Do not pass the cached iterator to splice: a surrounding atlas/vector transfer can
+            // preserve the key map while MSVC invalidates its checked-iterator association. Locate
+            // the node in this list instead; only an iterator obtained from `order_` is legal here.
+            const auto node = std::ranges::find(order_, key);
+            if (node != order_.end()) {
+                // Erase/reinsert avoids MSVC's checked-iterator splice association issue entirely.
+                // The LRU owns keys by value, so this does not alter the observable cache identity.
+                order_.erase(node);
+                order_.push_front(key);
+                nodes_[key] = order_.begin();
                 return false;
             }
             order_.push_front(key);
-            nodes_.emplace(std::move(key), order_.begin());
+            nodes_[key] = order_.begin();
             return true;
         }
 
@@ -114,12 +150,11 @@ namespace SFT::Renderer {
         }
 
         void erase(const Key &key) {
-            auto it = nodes_.find(key);
-            if (it == nodes_.end()) {
-                return;
+            const auto node = std::ranges::find(order_, key);
+            if (node != order_.end()) {
+                order_.erase(node);
             }
-            order_.erase(it->second);
-            nodes_.erase(it);
+            nodes_.erase(key);
         }
 
         [[nodiscard]] bool contains(const Key &key) const { return nodes_.contains(key); }
@@ -127,6 +162,14 @@ namespace SFT::Renderer {
         [[nodiscard]] bool empty() const noexcept { return order_.empty(); }
 
       private:
+        void rebuild_nodes() {
+            nodes_.clear();
+            nodes_.reserve(order_.size());
+            for (auto it = order_.begin(); it != order_.end(); ++it) {
+                nodes_.emplace(*it, it);
+            }
+        }
+
         list<Key> order_; // front = most-recently-used, back = least-recently-used
         unordered_map<Key, typename list<Key>::iterator, Hash> nodes_;
     };

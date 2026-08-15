@@ -17,6 +17,7 @@
 #endif
 
 #include <algorithm>
+#include <cstring>
 #include <format>
 #include <optional>
 #include <string>
@@ -27,14 +28,14 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <Core/GraphicsBackendError.hpp>
+#include <Core/Renderer.hpp>
 #include <Core/Vulkan/VulkanAllocator.hpp>
 #include <Core/Vulkan/VulkanBackend.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>
 #include <Core/Vulkan/VulkanDevice.hpp>
 #include <Core/Vulkan/VulkanPhysicalDevice.hpp>
 #include <Core/Vulkan/VulkanQueue.hpp>
-#include <Core/GraphicsBackendError.hpp>
-#include <Core/Renderer.hpp>
 #include <RHI/RHI.hpp>
 
 using std::format;
@@ -69,9 +70,25 @@ namespace SFT::Core::Vulkan {
             return count == 0 ? 0 : std::min(2u, count);
         }
 
+        [[nodiscard]] std::string physical_device_id(const VulkanPhysicalDevice &device) {
+            VkPhysicalDeviceIDProperties ids{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &ids,
+            };
+            vkGetPhysicalDeviceProperties2(device.vk_handle(), &properties);
+            if (ids.deviceLUIDValid != VK_TRUE) {
+                return {};
+            }
+            u64 bits = 0;
+            static_assert(VK_LUID_SIZE == sizeof(bits));
+            std::memcpy(&bits, ids.deviceLUID, sizeof(bits));
+            return format("windows-luid:{:016x}", bits);
+        }
+
         [[nodiscard]] optional<u32> find_dedicated_queue_family(const VulkanPhysicalDevice &device,
-                                                               VkQueueFlags required,
-                                                               VkQueueFlags forbidden) noexcept {
+                                                                VkQueueFlags required,
+                                                                VkQueueFlags forbidden) noexcept {
             const auto &families = device.queue_families();
             for (u32 i = 0; i < static_cast<u32>(families.size()); ++i) {
                 const VkQueueFlags flags = families[i].queueFlags;
@@ -103,8 +120,18 @@ namespace SFT::Core::Vulkan {
                                  candidate.score());
         }
 
-        // enumerate() guarantees a non-empty list, so max_element always dereferences a valid device.
-        auto best = std::ranges::max_element(*devices_result, {}, &VulkanPhysicalDevice::score);
+        auto best = devices_result->end();
+        if (!init.physical_device_id.empty()) {
+            best = std::ranges::find_if(*devices_result, [&](const VulkanPhysicalDevice &candidate) {
+                return physical_device_id(candidate) == init.physical_device_id;
+            });
+            if (best == devices_result->end()) {
+                return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
+                                              "The selected physical GPU is not available through Vulkan.");
+            }
+        } else {
+            best = std::ranges::max_element(*devices_result, {}, &VulkanPhysicalDevice::score);
+        }
         physicalDevice = std::move(*best);
         Foundation::log_info("Selected GPU: {} [{}] driver={} Vulkan API={}",
                              physicalDevice.name(),
@@ -116,8 +143,8 @@ namespace SFT::Core::Vulkan {
         auto surface_formats_result = this->physicalDevice.surface_formats(primary_surface);
         if (!surface_formats_result.has_value()) [[unlikely]] {
             return graphics_backend_error(surface_formats_result.error().code,
-                                  format("Physical Device Selection failed at checking surface formats: {}",
-                                         surface_formats_result.error().message));
+                                          format("Physical Device Selection failed at checking surface formats: {}",
+                                                 surface_formats_result.error().message));
         }
 
         if (!std::ranges::contains(*surface_formats_result, SWAPCHAIN_FORMAT, &VkSurfaceFormatKHR::format)) [[unlikely]] {
@@ -147,7 +174,8 @@ namespace SFT::Core::Vulkan {
         // here rather than needing its own opt-in path (see RHI::Feature::PresentModeFifoLatestReady's
         // own doc comment, and the "Optional Core: enabled when present" handling below).
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR, .pNext = nullptr};
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
+            .pNext = nullptr};
         // Detection/enablement only for now -- RHI::Feature::SwapchainMaintenance gates whether
         // VkSwapchainPresentFenceInfoEXT/vkReleaseSwapchainImagesEXT are *legal* to use, but nothing
         // in this codebase calls them yet (present-fence-gated swapchain retirement, replacing the
@@ -184,7 +212,7 @@ namespace SFT::Core::Vulkan {
         if (not supportedFeatures13.dynamicRendering or not supportedFeatures13.synchronization2 or
             not supportedFeatures12.timelineSemaphore or not supportedFeatures12.bufferDeviceAddress) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
-                                  "Required Vulkan features missing: dynamicRendering, synchronization2, timelineSemaphore, and bufferDeviceAddress are all required.");
+                                          "Required Vulkan features missing: dynamicRendering, synchronization2, timelineSemaphore, and bufferDeviceAddress are all required.");
         }
 
         // Slang emits SPV_KHR_shader_draw_parameters (gl_BaseVertex/gl_BaseInstance) for entry
@@ -192,7 +220,7 @@ namespace SFT::Core::Vulkan {
         // even though it never reads a base value — without it validation rejects the module.
         if (not supportedFeatures11.shaderDrawParameters) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
-                                  "Required Vulkan feature missing: shaderDrawParameters.");
+                                          "Required Vulkan feature missing: shaderDrawParameters.");
         }
 
         RHI::FeatureSet supported_rhi_features = RHI::features_of({
@@ -237,11 +265,11 @@ namespace SFT::Core::Vulkan {
             this->physicalDevice.supports_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
             supportedAccelerationStructureFeatures.accelerationStructure;
         const bool supports_ray_tracing_pipeline = supports_acceleration_structures &&
-            this->physicalDevice.supports_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
-            supportedRayTracingPipelineFeatures.rayTracingPipeline;
+                                                   this->physicalDevice.supports_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+                                                   supportedRayTracingPipelineFeatures.rayTracingPipeline;
         const bool supports_ray_query = supports_acceleration_structures &&
-            this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
-            supportedRayQueryFeatures.rayQuery;
+                                        this->physicalDevice.supports_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+                                        supportedRayQueryFeatures.rayQuery;
         if (supports_acceleration_structures) {
             supported_rhi_features.set(RHI::Feature::AccelerationStructures);
         }
@@ -255,7 +283,8 @@ namespace SFT::Core::Vulkan {
             supportedPresentModeFifoLatestReadyFeatures.presentModeFifoLatestReady) {
             supported_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
         }
-        if (this->physicalDevice.supports_extension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) &&
+        if (surface_maintenance1_enabled_ &&
+            this->physicalDevice.supports_extension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) &&
             supportedSwapchainMaintenance1Features.swapchainMaintenance1) {
             supported_rhi_features.set(RHI::Feature::SwapchainMaintenance);
         }
@@ -283,14 +312,20 @@ namespace SFT::Core::Vulkan {
 #endif
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         const auto probed_dedicated_compute_family = find_dedicated_queue_family(
-            this->physicalDevice, VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT);
+            this->physicalDevice,
+            VK_QUEUE_COMPUTE_BIT,
+            VK_QUEUE_GRAPHICS_BIT);
         auto probed_dedicated_transfer_family = find_dedicated_queue_family(
-            this->physicalDevice, VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
+            this->physicalDevice,
+            VK_QUEUE_TRANSFER_BIT,
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
         if (!probed_dedicated_transfer_family.has_value()) {
             // Some GPUs expose a distinct async compute family that also supports transfer, but no pure
             // DMA/copy family. It is still useful for RHI Transfer work because it is distinct from graphics.
             probed_dedicated_transfer_family = find_dedicated_queue_family(
-                this->physicalDevice, VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT);
+                this->physicalDevice,
+                VK_QUEUE_TRANSFER_BIT,
+                VK_QUEUE_GRAPHICS_BIT);
         }
         const auto probed_sparse_family = this->physicalDevice.find_sparse_binding_queue_family();
         const auto probed_video_decode_family = this->physicalDevice.find_video_decode_queue_family();
@@ -323,12 +358,12 @@ namespace SFT::Core::Vulkan {
         }
 
         RHI::FeatureSet required_rhi_features = init.features.required_rhi_features |
-            RHI::features_of({
-                RHI::Feature::TimelineSynchronization,
-                RHI::Feature::Synchronization2,
-                RHI::Feature::DynamicRendering,
-                RHI::Feature::ShaderDrawParameters,
-            });
+                                                RHI::features_of({
+                                                    RHI::Feature::TimelineSynchronization,
+                                                    RHI::Feature::Synchronization2,
+                                                    RHI::Feature::DynamicRendering,
+                                                    RHI::Feature::ShaderDrawParameters,
+                                                });
         RHI::FeatureSet optional_rhi_features = init.features.optional_rhi_features;
         if (init.features.raytracing) {
             optional_rhi_features.set(RHI::Feature::RayTracingPipeline)
@@ -443,8 +478,11 @@ namespace SFT::Core::Vulkan {
                 TracyMessageL(raised ? "frames-in-flight request raised to lower bound"
                                      : "frames-in-flight request reduced to upper bound");
                 Foundation::log_info("Frames in flight: requested {} {} to {} (lower_bound={}, upper_bound={}).",
-                                     resolution->requested, raised ? "raised" : "reduced", resolution->resolved,
-                                     resolution->lower_bound, resolution->upper_bound);
+                                     resolution->requested,
+                                     raised ? "raised" : "reduced",
+                                     resolution->resolved,
+                                     resolution->lower_bound,
+                                     resolution->upper_bound);
             }
         } else {
             // Unreachable today (upper_bound is always 0/unbounded here, so lower_bound can never
@@ -452,7 +490,8 @@ namespace SFT::Core::Vulkan {
             // pass a real upper bound can't turn an invalid-range configuration error into UB.
             TracyMessageLC("invalid frames-in-flight bounds -- falling back to default", tracy::Color::Red);
             Foundation::log_warn("Frames in flight: {} -- falling back to default ({}).",
-                                 resolution.error(), DEFAULT_FRAMES_IN_FLIGHT);
+                                 resolution.error(),
+                                 DEFAULT_FRAMES_IN_FLIGHT);
             capabilities_.max_frames_in_flight = DEFAULT_FRAMES_IN_FLIGHT;
         }
 
@@ -477,7 +516,8 @@ namespace SFT::Core::Vulkan {
             .presentModeFifoLatestReady = enable_present_mode_fifo_latest_ready ? VK_TRUE : VK_FALSE,
         };
         void *feature_chain_tail = enable_present_mode_fifo_latest_ready
-            ? static_cast<void *>(&presentModeFifoLatestReadyFeatures) : nullptr;
+                                       ? static_cast<void *>(&presentModeFifoLatestReadyFeatures)
+                                       : nullptr;
         VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR swapchainMaintenance1Features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
             .pNext = feature_chain_tail,
@@ -526,7 +566,9 @@ namespace SFT::Core::Vulkan {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
                       enable_ray_query || enable_swapchain_maintenance1 ||
-                      enable_present_mode_fifo_latest_ready) ? &meshFeatures : nullptr,
+                      enable_present_mode_fifo_latest_ready)
+                         ? &meshFeatures
+                         : nullptr,
         };
         VkPhysicalDeviceVulkan13Features features13{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
@@ -574,20 +616,20 @@ namespace SFT::Core::Vulkan {
         auto gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         auto present_family = this->physicalDevice.find_present_queue_family(primary_surface);
         optional<u32> compute_family = enabled_rhi_features.has(RHI::Feature::AsyncCompute)
-            ? probed_dedicated_compute_family
-            : optional<u32>{};
+                                           ? probed_dedicated_compute_family
+                                           : optional<u32>{};
         optional<u32> transfer_family = enabled_rhi_features.has(RHI::Feature::AsyncTransfer)
-            ? probed_dedicated_transfer_family
-            : optional<u32>{};
+                                            ? probed_dedicated_transfer_family
+                                            : optional<u32>{};
         optional<u32> sparse_family = enabled_rhi_features.has(RHI::Feature::SparseBinding)
-            ? probed_sparse_family
-            : optional<u32>{};
+                                          ? probed_sparse_family
+                                          : optional<u32>{};
         optional<u32> video_decode_family = enabled_rhi_features.has(RHI::Feature::VideoDecodeQueue)
-            ? probed_video_decode_family
-            : optional<u32>{};
+                                                ? probed_video_decode_family
+                                                : optional<u32>{};
         optional<u32> video_encode_family = enabled_rhi_features.has(RHI::Feature::VideoEncodeQueue)
-            ? probed_video_encode_family
-            : optional<u32>{};
+                                                ? probed_video_encode_family
+                                                : optional<u32>{};
         if (compute_family.has_value() && transfer_family.has_value() && *compute_family == *transfer_family) {
             // VulkanDevice wraps queue handles with per-wrapper mutexes. If transfer aliases the compute
             // queue family, request/retrieve it once and let the RHI bridge map Transfer to computeQueue.
@@ -665,9 +707,9 @@ namespace SFT::Core::Vulkan {
         // the existing graphics queue remains the safe fallback in that topology.
         const u32 graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family);
         const u32 present_queue_index = gfx_family.has_value() && present_family.has_value() &&
-                *gfx_family == *present_family && graphics_queue_count > 1
-            ? 1u
-            : 0u;
+                                                *gfx_family == *present_family && graphics_queue_count > 1
+                                            ? 1u
+                                            : 0u;
 
         VulkanDevice::DeviceCreateDesc desc{
             .graphics_queue_family = gfx_family,
@@ -691,7 +733,7 @@ namespace SFT::Core::Vulkan {
         auto device_result = VulkanDevice::create(this->physicalDevice.vk_handle(), desc);
         if (!device_result.has_value()) [[unlikely]] {
             return graphics_backend_error(device_result.error().code,
-                                  format("VulkanDevice::create failed: {}", device_result.error().message));
+                                          format("VulkanDevice::create failed: {}", device_result.error().message));
         }
 
         this->logicalDevice = std::move(*device_result);
@@ -719,24 +761,20 @@ namespace SFT::Core::Vulkan {
             if (!this->logicalDevice.transfer_queue().has_value()) [[unlikely]] {
                 return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "Failed to get a dedicated transfer queue.");
             }
-            Foundation::log_info("Dedicated Vulkan transfer queue selected: family={} lanes={}", *transfer_family,
-                                 this->logicalDevice.transfer_queue_lanes().size());
+            Foundation::log_info("Dedicated Vulkan transfer queue selected: family={} lanes={}", *transfer_family, this->logicalDevice.transfer_queue_lanes().size());
         }
         if (compute_family.has_value()) {
             Foundation::log_info("Vulkan compute queue lanes={}", this->logicalDevice.compute_queue_lanes().size());
         }
         Foundation::log_info("Vulkan graphics queue lanes={}", this->logicalDevice.graphics_queue_lanes().size());
         if (sparse_family.has_value()) {
-            Foundation::log_info("Vulkan sparse queue selected: family={} lanes={}", *sparse_family,
-                                 this->logicalDevice.sparse_queue_lanes().size());
+            Foundation::log_info("Vulkan sparse queue selected: family={} lanes={}", *sparse_family, this->logicalDevice.sparse_queue_lanes().size());
         }
         if (video_decode_family.has_value()) {
-            Foundation::log_info("Vulkan video decode queue selected: family={} lanes={}", *video_decode_family,
-                                 this->logicalDevice.video_decode_queue_lanes().size());
+            Foundation::log_info("Vulkan video decode queue selected: family={} lanes={}", *video_decode_family, this->logicalDevice.video_decode_queue_lanes().size());
         }
         if (video_encode_family.has_value()) {
-            Foundation::log_info("Vulkan video encode queue selected: family={} lanes={}", *video_encode_family,
-                                 this->logicalDevice.video_encode_queue_lanes().size());
+            Foundation::log_info("Vulkan video encode queue selected: family={} lanes={}", *video_encode_family, this->logicalDevice.video_encode_queue_lanes().size());
         }
         return {};
     }
@@ -756,7 +794,7 @@ namespace SFT::Core::Vulkan {
         auto allocator_result = VulkanAllocator::create(desc);
         if (!allocator_result.has_value()) [[unlikely]] {
             return graphics_backend_error(allocator_result.error().code,
-                                  format("Failed to start VMA: {}", allocator_result.error().message));
+                                          format("Failed to start VMA: {}", allocator_result.error().message));
         }
 
         this->vmaAllocator = std::move(*allocator_result);

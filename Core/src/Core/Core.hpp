@@ -16,6 +16,9 @@
 #include <Core/Vulkan/VulkanFeatures.hpp>
 #include <Core/Vulkan/VulkanBackend.hpp>
 #endif
+#if defined(_WIN32)
+#include <Core/D3D12/D3D12Backend.hpp>
+#endif
 #include <Core/Slang/Shader.hpp>
 #include <Core/Slang/ShaderDiscovery.hpp>
 #include <Core/Slang/ShaderVariant.hpp>

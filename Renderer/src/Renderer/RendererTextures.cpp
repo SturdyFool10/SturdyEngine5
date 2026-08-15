@@ -6,6 +6,7 @@
 #endif
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <expected>
 #include <limits>
 #include <span>
@@ -334,7 +335,7 @@ namespace SFT::Renderer {
 
     Core::RendererExpected<TextureUploadSubmission> Renderer::submit_texture_upload(
         TextureResource &resource, u32 width, u32 height, RHI::Format format, RHI::BufferHandle staging,
-        u64 staging_offset, RHI::QueueLane queue) {
+        u64 staging_offset, RHI::QueueLane queue, bool d3d12_padded_rows) {
         ZoneScopedN("Renderer::submit_texture_upload");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -372,8 +373,15 @@ namespace SFT::Renderer {
         u32 level_width = width;
         u32 level_height = height;
         for (u32 level = 0; level < resource.mip_levels; ++level) {
+            const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
+            const u64 row_pitch = d3d12_padded_rows ? align_up(tight_row_bytes, 256) : tight_row_bytes;
+            const u32 buffer_row_length = d3d12_padded_rows && tight_row_bytes != 0
+                                              ? static_cast<u32>(static_cast<u64>(level_width) * row_pitch / tight_row_bytes)
+                                              : 0;
             const RHI::BufferTextureCopy copy{
                 .buffer_offset = level_offset,
+                .buffer_row_length = buffer_row_length,
+                .buffer_image_height = d3d12_padded_rows ? level_height : 0,
                 .mip_level = level,
                 .base_array_layer = 0,
                 .array_layer_count = 1,
@@ -381,9 +389,11 @@ namespace SFT::Renderer {
                 .texture_extent = RHI::Extent3D{.width = level_width, .height = level_height, .depth_or_layers = 1},
             };
             (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
-            level_offset += texture_data_bytes(format, level_width, level_height);
+            level_offset += d3d12_padded_rows
+                                ? row_pitch * level_height
+                                : texture_data_bytes(format, level_width, level_height);
             if (level + 1u < resource.mip_levels) {
-                level_offset = align_up(level_offset, copy_alignment);
+                level_offset = align_up(level_offset, d3d12_padded_rows ? 512 : copy_alignment);
             }
             level_width = std::max(level_width / 2u, 1u);
             level_height = std::max(level_height / 2u, 1u);
@@ -436,8 +446,35 @@ namespace SFT::Renderer {
                                                 "Cannot upload texture data without an RHI device.");
         }
 
+        const bool d3d12_padded_rows = device->backend_type() == RHI::BackendType::D3D12;
+        vector<std::byte> padded_data;
+        span<const std::byte> upload_data = data;
+        if (d3d12_padded_rows) {
+            u64 source_offset = 0;
+            u64 destination_offset = 0;
+            u32 level_width = width;
+            u32 level_height = height;
+            for (u32 level = 0; level < resource.mip_levels; ++level) {
+                const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
+                const u64 row_pitch = align_up(tight_row_bytes, 256);
+                destination_offset = align_up(destination_offset, 512);
+                const u64 required = destination_offset + row_pitch * level_height;
+                padded_data.resize(static_cast<usize>(required));
+                for (u32 row = 0; row < level_height; ++row) {
+                    std::memcpy(padded_data.data() + destination_offset + static_cast<u64>(row) * row_pitch,
+                                data.data() + source_offset + static_cast<u64>(row) * tight_row_bytes,
+                                static_cast<usize>(tight_row_bytes));
+                }
+                source_offset += texture_data_bytes(format, level_width, level_height);
+                destination_offset = required;
+                level_width = std::max(level_width / 2u, 1u);
+                level_height = std::max(level_height / 2u, 1u);
+            }
+            upload_data = padded_data;
+        }
+
         auto staging = device->create_buffer(RHI::BufferDesc{
-            .size = static_cast<u64>(data.size()),
+            .size = static_cast<u64>(upload_data.size()),
             .usage = RHI::BufferUsage::TransferSrc,
             .memory = RHI::MemoryLocation::HostUpload,
             .label = "renderer texture staging",
@@ -445,12 +482,12 @@ namespace SFT::Renderer {
         if (!staging) {
             return unexpected(graphics_error_from_rhi(staging.error(), "create texture staging buffer"));
         }
-        if (auto written = device->write_buffer(*staging, 0, data); !written) {
+        if (auto written = device->write_buffer(*staging, 0, upload_data); !written) {
             device->destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(written.error(), "write texture staging buffer"));
         }
 
-        auto submitted = submit_texture_upload(resource, width, height, format, *staging);
+        auto submitted = submit_texture_upload(resource, width, height, format, *staging, 0, {}, d3d12_padded_rows);
         if (!submitted) {
             device->destroy_buffer(*staging);
             return unexpected(submitted.error());

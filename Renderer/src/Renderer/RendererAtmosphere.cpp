@@ -12,6 +12,8 @@
 
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #include <array>
 #include <cstddef>
@@ -175,6 +177,9 @@ namespace SFT::Renderer {
             return unexpected(atmosphere_error("Cannot build atmosphere LUT resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         // Same reflection-driven compute-pipeline build as Renderer::ensure_instance_cull_resources
         // (RendererGpuCulling.cpp), repeated once per bake shader — no push constants in any of the
         // three, so pipeline_layout's range list is always empty (matching
@@ -182,7 +187,7 @@ namespace SFT::Renderer {
         auto build_lut_pipeline = [&](const char *shader_path, const char *module_name, const char *label,
                                        AtmosphereLutBakePipeline &out) -> Core::RendererResult {
             const slang::ShaderCompileOptions options{
-                .targets = {slang::ShaderTarget{}},
+                .targets = shader_compile_targets_for_device(device),
                 .entry_points = {slang::ShaderEntryPointRequest{.name = "mainCS", .stage = slang::ShaderStage::Compute}},
             };
             slang::ShaderVariantCache shader_cache{
@@ -196,12 +201,12 @@ namespace SFT::Renderer {
             }
             out.shader = *shader;
 
-            auto code = out.shader.entry_point_code("mainCS");
+            auto code = out.shader.entry_point_code("mainCS", shader_target->slang_target.format);
             if (!code) {
                 return unexpected(atmosphere_error(string{"generate "} + label + " bytecode failed: " + code.error().message));
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = label,
             });

@@ -170,7 +170,13 @@ namespace SFT::Core::Vulkan {
             };
             builder.set_stencil(front, back);
         }
-        builder.set_depth_format(to_vk(desc.depth_stencil.format));
+        const VkFormat depth_stencil_format = to_vk(desc.depth_stencil.format);
+        if (rhi::format_has_depth(desc.depth_stencil.format)) {
+            builder.set_depth_format(depth_stencil_format);
+        }
+        if (rhi::format_has_stencil(desc.depth_stencil.format)) {
+            builder.set_stencil_format(depth_stencil_format);
+        }
 
         for (const rhi::ColorTargetState &target : desc.color_targets) {
             const VkPipelineColorBlendAttachmentState blend{
@@ -188,6 +194,8 @@ namespace SFT::Core::Vulkan {
 
         builder.set_view_mask(desc.view_mask);
 
+        auto pipeline_cache_guard = pipeline_cache_mutex_.lock();
+        (void)pipeline_cache_guard;
         auto pipeline = builder.create(logical_device_->vk_handle(), pipeline_cache_.vk_handle());
         if (!pipeline) {
             return rhi_error_from_graphics(pipeline.error());

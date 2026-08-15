@@ -13,6 +13,8 @@
 // vertex/fragment interface matching between separately-compiled modules is by declaration order
 // (location), not by struct name. See that file for the currentClip/previousClip fields' meaning.
 
+import sturdy_common;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
@@ -83,7 +85,7 @@ VertexOutput vertexMainWithHistory(VertexInput input) {
 
     VertexOutput output;
     float4 worldPosition = mul(float4(input.position, 1.0), object.model);
-    output.position = mul(worldPosition, view.viewProjection);
+    output.position = sturdy_clip_position(mul(worldPosition, view.viewProjection));
     output.worldNormal = normalize(mul(input.normal, (float3x3)object.model));
     output.uv = input.uv;
     output.color = input.color;

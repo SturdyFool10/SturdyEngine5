@@ -199,7 +199,8 @@ namespace SFT::Renderer {
         // responsibility (a ring-owned chunk, not a fresh allocation).
         [[nodiscard]] Core::RendererExpected<TextureUploadSubmission> submit_texture_upload(
             TextureResource &resource, u32 width, u32 height, RHI::Format format,
-            RHI::BufferHandle staging, u64 staging_offset = 0, RHI::QueueLane queue = {});
+            RHI::BufferHandle staging, u64 staging_offset = 0, RHI::QueueLane queue = {},
+            bool d3d12_padded_rows = false);
 
         [[nodiscard]] Core::RendererExpected<OffscreenRenderTargetHandle> create_offscreen_render_target(
             const OffscreenRenderTargetDescription &description);
@@ -1808,12 +1809,10 @@ namespace SFT::Renderer {
         void destroy_text_overlay_resources() noexcept;
         void destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept;
 
-        // Rebuilds the whole backend + every window surface's presentation resources. Holds the
-        // window_surfaces_ Async::Mutex for the structural parts of the rebuild; recovering_from_device_loss_
-        // guards against re-entrant recovery calls. A window's render racing a concurrent recovery rebuild
-        // of its own record's fields is an accepted, documented scope boundary (recovery is the rare/
-        // exceptional path) — same stance as VulkanRhiResourcePool's "destroying a resource still
-        // referenced by in-flight work is caller error, not something the lock needs to catch".
+        // Rebuilds the whole backend + every window surface's presentation resources. The backend-operation
+        // mutex excludes all render_frame_rhi() calls for the complete rebuild so no thread can submit work
+        // after wait_idle() and before old-device resources are destroyed. window_surfaces_ remains the
+        // narrower structural lock; recovering_from_device_loss_ guards against re-entrant recovery calls.
         [[nodiscard]] Core::RendererResult recover_from_device_loss();
         [[nodiscard]] Core::RendererResult rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                             const char *reason);
@@ -1969,6 +1968,10 @@ namespace SFT::Renderer {
         Async::Mutex<std::unordered_map<u64, glm::mat4>> previous_world_transforms_;
         Async::Mutex<HiZBuildResources> hiz_build_;
         Async::Mutex<AtmosphereLutResources> atmosphere_lut_;
+        // Correctness-first exclusive lifetime gate for operations that use or replace graphics_backend_.
+        // Per-window frames may eventually use a shared lock while reconstruction remains exclusive, but
+        // Async::Mutex guarantees today that no backend-owned object is destroyed during frame submission.
+        Async::Mutex<u8> backend_operation_mutex_{0};
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
     };

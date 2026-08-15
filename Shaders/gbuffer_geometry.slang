@@ -137,7 +137,7 @@ Sampler2D emissive_texture;
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
     float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
-    output.position = mul(world_position, scene_draw.view_projection);
+    output.position = sturdy_clip_position(mul(world_position, scene_draw.view_projection));
     output.worldNormal = normalize(mul(input.normal, (float3x3)scene_draw.model));
     output.uv = input.uv;
     output.color = input.color;

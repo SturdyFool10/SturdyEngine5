@@ -137,4 +137,12 @@ namespace SFT::Core {
     // This is the API-selection switch point: a future build swaps in Metal or WebGPU here.
     [[nodiscard]] unique_ptr<EngineBackend> create_vulkan_backend();
 
+    // Creates the requested renderer backend, or nullptr when that API is not compiled for this platform.
+    [[nodiscard]] unique_ptr<EngineBackend> create_engine_backend(RHI::BackendType backend);
+
+#if defined(_WIN32)
+    // Constructs the D3D12 backend without exposing DirectX headers to Engine or application code.
+    [[nodiscard]] unique_ptr<EngineBackend> create_d3d12_backend();
+#endif
+
 } // namespace SFT::Core

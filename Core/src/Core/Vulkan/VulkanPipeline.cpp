@@ -172,6 +172,21 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             VkGraphicsPipelineCreateInfo info // taken by value so we can assert renderPass is null
             ) noexcept {
             ZoneScopedN("VulkanPipeline::create_graphics_dynamic");
+            if (device == VK_NULL_HANDLE) [[unlikely]] {
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    "vkCreateGraphicsPipelines (dynamic rendering) called with a null VkDevice.");
+            }
+            if (vkCreateGraphicsPipelines == nullptr) [[unlikely]] {
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    "vkCreateGraphicsPipelines is not loaded. Call volkLoadDevice after device creation.");
+            }
+            if (info.renderPass != VK_NULL_HANDLE) [[unlikely]] {
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::OperationFailed,
+                    "Dynamic-rendering graphics pipelines must have a null VkGraphicsPipelineCreateInfo::renderPass.");
+            }
             const Foundation::Stopwatch stopwatch;
             VkPipeline pipeline = VK_NULL_HANDLE;
             if (vkCreateGraphicsPipelines(device, cache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
@@ -511,6 +526,11 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .depthAttachmentFormat = depth_format_,
                 .stencilAttachmentFormat = stencil_format_,
             };
+            // Dynamic rendering requires depth/stencil state whenever either attachment format is
+            // declared, even when all tests/writes are disabled. Conversely, a truly color-only
+            // pipeline with both formats undefined should omit the state entirely.
+            const bool has_depth_stencil_attachment =
+                depth_format_ != VK_FORMAT_UNDEFINED || stencil_format_ != VK_FORMAT_UNDEFINED;
             const VkGraphicsPipelineCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
                 .pNext = &rendering,
@@ -523,7 +543,7 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .pViewportState = &viewport,
                 .pRasterizationState = &rasterization,
                 .pMultisampleState = &multisample,
-                .pDepthStencilState = &depth_stencil,
+                .pDepthStencilState = has_depth_stencil_attachment ? &depth_stencil : nullptr,
                 .pColorBlendState = &color_blend,
                 .pDynamicState = &dynamic,
                 .layout = layout_,

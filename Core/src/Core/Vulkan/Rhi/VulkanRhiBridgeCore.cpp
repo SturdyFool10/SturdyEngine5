@@ -8,13 +8,10 @@
 #include "volk.h"
 #include <algorithm>
 #include <expected>
-#include <filesystem>
-#include <fstream>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -59,72 +56,6 @@ namespace SFT::Core::Vulkan {
             return "Unknown";
         }
 
-        // A single flat file (not per-GPU/driver-keyed): a mismatched blob from a different GPU or
-        // driver version is safely ignored by Vulkan itself via the cache header's UUID (vkCreatePipelineCache
-        // just yields an empty cache in that case, never an error) -- see pipeline_cache_'s doc comment
-        // in VulkanRhiBridge.hpp.
-        [[nodiscard]] std::filesystem::path pipeline_cache_path() {
-            return std::filesystem::path{".cache/vulkan_pipeline_cache.bin"};
-        }
-
-        // Pipeline-cache persistence is strictly opportunistic. Limit the local blob before
-        // allocating so a corrupt or externally modified cache cannot fail device initialization.
-        constexpr usize max_pipeline_cache_blob_bytes = 128ull * 1024ull * 1024ull;
-
-        [[nodiscard]] std::vector<u8> load_pipeline_cache_blob() {
-            try {
-                const std::filesystem::path cache_path = pipeline_cache_path();
-                std::error_code ec;
-                const auto size = std::filesystem::file_size(cache_path, ec);
-                if (ec || size > max_pipeline_cache_blob_bytes) {
-                    return {};
-                }
-
-                std::ifstream file(cache_path, std::ios::binary);
-                if (!file) {
-                    return {};
-                }
-
-                std::vector<u8> blob(static_cast<usize>(size));
-                if (!blob.empty() &&
-                    !file.read(reinterpret_cast<char *>(blob.data()), static_cast<std::streamsize>(blob.size()))) {
-                    return {};
-                }
-                return blob;
-            } catch (...) {
-                return {};
-            }
-        }
-
-        // Best-effort, same "never fail the caller, just skip caching this run" convention as
-        // Core/Slang/ShaderCache.cpp's store_shader_cache_entry() -- write-to-temp-then-rename so a
-        // crash mid-write never leaves a truncated file a later load could mistake for valid data.
-        void store_pipeline_cache_blob(std::span<const u8> blob) noexcept {
-            try {
-                const std::filesystem::path final_path = pipeline_cache_path();
-                std::error_code ec;
-                std::filesystem::create_directories(final_path.parent_path(), ec);
-                if (ec) {
-                    return;
-                }
-                const std::filesystem::path temp_path = final_path.string() + ".tmp";
-                {
-                    std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
-                    if (!file) {
-                        return;
-                    }
-                    file.write(reinterpret_cast<const char *>(blob.data()), static_cast<std::streamsize>(blob.size()));
-                    if (!file) {
-                        return;
-                    }
-                }
-                std::filesystem::rename(temp_path, final_path, ec);
-                if (ec) {
-                    std::filesystem::remove(temp_path, ec);
-                }
-            } catch (...) {
-            }
-        }
 
     } // namespace
 
@@ -329,20 +260,32 @@ namespace SFT::Core::Vulkan {
         // write_buffer()'s staged upload path for DeviceLocal buffers (VulkanRhiBridgeBuffers.cpp)
         // checks pool/fence pairs out of upload_pool_ lazily, on first use — nothing to pre-create here.
 
-        // Best-effort: a missing/corrupt/stale file just yields an empty span, and create() with an
-        // empty span behaves exactly like today's VK_NULL_HANDLE-cache callers (a fresh, cold cache) —
-        // never a hard failure of device creation.
-        if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), load_pipeline_cache_blob())) {
+        // AMDVLK can fault inside vkCreateGraphicsPipelines when fed a persisted cache blob left by
+        // a prior driver/process crash, instead of rejecting incompatible initial data as Vulkan
+        // requires. Start every device with a fresh in-memory cache until persisted blobs have a
+        // driver-independent integrity envelope; the cache still accelerates this process's pipeline
+        // creation, but untrusted disk bytes never reach the ICD during startup.
+        if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), {})) {
             pipeline_cache_ = std::move(*cache);
         }
     }
 
     VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge() {
         ZoneScopedN("VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge");
-        if (pipeline_cache_.is_valid()) {
-            if (auto blob = pipeline_cache_.serialize()) {
-                store_pipeline_cache_blob(*blob);
-            }
+        // Backend switching can invalidate higher-level caches before every individual shader-module
+        // owner gets an opportunity to call destroy_shader_module(). Shader modules are raw Vulkan
+        // handles in the resource pool (unlike the RAII-backed pipeline/layout pools), so explicitly
+        // purge every residual module while the device is still alive. Device idle is mandatory before
+        // destroying any module that may still be referenced by a submitted command buffer/pipeline.
+        wait_idle();
+        if (logical_device_ != nullptr) {
+            shader_modules_.drain([this](VkShaderModule module) noexcept {
+                if (module != VK_NULL_HANDLE) {
+                    logical_device_->destroy_shader_module(module);
+                }
+            });
+        } else {
+            shader_modules_.drain([](VkShaderModule) noexcept {});
         }
     }
 
@@ -488,7 +431,7 @@ namespace SFT::Core::Vulkan {
         }
         // Startup installs the bridge once. Existing module/BMI layout issues can leave this unique_ptr
         // containing a garbage pre-assignment value, so avoid deleting that value before first ownership.
-        static_cast<void>(rhiDevice.release());
+        [[maybe_unused]] RHI::RhiDevice *discarded_bridge = rhiDevice.release();
         rhiDevice = std::make_unique<VulkanRhiDeviceBridge>(*this, vulkan_instance, physicalDevice, logicalDevice, gfxQueue,
                                                             *present_queue, compute_queue, transfer_queue, vmaAllocator, feature_report_,
                                                             static_cast<bool>(create_info_.features.enable_native_access_extension),

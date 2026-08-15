@@ -639,13 +639,25 @@ function(sturdy_fetch_slang)
     # whole compiler directly into Sturdy::Slang's static archive, so no such DLL exists at all.
     # (slang-glslang.dll is unaffected either way -- it is always a MODULE, a lazily dlopen()'d
     # downstream-compiler plugin Slang probes for at runtime, never a link-time dependency, and
-    # this engine's SPIR-V-only usage never needs it; its absence is a soft, non-fatal miss.)
+    # this engine does not use it; its absence is a soft, non-fatal miss.)
     set(SLANG_LIB_TYPE STATIC CACHE STRING "" FORCE)
     set(SLANG_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_REPLAYER OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGC OFF CACHE BOOL "" FORCE)
+    # Build only the target backends the current platform can consume. The renderer still rejects
+    # Metal/WebGPU until their RHI module creation paths exist, but keeping Slang capable of emitting
+    # their formats lets those backends be integrated without rebuilding the compiler dependency.
     set(SLANG_ENABLE_DXIL OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_METAL OFF CACHE BOOL "" FORCE)
+    set(SLANG_ENABLE_WGSL OFF CACHE BOOL "" FORCE)
+    if(STURDY_OS STREQUAL "Windows")
+        set(SLANG_ENABLE_DXIL ON CACHE BOOL "" FORCE)
+    elseif(STURDY_OS STREQUAL "MacOS")
+        set(SLANG_ENABLE_METAL ON CACHE BOOL "" FORCE)
+    elseif(STURDY_OS STREQUAL "Web")
+        set(SLANG_ENABLE_WGSL ON CACHE BOOL "" FORCE)
+    endif()
     set(SLANG_ENABLE_GFX OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "" FORCE)

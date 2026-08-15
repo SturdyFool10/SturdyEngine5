@@ -22,6 +22,7 @@
 
 #include <Renderer/RendererModule.hpp>
 #include <Renderer/Scene.hpp>
+#include <Renderer/ShaderTarget.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
@@ -166,6 +167,8 @@ namespace SFT::Renderer {
         if (!shader) {
             return unexpected(material_error("Cannot build a material template from an empty shader."));
         }
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
 
         const slang::ShaderReflection &reflection = shader.reflection();
 
@@ -175,12 +178,12 @@ namespace SFT::Renderer {
             return unexpected(material_error("Material shader has no vertex entry point."));
         }
         resource.vertex_entry_point = *vertex_name;
-        auto vertex_code = shader.entry_point_code(resource.vertex_entry_point);
+        auto vertex_code = shader.entry_point_code(resource.vertex_entry_point, shader_target->slang_target.format);
         if (!vertex_code) {
             return unexpected(material_error("Failed to generate material vertex bytecode: " + vertex_code.error().message));
         }
         auto vertex_module = device->create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{vertex_code->bytes.data(), vertex_code->bytes.size()},
             .label = "material vertex module",
         });
@@ -191,13 +194,13 @@ namespace SFT::Renderer {
 
         if (const optional<string> fragment_name = entry_point_name(reflection, slang::ShaderStage::Fragment)) {
             resource.fragment_entry_point = *fragment_name;
-            auto fragment_code = shader.entry_point_code(resource.fragment_entry_point);
+            auto fragment_code = shader.entry_point_code(resource.fragment_entry_point, shader_target->slang_target.format);
             if (!fragment_code) {
                 destroy_material_template_gpu(resource);
                 return unexpected(material_error("Failed to generate material fragment bytecode: " + fragment_code.error().message));
             }
             auto fragment_module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{fragment_code->bytes.data(), fragment_code->bytes.size()},
                 .label = "material fragment module",
             });
@@ -211,14 +214,14 @@ namespace SFT::Renderer {
             const vector<string> fragment_names = entry_point_names(reflection, slang::ShaderStage::Fragment);
             if (fragment_names.size() > 1) {
                 resource.depth_only_fragment_entry_point = fragment_names[1];
-                auto depth_only_code = shader.entry_point_code(resource.depth_only_fragment_entry_point);
+                auto depth_only_code = shader.entry_point_code(resource.depth_only_fragment_entry_point, shader_target->slang_target.format);
                 if (!depth_only_code) {
                     destroy_material_template_gpu(resource);
                     return unexpected(material_error(
                         "Failed to generate material depth-only fragment bytecode: " + depth_only_code.error().message));
                 }
                 auto depth_only_module = device->create_shader_module(RHI::ShaderModuleDesc{
-                    .language = RHI::ShaderLanguage::SpirV,
+                    .language = shader_target->module_language,
                     .code = span<const std::byte>{depth_only_code->bytes.data(), depth_only_code->bytes.size()},
                     .label = "material depth-only fragment module",
                 });
@@ -335,12 +338,20 @@ namespace SFT::Renderer {
             return unexpected(material_error("Cannot create a material template without an RHI device."));
         }
 
+        RHI::RhiDevice *device = rhi_device();
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
+        // Material source is caller-configurable, but the active device owns its output ABI.
+        slang::ShaderCompileOptions backend_options = options;
+        backend_options.targets = shader_compile_targets_for_device(*device);
+
         // The variant cache owns the source + base options and compiles the base (define-less) permutation
         // now; SKINNED/ALPHA_TEST/... permutations compile lazily on later requests, and a hot-reload
         // re-drives the same cache against the edited file. enable_shader_disk_cache mirrors
         // EngineConfig::enable_shader_disk_cache (Engine/EngineModule.hpp), threaded through
         // Core::RendererCreateInfo and retained on recovery_create_info_ since Renderer::initialize().
-        slang::ShaderVariantCache variant_cache{source, options, {}, recovery_create_info_.enable_shader_disk_cache};
+        slang::ShaderVariantCache variant_cache{source, std::move(backend_options), {}, recovery_create_info_.enable_shader_disk_cache};
         auto base = variant_cache.get_or_compile_base();
         if (!base) {
             return unexpected(material_shader_error(base.error(), "compile material template source"));

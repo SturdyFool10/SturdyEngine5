@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #pragma region Imports
 #include <array>
 #include <cstddef>
@@ -55,8 +57,11 @@ namespace SFT::Renderer {
             return unexpected(object_history_error("Cannot build object-history resources without an RHI device."));
         }
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {slang::ShaderEntryPointRequest{.name = "vertexMainWithHistory", .stage = slang::ShaderStage::Vertex}},
         };
         slang::ShaderVariantCache shader_cache{
@@ -70,12 +75,12 @@ namespace SFT::Renderer {
         }
         guard->vertex_shader = *shader;
 
-        auto code = guard->vertex_shader.entry_point_code("vertexMainWithHistory");
+        auto code = guard->vertex_shader.entry_point_code("vertexMainWithHistory", shader_target->slang_target.format);
         if (!code) {
             return unexpected(object_history_error("generate object-history vertex bytecode failed: " + code.error().message));
         }
         auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-            .language = RHI::ShaderLanguage::SpirV,
+            .language = shader_target->module_language,
             .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
             .label = "object history gbuffer vertex module",
         });

@@ -22,12 +22,17 @@ namespace SFT::Core::Slang {
 
         // Bumped whenever the on-disk layout below changes — a mismatch is just treated as a miss
         // (see load_shader_cache_entry()), so old entries are silently ignored rather than crashing.
-        constexpr u32 shader_cache_format_version = 1;
+        // Version 12 moves the Vulkan-style clip-space convention into the shader ABI: entry points
+        // route SV_Position through sturdy_clip_position(), whose sign comes from the
+        // STURDY_CLIP_Y_SIGN define this compiler injects per target (see ShaderImpl.cpp). Versions
+        // 10-11 asked Slang to bake a Y flip into DXIL, which silently did nothing — that pass only
+        // rewrites gl_Position — so cached artifacts from them have no flip at all.
+        constexpr u32 shader_cache_format_version = 12;
         constexpr u32 shader_cache_magic = 0x53484341u; // "SHCA"
 
         // Separate magic/version/file-suffix from the compiled-bytecode cache above -- see
         // load/store_shader_reflection_cache_entry()'s doc comment (ShaderCache.hpp) for why.
-        constexpr u32 shader_reflection_cache_format_version = 1;
+        constexpr u32 shader_reflection_cache_format_version = 3;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u; // "SHCR"
 
         // Both cache formats are opportunistic local artifacts. Bound their resource use so a
@@ -458,6 +463,20 @@ namespace SFT::Core::Slang {
             return bytecode;
         }
 
+        void write_target_artifact(ByteWriter &w, const ShaderCacheTargetArtifact &artifact) {
+            write_target(w, artifact.target);
+            write_reflection(w, artifact.reflection);
+            write_vector<ShaderBytecode>(w, artifact.bytecode, write_bytecode);
+        }
+
+        [[nodiscard]] ShaderCacheTargetArtifact read_target_artifact(ByteReader &r) {
+            ShaderCacheTargetArtifact artifact{};
+            artifact.target = read_target(r);
+            artifact.reflection = read_reflection(r);
+            artifact.bytecode = read_vector<ShaderBytecode>(r, sizeof(u32) * 4, read_bytecode);
+            return artifact;
+        }
+
         [[nodiscard]] path cache_file_path(const path &directory, u64 key) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(key));
@@ -495,11 +514,9 @@ namespace SFT::Core::Slang {
         mix_text(module_name);
         mix_text(source_text);
         mix_text(variant_canonical);
-        mix_u32(static_cast<u32>(options.targets.size()));
-        for (const ShaderTarget &target : options.targets) {
-            mix_u32(static_cast<u32>(target.format));
-            mix_text(target.profile);
-        }
+        // Targets intentionally do not participate: one v3 entry aggregates independent artifacts
+        // for every output format requested for this source/variant. Target/profile identity lives
+        // on each artifact and is verified by ShaderVariantCache before it is used.
         mix_u32(static_cast<u32>(options.optimization));
         mix_byte(static_cast<u8>(options.allow_glsl_syntax ? 1 : 0));
         mix_byte(static_cast<u8>(options.skip_spirv_validation ? 1 : 0));
@@ -512,6 +529,22 @@ namespace SFT::Core::Slang {
             mix_u32(static_cast<u32>(entry_point.stage));
         }
         return value;
+    }
+
+    [[nodiscard]] bool shader_cache_entry_is_fresh(
+        const path &directory, u64 key, const path &shader_source_path) noexcept {
+        std::error_code error;
+        const std::filesystem::file_time_type cache_time =
+            std::filesystem::last_write_time(cache_file_path(directory, key), error);
+        if (error) {
+            return false;
+        }
+        const std::filesystem::file_time_type source_time =
+            std::filesystem::last_write_time(shader_source_path, error);
+        if (error) {
+            return false;
+        }
+        return cache_time >= source_time;
     }
 
     [[nodiscard]] optional<ShaderCacheEntry> load_shader_cache_entry(
@@ -529,9 +562,8 @@ namespace SFT::Core::Slang {
 
             ShaderCacheEntry entry{};
             entry.module_name = r.read_string();
-            entry.targets = read_vector<ShaderTarget>(r, sizeof(u32) * 2, read_target);
-            entry.reflection = read_reflection(r);
-            entry.bytecode = read_vector<ShaderBytecode>(r, sizeof(u32) * 4, read_bytecode);
+            entry.artifacts = read_vector<ShaderCacheTargetArtifact>(
+                r, sizeof(u32) * 2, read_target_artifact);
             if (!r.ok()) {
                 return std::nullopt;
             }
@@ -554,9 +586,7 @@ namespace SFT::Core::Slang {
             w.write(shader_cache_magic);
             w.write(shader_cache_format_version);
             w.write_string(entry.module_name);
-            write_vector<ShaderTarget>(w, entry.targets, write_target);
-            write_reflection(w, entry.reflection);
-            write_vector<ShaderBytecode>(w, entry.bytecode, write_bytecode);
+            write_vector<ShaderCacheTargetArtifact>(w, entry.artifacts, write_target_artifact);
             if (w.buffer().size() > max_shader_cache_file_bytes) {
                 return false;
             }

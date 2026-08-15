@@ -92,7 +92,6 @@ namespace SFT::Core::Vulkan {
         bool initialized_ = false;
 
         VkInstance vulkan_instance = VK_NULL_HANDLE;
-        bool volk_initialized_ = false;
         VulkanPhysicalDevice physicalDevice;
         VulkanDevice logicalDevice;
         VulkanQueue gfxQueue;
@@ -105,6 +104,7 @@ namespace SFT::Core::Vulkan {
         // creation time (VulkanBackendDevice.cpp) to decide whether the device extension itself is
         // even worth checking for.
         bool surface_capabilities2_enabled_ = false;
+        bool surface_maintenance1_enabled_ = false;
         std::unique_ptr<RHI::RhiDevice> rhiDevice;
     };
 

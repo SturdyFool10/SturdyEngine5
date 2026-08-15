@@ -1,5 +1,6 @@
 #include "ReflectionBinding.hpp"
 
+#include <algorithm>
 #include <limits>
 
 namespace SFT::Renderer {
@@ -60,40 +61,108 @@ optional<RHI::BindingType> to_rhi_binding_type(slang::ShaderBindingType type) no
         return std::nullopt;
     }
 
+namespace {
+
+    struct ReflectedDescriptorBinding {
+        string name;
+        u32 set = 0;
+        u32 binding = 0;
+        u32 shader_register = 0;
+        RHI::BindingType type = RHI::BindingType::SampledTexture;
+        u32 count = 1;
+    };
+
+    [[nodiscard]] vector<ReflectedDescriptorBinding> collect_descriptor_bindings(
+        const slang::ShaderReflection &reflection) {
+        vector<ReflectedDescriptorBinding> descriptors;
+        for (const slang::ShaderParameterReflection &parameter : reflection.global_parameters) {
+            if (parameter.category == slang::ShaderParameterCategory::Uniform ||
+                parameter.category == slang::ShaderParameterCategory::PushConstantBuffer) {
+                continue;
+            }
+            for (const slang::ShaderBindingRangeReflection &range : parameter.binding_ranges) {
+                const optional<RHI::BindingType> type = to_rhi_binding_type(range.type);
+                if (!type) {
+                    if (range.type != slang::ShaderBindingType::PushConstant) {
+                        Foundation::log_warn(
+                            "ReflectionBinding: skipping unsupported binding (set {}, register {}) — no RHI descriptor for this kind.",
+                            parameter.binding_space, parameter.binding + range.binding);
+                    }
+                    continue;
+                }
+                descriptors.push_back(ReflectedDescriptorBinding{
+                    .name = parameter.name,
+                    .set = parameter.binding_space,
+                    .binding = parameter.binding + range.binding,
+                    .shader_register = parameter.binding + range.binding,
+                    .type = *type,
+                    .count = range.count,
+                });
+            }
+        }
+
+        std::stable_sort(descriptors.begin(), descriptors.end(), [](const auto &a, const auto &b) {
+            return a.set < b.set;
+        });
+
+        // SPIR-V bindings are already globally unique within a set and remain unchanged. DXIL has
+        // independent b/t/u/s namespaces, so equal numeric registers across different descriptor
+        // classes are legal; only then assign dense public IDs while retaining the native register.
+        for (usize begin = 0; begin < descriptors.size();) {
+            const u32 set = descriptors[begin].set;
+            usize end = begin + 1;
+            while (end < descriptors.size() && descriptors[end].set == set) {
+                ++end;
+            }
+            bool needs_flattening = false;
+            for (usize i = begin; i < end && !needs_flattening; ++i) {
+                for (usize j = i + 1; j < end; ++j) {
+                    if (descriptors[i].shader_register == descriptors[j].shader_register) {
+                        needs_flattening = true;
+                        break;
+                    }
+                }
+            }
+            if (needs_flattening) {
+                for (usize i = begin; i < end; ++i) {
+                    descriptors[i].binding = static_cast<u32>(i - begin);
+                }
+            }
+            begin = end;
+        }
+        return descriptors;
+    }
+
+} // namespace
+
 vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
         const slang::ShaderReflection &reflection,
         RHI::ShaderStage visibility,
         u32 bindless_array_max_count) {
         vector<GeneratedBindGroupLayout> layouts;
         layouts.reserve(reflection.descriptor_sets.size());
-        for (const slang::ShaderDescriptorSetReflection &set : reflection.descriptor_sets) {
-            GeneratedBindGroupLayout generated;
-            generated.set = set.space;
-            for (const slang::ShaderDescriptorRangeReflection &range : set.ranges) {
-                optional<RHI::BindingType> binding_type = to_rhi_binding_type(range.type);
-                if (!binding_type) {
-                    if (range.type != slang::ShaderBindingType::PushConstant) {
-                        Foundation::log_warn("ReflectionBinding: skipping unsupported binding (set {}, binding {}) — no RHI descriptor for this kind.",
-                                              set.space, range.binding);
-                    }
-                    continue;
-                }
-                const bool is_bindless = range.count == 0 ||
-                    range.count == std::numeric_limits<u32>::max();
-                generated.entries.push_back(RHI::BindGroupLayoutEntry{
-                    .binding = range.binding,
-                    .type = *binding_type,
-                    .visibility = visibility,
-                    .count = is_bindless ? bindless_array_max_count : range.count,
-                    .flags = is_bindless
-                                 ? (RHI::BindingFlags::PartiallyBound | RHI::BindingFlags::UpdateAfterBind |
-                                    RHI::BindingFlags::VariableDescriptorCount)
-                                 : RHI::BindingFlags::None,
-                });
+        for (const ReflectedDescriptorBinding &descriptor : collect_descriptor_bindings(reflection)) {
+            auto layout = std::ranges::find(layouts, descriptor.set, &GeneratedBindGroupLayout::set);
+            if (layout == layouts.end()) {
+                layouts.push_back(GeneratedBindGroupLayout{.set = descriptor.set});
+                layout = std::prev(layouts.end());
             }
-            if (!generated.entries.empty()) {
-                layouts.push_back(std::move(generated));
-            }
+            const bool is_bindless = descriptor.count == 0 || descriptor.count == std::numeric_limits<u32>::max();
+            layout->entries.push_back(RHI::BindGroupLayoutEntry{
+                .binding = descriptor.binding,
+                .shader_register = descriptor.shader_register,
+                .type = descriptor.type,
+                .visibility = visibility,
+                .count = is_bindless ? bindless_array_max_count : descriptor.count,
+                .flags = is_bindless
+                             ? (RHI::BindingFlags::PartiallyBound | RHI::BindingFlags::UpdateAfterBind |
+                                RHI::BindingFlags::VariableDescriptorCount)
+                             : RHI::BindingFlags::None,
+            });
+        }
+        std::ranges::sort(layouts, {}, &GeneratedBindGroupLayout::set);
+        for (GeneratedBindGroupLayout &layout : layouts) {
+            std::ranges::sort(layout.entries, {}, &RHI::BindGroupLayoutEntry::binding);
         }
         return layouts;
     }
@@ -179,32 +248,13 @@ vector<ReflectedUniform> collect_uniform_fields(const slang::ShaderReflection &r
 
 vector<ReflectedResource> collect_resource_bindings(const slang::ShaderReflection &reflection) {
         vector<ReflectedResource> resources;
-        for (const slang::ShaderParameterReflection &param : reflection.global_parameters) {
-            if (param.category == slang::ShaderParameterCategory::Uniform ||
-                param.category == slang::ShaderParameterCategory::PushConstantBuffer) {
-                continue;
-            }
-            // `range.descriptor_set`/`range.binding` are relative to the *parameter's own* type
-            // layout (a standalone resource type has exactly one binding range, always at local
-            // offset 0), not the shader's global descriptor space — using them directly collapses
-            // every simple resource parameter onto set 0/binding 0. The parameter's own
-            // `binding_space`/`binding` (VariableLayoutReflection::getBindingSpace()/
-            // getBindingIndex()) is the absolute location; the range only contributes a further
-            // local sub-offset for aggregate/array parameters.
-            if (!param.binding_ranges.empty()) {
-                for (const slang::ShaderBindingRangeReflection &range : param.binding_ranges) {
-                    optional<RHI::BindingType> type = to_rhi_binding_type(range.type);
-                    if (!type) {
-                        continue;
-                    }
-                    resources.push_back(ReflectedResource{
-                        .name = param.name,
-                        .set = param.binding_space,
-                        .binding = param.binding + range.binding,
-                        .type = *type,
-                    });
-                }
-            }
+        for (const ReflectedDescriptorBinding &descriptor : collect_descriptor_bindings(reflection)) {
+            resources.push_back(ReflectedResource{
+                .name = descriptor.name,
+                .set = descriptor.set,
+                .binding = descriptor.binding,
+                .type = descriptor.type,
+            });
         }
         return resources;
     }

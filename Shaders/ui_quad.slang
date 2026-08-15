@@ -65,7 +65,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     float2 ndc = (pixelPos * safeRcp(viewConstants.viewportSize)) * 2.0 - 1.0;
 
     VertexOutput output;
-    output.position = float4(ndc, 0.0, 1.0);
+    output.position = sturdy_clip_position(float4(ndc, 0.0, 1.0));
     output.uv = lerp(inst.uvMin, inst.uvMax, corner);
     output.localPixelPos = localPixelPos;
     output.halfSize = inst.size * 0.5;

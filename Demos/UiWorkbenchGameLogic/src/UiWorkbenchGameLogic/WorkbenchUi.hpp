@@ -37,18 +37,22 @@ namespace SFT::UiWorkbench {
             Engine::Engine &engine,
             Core::RenderSurfaceHandle handle,
             bool primary);
+        void destroy_surface_renderers(RHI::RhiDevice &device) noexcept;
+        [[nodiscard]] Core::RendererResult recreate_surface_renderers(RHI::RhiDevice &device);
         void process_window_completions(Engine::Engine &engine);
         void route_input(Engine::Engine &engine);
         [[nodiscard]] UI::Docking::DockWorkspaceEvents build_frame(
-            Engine::Engine &engine, Surface &surface, glm::vec2 viewport, f32 delta_seconds);
+            Engine::Engine &engine,
+            Surface &surface,
+            glm::vec2 viewport,
+            f32 delta_seconds);
         void build_controls_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_text_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         void build_metrics_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
-        void handle_dock_events(Engine::Engine &engine, Surface &surface,
-                                UI::Docking::DockWorkspaceEvents events);
+        void handle_dock_events(Engine::Engine &engine, Surface &surface, UI::Docking::DockWorkspaceEvents events);
         [[nodiscard]] Renderer::UiOverlayHooks build_overlay_hooks(
             Engine::Engine &engine,
             Surface &surface,
@@ -79,8 +83,13 @@ namespace SFT::UiWorkbench {
         UI::ColorPickerValue selected_color_value_{Foundation::Color::Srgb{0.28, 0.48, 0.98, 0.86}};
         UI::ColorPickerColorSpace selected_color_space_ = UI::ColorPickerColorSpace::Srgb;
 
-        UI::DropdownState preset_dropdown_state_{};
+        UI::DropdownState preset_dropdown_state_;
         usize selected_preset_ = 0;
+        UI::DropdownState graphics_adapter_dropdown_state_;
+        UI::DropdownState graphics_api_dropdown_state_;
+        UI::ButtonState reconstruct_graphics_button_state_;
+        usize selected_graphics_adapter_index_ = 0;
+        usize selected_graphics_api_index_ = 0;
 
         // Text Lab: plain single-line, masked (password) single-line, and a multiline Markdown
         // editor whose content renders live in a preview card below it. Buffers live here (like
@@ -165,6 +174,14 @@ namespace SFT::UiWorkbench {
         // instead (Surface::controls_scroll etc.).
         UI::ScrollbarStyle scrollbar_style_{};
 
+        // The frame that applies a backend reconstruction was assembled against the old device. Drop
+        // it after the UI transaction closes; the next frame rebuilds all renderer resources first.
+        // Two frames are dropped: the frame initiating reconstruction and one already queued by the
+        // dedicated per-window render thread against the old UI renderer generation.
+        u32 frames_to_skip_after_graphics_reconstruction_ = 0;
+        // A pipeline-creation error is deterministic for the current backend. Avoid recompiling and
+        // logging it once per managed-window frame; a later reconstruction explicitly clears this.
+        bool ui_renderer_rebuild_failed_ = false;
         std::string status_message_ = "Ready — drag any tab beyond a window edge to tear it off.";
     };
 

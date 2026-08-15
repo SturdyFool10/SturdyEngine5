@@ -11,6 +11,12 @@ if(STURDY_OS STREQUAL "Web")
     set(_sturdy_core_graphics_defines)
 endif()
 
+# The D3D12 RHI and this Core wrapper both require Windows/DXGI headers. Keep the wrapper out of
+# every non-Windows Core source set just as the root CMake keeps the D3D12 package out of those builds.
+if(NOT STURDY_OS STREQUAL "Windows")
+    list(APPEND _sturdy_core_excluded_source_dirs D3D12)
+endif()
+
 # Per-OS subtrees inside Core/src/Core/Vulkan/ for the texture-streaming fast-I/O backends
 # (DirectStorage on Windows, io_uring on Linux) — first use of a nested (not whole-package)
 # EXCLUDE_SOURCE_DIRS entry in this package; matches as a path segment anywhere under the source
@@ -24,8 +30,10 @@ if(NOT STURDY_OS STREQUAL "Linux")
 endif()
 
 set(_sturdy_core_streaming_io_deps)
+set(_sturdy_core_platform_graphics_deps)
 if(STURDY_OS STREQUAL "Windows")
     list(APPEND _sturdy_core_streaming_io_deps Sturdy::DirectStorage)
+    list(APPEND _sturdy_core_platform_graphics_deps Sturdy::D3D12)
 endif()
 
 # STURDY_LICENSES_EMBED_CPP is generated at configure time by sturdy_generate_license_embeds()
@@ -52,6 +60,7 @@ sturdy_add_package(Core
         Sturdy::SDL3
         Sturdy::Slang
         ${_sturdy_core_graphics_deps}
+        ${_sturdy_core_platform_graphics_deps}
 
     PRIVATE_DEPS
         Sturdy::Tracy

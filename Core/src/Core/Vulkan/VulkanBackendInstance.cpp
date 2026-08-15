@@ -63,7 +63,9 @@ namespace SFT::Core::Vulkan {
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
         }
-        volk_initialized_ = true;
+        // Volk dispatch is process-global. It remains loaded for the process lifetime so destroying
+        // one runtime-switchable backend cannot invalidate global dispatch used by later Vulkan
+        // inventory or backend instances.
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -141,8 +143,11 @@ namespace SFT::Core::Vulkan {
         // can't be added later without replacing the whole instance" reason hdr_swapchain_colorspace
         // above is enabled unconditionally too.
         surface_capabilities2_enabled_ = add_supported_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+        // Required instance dependency of VK_KHR_swapchain_maintenance1. Device feature
+        // negotiation must not enable the device extension unless this was enabled successfully.
+        surface_maintenance1_enabled_ = add_supported_extension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined(_DEBUG)
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         requestedLayers.push_back("VK_LAYER_KHRONOS_validation");
         const auto severity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;

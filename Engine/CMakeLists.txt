@@ -1,3 +1,8 @@
+set(_sturdy_engine_inventory_deps)
+if(STURDY_OS STREQUAL "Windows")
+    list(APPEND _sturdy_engine_inventory_deps Sturdy::D3D12)
+endif()
+
 sturdy_add_package(EngineComponents
     EXCLUDE_SOURCE_DIRS
         tests
@@ -17,6 +22,7 @@ sturdy_add_package(EngineComponents
         Sturdy::miniaudio
         Sturdy::bc7enc
         Sturdy::Tracy
+        ${_sturdy_engine_inventory_deps}
 
     DEBUG_PUBLIC_DEPS
 )

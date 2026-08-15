@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -214,8 +216,11 @@ namespace SFT::Renderer {
                 .stage = slang::ShaderStage::Compute,
             });
         }
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = std::move(entry_requests),
         };
         // One ShaderCompiler shared across all three spectral shaders below (integrators, photon
@@ -291,7 +296,7 @@ namespace SFT::Renderer {
 
         for (usize index = 0; index < integrator_entry_points.size(); ++index) {
             const char *entry_point = integrator_entry_points[index];
-            auto code = resources->shader.entry_point_code(entry_point);
+            auto code = resources->shader.entry_point_code(entry_point, shader_target->slang_target.format);
             if (!code) {
                 const Core::GraphicsBackendError error = spectral_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
@@ -301,7 +306,7 @@ namespace SFT::Renderer {
                 return unexpected(error);
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = entry_point,
             });
@@ -340,7 +345,7 @@ namespace SFT::Renderer {
             });
         }
         const slang::ShaderCompileOptions photon_options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = std::move(photon_entry_requests),
         };
         slang::ShaderVariantCache photon_shader_cache{
@@ -404,7 +409,7 @@ namespace SFT::Renderer {
         resources->photon_pipeline_layout = *photon_pipeline_layout;
         for (usize index = 0; index < photon_entry_points.size(); ++index) {
             const char *entry_point = photon_entry_points[index];
-            auto code = resources->photon_shader.entry_point_code(entry_point);
+            auto code = resources->photon_shader.entry_point_code(entry_point, shader_target->slang_target.format);
             if (!code) {
                 const Core::GraphicsBackendError error = spectral_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
@@ -414,7 +419,7 @@ namespace SFT::Renderer {
                 return unexpected(error);
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = entry_point,
             });
@@ -444,7 +449,7 @@ namespace SFT::Renderer {
         }
 
         const slang::ShaderCompileOptions depth_options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = "fragmentMain", .stage = slang::ShaderStage::Fragment},
@@ -465,8 +470,8 @@ namespace SFT::Renderer {
             return unexpected(error);
         }
         resources->depth_commit_shader = *depth_shader;
-        auto depth_vertex_code = resources->depth_commit_shader.entry_point_code("vertexMain");
-        auto depth_fragment_code = resources->depth_commit_shader.entry_point_code("fragmentMain");
+        auto depth_vertex_code = resources->depth_commit_shader.entry_point_code("vertexMain", shader_target->slang_target.format);
+        auto depth_fragment_code = resources->depth_commit_shader.entry_point_code("fragmentMain", shader_target->slang_target.format);
         if (!depth_vertex_code || !depth_fragment_code) {
             destroy_spectral_path_tracing_resources_locked(*resources);
             return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -475,7 +480,7 @@ namespace SFT::Renderer {
         auto create_depth_module = [&](const Core::Slang::ShaderBytecode &code, const char *label)
             -> Core::RendererExpected<RHI::ShaderModuleHandle> {
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code.bytes.data(), code.bytes.size()},
                 .label = label,
             });

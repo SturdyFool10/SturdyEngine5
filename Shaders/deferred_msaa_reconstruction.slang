@@ -12,6 +12,8 @@
 // every geometric sample belongs to the same surface, avoiding both blur and the
 // 3x3 gather over most of the image.
 
+import sturdy_common;
+
 struct VertexOutput {
     float4 position : SV_Position;
 };
@@ -20,7 +22,7 @@ struct VertexOutput {
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
     float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    output.position = fullscreenTrianglePosition(uv);
     return output;
 }
 

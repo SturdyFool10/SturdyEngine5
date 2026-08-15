@@ -14,6 +14,8 @@
 // vertex/fragment interface matching between separately-compiled modules is by declaration order
 // (location), not by struct name.
 
+import sturdy_common;
+
 struct VertexInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
@@ -72,7 +74,7 @@ VertexOutput vertexMainInstanced(VertexInput input, uint instanceId : SV_Instanc
 
     VertexOutput output;
     float4 worldPosition = mul(float4(input.position, 1.0), model);
-    output.position = mul(worldPosition, instancedDraw.viewProjection);
+    output.position = sturdy_clip_position(mul(worldPosition, instancedDraw.viewProjection));
     output.worldNormal = normalize(mul(input.normal, (float3x3)model));
     output.uv = input.uv;
     output.color = input.color;

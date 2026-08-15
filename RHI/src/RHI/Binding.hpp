@@ -61,7 +61,13 @@ namespace SFT::RHI {
     // `count` plus `BindingFlags`). `has_dynamic_offset` marks a uniform/storage buffer whose
     // offset is supplied at bind time (see BindGroupEntry / the render-pass encoder's set_bind_group).
     struct BindGroupLayoutEntry {
+        // Public, flat bind-group key used by BindGroupEntry. It is intentionally independent from
+        // APIs such as D3D12 whose b/t/u/s register classes each have their own numeric namespace.
         u32 binding = 0;
+        // Target shader register within the BindingType's native register class. `all_remaining`
+        // preserves existing/manual layouts by resolving to `binding`; reflection-generated DXIL
+        // layouts set this explicitly while assigning a collision-free public binding above.
+        u32 shader_register = ~0u;
         BindingType type = BindingType::UniformBuffer;
         ShaderStage visibility = ShaderStage::None;
         u32 count = 1;
@@ -90,7 +96,9 @@ namespace SFT::RHI {
 
     // A concrete resource bound to one slot when filling a bind group. Exactly one of the handle
     // members is meaningful, per the layout entry's BindingType; `offset`/`size` scope a buffer
-    // binding to a sub-range (size 0 means "to the end").
+    // binding to a sub-range (size 0 means "to the end"). `structure_stride` distinguishes a
+    // StructuredBuffer<T> view from a raw ByteAddressBuffer view on APIs such as D3D12; zero means
+    // raw, while a non-zero value is the shader-visible byte stride of T.
     struct BindGroupEntry {
         u32 binding = 0;
         // Descriptor-array element to write. Zero preserves the ordinary non-array binding path.
@@ -98,6 +106,7 @@ namespace SFT::RHI {
         BufferHandle buffer{};
         u64 offset = 0;
         u64 size = 0;
+        u32 structure_stride = 0;
         TextureViewHandle texture_view{};
         SamplerHandle sampler{};
         AccelerationStructureHandle acceleration_structure{};

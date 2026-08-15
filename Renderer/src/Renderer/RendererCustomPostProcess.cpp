@@ -1,5 +1,7 @@
 #include <Foundation/src/Foundation.hpp>
 
+#include <Renderer/ShaderTarget.hpp>
+
 #include <array>
 #include <cstddef>
 #include <expected>
@@ -64,8 +66,11 @@ namespace SFT::Renderer {
             if (resource.vertex_module) device->destroy_shader_module(resource.vertex_module);
         };
 
+        const auto shader_target = shader_target_for_device(*device);
+        if (!shader_target) return unexpected(shader_target.error());
+
         const slang::ShaderCompileOptions options{
-            .targets = {slang::ShaderTarget{}},
+            .targets = shader_compile_targets_for_device(device),
             .entry_points = {
                 slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
                 slang::ShaderEntryPointRequest{.name = effect.fragment_entry_point, .stage = slang::ShaderStage::Fragment},
@@ -81,10 +86,10 @@ namespace SFT::Renderer {
         resource.shader = *shader;
 
         auto create_module = [&](string_view entry, const char *label) -> Core::RendererExpected<RHI::ShaderModuleHandle> {
-            auto code = resource.shader.entry_point_code(entry);
+            auto code = resource.shader.entry_point_code(entry, shader_target->slang_target.format);
             if (!code) return unexpected(custom_effect_error("generate custom post-process bytecode failed: " + code.error().message));
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
-                .language = RHI::ShaderLanguage::SpirV,
+                .language = shader_target->module_language,
                 .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
                 .label = label,
             });

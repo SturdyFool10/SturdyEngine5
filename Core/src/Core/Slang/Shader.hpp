@@ -81,6 +81,10 @@ namespace SFT::Core::Slang {
         //          `InvalidArgument` (index out of range), or `CodeGenerationFailed`.
         [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(usize entry_point_index, usize target_index = 0) const;
 
+        // Same as above, but finds the requested output format rather than relying on its position in
+        // ShaderCompileOptions::targets. This is the preferred overload for backend-selected targets.
+        [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(usize entry_point_index, ShaderTargetFormat target) const;
+
         // Same as above, but looks the entry point up **by name** — matching either its reflected `name`
         // or its `name_override`. Returns `EntryPointNotFound` if no entry point matches.
         //
@@ -88,6 +92,9 @@ namespace SFT::Core::Slang {
         // auto fs = shader->entry_point_code("fragmentMain");
         // ```
         [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(string_view entry_point_name, usize target_index = 0) const;
+
+        // Name-based counterpart to the target-format overload above.
+        [[nodiscard]] ShaderExpected<ShaderBytecode> entry_point_code(string_view entry_point_name, ShaderTargetFormat target) const;
 
         // Releases Slang's session/module/linked-program graph after callers have extracted every
         // bytecode blob they need. The plain C++ reflection snapshot and module metadata remain valid,

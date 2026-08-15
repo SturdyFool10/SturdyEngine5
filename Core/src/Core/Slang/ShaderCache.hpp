@@ -33,15 +33,21 @@ namespace SFT::Core::Slang {
     // to shader content specifically. See .gitignore's matching `/Shaders/.cache/` entry.
     inline constexpr string_view default_shader_cache_directory = "Shaders/.cache";
 
-    // Everything needed to reconstruct a baked (Slang-free) `Shader` from disk: the module identity,
-    // the resolved target list (so bytecode indices line up the same way Shader::entry_point_code()
-    // expects — row-major `entry_point_index * targets.size() + target_index`), the full reflection,
-    // and one ShaderBytecode per entry point x target.
-    struct ShaderCacheEntry {
-        string module_name;
-        vector<ShaderTarget> targets;
+    // One target-specific artifact for a shader variant. Reflection is kept beside its target's
+    // bytecode because Slang's lowered layout can differ by output API (notably push/root constants).
+    // `bytecode` contains one entry for each entry point, in reflection entry-point order.
+    struct ShaderCacheTargetArtifact {
+        ShaderTarget target;
         ShaderReflection reflection;
         vector<ShaderBytecode> bytecode;
+    };
+
+    // Everything persisted for one source + define variant. A single cache record accumulates target
+    // artifacts over time, so switching Vulkan <-> D3D12 can reuse both output formats without either
+    // API replacing the other's reflection snapshot or bytecode.
+    struct ShaderCacheEntry {
+        string module_name;
+        vector<ShaderCacheTargetArtifact> artifacts;
     };
 
     // Content hash over everything that can change a compiled result: the shader's full source text,
@@ -66,6 +72,15 @@ namespace SFT::Core::Slang {
     // this time," not a hard error.
     bool store_shader_cache_entry(
         const std::filesystem::path &directory, u64 key, const ShaderCacheEntry &entry);
+
+    // Fast filesystem freshness gate layered on top of the content/options key. For a file-backed
+    // shader, a cache artifact is usable only when its last-write timestamp is at least as new as the
+    // shader source's. Any unavailable timestamp is conservatively a miss; callers with embedded or
+    // in-memory sources should skip this gate and rely on compute_shader_cache_key() instead.
+    [[nodiscard]] bool shader_cache_entry_is_fresh(
+        const std::filesystem::path &directory,
+        u64 key,
+        const std::filesystem::path &shader_source_path) noexcept;
 
     // Reflection-only counterpart of the pair above, for Core::Slang::discover_shaders() (which only
     // ever reflects, never compiles to bytecode — see ShaderDiscovery.cpp). Uses a distinct file suffix

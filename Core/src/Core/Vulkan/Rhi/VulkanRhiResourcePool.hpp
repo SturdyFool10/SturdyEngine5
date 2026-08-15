@@ -52,6 +52,19 @@ namespace SFT::Core::Vulkan {
             storage->erase(handle.value);
         }
 
+        // Applies `destroy` to every remaining object while exclusively owning the pool, then clears
+        // all handle mappings. Intended for device teardown after the caller has made the device idle;
+        // ordinary lifetime management should continue using the typed destroy_* RHI entry points.
+        template <typename Destroy>
+        void drain(Destroy &&destroy) noexcept {
+            auto storage = storage_.lock();
+            for (auto &[id, object] : *storage) {
+                (void)id;
+                destroy(object);
+            }
+            storage->clear();
+        }
+
       private:
         std::atomic<u64> next_id_ = 1;
         mutable Async::Mutex<std::unordered_map<u64, Stored>> storage_;

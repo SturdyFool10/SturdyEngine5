@@ -17,6 +17,16 @@ namespace {
         return source.source;
     }
 
+    [[nodiscard]] bool disk_cache_is_fresh_for_source(
+        const ShaderSource &source,
+        const std::filesystem::path &cache_directory,
+        u64 cache_key) noexcept {
+        // In-memory and embedded sources have no meaningful filesystem timestamp. Their content is
+        // already part of the cache key, so keep the existing hash-only validation for those cases.
+        return source.kind != ShaderSourceKind::File ||
+               shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
+    }
+
 } // namespace
 
 ShaderVariantKey::ShaderVariantKey(std::initializer_list<ShaderMacro> defines) {
@@ -129,13 +139,63 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                 ? compute_shader_cache_key(source_.module_name, source_text, canonical, options)
                 : 0;
 
-            if (enable_disk_cache_) {
+            const auto same_target = [](const ShaderTarget &lhs, const ShaderTarget &rhs) {
+                return lhs.format == rhs.format && lhs.profile == rhs.profile;
+            };
+            if (enable_disk_cache_ && disk_cache_is_fresh_for_source(source_, disk_cache_directory_, disk_cache_key)) {
                 if (auto entry = load_shader_cache_entry(disk_cache_directory_, disk_cache_key)) {
-                    Shader baked = compiler_.from_cached_bytecode(
-                        std::move(entry->module_name), std::move(entry->targets),
-                        std::move(entry->reflection), std::move(entry->bytecode));
-                    const auto [inserted, _] = variants_.emplace(canonical, std::move(baked));
-                    return inserted->second;
+                    vector<const ShaderCacheTargetArtifact *> requested_artifacts;
+                    requested_artifacts.reserve(options.targets.size());
+                    for (const ShaderTarget &target : options.targets) {
+                        const auto found = std::ranges::find_if(
+                            entry->artifacts,
+                            [&target, &same_target](const ShaderCacheTargetArtifact &artifact) {
+                                return same_target(artifact.target, target);
+                            });
+                        if (found == entry->artifacts.end()) {
+                            requested_artifacts.clear();
+                            break;
+                        }
+                        requested_artifacts.push_back(&*found);
+                    }
+
+                    if (!requested_artifacts.empty()) {
+                        const usize entry_point_count = requested_artifacts.front()->reflection.entry_points.size();
+                        bool complete = entry_point_count != 0;
+                        for (const ShaderCacheTargetArtifact *artifact : requested_artifacts) {
+                            complete &= artifact->reflection.entry_points.size() == entry_point_count &&
+                                        artifact->bytecode.size() == entry_point_count;
+                        }
+                        if (complete) {
+                            vector<ShaderBytecode> bytecode;
+                            bytecode.reserve(entry_point_count * requested_artifacts.size());
+                            // Shader::entry_point_code() indexes row-major by entry point then target.
+                            for (usize entry_point_index = 0; entry_point_index < entry_point_count; ++entry_point_index) {
+                                for (const ShaderCacheTargetArtifact *artifact : requested_artifacts) {
+                                    bytecode.push_back(artifact->bytecode[entry_point_index]);
+                                }
+                            }
+                            // Multi-target D3D12 requests put SPIR-V first solely to retain portable
+                            // push-constant semantics, but descriptor registers must come from DXIL's
+                            // class-local b/t/u/s layout. The DXIL artifact stores that composite
+                            // reflection; selecting the first (SPIR-V) artifact would map s0 as the
+                            // SPIR-V descriptor binding and produce an incompatible root signature.
+                            const ShaderCacheTargetArtifact *reflection_artifact = requested_artifacts.front();
+                            if (const auto dxil = std::ranges::find_if(
+                                    requested_artifacts,
+                                    [](const ShaderCacheTargetArtifact *artifact) {
+                                        return artifact->target.format == ShaderTargetFormat::Dxil;
+                                    });
+                                dxil != requested_artifacts.end()) {
+                                reflection_artifact = *dxil;
+                            }
+                            Shader baked = compiler_.from_cached_bytecode(
+                                entry->module_name, options.targets,
+                                reflection_artifact->reflection, std::move(bytecode));
+                            const auto [inserted, _] = variants_.emplace(canonical, std::move(baked));
+                            return inserted->second;
+                        }
+                    }
                 }
             }
 
@@ -145,30 +205,46 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
             }
 
             if (enable_disk_cache_) {
-                // Best-effort: eagerly extract every entry point x target's bytecode once (the shader
-                // just compiled, so this is cheap relative to the compile itself) and persist it
-                // alongside the reflection. A write failure here never fails the compile — the caller
-                // still gets a perfectly good live Shader, it just won't be cached this run.
-                ShaderCacheEntry entry{};
+                // Keep one independently selectable artifact per requested output target. A later
+                // backend switch merges its DXIL/SPIR-V artifact into this same source/variant record
+                // rather than evicting an already-cached API's reflection or bytecode.
+                ShaderCacheEntry entry =
+                    disk_cache_is_fresh_for_source(source_, disk_cache_directory_, disk_cache_key)
+                        ? load_shader_cache_entry(disk_cache_directory_, disk_cache_key).value_or(ShaderCacheEntry{})
+                        : ShaderCacheEntry{};
                 entry.module_name = string{compiled->module_name()};
-                entry.targets.reserve(options.targets.size());
-                for (const ShaderTarget &target : options.targets) {
-                    entry.targets.push_back(target);
-                }
-                entry.reflection = compiled->reflection();
-                entry.bytecode.reserve(entry.reflection.entry_points.size() * entry.targets.size());
+                const ShaderReflection &reflection = compiled->reflection();
                 bool all_ok = true;
-                for (usize entry_point_index = 0; entry_point_index < entry.reflection.entry_points.size(); ++entry_point_index) {
-                    for (usize target_index = 0; target_index < entry.targets.size(); ++target_index) {
+                for (usize target_index = 0; target_index < options.targets.size(); ++target_index) {
+                    ShaderCacheTargetArtifact artifact{
+                        .target = options.targets[target_index],
+                        .reflection = reflection,
+                        .bytecode = {},
+                    };
+                    artifact.bytecode.reserve(reflection.entry_points.size());
+                    for (usize entry_point_index = 0; entry_point_index < reflection.entry_points.size(); ++entry_point_index) {
                         ShaderExpected<ShaderBytecode> bytecode = compiled->entry_point_code(entry_point_index, target_index);
                         if (!bytecode) {
                             all_ok = false;
                             break;
                         }
-                        entry.bytecode.push_back(std::move(*bytecode));
+                        artifact.bytecode.push_back(std::move(*bytecode));
                     }
                     if (!all_ok) {
                         break;
+                    }
+                    const auto existing = std::ranges::find_if(
+                        entry.artifacts,
+                        [&artifact, &same_target](const ShaderCacheTargetArtifact &candidate) {
+                            return same_target(candidate.target, artifact.target);
+                        });
+                    if (existing == entry.artifacts.end()) {
+                        entry.artifacts.push_back(std::move(artifact));
+                    } else if (options.targets.size() == 1) {
+                        // A single-target compile owns target-native reflection. Multi-target DX12
+                        // compilation currently exposes one composite reflection; never let it replace
+                        // a native SPIR-V artifact populated by an earlier Vulkan compile.
+                        *existing = std::move(artifact);
                     }
                 }
                 if (all_ok) {

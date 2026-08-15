@@ -107,10 +107,7 @@ namespace SFT::Core::Vulkan {
             vkDestroyInstance(vulkan_instance, nullptr);
             vulkan_instance = VK_NULL_HANDLE;
         }
-        if (volk_initialized_) {
-            volkFinalize();
-            volk_initialized_ = false;
-        }
+
     }
 
     VulkanBackend::~VulkanBackend() {
@@ -170,6 +167,11 @@ namespace SFT::Core::Vulkan {
 
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initialize(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::initialize");
+        if (initialized_) {
+            return graphics_backend_error(
+                GraphicsBackendErrorCode::OperationFailed,
+                "Vulkan backend is already initialized.");
+        }
         create_info_ = init;
 
         if (!init.window) [[unlikely]] {

@@ -34,7 +34,7 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     // the whole [-1,1] clip rect with the screen inside its first quadrant. Vulkan NDC Y and texture V
     // both point down, so map uv straight to clip space (uv*2-1) — negating Y here would flip the image.
     output.uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = float4(output.uv * 2.0 - 1.0, 0.0, 1.0);
+    output.position = fullscreenTrianglePosition(output.uv);
     return output;
 }
 
