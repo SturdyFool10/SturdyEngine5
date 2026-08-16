@@ -160,6 +160,44 @@ namespace SFT::Platform::Windowing::SDL3 {
             return flags;
         }
 
+#if defined(_WIN32)
+        // Whether `config` will end up on the DirectComposition path at all. Both graphics backends
+        // try DirectComposition for every swapchain generation they create on this window — not only
+        // when config.transparent is set — so this has to match that same condition (see
+        // VulkanRhiBridgeSwapchain.cpp's create_swapchain() and D3D12DeviceSwapchain.cpp's
+        // wants_transparency branch, both of which attempt CreateSwapChainForComposition
+        // unconditionally for Vulkan/Direct3D windows).
+        [[nodiscard]] bool wants_composition_window_style(const WindowConfig &config) noexcept {
+            return config.graphics_api == WindowGraphicsApi::Vulkan ||
+                   config.graphics_api == WindowGraphicsApi::Direct3D;
+        }
+
+        // DirectComposition's CreateTargetForHwnd composites its visual tree *over* the window's own
+        // DWM redirection surface, not instead of it — and that surface is opaque. Without
+        // WS_EX_NOREDIRECTIONBITMAP, a fully transparent (alpha=0) pixel in the composition visual
+        // still shows the opaque redirection surface underneath rather than the desktop, which is
+        // exactly "transparency doesn't change when the compositor alpha mode is toggled": the
+        // compositor alpha mode was never the missing piece, the redirection surface always was.
+        //
+        // This style can only take effect if it is set *before* DWM ever allocates that surface for
+        // the window, which happens the first time the window is mapped/shown — not at
+        // CreateWindowEx time. SDL3 has no public API to request WS_EX_NOREDIRECTIONBITMAP at window
+        // creation, so create() forces the window hidden, calls this immediately after
+        // SDL_CreateWindow returns, and only then shows it if the caller asked for a visible window.
+        void apply_composition_window_style(SDL_Window *window) noexcept {
+            const SDL_PropertiesID properties = SDL_GetWindowProperties(window);
+            void *hwnd_ptr = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+            if (hwnd_ptr == nullptr) [[unlikely]] {
+                Foundation::log_error("SDL3 window missing its HWND while applying the DirectComposition window style.");
+                return;
+            }
+
+            HWND hwnd = static_cast<HWND>(hwnd_ptr);
+            const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOREDIRECTIONBITMAP);
+        }
+#endif
+
         [[nodiscard]] SDL_SystemCursor to_sdl_system_cursor(CursorIcon icon) noexcept {
             switch (icon) {
                 case CursorIcon::Default: return SDL_SYSTEM_CURSOR_DEFAULT;
@@ -557,7 +595,18 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(error);
         }
 
-        const SDL_WindowFlags flags = window_flags(config);
+        SDL_WindowFlags flags = window_flags(config);
+#if defined(_WIN32)
+        // See apply_composition_window_style()'s own doc comment for why this style has to be set
+        // before the window is ever shown, and why that forces window creation itself hidden here
+        // whenever the caller actually asked for a visible window.
+        const bool needs_composition_style = wants_composition_window_style(config);
+        const bool force_hidden_for_composition_style =
+            needs_composition_style && config.visible && !(flags & SDL_WINDOW_HIDDEN);
+        if (force_hidden_for_composition_style) {
+            flags |= SDL_WINDOW_HIDDEN;
+        }
+#endif
         SDL_Window *window = SDL_CreateWindow(
             config.title,
             static_cast<i32>(config.extent.x),
@@ -575,6 +624,16 @@ namespace SFT::Platform::Windowing::SDL3 {
                 error.message);
             return unexpected(error);
         }
+#if defined(_WIN32)
+        if (needs_composition_style) {
+            apply_composition_window_style(window);
+        }
+        if (force_hidden_for_composition_style) {
+            if (!SDL_ShowWindow(window)) [[unlikely]] {
+                Foundation::log_error("SDL3 failed to show window after applying the DirectComposition window style: {}", SDL_GetError());
+            }
+        }
+#endif
         if (!config.use_default_position) [[unlikely]] {
             if (!SDL_SetWindowPosition(window, config.position.x, config.position.y)) [[unlikely]] {
                 const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 window positioning failed.");

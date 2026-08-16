@@ -22,12 +22,10 @@ namespace SFT::Core::Slang {
 
         // Bumped whenever the on-disk layout below changes — a mismatch is just treated as a miss
         // (see load_shader_cache_entry()), so old entries are silently ignored rather than crashing.
-        // Version 12 moves the Vulkan-style clip-space convention into the shader ABI: entry points
-        // route SV_Position through sturdy_clip_position(), whose sign comes from the
-        // STURDY_CLIP_Y_SIGN define this compiler injects per target (see ShaderImpl.cpp). Versions
-        // 10-11 asked Slang to bake a Y flip into DXIL, which silently did nothing — that pass only
-        // rewrites gl_Position — so cached artifacts from them have no flip at all.
-        constexpr u32 shader_cache_format_version = 12;
+        // Reset to 2 after purging every on-disk cache directory in the repo: this engine has one
+        // user, so there is no fleet of stale caches to stay compatible with — just bump this past
+        // whatever was last shipped whenever the on-disk layout changes.
+        constexpr u32 shader_cache_format_version = 2;
         constexpr u32 shader_cache_magic = 0x53484341u; // "SHCA"
 
         // Separate magic/version/file-suffix from the compiled-bytecode cache above -- see
