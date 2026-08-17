@@ -364,6 +364,12 @@ namespace SFT::D3D12 {
             }
         }
 
+        D3D12_FEATURE_DATA_SHADER_CACHE shader_cache{};
+        if (check_feature(device, D3D12_FEATURE_SHADER_CACHE, shader_cache)) {
+            caps.pipeline_library_supported =
+                (shader_cache.SupportFlags & D3D12_SHADER_CACHE_SUPPORT_LIBRARY) != 0;
+        }
+
         const D3D_SHADER_MODEL shader_model = highest_shader_model(device);
         if (shader_model >= D3D_SHADER_MODEL_6_2) {
             features.set(rhi::Feature::ShaderFloat16);
@@ -512,6 +518,7 @@ namespace SFT::D3D12 {
         info.enhanced_barriers = capabilities_.enhanced_barriers;
         info.debug_layer_enabled = debug_layer_enabled_;
         info.allow_tearing = capabilities_.allow_tearing;
+        info.pipeline_library_supported = capabilities_.pipeline_library_supported;
 
         auto device = std::make_unique<D3D12Device>(std::move(info));
         if (auto initialized = device->initialize(); !initialized) {

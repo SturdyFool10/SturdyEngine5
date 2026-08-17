@@ -127,6 +127,12 @@ namespace SFT::D3D12 {
         // Size of the merged root-constant block in 32-bit values (see this header's push-constant
         // note). Bounds-checks set_push_constants without a second lookup of the original ranges.
         u32 push_constant_values = 0;
+        // FNV-1a over the serialized root-signature blob (D3D12DeviceBinding.cpp, right after
+        // D3DX12SerializeVersionedRootSignature succeeds). Stands in for the root signature when
+        // D3D12DevicePipelines.cpp derives a PSO's ID3D12PipelineLibrary cache name: the
+        // ComPtr<ID3D12RootSignature> pointer itself is a process-local address and would give the
+        // same logical pipeline a different name every run, defeating the whole point of a disk cache.
+        u64 root_signature_content_hash = 0;
     };
 
     struct BindGroupRecord {
@@ -355,6 +361,10 @@ namespace SFT::D3D12 {
         bool enhanced_barriers = false;
         bool debug_layer_enabled = false;
         bool allow_tearing = false;
+        // D3D12_SHADER_CACHE_SUPPORT_LIBRARY, probed via D3D12_FEATURE_SHADER_CACHE
+        // (D3D12Adapter.cpp::probe_capabilities). Gates whether initialize() attempts to stand up the
+        // ID3D12PipelineLibrary-backed PSO disk cache at all.
+        bool pipeline_library_supported = false;
     };
 
     class D3D12Device final : public rhi::RhiDevice {
@@ -527,6 +537,14 @@ namespace SFT::D3D12 {
         ComPtr<ID3D12Device8> device8_;   // CreateCommittedResource2 / enhanced-barrier-era creation
         ComPtr<ID3D12Device10> device10_; // CreateCommittedResource3 (initial *layout* rather than state)
 
+        // The PSO disk cache (see D3D12DevicePipelines.cpp's cache-name derivation). Populated by
+        // initialize() from `.cache/d3d12_pipeline_library.bin` when the runtime reports
+        // D3D12_SHADER_CACHE_SUPPORT_LIBRARY, and serialized back to that file in the destructor. Null
+        // whenever the feature isn't supported or even an empty library failed to create — every
+        // create_render_pipeline()/create_compute_pipeline() call site checks before using it, exactly
+        // like device5_/device8_/device10_ above.
+        Async::Mutex<ComPtr<ID3D12PipelineLibrary1>> pipeline_library_;
+
         ComPtr<ID3D12CommandQueue> graphics_queue_;
         // Null when the device exposes no dedicated engine for that class; queue_for_lane() then
         // aliases the class onto the graphics queue, which is what QueueInfo already reported.
@@ -565,6 +583,11 @@ namespace SFT::D3D12 {
         bool enhanced_barriers_ = false;
         bool debug_layer_enabled_ = false;
         bool allow_tearing_ = false;
+        // Whether pipeline_library_ is actually usable. Starts as the capability probe's answer, but
+        // initialize() also clears it if standing up even an empty ID3D12PipelineLibrary fails, so
+        // every other call site can trust this single flag rather than separately null-checking the
+        // ComPtr under the mutex.
+        bool pipeline_library_supported_ = false;
 
         // ── Resource pools ──
         D3D12ResourcePool<rhi::BufferHandle, BufferRecord> buffers_;
