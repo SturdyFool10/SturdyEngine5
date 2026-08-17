@@ -98,7 +98,7 @@ namespace SFT::D3D12 {
         [[nodiscard]] u64 mix_shader_module(u64 hash, const ShaderModuleRecord *module) noexcept {
             const D3D12_SHADER_BYTECODE bytecode = to_bytecode(module);
             hash = fnv1a(hash, bytecode.BytecodeLength);
-            return fnv1a_bytes(hash, bytecode.pBytecode, bytecode.BytecodeLength);
+            return fnv1a_bytes(hash, bytecode.pShaderBytecode, bytecode.BytecodeLength);
         }
 
         // `prefix` distinguishes the graphics and compute PSO namespaces so a hash collision between
@@ -414,8 +414,8 @@ namespace SFT::D3D12 {
             auto library = pipeline_library_.lock();
             if (*library != nullptr) {
                 ComPtr<ID3D12PipelineState> cached;
-                if (SUCCEEDED((*library)->LoadComputePipelineState(cache_name.c_str(), &pipeline_desc,
-                                                                    IID_PPV_ARGS(&cached)))) {
+                if (SUCCEEDED((*library)->LoadComputePipeline(cache_name.c_str(), &pipeline_desc,
+                                                                IID_PPV_ARGS(&cached)))) {
                     record.pipeline = std::move(cached);
                 }
             }

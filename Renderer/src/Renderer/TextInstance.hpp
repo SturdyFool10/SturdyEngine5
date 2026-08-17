@@ -236,10 +236,12 @@ namespace SFT::Renderer {
         // Issues one instanced draw per batch against `pass`, setting each batch's own scissor
         // first — a caller does not need to (and should not) call pass.set_scissor() itself around
         // draw(), mirroring UiQuadPipeline::draw()'s identical contract. `viewport_size` is the
-        // render target's pixel dimensions.
+        // render target's pixel dimensions. No backend parameter: the four call sites (debug text
+        // overlay, UiRenderer, TextCanvas, TextRenderTarget) shouldn't each have to know the active
+        // backend just to draw text, so it's stashed from create() instead (same pattern as
+        // UiRenderer::backend_type_).
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass,
-                                                span<const TextDrawBatch> batches, glm::vec2 viewport_size,
-                                                RHI::BackendType backend);
+                                                span<const TextDrawBatch> batches, glm::vec2 viewport_size);
 
         void destroy(RHI::RhiDevice &device) noexcept;
 
@@ -260,6 +262,10 @@ namespace SFT::Renderer {
         ResourceBinding instances_binding_{};
         ResourceBinding texture_binding_{};
         ResourceBinding sampler_binding_{};
+        // Stashed from create() — draw() needs it to bake the correct clip-space Y sign into its
+        // per-view constants (RHI::gpu_clip_y_sign), but takes no backend parameter of its own (see
+        // draw()'s doc comment).
+        RHI::BackendType backend_type_ = RHI::BackendType::Vulkan;
     };
 
 } // namespace SFT::Renderer

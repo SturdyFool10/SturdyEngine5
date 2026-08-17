@@ -2942,7 +2942,6 @@ namespace SFT::Renderer {
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
-                              backend = device->backend_type(),
                               &submission](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -2955,7 +2954,11 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
-                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index, backend);
+                    // Renderer::UiOverlayDrawFn's signature is fixed (external registrants like
+                    // Engine's EcsUi.hpp implement it too), so the backend-dependent clip-space sign
+                    // isn't threaded through here — UiRenderer::draw() (the usual implementer) stashes
+                    // it from create() instead, same as draw_text_overlay() above.
+                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
                 });
         }
 

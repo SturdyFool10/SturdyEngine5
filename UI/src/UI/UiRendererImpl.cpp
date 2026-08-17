@@ -30,6 +30,7 @@ namespace SFT::UI {
         custom_element_pipeline_ = std::move(other.custom_element_pipeline_);
         surface_frame_resources_ = std::move(other.surface_frame_resources_);
         color_format_ = other.color_format_;
+        backend_type_ = other.backend_type_;
         generation_.store(other.generation_.load(std::memory_order_acquire), std::memory_order_release);
         enable_shader_disk_cache_ = other.enable_shader_disk_cache_;
         white_texture_ = other.white_texture_;
@@ -56,6 +57,7 @@ namespace SFT::UI {
         renderer.quad_pipeline_ = std::move(*quad_pipeline);
         renderer.color_format_ = color_format;
         renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
+        renderer.backend_type_ = device.backend_type();
 
         renderer.generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),
                                    std::memory_order_release);
@@ -286,8 +288,7 @@ namespace SFT::UI {
     }
 
     Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
-                                          Core::RenderSurfaceHandle surface, u32 frame_resource_index,
-                                          RHI::BackendType backend) {
+                                          Core::RenderSurfaceHandle surface, u32 frame_resource_index) {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
         auto surface_resources = std::ranges::find(
@@ -324,7 +325,7 @@ namespace SFT::UI {
             while (quad_cursor < frame_resources.quad_batches.size() &&
                    frame_resources.quad_batches[quad_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = quad_pipeline_.draw(
-                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size, backend);
+                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size, backend_type_);
                     !drawn) {
                     return drawn;
                 }
@@ -333,7 +334,7 @@ namespace SFT::UI {
             while (text_cursor < frame_resources.text_batches.size() &&
                    frame_resources.text_batches[text_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = text_pipeline_.draw(
-                        pass, span<const Renderer::TextDrawBatch>{&frame_resources.text_batches[text_cursor], 1}, viewport_size, backend);
+                        pass, span<const Renderer::TextDrawBatch>{&frame_resources.text_batches[text_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
@@ -342,7 +343,7 @@ namespace SFT::UI {
             while (custom_cursor < frame_resources.custom_draws.size() &&
                    frame_resources.custom_group_ids[custom_cursor] == next_group) {
                 if (Core::RendererResult drawn = custom_element_pipeline_.draw(
-                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size, backend);
+                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size, backend_type_);
                     !drawn) {
                     return drawn;
                 }

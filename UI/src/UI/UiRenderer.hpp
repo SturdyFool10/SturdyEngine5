@@ -72,10 +72,12 @@ namespace SFT::UI {
 
         // Issues the batches prepare() built, interleaved by paint order (see class doc comment).
         // Each pipeline sets its own scissor per batch; the caller should not rely on scissor (or
-        // bound-pipeline) state surviving this call.
+        // bound-pipeline) state surviving this call. Takes no backend parameter of its own — the
+        // signature is fixed by Renderer::UiOverlayDrawFn, which external registrants (Engine's
+        // EcsUi.hpp, WorkbenchUi.cpp) also implement, so the active backend is stashed from create()
+        // instead of threaded through every call.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
-                                                 Core::RenderSurfaceHandle surface, u32 frame_resource_index,
-                                                 RHI::BackendType backend);
+                                                 Core::RenderSurfaceHandle surface, u32 frame_resource_index);
 
         void destroy(RHI::RhiDevice &device) noexcept;
         [[nodiscard]] bool ready() const noexcept { return ready_; }
@@ -113,6 +115,10 @@ namespace SFT::UI {
         // Stashed from create() — UiCustomElementPipeline's shader cache is keyed by color_format,
         // and needs it again at both prepare() and draw() time, neither of which otherwise takes it.
         RHI::Format color_format_{};
+        // Stashed from create() — draw() needs it to bake the correct clip-space Y sign into its
+        // per-view constants (RHI::gpu_clip_y_sign), but can't take it as a parameter since its
+        // signature is fixed by Renderer::UiOverlayDrawFn.
+        RHI::BackendType backend_type_ = RHI::BackendType::Vulkan;
         std::atomic<u64> generation_{0};
         // Stashed from create() — custom_element_pipeline_.prepare() needs it every frame (a custom
         // element's shader is only compiled lazily, on the first frame it's actually drawn).

@@ -422,18 +422,12 @@ namespace SFT::Renderer {
             return {};
         }
 
-        RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Cannot draw the debug text overlay without an RHI device.");
-        }
-
         auto guard = text_overlay_.lock();
         if (!guard->ready) {
             return {};
         }
 
-        return guard->pipeline.draw(pass, batches, viewport_size_px, device->backend_type());
+        return guard->pipeline.draw(pass, batches, viewport_size_px);
     }
 
     void Renderer::destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept {

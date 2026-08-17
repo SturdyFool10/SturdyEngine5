@@ -268,6 +268,7 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(rhi_pipeline.error(), "create text pipeline"));
         }
         pipeline.pipeline_ = *rhi_pipeline;
+        pipeline.backend_type_ = device.backend_type();
 
         return pipeline;
     }
@@ -430,8 +431,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextPipeline::draw(RHI::RenderPassEncoder &pass,
-                                            span<const TextDrawBatch> batches, glm::vec2 viewport_size,
-                                            RHI::BackendType backend) {
+                                            span<const TextDrawBatch> batches, glm::vec2 viewport_size) {
         ZoneScopedN("TextPipeline::draw");
         if (batches.empty()) {
             return {};
@@ -459,7 +459,7 @@ namespace SFT::Renderer {
             const TextViewConstantsGpu constants{
                 .viewport_size = viewport_size,
                 .instance_index_base = batch.first_instance,
-                .clip_y_sign = RHI::gpu_clip_y_sign(backend),
+                .clip_y_sign = RHI::gpu_clip_y_sign(backend_type_),
             };
             pass.set_push_constants(
                 RHI::ShaderStage::Vertex, 0,
