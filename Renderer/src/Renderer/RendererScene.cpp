@@ -84,9 +84,19 @@ namespace SFT::Renderer {
             resources.object_buffer = *buffer;
         }
 
+        // submission.view_projection already carries the D3D12 clip-space Y flip (baked in once, at
+        // Renderer::render_frame's single choke point — see its own comment), so it's used as-is
+        // here rather than flipped again. `projection` alone has NOT been flipped yet (it's read
+        // straight off Camera, which stays canonical-Vulkan on every backend by design), so it needs
+        // its own RHI::gpu_clip_flip call — row-negating projection first and multiplying by the
+        // (unflipped) view afterward is mathematically identical to flipping the combined product,
+        // since row negation of a matrix product distributes onto its left factor. `view` itself is
+        // never flipped: the Y reconciliation is a clip-space-only concept, and previous_view_
+        // projection is intentionally left untouched (shadow/path-tracing follow-up territory).
+        const glm::mat4 flipped_projection = RHI::gpu_clip_flip(submission.camera.projection, device->backend_type());
         const SceneViewGpuData view_data{
             .view = submission.camera.view,
-            .projection = submission.camera.projection,
+            .projection = flipped_projection,
             .view_projection = submission.view_projection,
             .previous_view_projection = submission.camera.previous_view_projection,
             .camera_world_position_near = glm::vec4{submission.camera.world_position, submission.camera.near_plane},

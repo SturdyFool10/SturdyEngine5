@@ -238,7 +238,8 @@ namespace SFT::Renderer {
         // draw(), mirroring UiQuadPipeline::draw()'s identical contract. `viewport_size` is the
         // render target's pixel dimensions.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass,
-                                                span<const TextDrawBatch> batches, glm::vec2 viewport_size);
+                                                span<const TextDrawBatch> batches, glm::vec2 viewport_size,
+                                                RHI::BackendType backend);
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

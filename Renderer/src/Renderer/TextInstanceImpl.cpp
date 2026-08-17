@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <expected>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <iterator>
 #include <limits>
 #include <span>
@@ -88,6 +89,12 @@ namespace SFT::Renderer {
             // is base-adjusted; the disagreement was masked while every run used one atlas image.
             u32 instance_index_base = 0;
             u32 padding = 0;
+            // +1 on Vulkan, -1 on D3D12/Metal/WebGpu — the clip-space Y reconciliation this shader
+            // now applies itself via a plain multiply (see Shaders/sturdy_common.slang's
+            // uiQuadClipPosition doc comment and RHI::gpu_clip_y_sign) instead of the legacy
+            // STURDY_CLIP_Y_SIGN macro/sturdy_clip_position() wrapper.
+            f32 clip_y_sign = 1.0f;
+            glm::vec3 _pad1{0.0f};
         };
 
     } // namespace
@@ -423,7 +430,8 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult TextPipeline::draw(RHI::RenderPassEncoder &pass,
-                                            span<const TextDrawBatch> batches, glm::vec2 viewport_size) {
+                                            span<const TextDrawBatch> batches, glm::vec2 viewport_size,
+                                            RHI::BackendType backend) {
         ZoneScopedN("TextPipeline::draw");
         if (batches.empty()) {
             return {};
@@ -451,6 +459,7 @@ namespace SFT::Renderer {
             const TextViewConstantsGpu constants{
                 .viewport_size = viewport_size,
                 .instance_index_base = batch.first_instance,
+                .clip_y_sign = RHI::gpu_clip_y_sign(backend),
             };
             pass.set_push_constants(
                 RHI::ShaderStage::Vertex, 0,

@@ -137,7 +137,10 @@ Sampler2D emissive_texture;
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
     float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
-    output.position = sturdy_clip_position(mul(world_position, scene_draw.view_projection));
+    // scene_draw.view_projection already has the D3D12 clip-space Y flip baked in on the C++ side
+    // (RHI::gpu_clip_flip, Renderer::render_frame) — a plain mul(), no sturdy_clip_position() wrapper
+    // needed for this main-path shader.
+    output.position = mul(world_position, scene_draw.view_projection);
     output.worldNormal = normalize(mul(input.normal, (float3x3)scene_draw.model));
     output.uv = input.uv;
     output.color = input.color;

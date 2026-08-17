@@ -1,6 +1,12 @@
 // Vertex-buffer-fed RHI shader: position/color come from the renderer's bound RHI vertex buffer.
 // Locations are pinned explicitly to match the RHI vertex input layout (position at 0, color at 1)
 // rather than relying on compiler default attribute ordering.
+//
+// Not wired to any C++ pipeline today (only referenced from doc-comment examples in
+// Core/Slang/ShaderSource.hpp etc.) — a minimal standalone example, not part of the main render
+// path. Left on the legacy sturdy_clip_position()/STURDY_CLIP_Y_SIGN mechanism (still fully
+// functional — see that macro's own doc comment) rather than migrated to a C++-supplied matrix/sign,
+// since there is no real pipeline/push-constant setup here to source one from.
 import sturdy_common;
 
 struct VertexInput {

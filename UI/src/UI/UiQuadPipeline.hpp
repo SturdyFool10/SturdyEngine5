@@ -93,7 +93,7 @@ namespace SFT::UI {
         // Sets each batch's scissor rect before drawing it — a caller does not need to (and should
         // not) call pass.set_scissor() itself around draw().
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,
-                                                 glm::vec2 viewport_size);
+                                                 glm::vec2 viewport_size, RHI::BackendType backend);
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

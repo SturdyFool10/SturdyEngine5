@@ -275,7 +275,16 @@ namespace SFT::Renderer {
             submission.render_graph.spectral_path_tracing.mode = SpectralRenderMode::RasterDeferred;
         }
         submission.offscreen_target = desc.offscreen_target;
+        // Clip-space ABI: bake the D3D12 NDC-Y reconciliation into the combined matrix here, once,
+        // rather than relying on every vertex shader to route SV_Position through
+        // sturdy_clip_position() (see RHI::gpu_clip_flip's own doc comment). Every downstream
+        // consumer of submission.view_projection (SceneDrawConstants push constants, instanced/
+        // object-history batches, prepare_scene_gpu_data's SceneViewGpuData::view_projection) reads
+        // this already-flipped value, so none of them need their own flip.
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
+        if (RHI::RhiDevice *device = rhi_device(); device != nullptr) {
+            submission.view_projection = RHI::gpu_clip_flip(submission.view_projection, device->backend_type());
+        }
         submission.debug_label = desc.view.debug_label;
 
         {
@@ -2912,6 +2921,9 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
+                    // draw_text_overlay re-derives the RHI device itself (it already needs to for
+                    // pipeline access), so it can compute the clip-space backend flip on its own
+                    // rather than threading it through this capture list too.
                     return draw_text_overlay(pass, text_overlay_batches, viewport_size);
                 });
         }
@@ -2930,6 +2942,7 @@ namespace SFT::Renderer {
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
+                              backend = device->backend_type(),
                               &submission](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -2942,7 +2955,7 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
-                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
+                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index, backend);
                 });
         }
 
