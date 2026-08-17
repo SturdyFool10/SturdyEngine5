@@ -433,6 +433,17 @@ namespace SFT::D3D12 {
             record.samplers = *range;
         }
 
+        // Individual SampledTexture/StorageTexture/Sampler bindings each source a single descriptor
+        // from an independently-allocated view, so their source ranges aren't contiguous with one
+        // another and can't collapse into one CopyDescriptorsSimple call. ID3D12Device::CopyDescriptors
+        // (plural) still batches them into a single driver call: it takes an array of dest/src range
+        // starts with implicit size-one ranges (nullptr size arrays), so every 1-descriptor copy this
+        // loop would otherwise issue individually is queued here and flushed once after the loop.
+        vector<D3D12_CPU_DESCRIPTOR_HANDLE> resource_copy_dests;
+        vector<D3D12_CPU_DESCRIPTOR_HANDLE> resource_copy_srcs;
+        vector<D3D12_CPU_DESCRIPTOR_HANDLE> sampler_copy_dests;
+        vector<D3D12_CPU_DESCRIPTOR_HANDLE> sampler_copy_srcs;
+
         for (const rhi::BindGroupEntry &entry : desc.entries) {
             const auto dynamic_it = std::ranges::find_if(
                 layout->dynamic_slots, [&](const DynamicSlot &slot) { return slot.binding == entry.binding; });
@@ -558,9 +569,8 @@ namespace SFT::D3D12 {
                                 "create_bind_group: sampled binding names a texture view with no shader-resource "
                                 "view (was the texture created with TextureUsage::Sampled?).");
                         }
-                        device_->CopyDescriptorsSimple(1, destination,
-                                                       cpu_resource_descriptors_.cpu_handle(view->srv, 0),
-                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                        resource_copy_dests.push_back(destination);
+                        resource_copy_srcs.push_back(cpu_resource_descriptors_.cpu_handle(view->srv, 0));
                         break;
                     }
                     case rhi::BindingType::StorageTexture: {
@@ -570,9 +580,8 @@ namespace SFT::D3D12 {
                                 "create_bind_group: storage-texture binding names a texture view with no unordered-"
                                 "access view (was the texture created with TextureUsage::Storage?).");
                         }
-                        device_->CopyDescriptorsSimple(1, destination,
-                                                       cpu_resource_descriptors_.cpu_handle(view->uav, 0),
-                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                        resource_copy_dests.push_back(destination);
+                        resource_copy_srcs.push_back(cpu_resource_descriptors_.cpu_handle(view->uav, 0));
                         break;
                     }
                     case rhi::BindingType::Sampler:
@@ -590,10 +599,21 @@ namespace SFT::D3D12 {
                     return invalid_argument("create_bind_group: sampler binding " + std::to_string(entry.binding) +
                                             " names an unknown sampler.");
                 }
-                device_->CopyDescriptorsSimple(
-                    1, cpu_sampler_descriptors_.cpu_handle(record.samplers, sampler_it->table_offset + entry.array_element),
-                    cpu_sampler_descriptors_.cpu_handle(sampler->descriptor, 0), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+                sampler_copy_dests.push_back(
+                    cpu_sampler_descriptors_.cpu_handle(record.samplers, sampler_it->table_offset + entry.array_element));
+                sampler_copy_srcs.push_back(cpu_sampler_descriptors_.cpu_handle(sampler->descriptor, 0));
             }
+        }
+
+        if (!resource_copy_dests.empty()) {
+            device_->CopyDescriptors(static_cast<UINT>(resource_copy_dests.size()), resource_copy_dests.data(), nullptr,
+                                     static_cast<UINT>(resource_copy_srcs.size()), resource_copy_srcs.data(), nullptr,
+                                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+        if (!sampler_copy_dests.empty()) {
+            device_->CopyDescriptors(static_cast<UINT>(sampler_copy_dests.size()), sampler_copy_dests.data(), nullptr,
+                                     static_cast<UINT>(sampler_copy_srcs.size()), sampler_copy_srcs.data(), nullptr,
+                                     D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
         }
 
         rollback.committed = true;
