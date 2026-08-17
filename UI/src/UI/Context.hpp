@@ -265,6 +265,16 @@ namespace SFT::UI {
         // this translation) once per frame, after finish_frame().
         [[nodiscard]] CursorIcon desired_cursor() const noexcept { return desired_cursor_; }
 
+        // Sets desired_cursor() for the remainder of this frame unconditionally, bypassing the
+        // normal hover gate update_desired_cursor() applies to every ordinary element() call. For
+        // an element whose active drag can carry the pointer outside its own hitbox within a
+        // single frame (a resize divider under a fast/high-poll-rate mouse can jump clean over a
+        // thin divider between two polled frames), the geometric per-frame hover test alone can't
+        // keep the cursor pinned to it — call this once the drag's own capture state confirms it's
+        // still active, instead of depending on hovered() having caught the pointer this frame.
+        // Still subject to cursor_management_enabled() the same way desired_cursor() is.
+        void force_cursor(CursorIcon icon) noexcept;
+
         [[nodiscard]] ElementScope element(const ElementDecl &decl);
         void text(const ustr &content, const TextStyle &style);
         void image(const ElementDecl &decl, Renderer::TextureHandle texture);

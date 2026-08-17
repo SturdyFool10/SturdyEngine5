@@ -253,21 +253,15 @@ namespace SFT::UiWorkbench {
         bool primary = false;
         std::vector<UI::SliderKey> slider_keys;
         std::vector<UI::ColorPickerKey> color_keys;
-        // Per-frame text-editing input for the Text Lab widgets, accumulated by route_input()'s
-        // system and drained after each build_frame() the same way slider_keys/color_keys are.
-        // shift/ctrl are held-state (tracked across frames from press/release), not per-frame edges.
-        std::vector<UI::EditKey> edit_keys;
-        std::string typed_text;
-        // Unlike typed_text (a per-frame delta, cleared after each build_frame() consumes it), this
-        // reflects *current* IME composition state and is only ever replaced by a new
-        // TextEditingEvent, never cleared per-frame — a composition can sit open for many frames
-        // while the user thinks, and the field showing it must keep doing so. See
-        // Engine::InputState::composing()'s own doc comment for the exact "empty text == finished"
-        // rule route_input() below follows to derive `composing`.
-        std::string composition_text;
-        bool composing = false;
-        bool shift_down = false;
-        bool ctrl_down = false;
+        // Per-frame text-editing/IME input for the Text Lab widgets — Engine::UiTextInputState
+        // (Engine/EcsUi.hpp) rather than this Surface's own hand-rolled bookkeeping, so the
+        // EditKey-decoding/composition-bridging logic isn't duplicated per app. Used here as a
+        // plain per-Surface instance (not through the ECS resource/built-in system Engine also
+        // registers) for the same reason `pointer` above is this Surface's own PointerState rather
+        // than Engine::UiPointerState: this demo is multi-window-aware, and both of Engine's
+        // built-in versions are deliberately single-global, same simplification UiPointerState's
+        // own doc comment already makes.
+        Engine::UiTextInputState text_input;
         // One fade/drag state per panel content region — panel_content_region()'s own id is stable
         // per panel regardless of which tab/split it's currently docked into, so these persist a
         // panel's scrollbar feel (mid-fade, mid-drag) across reordering/resizing, only resetting if
@@ -515,17 +509,12 @@ namespace SFT::UiWorkbench {
                    Ecs::EventReader<Engine::WindowStateEvent> window_events) noexcept {
                 for (const Engine::TextInputEvent &event : text_events.read()) {
                     if (Surface *surface = find_surface(event.window)) {
-                        surface->typed_text += event.text.utf8;
-                        // A commit always ends whatever composition preceded it — same rule
-                        // Engine::InputState::apply(const TextInputEvent&) follows.
-                        surface->composing = false;
-                        surface->composition_text.clear();
+                        surface->text_input.apply(event);
                     }
                 }
                 for (const Engine::TextEditingEvent &event : text_editing_events.read()) {
                     if (Surface *surface = find_surface(event.window)) {
-                        surface->composition_text = event.text.utf8;
-                        surface->composing = !surface->composition_text.empty();
+                        surface->text_input.apply(event);
                     }
                 }
                 for (const Engine::MouseMoveEvent &event : moves.read()) {
@@ -571,75 +560,24 @@ namespace SFT::UiWorkbench {
                     if (surface == nullptr) {
                         continue;
                     }
-                    // Held-state modifiers need both press AND release, unlike everything below —
-                    // handled before the pressed()-only gate.
+                    // EditKey decode (TextEditInput's contract: Ctrl+A/C/X/V arrive pre-resolved as
+                    // SelectAll/Copy/Cut/Paste, not as letters plus a modifier the widget would have
+                    // to interpret) plus Shift/Ctrl held-state tracking for the Text Lab widgets —
+                    // Engine::UiTextInputState::apply_key() (Engine/EcsUi.hpp) instead of
+                    // hand-rolling it here; it already no-ops on release/repeat the same way this
+                    // loop used to.
+                    surface->text_input.apply_key(event);
+
+                    // Slider/color-picker key mapping below has its own held-state/pressed gating
+                    // needs, independent of UiTextInputState's job.
                     if (event.key_code == Engine::KeyboardKey::LeftShift ||
-                        event.key_code == Engine::KeyboardKey::RightShift) {
-                        surface->shift_down = event.pressed();
-                        continue;
-                    }
-                    if (event.key_code == Engine::KeyboardKey::LeftControl ||
+                        event.key_code == Engine::KeyboardKey::RightShift ||
+                        event.key_code == Engine::KeyboardKey::LeftControl ||
                         event.key_code == Engine::KeyboardKey::RightControl) {
-                        surface->ctrl_down = event.pressed();
                         continue;
                     }
                     if (!event.pressed()) {
                         continue;
-                    }
-                    // Text-editing intents for the Text Lab widgets (TextEditInput's contract:
-                    // Ctrl+A/C/X/V arrive pre-resolved as SelectAll/Copy/Cut/Paste, not as letters
-                    // plus a modifier the widget would have to interpret).
-                    if (surface->ctrl_down) {
-                        switch (event.key_code) {
-                            case Engine::KeyboardKey::A:
-                                surface->edit_keys.push_back(UI::EditKey::SelectAll);
-                                break;
-                            case Engine::KeyboardKey::C:
-                                surface->edit_keys.push_back(UI::EditKey::Copy);
-                                break;
-                            case Engine::KeyboardKey::X:
-                                surface->edit_keys.push_back(UI::EditKey::Cut);
-                                break;
-                            case Engine::KeyboardKey::V:
-                                surface->edit_keys.push_back(UI::EditKey::Paste);
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                    switch (event.key_code) {
-                        case Engine::KeyboardKey::Left:
-                            surface->edit_keys.push_back(UI::EditKey::Left);
-                            break;
-                        case Engine::KeyboardKey::Right:
-                            surface->edit_keys.push_back(UI::EditKey::Right);
-                            break;
-                        case Engine::KeyboardKey::Up:
-                            surface->edit_keys.push_back(UI::EditKey::Up);
-                            break;
-                        case Engine::KeyboardKey::Down:
-                            surface->edit_keys.push_back(UI::EditKey::Down);
-                            break;
-                        case Engine::KeyboardKey::Home:
-                            surface->edit_keys.push_back(UI::EditKey::Home);
-                            break;
-                        case Engine::KeyboardKey::End:
-                            surface->edit_keys.push_back(UI::EditKey::End);
-                            break;
-                        case Engine::KeyboardKey::Backspace:
-                            surface->edit_keys.push_back(UI::EditKey::Backspace);
-                            break;
-                        case Engine::KeyboardKey::Delete:
-                            surface->edit_keys.push_back(UI::EditKey::Delete);
-                            break;
-                        case Engine::KeyboardKey::Enter:
-                            surface->edit_keys.push_back(UI::EditKey::Enter);
-                            break;
-                        case Engine::KeyboardKey::Escape:
-                            surface->edit_keys.push_back(UI::EditKey::Escape);
-                            break;
-                        default:
-                            break;
                     }
                     switch (event.key_code) {
                         case Engine::KeyboardKey::Left:
@@ -951,8 +889,7 @@ namespace SFT::UiWorkbench {
         UI::Docking::DockWorkspaceEvents events = surface.workspace.end_frame(surface.context);
         surface.slider_keys.clear();
         surface.color_keys.clear();
-        surface.edit_keys.clear();
-        surface.typed_text.clear();
+        surface.text_input.clear_transitions();
         return events;
     }
 
@@ -1886,20 +1823,13 @@ namespace SFT::UiWorkbench {
         panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab", "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
 
         Platform::Windowing::Window *clipboard_window = engine.primary_window();
-        const UI::TextEditInput edit_input{
-            .typed_text = surface.typed_text,
-            .keys = {surface.edit_keys.begin(), surface.edit_keys.end()},
-            .shift_held = surface.shift_down,
-            .word_modifier_held = surface.ctrl_down,
-            .composition_text = surface.composition_text,
-            .composing = surface.composing,
-            .get_clipboard_text = [clipboard_window]() { return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{}; },
-            .set_clipboard_text = [clipboard_window](const UString &text) {
+        const UI::TextEditInput edit_input = surface.text_input.frame_input(
+            [clipboard_window]() { return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{}; },
+            [clipboard_window](const UString &text) {
                 if (clipboard_window != nullptr) {
                     [[maybe_unused]] const auto result =
                         clipboard_window->set_clipboard_text(text.cpp_string_view());
-                } },
-        };
+                } });
 
         UI::TextEditStyle edit_style{};
         edit_style.idle = background_with_opacity(panel, effective_background_opacity());
@@ -2011,39 +1941,31 @@ namespace SFT::UiWorkbench {
                           UString{"# Write some markdown..."});
 
         // At most one of these three fields is focused at a time (focus is exclusive — see
-        // TextEditState::focused_), so at most one has caret_bounds set; forward whichever it is so
-        // the IME's composition candidate window anchors near the field actually being typed into.
-        // Per SDL_SetTextInputArea's own documented intent ("native input methods may place a
-        // window with word suggestions near the cursor, without covering the text being entered"),
-        // `rect` is the *whole field's* bounds — not just the caret's own zero-width point, which
-        // would give the IME nothing to avoid covering — with the caret's offset inside it as
-        // `cursor`. Coordinates are already this surface's own client-area pixels (ElementBounds'
-        // own space), matching what Window::set_text_input_area() expects.
-        const auto forward_text_input_area = [&](const std::optional<UI::ElementBounds> &caret_bounds,
-                                                 const UString &widget_id) {
+        // TextEditState::focused_), so at most one has caret_bounds set; resolve whichever it is
+        // and hand it to Engine::forward_text_input_state() (Engine/EcsUi.hpp), which positions the
+        // IME candidate window near it (or, if none is focused, tells the OS to stop text input
+        // for this window entirely) instead of this function doing that OS-forwarding by hand.
+        const auto resolve_focus = [&](const std::optional<UI::ElementBounds> &caret_bounds, const UString &widget_id,
+                                       bool ime_enabled) -> std::optional<Engine::TextInputFocusInfo> {
             if (!caret_bounds) {
-                return false;
+                return std::nullopt;
             }
             const std::optional<UI::ElementBounds> field_bounds = ctx.element_bounds(widget_id);
-            const UI::ElementBounds &area = field_bounds ? *field_bounds : *caret_bounds;
-            engine.window_requests().set_text_input_area(
-                surface.handle.window_id,
-                Platform::Windowing::TextInputArea{
-                    .x = area.position.x,
-                    .y = area.position.y,
-                    // A zero (or negative, if layout ever settles that way) width/height rect is
-                    // exactly the degenerate case the caret-point-only approach above risked —
-                    // floor both at 1px so the IME always gets a real area to anchor against.
-                    .width = std::max(area.size.x, 1.0f),
-                    .height = std::max(area.size.y, 1.0f),
-                    .cursor_offset_x = std::max(caret_bounds->position.x - area.position.x, 0.0f),
-                });
-            return true;
+            return Engine::TextInputFocusInfo{
+                .field_bounds = field_bounds ? *field_bounds : *caret_bounds,
+                .caret_bounds = *caret_bounds,
+                .ime_enabled = ime_enabled,
+            };
         };
-        if (!forward_text_input_area(single_line_result.caret_bounds, UString{"workbench-text-single"}) &&
-            !forward_text_input_area(password_result.caret_bounds, UString{"workbench-text-password"})) {
-            forward_text_input_area(markdown_result.caret_bounds, UString{"workbench-text-markdown"});
+        std::optional<Engine::TextInputFocusInfo> focus =
+            resolve_focus(single_line_result.caret_bounds, UString{"workbench-text-single"}, edit_style.features.ime_enabled);
+        if (!focus) {
+            focus = resolve_focus(password_result.caret_bounds, UString{"workbench-text-password"}, password_style.features.ime_enabled);
         }
+        if (!focus) {
+            focus = resolve_focus(markdown_result.caret_bounds, UString{"workbench-text-markdown"}, markdown_style.features.ime_enabled);
+        }
+        Engine::forward_text_input_state(engine.window_requests(), surface.handle.window_id, focus);
 
         {
             auto preview_card = ctx.element(UI::ElementDecl{

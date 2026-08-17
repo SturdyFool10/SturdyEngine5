@@ -11,7 +11,11 @@
 #include <Renderer/Renderer.hpp>
 #include <UI/UI.hpp>
 
+#include "EcsEvents.hpp"
+#include "WindowRequests.hpp"
+
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -77,6 +81,85 @@ namespace SFT::Engine {
         UI::PointerState state_{};
         bool consumed_ = false;
     };
+
+    // Accumulated keyboard/text/IME state for Sturdy.UI's text-editing widgets (UI::text_input()/
+    // UI::text_area(), built on UI::TextEdit.hpp), kept current by a built-in system Engine
+    // registers in its own constructor — the same "fold this tick's typed events into a resource so
+    // no consumer has to duplicate it" role UiPointerState fills for pointer input. Before this
+    // existed, every app wanting text-input/IME support had to hand-roll its own EditKey decoding
+    // and composition-state bridging (as Demos/UiWorkbenchGameLogic/WorkbenchUi.cpp originally did);
+    // this is that logic, written once. Single global instance, not per-window — same simplification
+    // UiPointerState already makes; a genuinely multi-window app that needs per-window text-input
+    // state still rolls its own the way WorkbenchUi.cpp's per-Surface pointer state does.
+    class UiTextInputState {
+      public:
+        // A committed character/string this tick — always ends whatever composition preceded it,
+        // matching Engine::InputState::apply(const TextInputEvent&)'s own rule (composition and a
+        // commit are mutually exclusive within the same instant).
+        void apply(const TextInputEvent &event) noexcept;
+        // This tick's in-progress IME composition (preedit) update — an empty `event.text.utf8`
+        // means composition just ended (SDL3's own documented contract, see WindowTextEditingEvent's
+        // doc comment).
+        void apply(const TextEditingEvent &event) noexcept;
+        // Decodes one raw keyboard event into UI::EditKey (Ctrl+A/C/X/V -> SelectAll/Copy/Cut/Paste,
+        // arrows/Home/End/Backspace/Delete/Enter/Escape -> themselves), tracking held Shift/Ctrl
+        // across calls. OS key-repeat naturally produces more than one Left/Backspace/etc. per
+        // second, which is why this appends rather than overwriting — UI::TextEditInput::keys is a
+        // vector for exactly this reason.
+        void apply_key(const KeyboardEvent &event) noexcept;
+
+        // Packages this tick's accumulated state into a ready-to-use UI::TextEditInput. Clipboard
+        // callbacks are taken per-call rather than stored, since they close over a live
+        // Platform::Windowing::Window& this resource doesn't own (same reasoning
+        // WorkbenchUi.cpp's own clipboard wiring already follows) — pass nullptr for either to make
+        // Copy/Cut/Paste silent no-ops. The returned TextEditInput borrows this object's own
+        // buffers, so it must be consumed (fed into text_input()/text_area()) before the next
+        // apply()/apply_key()/clear_transitions() call.
+        [[nodiscard]] UI::TextEditInput frame_input(
+            std::function<UString()> get_clipboard_text = nullptr,
+            std::function<void(const UString &)> set_clipboard_text = nullptr) const noexcept;
+
+        // Clears this tick's transient typed-text/key-press accumulation after a consumer has read
+        // it via frame_input() — composition state is intentionally NOT cleared here (it persists
+        // across frames until apply(const TextEditingEvent&) reports it changed, the same "still
+        // composing" contract UI::TextEditInput::composing documents), matching UiPointerState::
+        // clear_transitions()'s identical split between per-tick and persistent fields.
+        void clear_transitions() noexcept;
+
+      private:
+        std::string typed_text_;
+        std::string composition_text_;
+        bool composing_ = false;
+        vector<UI::EditKey> keys_;
+        bool shift_down_ = false;
+        bool ctrl_down_ = false;
+    };
+
+    // Whichever text field is focused this frame, if any — a caller resolves this itself (no
+    // cross-widget focus registry exists in UI::TextEdit.hpp by design, see that file's own note on
+    // EditKey::Tab), then hands it to forward_text_input_state() below. `field_bounds` is the whole
+    // field's box (not just the caret point) — see forward_text_input_state()'s own doc comment for
+    // why. `ime_enabled` should mirror whatever TextEditStyle::features.ime_enabled the focused
+    // field itself was drawn with (UI::TextEditFeatures::ime_enabled, UI/TextEdit.hpp).
+    struct TextInputFocusInfo {
+        UI::ElementBounds field_bounds;
+        UI::ElementBounds caret_bounds;
+        bool ime_enabled = true;
+    };
+
+    // Forwards this frame's text-input focus state to the OS: positions the IME composition
+    // candidate window near the focused field (Platform::Windowing::Window::set_text_input_area(),
+    // "native input methods may place a window with word suggestions near the cursor, without
+    // covering the text being entered") and toggles start_text_input()/stop_text_input() to match
+    // whether a field is actually focused and IME-enabled. Call this once per window per frame,
+    // after building this frame's UI, with `focus` set to whichever field (if any) ended up
+    // focused. Passing std::nullopt, or a focused field with `ime_enabled = false`, stops text
+    // input for that window — without this, IME composition mode stays globally on for the whole
+    // window regardless of focus (SDL3's SDL_StartTextInput is only ever called once, at window
+    // creation), so a field opting out of IME (a password/numeric/hotkey-capture field) had no way
+    // to actually suppress the OS candidate window before this existed.
+    void forward_text_input_state(WindowRequests &requests, Platform::Windowing::WindowId window,
+                                   std::optional<TextInputFocusInfo> focus) noexcept;
 
     // Owns one UI::Context + UI::UiRenderer pair as an ordinary World resource
     // (Ecs::WriteResource<UiContext>), so any system with resource access can build/query a UI
@@ -314,6 +397,7 @@ namespace SFT::Engine {
 } // namespace SFT::Engine
 
 SFT_ECS_RESOURCE(SFT::Engine::UiPointerState, "sturdy.engine.ui_pointer_state");
+SFT_ECS_RESOURCE(SFT::Engine::UiTextInputState, "sturdy.engine.ui_text_input_state");
 SFT_ECS_RESOURCE(SFT::Engine::UiContext, "sturdy.engine.ui_context");
 SFT_ECS_RESOURCE(SFT::Engine::UiImageCache, "sturdy.engine.ui_image_cache");
 SFT_ECS_RESOURCE(SFT::Engine::UiSvgCache, "sturdy.engine.ui_svg_cache");

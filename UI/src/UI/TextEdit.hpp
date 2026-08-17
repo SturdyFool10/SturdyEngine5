@@ -73,6 +73,15 @@ namespace SFT::UI {
         bool horizontal_scroll = true;
         bool vertical_scroll = true;
         bool scrollbars = true;
+        // Whether this field participates in IME composition at all — on by default. A field that
+        // sets this false never renders TextEditInput::composition_text (Detail::emit_composition())
+        // and never treats input.composing as true for its own Enter/Escape handling (apply_input()
+        // below), even if the OS-level IME is still technically composing at the moment focus
+        // changed. Set false for fields where a composition candidate window would be actively
+        // wrong — a password field, a numeric-only field, or a hotkey-capture field that wants raw
+        // keystrokes. Engine::forward_text_input_state() (Engine/EcsUi.hpp) reads this to decide
+        // whether to tell the OS to keep IME active while this field is focused.
+        bool ime_enabled = true;
     };
 
     // Maps an input-layer key intent to an editing command. The input layer may therefore expose
@@ -442,7 +451,15 @@ namespace SFT::UI {
                 composition_text_.clear(); // never show a stale preedit on a field that lost focus
                 return result;
             }
-            composition_text_.assign(input.composition_text);
+            // A field with ime_enabled=false never shows or reacts to composition state, even if
+            // the OS-level IME is still technically composing at the moment of this call (e.g. the
+            // instant focus moved from an IME-enabled field to this one) — see TextEditFeatures::
+            // ime_enabled's own doc comment.
+            if (features.ime_enabled) {
+                composition_text_.assign(input.composition_text);
+            } else {
+                composition_text_.clear();
+            }
 
             if (features.typing && !input.typed_text.empty()) {
                 UString typed{input.typed_text};
@@ -507,8 +524,10 @@ namespace SFT::UI {
                     // that case, but treating it as a no-op here too is a cheap defense against
                     // whichever backend/compositor combination does, instead of the field silently
                     // submitting/newlining out from under an in-progress composition. See
-                    // TextEditInput::composing's own doc comment.
-                    if (input.composing) {
+                    // TextEditInput::composing's own doc comment. Gated on ime_enabled too — a field
+                    // that opted out of IME never defers its own Enter handling to a composition it
+                    // isn't displaying.
+                    if (features.ime_enabled && input.composing) {
                         break;
                     }
                     if (features.submission) {
@@ -522,8 +541,8 @@ namespace SFT::UI {
                     break;
                 case EditKey::Escape:
                     // Same reasoning as Enter above: while composing, Escape cancels the IME's
-                    // composition, not this field's focus.
-                    if (input.composing) {
+                    // composition, not this field's focus. Same ime_enabled gate too.
+                    if (features.ime_enabled && input.composing) {
                         break;
                     }
                     if (features.escape_to_unfocus) {

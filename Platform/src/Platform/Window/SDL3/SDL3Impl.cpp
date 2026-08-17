@@ -87,6 +87,27 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
+        // Copies as much of `src` (NUL-terminated UTF-8) as fits in `dest_capacity` bytes
+        // (including the trailing NUL this always writes), backing off from the end of `src` one
+        // byte at a time if a straight length-based cut would land inside a multi-byte UTF-8
+        // sequence — a plain SDL_strnlen()+memcpy() truncation can otherwise split a CJK/emoji
+        // codepoint in half, corrupting the last character of an over-long IME composition instead
+        // of just dropping it. `dest` need not be zero-initialized; always NUL-terminates.
+        void copy_utf8_truncated(char *dest, usize dest_capacity, const char *src) noexcept {
+            if (dest_capacity == 0) {
+                return;
+            }
+            usize copy_size = SDL_strnlen(src, dest_capacity - 1);
+            // A UTF-8 continuation byte is 10xxxxxx; back off until `copy_size` either lands on a
+            // sequence-start byte (or ASCII) or hits zero, so the copied prefix is always
+            // well-formed UTF-8 on its own.
+            while (copy_size > 0 && (static_cast<unsigned char>(src[copy_size]) & 0xC0) == 0x80) {
+                --copy_size;
+            }
+            memcpy(dest, src, copy_size);
+            dest[copy_size] = '\0';
+        }
+
         WindowError sdl_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *message = SDL_GetError();
             return WindowError{code, message && message[0] != '\0' ? message : fallback};
@@ -588,6 +609,18 @@ namespace SFT::Platform::Windowing::SDL3 {
         // before SDL_InitSubSystem included, and are idempotent to set repeatedly.
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_WARP_MOTION, "0");
+        // Without this, SDL defers composition (preedit) rendering entirely to the OS's native IME
+        // UI — on Windows that means a separate popup window anchored above/below the caret, not
+        // the inline-underlined-at-the-caret rendering UI::TextEdit.hpp's Detail::emit_composition()
+        // already implements. "composition" tells SDL/the platform backend this application will
+        // render SDL_EVENT_TEXT_EDITING itself (matching how the same composition looks on
+        // platforms whose native IME is inline, e.g. most Linux input methods), so the OS should not
+        // draw its own composition window on top of it. Deliberately does NOT also claim
+        // "candidates": this engine has no candidate-list widget of its own, so an IME's separate
+        // candidate picker (e.g. Pinyin homophone selection) still needs to render natively. Must be
+        // set before SDL_InitSubSystem() below, per this hint's own documented contract — unlike the
+        // two mouse hints above, this one cannot be set "anytime".
+        SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
 
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
@@ -919,8 +952,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                     WindowEvent window_event{WindowEventKind::TextInput};
                     window_event.timestamp_ns = event_timestamp_ns;
                     if (event.text.text) [[likely]] {
-                        const usize copy_size = SDL_strnlen(event.text.text, sizeof(window_event.text.utf8) - 1);
-                        memcpy(window_event.text.utf8, event.text.text, copy_size);
+                        copy_utf8_truncated(window_event.text.utf8, sizeof(window_event.text.utf8), event.text.text);
                     }
                     found->second->events_.push_back(window_event);
                     ++queued_event_count;
@@ -934,8 +966,7 @@ namespace SFT::Platform::Windowing::SDL3 {
                     WindowEvent window_event{WindowEventKind::TextEditing};
                     window_event.timestamp_ns = event_timestamp_ns;
                     if (event.edit.text) [[likely]] {
-                        const usize copy_size = SDL_strnlen(event.edit.text, sizeof(window_event.editing.utf8) - 1);
-                        memcpy(window_event.editing.utf8, event.edit.text, copy_size);
+                        copy_utf8_truncated(window_event.editing.utf8, sizeof(window_event.editing.utf8), event.edit.text);
                     }
                     window_event.editing.cursor = event.edit.start;
                     window_event.editing.selection_length = event.edit.length;

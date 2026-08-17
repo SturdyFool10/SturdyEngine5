@@ -56,6 +56,8 @@ namespace SFT::Engine {
 
     [[nodiscard]] UiPointerState &Engine::ui_pointer_state() noexcept { return ui_pointer_state_; }
     [[nodiscard]] const UiPointerState &Engine::ui_pointer_state() const noexcept { return ui_pointer_state_; }
+    [[nodiscard]] UiTextInputState &Engine::ui_text_input_state() noexcept { return ui_text_input_state_; }
+    [[nodiscard]] const UiTextInputState &Engine::ui_text_input_state() const noexcept { return ui_text_input_state_; }
     [[nodiscard]] UiImageCache &Engine::ui_image_cache() noexcept { return ui_image_cache_; }
     [[nodiscard]] UiSvgCache &Engine::ui_svg_cache() noexcept { return ui_svg_cache_; }
 

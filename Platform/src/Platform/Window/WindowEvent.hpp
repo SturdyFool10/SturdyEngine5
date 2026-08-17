@@ -52,18 +52,25 @@ namespace SFT::Platform::Windowing {
     };
 
     // An in-progress IME composition update (the underlined "preedit" text a romaji-to-hiragana,
-    // pinyin, or similar IME shows before the user confirms it) — SDL3's SDL_EVENT_TEXT_EDITING,
+    // pinyin, or similar IME shows before the user confirms it) — SDL3's SDL_EVENT_TEXT_EDITING;
     // GLFW has no equivalent (stock GLFW composes invisibly inside its own platform backend and
     // only ever surfaces the final committed text via its char callback, so this event never fires
-    // on the GLFW backend). A larger buffer than WindowTextInputEvent's: a whole in-progress
-    // conversion (e.g. a long compound word typed before pressing space to convert) routinely needs
-    // more than 31 bytes, where one commit is normally just the characters typed since the last one.
+    // on the GLFW backend). SDL3's own SDL_TextEditingEvent::text is an unbounded `const char *`
+    // (SDL itself never truncates), so the only truncation risk is this struct's own mirror of it —
+    // 512 bytes (~170 CJK codepoints at 3 bytes each) comfortably covers realistic compositions (a
+    // long compound word typed before pressing space to convert, or a long Pinyin sequence before a
+    // candidate is picked) without switching this to a dynamically-sized string, which WindowEvent
+    // deliberately avoids: it stays a flat, trivially-copyable aggregate consumed through
+    // WindowManager's coalescing ring buffer (up to thousands of queued events for an 8kHz-class
+    // input device), where a heap-allocated field on every event would be a real cost. A composition
+    // that still somehow exceeds 512 bytes is truncated at a UTF-8 codepoint boundary (never
+    // mid-sequence) by the window provider, not silently dropped or corrupted.
     //
     // Per SDL3's own documented contract, an **empty** `utf8` means composition has ended (either
     // confirmed — a WindowTextInputEvent with the final text follows — or cancelled) and nothing
     // should be shown; do not infer "still composing" from anything other than utf8 being non-empty.
     struct WindowTextEditingEvent {
-        char utf8[128] = {};
+        char utf8[512] = {};
         // Caret position within `utf8`, and the length of the currently-selected span within it —
         // both as reported by the backend, `-1` for either when the backend doesn't set it. Optional
         // to use: a consumer that just wants to show the whole composition string underlined at the

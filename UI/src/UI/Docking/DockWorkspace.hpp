@@ -691,6 +691,8 @@ namespace SFT::UI::Docking {
         }
 
         void draw_divider(Context &ctx, const DockNodeLayout &nl, DockSplitAxis axis) {
+            const CursorIcon resize_cursor = axis == DockSplitAxis::Horizontal ? style_.horizontal_divider_cursor
+                                                                               : style_.vertical_divider_cursor;
             ButtonResult result = button(
                 ctx,
                 ElementDecl{
@@ -701,13 +703,23 @@ namespace SFT::UI::Docking {
                     // A resize handle, not just "something clickable" — overrides button()'s own
                     // Pointer default (see DockSplitAxis's own doc comment, DockTypes.hpp, for which
                     // way each axis actually drags).
-                    .cursor = axis == DockSplitAxis::Horizontal ? style_.horizontal_divider_cursor
-                                                               : style_.vertical_divider_cursor,
+                    .cursor = resize_cursor,
                     .debug_label = UString{"DockDivider"},
                     .id = divider_id_for(nl.node),
                 },
                 style_.divider_style, divider_states_[nl.node], last_delta_seconds_);
             (void)result;
+
+            // button()'s own update_desired_cursor() call above only sets the resize cursor when
+            // this frame's pointer position happens to land inside last frame's divider hitbox —
+            // a fast drag on a high-poll-rate mouse can jump clean over a thin divider between two
+            // polled frames, which would otherwise flicker the cursor back to Default for that
+            // frame. divider_drag_ persists real drag-capture state across frames independently of
+            // that per-frame geometric hit-test, so once a drag is actually underway, pin the
+            // cursor from that instead of trusting hovered() alone.
+            if (divider_drag_[nl.node].is_capturing()) {
+                ctx.force_cursor(resize_cursor);
+            }
         }
 
         void draw_chrome(Context &ctx) {

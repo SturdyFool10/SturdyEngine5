@@ -454,6 +454,13 @@ namespace SFT::UI {
         }
     }
 
+    void Context::force_cursor(CursorIcon icon) noexcept {
+        if (!cursor_management_enabled_) {
+            return;
+        }
+        desired_cursor_ = icon;
+    }
+
     ElementScope Context::element(const ElementDecl &decl) {
         set_current();
         if (!decl.id.empty()) {

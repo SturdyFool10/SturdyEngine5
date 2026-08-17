@@ -107,6 +107,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(frame_time_);
         ecs_world_.bind_resource(time_scale_);
         ecs_world_.bind_resource(ui_pointer_state_);
+        ecs_world_.bind_resource(ui_text_input_state_);
         ecs_world_.bind_resource(ui_context_);
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
@@ -208,6 +209,26 @@ namespace SFT::Engine {
                     // positive X moves content right. Convert at the UI boundary; raw InputState
                     // wheel deltas retain the platform convention.
                     pointer->add_scroll_delta({-event.wheel.x, event.wheel.y});
+                }
+            });
+
+        // Keeps UiTextInputState current for every ECS app — same "built-in so consumers don't each
+        // duplicate it" role as the UiPointerState system above, covering EditKey decoding and
+        // typed-text/IME-composition bridging for UI::text_input()/UI::text_area() instead of
+        // pointer state. See EcsUi.hpp's own doc comment on UiTextInputState.
+        update_schedule_.add_system(
+            [](Ecs::WriteResource<UiTextInputState> text_input,
+               Ecs::EventReader<KeyboardEvent> keyboard,
+               Ecs::EventReader<TextInputEvent> text,
+               Ecs::EventReader<TextEditingEvent> text_editing) noexcept {
+                for (const KeyboardEvent &event : keyboard.read()) {
+                    text_input->apply_key(event);
+                }
+                for (const TextInputEvent &event : text.read()) {
+                    text_input->apply(event);
+                }
+                for (const TextEditingEvent &event : text_editing.read()) {
+                    text_input->apply(event);
                 }
             });
 

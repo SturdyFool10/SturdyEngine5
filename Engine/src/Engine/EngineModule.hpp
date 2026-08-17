@@ -195,6 +195,10 @@ namespace SFT::Engine {
         [[nodiscard]] UiContext &ui_context() noexcept;
         [[nodiscard]] UiPointerState &ui_pointer_state() noexcept;
         [[nodiscard]] const UiPointerState &ui_pointer_state() const noexcept;
+        // Same "kept current by a built-in system" contract as ui_pointer_state() above, but for
+        // keyboard/text/IME input — see UiTextInputState's own doc comment (EcsUi.hpp).
+        [[nodiscard]] UiTextInputState &ui_text_input_state() noexcept;
+        [[nodiscard]] const UiTextInputState &ui_text_input_state() const noexcept;
         // Path->TextureHandle cache backing a UI::Context::image() call built from a file path — see
         // UiImageCache's own doc comment for why this exists (avoids re-decoding on every frame).
         [[nodiscard]] UiImageCache &ui_image_cache() noexcept;
@@ -256,6 +260,7 @@ namespace SFT::Engine {
         FrameTime frame_time_{};
         TimeScale time_scale_{};
         UiPointerState ui_pointer_state_{};
+        UiTextInputState ui_text_input_state_{};
         UiContext ui_context_{};
         UiImageCache ui_image_cache_{};
         UiSvgCache ui_svg_cache_{};
