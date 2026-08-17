@@ -362,6 +362,10 @@ namespace SFT::D3D12 {
                 features.set(rhi::Feature::DepthBiasControl);
                 features.set(rhi::Feature::ExtendedDynamicState2);
             }
+            // ReBAR-backed heap: CPU-mappable *and* GPU-local. Only reported true on hardware/OS
+            // combinations that actually back it with Resizable BAR, so this is a real capability
+            // probe, not just an SDK-header check. create_buffer() is the consumer.
+            caps.gpu_upload_heap_supported = options16.GPUUploadHeapSupported != FALSE;
         }
 
         const D3D_SHADER_MODEL shader_model = highest_shader_model(device);
@@ -512,6 +516,7 @@ namespace SFT::D3D12 {
         info.enhanced_barriers = capabilities_.enhanced_barriers;
         info.debug_layer_enabled = debug_layer_enabled_;
         info.allow_tearing = capabilities_.allow_tearing;
+        info.gpu_upload_heap_supported = capabilities_.gpu_upload_heap_supported;
 
         auto device = std::make_unique<D3D12Device>(std::move(info));
         if (auto initialized = device->initialize(); !initialized) {

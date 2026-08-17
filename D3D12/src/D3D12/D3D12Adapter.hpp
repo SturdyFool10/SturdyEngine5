@@ -42,6 +42,10 @@ namespace SFT::D3D12 {
         // DXGI_FEATURE_PRESENT_ALLOW_TEARING — required for any real "VSync off" present. A property
         // of the *factory*, not the device, so it is filled in by the instance and carried through.
         bool allow_tearing = false;
+        // D3D12_FEATURE_DATA_D3D12_OPTIONS16::GPUUploadHeapSupported — Resizable-BAR-backed memory
+        // that is simultaneously CPU-mappable and GPU-local. Hoisted out like enhanced_barriers
+        // because create_buffer() picks a different heap type on it, not just a FeatureSet bit.
+        bool gpu_upload_heap_supported = false;
     };
 
     [[nodiscard]] DeviceCapabilities probe_capabilities(ID3D12Device *device);
