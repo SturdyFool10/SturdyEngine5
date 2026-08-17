@@ -160,6 +160,11 @@ namespace SFT::D3D12 {
         // but the pointer is cached so repeated maps don't re-enter the driver and so unmap_buffer()
         // is a no-op on an unmapped buffer rather than an unbalanced Unmap.
         void *mapped = nullptr;
+        // True when this DeviceLocal buffer was placed on D3D12_HEAP_TYPE_GPU_UPLOAD (ReBAR) instead
+        // of D3D12_HEAP_TYPE_DEFAULT. `memory` still reads DeviceLocal — the RHI's documented
+        // "not host-mappable" contract for that value is unchanged — this only tells write_buffer()
+        // it can write directly instead of staging.
+        bool gpu_upload_heap = false;
     };
 
     struct TextureRecord {
@@ -365,6 +370,9 @@ namespace SFT::D3D12 {
         // (D3D12Adapter.cpp::probe_capabilities). Gates whether initialize() attempts to stand up the
         // ID3D12PipelineLibrary-backed PSO disk cache at all.
         bool pipeline_library_supported = false;
+        // D3D12_HEAP_TYPE_GPU_UPLOAD (ReBAR) capability probed by D3D12Adapter — see
+        // DeviceCapabilities::gpu_upload_heap_supported for what it means.
+        bool gpu_upload_heap_supported = false;
     };
 
     class D3D12Device final : public rhi::RhiDevice {
@@ -501,6 +509,11 @@ namespace SFT::D3D12 {
         // serializes behind graphics work. (D3D12DeviceResources.cpp)
         [[nodiscard]] rhi::RhiResult upload_via_staging(ID3D12Resource *destination, u64 offset, span<const std::byte> data);
 
+        // Direct CPU write into a buffer create_buffer() placed on D3D12_HEAP_TYPE_GPU_UPLOAD (see
+        // BufferRecord::gpu_upload_heap): the memory is GPU-local and CPU-mappable at once, so the
+        // staging buffer + copy queue upload_via_staging() needs is skipped entirely. (D3D12DeviceResources.cpp)
+        [[nodiscard]] rhi::RhiResult write_via_gpu_upload_heap(BufferRecord &record, u64 offset, span<const std::byte> data);
+
         // Records `record` onto its queue and blocks until it completes. The one-shot path shared by
         // upload_via_staging(), get_query_set_results(), and swapchain image-state initialization.
         [[nodiscard]] rhi::RhiResult execute_and_wait(ID3D12GraphicsCommandList *list, rhi::QueueClass queue);
@@ -588,6 +601,9 @@ namespace SFT::D3D12 {
         // every other call site can trust this single flag rather than separately null-checking the
         // ComPtr under the mutex.
         bool pipeline_library_supported_ = false;
+        // See D3D12DeviceCreateInfo::gpu_upload_heap_supported. Read by create_buffer() to decide
+        // whether a DeviceLocal buffer can be placed on D3D12_HEAP_TYPE_GPU_UPLOAD.
+        bool gpu_upload_heap_supported_ = false;
 
         // ── Resource pools ──
         D3D12ResourcePool<rhi::BufferHandle, BufferRecord> buffers_;

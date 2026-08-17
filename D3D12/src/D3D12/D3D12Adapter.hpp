@@ -46,6 +46,10 @@ namespace SFT::D3D12 {
         // back an ID3D12PipelineLibrary, which D3D12Device uses as an on-disk PSO cache to avoid
         // recompiling every pipeline permutation cold on every run.
         bool pipeline_library_supported = false;
+        // D3D12_FEATURE_DATA_D3D12_OPTIONS16::GPUUploadHeapSupported — Resizable-BAR-backed memory
+        // that is simultaneously CPU-mappable and GPU-local. Hoisted out like enhanced_barriers
+        // because create_buffer() picks a different heap type on it, not just a FeatureSet bit.
+        bool gpu_upload_heap_supported = false;
     };
 
     [[nodiscard]] DeviceCapabilities probe_capabilities(ID3D12Device *device);

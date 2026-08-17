@@ -126,7 +126,8 @@ namespace SFT::D3D12 {
           feature_report_(std::move(info.feature_report)), feature_properties_(info.feature_properties),
           queue_infos_(std::move(info.queue_infos)), enabled_extensions_(std::move(info.enabled_extensions)),
           enhanced_barriers_(info.enhanced_barriers), debug_layer_enabled_(info.debug_layer_enabled),
-          allow_tearing_(info.allow_tearing), pipeline_library_supported_(info.pipeline_library_supported) {
+          allow_tearing_(info.allow_tearing), pipeline_library_supported_(info.pipeline_library_supported),
+          gpu_upload_heap_supported_(info.gpu_upload_heap_supported) {
         enabled_features_ = feature_report_.enabled_features();
     }
 

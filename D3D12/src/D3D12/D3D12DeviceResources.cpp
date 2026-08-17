@@ -65,14 +65,28 @@ namespace SFT::D3D12 {
             size = align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         }
 
-        const D3D12_HEAP_TYPE heap_type = to_d3d12_heap_type(desc.memory);
+        D3D12_HEAP_TYPE heap_type = to_d3d12_heap_type(desc.memory);
+        // ReBAR fast path: a DeviceLocal buffer that a caller actually seeds from the CPU (TransferDst
+        // — see MemoryLocation::DeviceLocal's own doc comment, "upload to it via a staging buffer +
+        // copy") can skip that staging buffer + copy entirely when D3D12_HEAP_TYPE_GPU_UPLOAD is
+        // available: that heap type is simultaneously GPU-local and CPU-mappable. A DeviceLocal buffer
+        // *without* TransferDst is never routed through write_buffer()'s staging path in the first
+        // place (it's written only by the GPU — AS scratch, compute-only storage, …), so it stays on
+        // D3D12_HEAP_TYPE_DEFAULT rather than spending ReBAR budget on a resource that never needs it.
+        const bool use_gpu_upload_heap = heap_type == D3D12_HEAP_TYPE_DEFAULT && gpu_upload_heap_supported_ &&
+                                          rhi::has_any(desc.usage, rhi::BufferUsage::TransferDst);
+        if (use_gpu_upload_heap) {
+            heap_type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+        }
         const CD3DX12_HEAP_PROPERTIES heap_properties(heap_type);
         // Upload/readback heaps have fixed CPU-visible resource states and cannot carry UAV flags.
         // Storage usage also represents read-only structured/byte-address buffers, which are valid on
         // those heaps and are used for per-frame scene data; only DeviceLocal storage needs the UAV
-        // creation flag that permits shader writes.
+        // creation flag that permits shader writes. GPU_UPLOAD is deliberately excluded from this
+        // restriction: its memory segment is LOCAL (VRAM) exactly like DEFAULT — the CPU-mapping
+        // ability is additive, not a trade for DEFAULT's state/flag flexibility.
         D3D12_RESOURCE_FLAGS resource_flags = to_d3d12_resource_flags(desc.usage);
-        if (heap_type != D3D12_HEAP_TYPE_DEFAULT) {
+        if (heap_type == D3D12_HEAP_TYPE_UPLOAD || heap_type == D3D12_HEAP_TYPE_READBACK) {
             resource_flags &= ~D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         }
         const CD3DX12_RESOURCE_DESC resource_desc = CD3DX12_RESOURCE_DESC::Buffer(size, resource_flags);
@@ -81,6 +95,7 @@ namespace SFT::D3D12 {
         record.size = size;
         record.memory = desc.memory;
         record.usage = desc.usage;
+        record.gpu_upload_heap = use_gpu_upload_heap;
 
         if (const HRESULT hr = device_->CreateCommittedResource(
                 &heap_properties,
@@ -162,6 +177,9 @@ namespace SFT::D3D12 {
         }
 
         if (record->memory == rhi::MemoryLocation::DeviceLocal) {
+            if (record->gpu_upload_heap) {
+                return write_via_gpu_upload_heap(*record, offset, data);
+            }
             return upload_via_staging(record->resource.Get(), offset, data);
         }
 
@@ -216,6 +234,22 @@ namespace SFT::D3D12 {
         // completed, which execute_and_wait() has just proven — hence the recycle here and not before.
         return_command_buffer(std::move(*command));
         return executed;
+    }
+
+    rhi::RhiResult D3D12Device::write_via_gpu_upload_heap(BufferRecord &record, u64 offset, span<const std::byte> data) {
+        ZoneScopedN("D3D12Device::write_via_gpu_upload_heap");
+        // A transient Map/Unmap per call, same shape as upload_via_staging()'s staging buffer, rather
+        // than reusing the record->mapped cache: that cache is map_buffer()/unmap_buffer()'s contract
+        // with the caller, and this path runs underneath write_buffer() without either of those being
+        // called. A null read range says the CPU will not read back through this mapping.
+        void *mapped = nullptr;
+        const CD3DX12_RANGE no_read(0, 0);
+        if (const HRESULT hr = record.resource->Map(0, &no_read, &mapped); FAILED(hr)) {
+            return hresult_error(hr, "write_via_gpu_upload_heap (Map)");
+        }
+        std::memcpy(static_cast<std::byte *>(mapped) + offset, data.data(), data.size());
+        record.resource->Unmap(0, nullptr);
+        return {};
     }
 
     // ─── Textures ────────────────────────────────────────────────────────────────
