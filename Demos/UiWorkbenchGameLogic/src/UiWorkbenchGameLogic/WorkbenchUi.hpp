@@ -91,6 +91,14 @@ namespace SFT::UiWorkbench {
         usize selected_graphics_adapter_index_ = 0;
         usize selected_graphics_api_index_ = 0;
 
+        // Window type: which windowing library owns the primary OS window (index 0 = SDL3,
+        // Platform's built-in default; 1 = GlfwWindowProvider). Reflects the user's last selection
+        // here, same "not continuously re-derived from the live window" convention the two dropdowns
+        // above already follow — see build_composition_panel()'s own doc comment on this dropdown.
+        UI::DropdownState window_type_dropdown_state_;
+        UI::ButtonState recreate_window_button_state_;
+        usize selected_window_type_index_ = 0;
+
         // Text Lab: plain single-line, masked (password) single-line, and a multiline Markdown
         // editor whose content renders live in a preview card below it. Buffers live here (like
         // every other widget's persistent state), seeded once in initialize().

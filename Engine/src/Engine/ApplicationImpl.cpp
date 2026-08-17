@@ -210,6 +210,52 @@ namespace SFT::Engine {
         return windows_.back()->surface;
     }
 
+    optional<Core::RenderSurfaceHandle> Application::recreate_primary_window(
+        const Platform::Windowing::WindowConfig &config, Platform::Windowing::WindowFactory factory) {
+        if (!engine_ || !client_->application_config().enable_runtime_window_management) {
+            return std::nullopt;
+        }
+
+        ManagedWindow *old_managed = nullptr;
+        for (auto &managed : windows_) {
+            if (managed->primary) {
+                old_managed = managed.get();
+                break;
+            }
+        }
+        if (!old_managed) {
+            return std::nullopt;
+        }
+
+        const Platform::Windowing::WindowFactory effective_factory =
+            factory != nullptr ? factory : client_->application_config().primary_window_factory;
+        // is_primary=false deliberately: that branch calls Engine::initialize(), the one-time
+        // bootstrap (device creation, shader discovery) that must never run a second time. The
+        // replacement window goes through the exact same non-bootstrap add_window() path every
+        // secondary/tear-off window already uses, then gets promoted below.
+        if (!spawn_managed_window(config, effective_factory, /*is_primary=*/false)) {
+            return std::nullopt;
+        }
+
+        // Same windows_.back()-is-the-one-just-spawned guarantee spawn_secondary_window() above
+        // already relies on.
+        ManagedWindow *new_managed = windows_.back().get();
+        new_managed->primary = true;
+        old_managed->primary = false;
+
+        window_manager_.with_window(new_managed->window_id, [this](Platform::Windowing::Window &window) -> bool {
+            engine_->set_primary_window(window);
+            return true;
+        });
+
+        // Reuses request_close_window()'s own mechanism (just inlined here since it's a one-line
+        // flag flip) — run()'s closing loop drains old_managed's in-flight frames and destroys it
+        // exactly like any other window close, primary or not.
+        old_managed->closing = true;
+
+        return new_managed->surface;
+    }
+
     void Application::request_close_window(Platform::Windowing::WindowId id) noexcept {
         if (ManagedWindow *managed = find_managed_window(id)) {
             managed->closing = true;
@@ -231,6 +277,21 @@ namespace SFT::Engine {
                     .surface = surface,
                     .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
                     .message = surface ? UString{} : UString{"Runtime window management is disabled or window creation failed."},
+                });
+                continue;
+            }
+
+            if (auto *recreate_primary = std::get_if<RecreatePrimaryWindowRequest>(&request)) {
+                const Platform::Windowing::WindowConfig config = recreate_primary->window.view();
+                const optional<Core::RenderSurfaceHandle> surface =
+                    recreate_primary_window(config, recreate_primary->factory);
+                engine_->window_requests().complete(WindowRequestCompletion{
+                    .id = recreate_primary->id,
+                    .kind = WindowRequestKind::RecreatePrimary,
+                    .accepted = surface.has_value(),
+                    .surface = surface,
+                    .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
+                    .message = surface ? UString{} : UString{"Runtime window management is disabled, there is no current primary window, or window creation failed."},
                 });
                 continue;
             }

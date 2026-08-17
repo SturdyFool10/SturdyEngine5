@@ -49,6 +49,18 @@ namespace SFT::Engine {
         Platform::Windowing::WindowFactory factory = nullptr;
     };
 
+    // Tears down the current primary window and spawns a replacement through `factory` (null
+    // inherits ApplicationConfig::primary_window_factory, same convention as SpawnWindowRequest) —
+    // e.g. switching the primary surface from Platform's built-in SDL3 provider to
+    // GlfwWindowProvider (or back) at runtime. See Application::recreate_primary_window()'s own doc
+    // comment for the actual teardown/promotion sequence; this struct is just the deferred request
+    // shape, same "GameLogic can't reach Application directly" reasoning as SpawnWindowRequest.
+    struct RecreatePrimaryWindowRequest {
+        WindowRequestId id{};
+        OwnedWindowConfig window{};
+        Platform::Windowing::WindowFactory factory = nullptr;
+    };
+
     struct CloseWindowRequest {
         WindowRequestId id{};
         Platform::Windowing::WindowId window{};
@@ -108,11 +120,12 @@ namespace SFT::Engine {
         bool active = true;
     };
 
-    using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, SetCursorIconRequest,
-                                  SetFullscreenRequest, SetDecoratedRequest, SetTransparentRequest, SetBlurRequest,
-                                  SetTextInputAreaRequest, SetTextInputActiveRequest>;
+    using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, RecreatePrimaryWindowRequest,
+                                  SetCursorIconRequest, SetFullscreenRequest, SetDecoratedRequest,
+                                  SetTransparentRequest, SetBlurRequest, SetTextInputAreaRequest,
+                                  SetTextInputActiveRequest>;
 
-    enum class WindowRequestKind : u8 { Spawn, Close };
+    enum class WindowRequestKind : u8 { Spawn, Close, RecreatePrimary };
 
     struct WindowRequestCompletion {
         WindowRequestId id{};
@@ -141,6 +154,14 @@ namespace SFT::Engine {
             auto guard = state_.lock();
             const WindowRequestId id{guard->next_id++};
             guard->pending.emplace_back(CloseWindowRequest{id, window});
+            return id;
+        }
+
+        [[nodiscard]] WindowRequestId recreate_primary_window(const Platform::Windowing::WindowConfig &config,
+                                                               Platform::Windowing::WindowFactory factory = nullptr) {
+            auto guard = state_.lock();
+            const WindowRequestId id{guard->next_id++};
+            guard->pending.emplace_back(RecreatePrimaryWindowRequest{id, OwnedWindowConfig{config}, factory});
             return id;
         }
 

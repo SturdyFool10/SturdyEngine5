@@ -8,6 +8,9 @@ sturdy_add_package(UiWorkbenchGameLogic
         Sturdy::Engine
         Sturdy::Text
         Sturdy::UI
+        # For the Composition panel's runtime "Window Type" dropdown, which switches the primary
+        # OS window between Platform's built-in SDL3 provider and this optional GLFW provider.
+        Sturdy::GlfwWindowProvider
 
     DEBUG_PUBLIC_DEPS
 )

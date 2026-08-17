@@ -16,6 +16,7 @@
 
 #include <Async/src/Mutex.hpp>
 #include <Platform/Window/Window.hpp>
+#include <Platform/Window/WindowTextUtil.hpp>
 #include <Platform/Window/GLFW/Window.hpp>
 #include <Platform/Window/GLFW/GlfwWindowNative.hpp>
 #include <Platform/Platform.hpp>
@@ -366,6 +367,28 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    // Detail::ImePreeditCallback trampoline — `user_data` is the GLFWWindow* passed at
+    // install_ime_composition_hook() time (GLFWWindow::construct(), below), not resolved via
+    // glfwGetWindowUserPointer() the way the other glfw_*_callback functions above resolve their
+    // target, since the native IME hook has no GLFWwindow* of its own to look one up from (Win32's
+    // subclass callback, X11's XIM callback, and Wayland's text-input listener each only carry
+    // whatever opaque user-data pointer was handed to them at install time).
+    void glfw_native_preedit_trampoline(const char *text, int cursor_pos, void *user_data) {
+        ZoneScopedN("GLFW::glfw_native_preedit_trampoline");
+        auto *target = static_cast<GLFWWindow *>(user_data);
+        if (!target) [[unlikely]] {
+            return;
+        }
+        WindowEvent event{WindowEventKind::TextEditing};
+        event.timestamp_ns = steady_now_ns();
+        if (text) [[likely]] {
+            copy_utf8_truncated(event.editing.utf8, sizeof(event.editing.utf8), text);
+        }
+        event.editing.cursor = cursor_pos;
+        event.editing.selection_length = 0;
+        target->events_.push_back(event);
+    }
+
     void glfw_cursor_pos_callback(GLFWwindow *window, f64 x, f64 y) {
         ZoneScopedN("GLFW::glfw_cursor_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -466,6 +489,7 @@ namespace SFT::Platform::Windowing::GLFW {
         Foundation::log_info("GLFW window destroy: wrapper={} native_ptr={}",
                             static_cast<void *>(this),
                             static_cast<void *>(window_));
+        Detail::remove_ime_composition_hook(window_);
         glfwDestroyWindow(window_);
         window_ = nullptr;
 
@@ -613,6 +637,10 @@ namespace SFT::Platform::Windowing::GLFW {
             glfwSetCursorPosCallback(window, glfw_cursor_pos_callback);
             glfwSetMouseButtonCallback(window, glfw_mouse_button_callback);
             glfwSetScrollCallback(window, glfw_scroll_callback);
+            // No-op (returns false) on a platform without a native IME implementation wired up yet
+            // — see Detail::install_ime_composition_hook's own doc comment (GlfwWindowNative.hpp)
+            // for why that's an expected outcome, not an error, and doesn't block window creation.
+            (void)Detail::install_ime_composition_hook(window, &glfw_native_preedit_trampoline, wrapper.get());
             ++glfw_window_count();
             Foundation::log_info("GLFW window wrapper constructed: wrapper={} "
                                 "native_ptr={} active_count={}",
@@ -1415,6 +1443,25 @@ namespace SFT::Platform::Windowing::GLFW {
         // guaranteed to be one, so it's copied into an owned buffer first.
         const std::string owned(text);
         glfwSetClipboardString(window_, owned.c_str());
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_text_input_area(TextInputArea area) noexcept {
+        ZoneScopedN("GLFWWindow::set_text_input_area");
+        Detail::set_ime_composition_exclude_rect(window_, static_cast<int>(area.x), static_cast<int>(area.y),
+                                                 static_cast<int>(area.width), static_cast<int>(area.height));
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::start_text_input() noexcept {
+        ZoneScopedN("GLFWWindow::start_text_input");
+        Detail::set_ime_enabled(window_, true);
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::stop_text_input() noexcept {
+        ZoneScopedN("GLFWWindow::stop_text_input");
+        Detail::set_ime_enabled(window_, false);
         return {};
     }
 

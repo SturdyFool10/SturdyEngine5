@@ -117,6 +117,10 @@ namespace SFT::Platform::Windowing::GLFW {
         [[nodiscard]] std::string clipboard_text() const noexcept override;
         expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
 
+        expected<void, WindowError> set_text_input_area(TextInputArea area) noexcept override;
+        expected<void, WindowError> start_text_input() noexcept override;
+        expected<void, WindowError> stop_text_input() noexcept override;
+
       private:
         friend class ::SFT::Platform::Windowing::Window;
         friend void glfw_close_callback(GLFWwindow *window);
@@ -127,6 +131,7 @@ namespace SFT::Platform::Windowing::GLFW {
         friend void glfw_cursor_enter_callback(GLFWwindow *window, int entered);
         friend void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
         friend void glfw_char_callback(GLFWwindow *window, unsigned int codepoint);
+        friend void glfw_native_preedit_trampoline(const char *text, int cursor_pos, void *user_data);
         friend void glfw_cursor_pos_callback(GLFWwindow *window, f64 x, f64 y);
         friend void glfw_mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
         friend void glfw_scroll_callback(GLFWwindow *window, f64 x, f64 y);

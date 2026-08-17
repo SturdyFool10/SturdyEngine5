@@ -1,5 +1,7 @@
 #include <UiWorkbenchGameLogic/WorkbenchUi.hpp>
 
+#include <Platform/Window/GLFW/GLFW.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -637,6 +639,15 @@ namespace SFT::UiWorkbench {
                 status_message_ = completion.accepted
                                       ? "Tear-off complete — the panel now owns an independent UI surface."
                                       : "The OS window request failed; the panel stayed safely docked.";
+            }
+            if (completion.kind == Engine::WindowRequestKind::RecreatePrimary) {
+                status_message_ = completion.accepted
+                                      ? "Primary window recreated."
+                                      : "Primary window recreation failed: " +
+                                            completion.message.to_std_string_unchecked();
+                if (completion.accepted) {
+                    primary_window_ = completion.window;
+                }
             }
             if (completion.kind == Engine::WindowRequestKind::Close && completion.accepted &&
                 (!primary_window_ || completion.window != *primary_window_)) {
@@ -1344,6 +1355,72 @@ namespace SFT::UiWorkbench {
             }
         } else {
             draw_text(ctx, "No graphics devices were discovered.", text_style(font_id_, warning, 12));
+        }
+
+        {
+            UI::DropdownStyle window_type_dropdown_style{};
+            window_type_dropdown_style.trigger = action_button_style();
+            window_type_dropdown_style.list_background = panel_raised;
+            window_type_dropdown_style.option_hovered = UI::Color{accent.r, accent.g, accent.b, 0.22};
+            window_type_dropdown_style.arrow_font_id = font_id_;
+
+            section_label(ctx, font_id_, "Window Type");
+            static constexpr std::array<const char *, 2> window_type_labels = {"SDL3", "GLFW"};
+            std::vector<UI::DropdownOption> window_type_options;
+            for (const char *label : window_type_labels) {
+                window_type_options.push_back({.build = [label](UI::Context &option_ctx) {
+                    draw_text(option_ctx, label, text_style(font_id_, text_primary, 12));
+                }});
+            }
+            const UI::DropdownResult window_type_result = UI::dropdown(
+                ctx,
+                UString{"workbench-window-type-dropdown"},
+                UI::ElementDecl{.sizing = {UI::SizingAxis::fixed(330.0f), UI::SizingAxis::fixed(38.0f)},
+                                .padding = UI::Padding::symmetric(12, 8),
+                                .id = UString{"workbench-window-type-dropdown"}},
+                window_type_dropdown_style,
+                window_type_dropdown_state_,
+                delta_seconds,
+                selected_window_type_index_,
+                window_type_options,
+                true,
+                UI::DropdownComposition{});
+            selected_window_type_index_ = window_type_result.selected_index;
+
+            const UI::ButtonResult recreate_window = UI::button(
+                ctx,
+                UI::ElementDecl{.sizing = {UI::SizingAxis::fixed(220.0f), UI::SizingAxis::fixed(36.0f)},
+                                .padding = UI::Padding::symmetric(12, 8),
+                                .child_alignment = {UI::AlignX::Center, UI::AlignY::Center},
+                                .id = UString{"workbench-recreate-window"}},
+                action_button_style(),
+                recreate_window_button_state_,
+                delta_seconds);
+            draw_text(ctx, "Recreate window", text_style(font_id_, text_primary, 12));
+            if (recreate_window.clicked) {
+                const Engine::WindowSnapshot *primary_snapshot = engine.window_state().primary();
+                if (primary_snapshot == nullptr) {
+                    status_message_ = "Cannot recreate the primary window: no live window snapshot yet.";
+                } else {
+                    const Platform::Windowing::WindowConfig config{
+                        .title = "Sturdy UI Workbench",
+                        .extent = primary_snapshot->size,
+                        .position = primary_snapshot->position,
+                        .use_default_position = false,
+                        .visible = true,
+                        .resizable = true,
+                        .decorated = true,
+                        .high_dpi = true,
+                        .transparent = true,
+                        .mode = Platform::Windowing::WindowMode::Windowed,
+                        .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
+                    };
+                    const Platform::Windowing::WindowFactory factory =
+                        selected_window_type_index_ == 1 ? &Platform::Windowing::GLFW::create_window : nullptr;
+                    (void)engine.window_requests().recreate_primary_window(config, factory);
+                    status_message_ = "Requesting primary window recreation...";
+                }
+            }
         }
 
         const auto toggle_row = [&](usize index, const char *label, const char *description, bool &value, const std::function<void()> &on_change = [] {}) {

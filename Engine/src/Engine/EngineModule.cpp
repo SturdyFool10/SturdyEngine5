@@ -63,6 +63,8 @@ namespace SFT::Engine {
 
     [[nodiscard]] Platform::Windowing::Window *Engine::primary_window() noexcept { return primary_window_; }
 
+    void Engine::set_primary_window(Platform::Windowing::Window &window) noexcept { primary_window_ = &window; }
+
     [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &Engine::shaders() const noexcept { return shaders_; }
 
 } // namespace SFT::Engine

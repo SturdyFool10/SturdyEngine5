@@ -28,6 +28,7 @@
 
 #include <Async/src/Mutex.hpp>
 #include <Platform/Window/Window.hpp>
+#include <Platform/Window/WindowTextUtil.hpp>
 #include <Platform/Window/SDL3/Window.hpp>
 #if defined(__linux__)
 #include <Platform/Linux/WaylandColorManagement.hpp>
@@ -85,27 +86,6 @@ namespace SFT::Platform::Windowing::SDL3 {
                     return KeyboardKey::Menu;
                 default: return KeyboardKey::Unknown;
             }
-        }
-
-        // Copies as much of `src` (NUL-terminated UTF-8) as fits in `dest_capacity` bytes
-        // (including the trailing NUL this always writes), backing off from the end of `src` one
-        // byte at a time if a straight length-based cut would land inside a multi-byte UTF-8
-        // sequence — a plain SDL_strnlen()+memcpy() truncation can otherwise split a CJK/emoji
-        // codepoint in half, corrupting the last character of an over-long IME composition instead
-        // of just dropping it. `dest` need not be zero-initialized; always NUL-terminates.
-        void copy_utf8_truncated(char *dest, usize dest_capacity, const char *src) noexcept {
-            if (dest_capacity == 0) {
-                return;
-            }
-            usize copy_size = SDL_strnlen(src, dest_capacity - 1);
-            // A UTF-8 continuation byte is 10xxxxxx; back off until `copy_size` either lands on a
-            // sequence-start byte (or ASCII) or hits zero, so the copied prefix is always
-            // well-formed UTF-8 on its own.
-            while (copy_size > 0 && (static_cast<unsigned char>(src[copy_size]) & 0xC0) == 0x80) {
-                --copy_size;
-            }
-            memcpy(dest, src, copy_size);
-            dest[copy_size] = '\0';
         }
 
         WindowError sdl_error(WindowErrorCode code, const char *fallback) noexcept {

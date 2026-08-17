@@ -213,6 +213,13 @@ namespace SFT::Engine {
         // surface currently reaches.
         [[nodiscard]] Platform::Windowing::Window *primary_window() noexcept;
 
+        // Repoints the primary-window pointer without going through initialize() — for
+        // Application::recreate_primary_window() after it has spawned a replacement OS window and
+        // wants Engine's own notion of "the primary window" (what primary_window() above, and
+        // therefore apply_runtime_settings()'s Vulkan-WSI-extension query, dereferences) to follow
+        // the swap instead of dangling once the old window is torn down.
+        void set_primary_window(Platform::Windowing::Window &window) noexcept;
+
         [[nodiscard]] const EngineConfig &config() const noexcept;
         [[nodiscard]] const Core::RendererCapabilities &capabilities() const noexcept;
         [[nodiscard]] SFT::Renderer::Renderer *renderer() noexcept;

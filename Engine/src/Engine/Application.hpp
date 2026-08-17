@@ -90,6 +90,21 @@ namespace SFT::Engine {
             const Platform::Windowing::WindowConfig &config,
             Platform::Windowing::WindowFactory factory = nullptr);
 
+        // Tears down the current primary window and replaces it with one spawned through `factory`
+        // (null inherits ApplicationConfig::primary_window_factory, same convention as
+        // spawn_secondary_window() above) — e.g. switching the primary surface between Platform's
+        // built-in SDL3 provider and GlfwWindowProvider at runtime. The replacement is spawned
+        // through the same non-bootstrap path spawn_secondary_window() already uses (never re-runs
+        // Engine::initialize()), then promoted to primary; the old window is torn down through the
+        // same generic closing sequence request_close_window() already triggers for any window —
+        // run()'s own closing loop never special-cased "this is the primary" to begin with, so no
+        // new teardown path was needed, only this promotion/demotion bookkeeping. Available only
+        // when enable_runtime_window_management is true; returns nullopt otherwise, if creation
+        // fails, or if there is currently no managed primary window to replace.
+        [[nodiscard]] optional<Core::RenderSurfaceHandle> recreate_primary_window(
+            const Platform::Windowing::WindowConfig &config,
+            Platform::Windowing::WindowFactory factory = nullptr);
+
         // Marks a managed window for teardown on run()'s own next tick, reusing the exact
         // close/drain/remove_window/destroy_window sequence run() already applies when the OS itself
         // reports a close request (events.close_requested) — just triggered programmatically instead

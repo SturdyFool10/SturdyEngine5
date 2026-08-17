@@ -35,4 +35,28 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 #endif
     }
 
+    // Not implemented on Cocoa yet — see GlfwWindowNative.hpp's own doc comment on why returning
+    // false here is a normal, expected outcome rather than an error for every caller.
+    bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept {
+        (void)window_handle;
+        (void)callback;
+        (void)user_data;
+        return false;
+    }
+
+    void remove_ime_composition_hook(void *window_handle) noexcept { (void)window_handle; }
+
+    void set_ime_composition_exclude_rect(void *window_handle, int x, int y, int width, int height) noexcept {
+        (void)window_handle;
+        (void)x;
+        (void)y;
+        (void)width;
+        (void)height;
+    }
+
+    void set_ime_enabled(void *window_handle, bool enabled) noexcept {
+        (void)window_handle;
+        (void)enabled;
+    }
+
 } // namespace SFT::Platform::Windowing::GLFW::Detail
