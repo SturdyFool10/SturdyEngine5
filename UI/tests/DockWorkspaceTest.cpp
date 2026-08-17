@@ -101,7 +101,7 @@ namespace {
         return passed;
     }
 
-    // ---- Pure DockTree tests (no Context/Clay involved at all) -----------------------------
+
 
     bool fresh_tree_is_a_single_empty_root_leaf() {
         DockTree tree;
@@ -128,7 +128,7 @@ namespace {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
         tree.merge_into_leaf(tree.root(), UString{"B"});
-        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, /*panel_first=*/false, UString{"C"}, 0.25f);
+        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal,                 false, UString{"C"}, 0.25f);
 
         const DockNode *root = tree.node(tree.root());
         bool passed = check(root->kind == DockNode::Kind::Split, "split_leaf did not turn the target into a Split");
@@ -159,7 +159,7 @@ namespace {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
         tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, false, UString{"B"});
-        // root is now Split{A-leaf, B-leaf}.
+
         tree.remove_panel(UString{"B"});
         const DockNode *root = tree.node(tree.root());
         bool passed = check(root != nullptr, "root vanished entirely after collapse");
@@ -172,12 +172,12 @@ namespace {
     bool remove_panel_promotes_sibling_into_grandparent_slot() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
-        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, false, UString{"B"}); // root = Split{leafA, leafB}
+        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, false, UString{"B"});
         const DockNode *root_before = tree.node(tree.root());
         const DockNodeId leaf_a = root_before->first_child;
-        tree.split_leaf(leaf_a, DockSplitAxis::Vertical, false, UString{"C"}); // leafA -> Split{leafA', leafC}
+        tree.split_leaf(leaf_a, DockSplitAxis::Vertical, false, UString{"C"});
 
-        tree.remove_panel(UString{"C"}); // collapses the inner split; A should be promoted into root's first_child slot.
+        tree.remove_panel(UString{"C"});
 
         const DockNode *root = tree.node(tree.root());
         bool passed = check(root->kind == DockNode::Kind::Split, "outer split collapsed when it shouldn't have");
@@ -194,7 +194,7 @@ namespace {
         tree.merge_into_leaf(tree.root(), UString{"A"});
         tree.merge_into_leaf(tree.root(), UString{"B"});
         tree.merge_into_leaf(tree.root(), UString{"C"});
-        tree.reorder_tab(tree.root(), 0, 2); // A moves to the end: [B, C, A]
+        tree.reorder_tab(tree.root(), 0, 2);
         const DockNode *root = tree.node(tree.root());
         bool passed = check(root->tabs.size() == 3 && root->tabs[0] == UString{"B"} && root->tabs[1] == UString{"C"} &&
                                 root->tabs[2] == UString{"A"},
@@ -204,12 +204,12 @@ namespace {
         return passed;
     }
 
-    // ---- Pure DockLayout test ----------------------------------------------------------------
+
 
     bool compute_dock_layout_matches_hand_computed_rects() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
-        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, false, UString{"B"}, 0.25f); // ratio 0.75/0.25
+        tree.split_leaf(tree.root(), DockSplitAxis::Horizontal, false, UString{"B"}, 0.25f);
 
         const vector<DockNodeLayout> layout = compute_dock_layout(tree, DockRect{{0, 0}, {800, 600}}, 28.0f, 6.0f);
         bool passed = check(layout.size() == 3, "expected exactly 3 layout entries (root split + 2 leaves)");
@@ -238,7 +238,7 @@ namespace {
         return passed;
     }
 
-    // ---- DockWorkspace + real Context integration tests ---------------------------------------
+
 
     struct Frame {
         Context &ctx;
@@ -352,9 +352,9 @@ namespace {
         bool passed = check(before.has_value(), "C is not the active tab of its own leaf before resizing");
         passed &= check(nearly(before->floating.offset.x, 603.0f), "unexpected initial content position for C");
 
-        frame.run(PointerState{.position = {600, 300}, .down = true}); // press the divider
-        frame.run(PointerState{.position = {650, 300}, .down = true}); // drag it 50px right
-        frame.run(PointerState{.position = {650, 300}, .down = false}); // release
+        frame.run(PointerState{.position = {600, 300}, .down = true});
+        frame.run(PointerState{.position = {650, 300}, .down = true});
+        frame.run(PointerState{.position = {650, 300}, .down = false});
 
         const optional<ElementDecl> after = ws.panel_content_region(UString{"C"});
         passed &= check(after.has_value(), "C stopped being the active tab after an unrelated resize");
@@ -370,7 +370,7 @@ namespace {
         Context ctx = std::move(*made);
         DockWorkspace ws{UString{"test"}};
         ws.add_panel(DockPanelDesc{.id = UString{"A"}, .title = UString{"Panel A"}});
-        ws.add_panel(DockPanelDesc{.id = UString{"B"}, .title = UString{"Panel B"}}); // B becomes active on add
+        ws.add_panel(DockPanelDesc{.id = UString{"B"}, .title = UString{"Panel B"}});
 
         const DockRect rect{{0, 0}, {800, 600}};
         Frame frame{ctx, ws, rect};
@@ -378,8 +378,8 @@ namespace {
         frame.run(PointerState{.position = {-100, -100}, .down = false});
         bool passed = check(!ws.panel_content_region(UString{"A"}).has_value(), "A is unexpectedly active before any interaction");
 
-        frame.run(PointerState{.position = {4, 14}, .down = true});  // press inside A's tab box, left of its close button
-        frame.run(PointerState{.position = {4, 14}, .down = false}); // release without moving -> a click, not a drag
+        frame.run(PointerState{.position = {4, 14}, .down = true});
+        frame.run(PointerState{.position = {4, 14}, .down = false});
 
         passed &= check(ws.panel_content_region(UString{"A"}).has_value(), "clicking A's tab did not make it active");
         passed &= check(!ws.panel_content_region(UString{"B"}).has_value(), "B is still reported active after A was clicked");
@@ -400,10 +400,10 @@ namespace {
         Frame frame{ctx, ws, rect};
 
         frame.run(PointerState{.position = {-100, -100}, .down = false});
-        // Context::clicked() fires on the press frame, not on release (see Context.hpp), and the
-        // close button is nested inside the tab's own hit box — pressing squarely on it (roughly
-        // centered in the tab, away from the left edge used by the tab-click tests above) must
-        // both fire the close *and* not also start a tab-drag for the same press.
+
+
+
+
         DockWorkspaceEvents events = frame.run(PointerState{.position = {24, 14}, .down = true});
 
         bool passed = check(events.close_requests.size() == 1 && events.close_requests[0] == UString{"A"},
@@ -430,9 +430,9 @@ namespace {
         Frame frame{ctx, ws, rect};
 
         frame.run(PointerState{.position = {-100, -100}, .down = false});
-        frame.run(PointerState{.position = {52, 14}, .down = true}); // press B's tab (2nd tab in leaf1: x in [48,96))
-        frame.run(PointerState{.position = {701, 314}, .down = true}); // drag into leaf2's content center
-        frame.run(PointerState{.position = {701, 314}, .down = false}); // release -> should dock as a tab there
+        frame.run(PointerState{.position = {52, 14}, .down = true});
+        frame.run(PointerState{.position = {701, 314}, .down = true});
+        frame.run(PointerState{.position = {701, 314}, .down = false});
 
         bool passed = check(ws.panel_content_region(UString{"B"}).has_value(), "B did not become active in its new leaf");
         passed &= check(ws.panel_content_region(UString{"A"}).has_value(), "A did not become active in the leaf B vacated");
@@ -468,8 +468,8 @@ namespace {
                         "removing the actively dragged panel did not cancel workspace drag state");
         passed &= check(!ws.has_panel(UString{"B"}), "actively dragged panel was not removed");
 
-        // One cleanup frame lets Context discard capture for B's now-undeclared tab. A subsequent
-        // drag proves the workspace did not remain wedged in its old active-drag branch.
+
+
         frame.run(PointerState{.position = {500, 250}, .down = false});
         ws.add_panel(DockPanelDesc{.id = UString{"C"}, .title = UString{"Panel C"}});
         frame.run(PointerState{.position = {-100, -100}, .down = false});
@@ -530,9 +530,9 @@ namespace {
         Frame frame{ctx, ws, rect};
 
         frame.run(PointerState{.position = {-100, -100}, .down = false});
-        frame.run(PointerState{.position = {52, 14}, .down = true});   // press B's tab
-        frame.run(PointerState{.position = {900, 300}, .down = true}); // drag well outside the 800x600 workspace
-        DockWorkspaceEvents events = frame.run(PointerState{.position = {900, 300}, .down = false}); // release outside
+        frame.run(PointerState{.position = {52, 14}, .down = true});
+        frame.run(PointerState{.position = {900, 300}, .down = true});
+        DockWorkspaceEvents events = frame.run(PointerState{.position = {900, 300}, .down = false});
 
         bool passed = check(events.tear_off_requests.size() == 1, "expected exactly one tear-off request");
         passed &= check(!events.tear_off_requests.empty() && events.tear_off_requests[0].panel == UString{"B"},
@@ -563,9 +563,9 @@ int main() {
     passed &= active_tab_drag_snapshot_is_local_and_remove_cancels_it();
     passed &= nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates();
     passed &= dragging_a_tab_outside_the_workspace_requests_tear_off();
-    // check() already prints "FAILED: ..." per failing case; this is the success-path counterpart
-    // — see WidgetTest.cpp's own main() for why a silent-on-success test main is worth avoiding
-    // (a .zed/tasks.json "Run" task would otherwise look like it didn't do anything).
+
+
+
     if (passed) {
         std::cout << "UIDockWorkspaceTest: all checks passed.\n";
     }

@@ -15,10 +15,10 @@
 
 namespace SFT::RHI {
 
-    // The windowing system backing a surface. The RHI takes neutral `void*` native handles rather
-    // than depending on Platform/Core — a backend turns (system, display, window) into its own
-    // surface object (Vulkan: a VkSurfaceKHR). Mirrors the neutral shape Core::RenderSurface uses,
-    // but redeclared here so the RHI stays dependency-free.
+    /// The windowing system backing a surface. The RHI takes neutral `void*` native handles rather
+    /// than depending on Platform/Core — a backend turns (system, display, window) into its own
+    /// surface object (Vulkan: a VkSurfaceKHR). Mirrors the neutral shape Core::RenderSurface uses,
+    /// but redeclared here so the RHI stays dependency-free.
     enum class WindowSystem : u32 {
         Unknown,
         Win32,
@@ -32,38 +32,38 @@ namespace SFT::RHI {
 
     struct SurfaceDesc {
         WindowSystem system = WindowSystem::Unknown;
-        void *display = nullptr; // native display/connection (X11 Display*, wl_display*, HINSTANCE, ANativeWindow owner)
-        void *window = nullptr;  // native window/layer (X11 Window, wl_surface*, HWND, NSView*/CAMetalLayer*, ANativeWindow*)
+        void *display = nullptr;
+        void *window = nullptr;
         const char *label = nullptr;
     };
 
-    // How presented images are queued to the display. Mirrors the common WSI set; a backend picks
-    // the nearest supported mode and reports it back (Fifo is the always-available fallback, the one
-    // present mode every implementation must support). Application/gameplay code never names one of
-    // these directly — see PresentStrategy below and Core::PresentationSettings (Core/Renderer.hpp)
-    // for the layers that sit in front of it.
+    /// How presented images are queued to the display. Mirrors the common WSI set; a backend picks
+    /// the nearest supported mode and reports it back (Fifo is the always-available fallback, the one
+    /// present mode every implementation must support). Application/gameplay code never names one of
+    /// these directly — see PresentStrategy below and Core::PresentationSettings (Core/Renderer.hpp)
+    /// for the layers that sit in front of it.
     enum class PresentMode : u32 {
-        // vsync, no tearing, never drops — the guaranteed-supported default.
+        /// vsync, no tearing, never drops — the guaranteed-supported default.
         Fifo,
-        // vsync, but allows a late frame to tear rather than stall (may be unsupported on some WSIs,
-        // e.g. native Wayland — a backend should fall back to Fifo).
+        /// vsync, but allows a late frame to tear rather than stall (may be unsupported on some WSIs,
+        /// e.g. native Wayland — a backend should fall back to Fifo).
         FifoRelaxed,
-        // triple-buffered, no tearing, drops stale frames for latency.
+        /// triple-buffered, no tearing, drops stale frames for latency.
         Mailbox,
-        // no synchronization, tears — lowest latency.
+        /// no synchronization, tears — lowest latency.
         Immediate,
-        // Fifo's ordering/tear-free guarantee, but at vblank the presentation engine may skip ahead
-        // to the latest *ready* queued request instead of strictly the next one in line — lower
-        // latency than plain Fifo with the same never-tears guarantee. Backed by
-        // VK_KHR_present_mode_fifo_latest_ready (RHI::Feature::PresentModeFifoLatestReady) — see
-        // that feature's own doc comment for why it's engine-enabled whenever the device supports
-        // it rather than gated behind an app request.
+        /// Fifo's ordering/tear-free guarantee, but at vblank the presentation engine may skip ahead
+        /// to the latest *ready* queued request instead of strictly the next one in line — lower
+        /// latency than plain Fifo with the same never-tears guarantee. Backed by
+        /// VK_KHR_present_mode_fifo_latest_ready (RHI::Feature::PresentModeFifoLatestReady) — see
+        /// that feature's own doc comment for why it's engine-enabled whenever the device supports
+        /// it rather than gated behind an app request.
         FifoLatestReady,
     };
 
-    // Human-readable names for logs/diagnostics/debug overlays — shared by every layer that needs
-    // to print one of these (the Vulkan bridge's resolution logging, a Renderer debug overlay, ...)
-    // so there's exactly one spelling of each enumerator's display name, not one per call site.
+    /// Human-readable names for logs/diagnostics/debug overlays — shared by every layer that needs
+    /// to print one of these (the Vulkan bridge's resolution logging, a Renderer debug overlay, ...)
+    /// so there's exactly one spelling of each enumerator's display name, not one per call site.
     [[nodiscard]] constexpr std::string_view present_mode_name(PresentMode mode) noexcept {
         switch (mode) {
             case PresentMode::Fifo: return "Fifo";
@@ -75,32 +75,32 @@ namespace SFT::RHI {
         return "Unknown";
     }
 
-    // A backend-agnostic presentation *strategy* — what Core::resolve_present_strategy()
-    // (Core/Renderer.hpp) turns an app's Core::PresentationSettings intent into, and the only thing
-    // choose_present_mode() below consumes. Kept independent of any single PresentMode so a
-    // different graphics backend (e.g. a future WebGPU RHI) could implement the same strategies
-    // with its own present-mode set, and so gameplay/settings code never has to name a raw
-    // PresentMode itself.
+    /// A backend-agnostic presentation *strategy* — what Core::resolve_present_strategy()
+    /// (Core/Renderer.hpp) turns an app's Core::PresentationSettings intent into, and the only thing
+    /// choose_present_mode() below consumes. Kept independent of any single PresentMode so a
+    /// different graphics backend (e.g. a future WebGPU RHI) could implement the same strategies
+    /// with its own present-mode set, and so gameplay/settings code never has to name a raw
+    /// PresentMode itself.
     enum class PresentStrategy : u32 {
-        // Tearing allowed, no intentional vertical-blank wait — lowest possible latency.
+        /// Tearing allowed, no intentional vertical-blank wait — lowest possible latency.
         Unsynchronized,
-        // Tear-free, ordered vertical-blank presentation — standard "VSync On." This is Fifo's
-        // exact match, not a fallback: don't prefer Mailbox/FifoLatestReady here just because
-        // they're available (see present_mode_preference()'s own comment).
+        /// Tear-free, ordered vertical-blank presentation — standard "VSync On." This is Fifo's
+        /// exact match, not a fallback: don't prefer Mailbox/FifoLatestReady here just because
+        /// they're available (see present_mode_preference()'s own comment).
         TearFreeOrdered,
-        // Tear-free, but the newest completed frame always replaces older queued ones — "VSync On,
-        // low latency" and "VSync Off" once tearing itself isn't actually available.
+        /// Tear-free, but the newest completed frame always replaces older queued ones — "VSync On,
+        /// low latency" and "VSync Off" once tearing itself isn't actually available.
         TearFreeLatest,
-        // Tear-free normally, but tearing is permitted when a frame is late rather than stalling a
-        // full extra refresh interval — the classic "Adaptive VSync" toggle.
+        /// Tear-free normally, but tearing is permitted when a frame is late rather than stalling a
+        /// full extra refresh interval — the classic "Adaptive VSync" toggle.
         AdaptiveTearing,
-        // Fifo's ordering/tear-free guarantee, but skips ahead to the latest ready request at
-        // vblank instead of strictly the next queued one.
+        /// Fifo's ordering/tear-free guarantee, but skips ahead to the latest ready request at
+        /// vblank instead of strictly the next queued one.
         TearFreeLatestReady,
-        // Plain Fifo, deliberately: variable-refresh-rate presentation is a display/compositor-
-        // level pacing behavior, not a distinct Vulkan present mode — see
-        // Core::VariableRefreshMode's own doc comment (Core/Renderer.hpp). If the display/compositor
-        // never actually engages VRR, this degrades gracefully to ordinary Fifo, not an error.
+        /// Plain Fifo, deliberately: variable-refresh-rate presentation is a display/compositor-
+        /// level pacing behavior, not a distinct Vulkan present mode — see
+        /// Core::VariableRefreshMode's own doc comment (Core/Renderer.hpp). If the display/compositor
+        /// never actually engages VRR, this degrades gracefully to ordinary Fifo, not an error.
         VariableRefresh,
     };
 
@@ -116,13 +116,13 @@ namespace SFT::RHI {
         return "Unknown";
     }
 
-    // `strategy`'s present modes in priority order, most-preferred first, padded to length 4 by
-    // repeating the last real entry (harmless — choose_present_mode() below just returns the first
-    // supported match, so a repeated trailing entry is never re-examined for a different reason).
-    // Every list's terminal entry is Fifo, the one mode every conformant Vulkan implementation is
-    // required to support, so choose_present_mode() is guaranteed to find *something* even on a
-    // maximally restrictive surface (native Wayland commonly supports only Fifo, sometimes
-    // FifoRelaxed).
+    /// `strategy`'s present modes in priority order, most-preferred first, padded to length 4 by
+    /// repeating the last real entry (harmless — choose_present_mode() below just returns the first
+    /// supported match, so a repeated trailing entry is never re-examined for a different reason).
+    /// Every list's terminal entry is Fifo, the one mode every conformant Vulkan implementation is
+    /// required to support, so choose_present_mode() is guaranteed to find *something* even on a
+    /// maximally restrictive surface (native Wayland commonly supports only Fifo, sometimes
+    /// FifoRelaxed).
     [[nodiscard]] constexpr std::array<PresentMode, 4> present_mode_preference(PresentStrategy strategy) noexcept {
         switch (strategy) {
             case PresentStrategy::Unsynchronized:
@@ -141,23 +141,16 @@ namespace SFT::RHI {
         return {PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo};
     }
 
-    // First entry of present_mode_preference(strategy) that's actually in `supported` (the surface's
-    // real, freshly-queried present-mode list — never assume a mode is available because it was
-    // available on another GPU/window/monitor/OS/surface). Always terminates: every strategy's real
-    // terminal fallback is Fifo, required-supported per spec, so the trailing `return Fifo` here is
-    // unreachable in practice and kept only as a safe default.
-    [[nodiscard]] inline PresentMode choose_present_mode(std::span<const PresentMode> supported,
-                                                          PresentStrategy strategy) noexcept {
-        for (PresentMode candidate : present_mode_preference(strategy)) {
-            if (std::ranges::contains(supported, candidate)) {
-                return candidate;
-            }
-        }
-        return PresentMode::Fifo;
-    }
+    /// First entry of present_mode_preference(strategy) that's actually in `supported` (the surface's
+    /// real, freshly-queried present-mode list — never assume a mode is available because it was
+    /// available on another GPU/window/monitor/OS/surface). Always terminates: every strategy's real
+    /// terminal fallback is Fifo, required-supported per spec, so the trailing `return Fifo` here is
+    /// unreachable in practice and kept only as a safe default.
+    [[nodiscard]] PresentMode choose_present_mode(std::span<const PresentMode> supported,
+                                                          PresentStrategy strategy) noexcept;
 
     enum class CompositeAlphaMode : u32 {
-        // Prefer opaque presentation when supported; backend falls back to a supported alpha mode.
+        /// Prefer opaque presentation when supported; backend falls back to a supported alpha mode.
         Auto,
         Opaque,
         Premultiplied,
@@ -165,8 +158,8 @@ namespace SFT::RHI {
         Inherit,
     };
 
-    // Human-readable names for logs/diagnostics/debug overlays — one spelling per enumerator, same
-    // rationale as present_mode_name() above.
+    /// Human-readable names for logs/diagnostics/debug overlays — one spelling per enumerator, same
+    /// rationale as present_mode_name() above.
     [[nodiscard]] constexpr std::string_view composite_alpha_mode_name(CompositeAlphaMode mode) noexcept {
         switch (mode) {
             case CompositeAlphaMode::Auto: return "Auto";
@@ -178,115 +171,115 @@ namespace SFT::RHI {
         return "Unknown";
     }
 
-    // Every non-opaque mode, in the order a transparency request should fall back through them.
-    // Premultiplied is the mode the renderer's own output convention already matches (the UI overlay
-    // clears to a premultiplied transparent black — RendererLifecycle.cpp), PostMultiplied is the
-    // straight-alpha equivalent, and Inherit hands the decision to the native window system, which
-    // is exactly what the Win32/DWM layered-window path wants. Opaque is deliberately absent: it is
-    // the one mode that makes a transparency request meaningless, so it is only ever reached as the
-    // final "nothing else is supported" answer, never preferred over a working non-opaque mode.
+    /// Every non-opaque mode, in the order a transparency request should fall back through them.
+    /// Premultiplied is the mode the renderer's own output convention already matches (the UI overlay
+    /// clears to a premultiplied transparent black — RendererLifecycle.cpp), PostMultiplied is the
+    /// straight-alpha equivalent, and Inherit hands the decision to the native window system, which
+    /// is exactly what the Win32/DWM layered-window path wants. Opaque is deliberately absent: it is
+    /// the one mode that makes a transparency request meaningless, so it is only ever reached as the
+    /// final "nothing else is supported" answer, never preferred over a working non-opaque mode.
     [[nodiscard]] constexpr std::array<CompositeAlphaMode, 3> transparent_composite_alpha_preference() noexcept {
         return {CompositeAlphaMode::Premultiplied, CompositeAlphaMode::PostMultiplied, CompositeAlphaMode::Inherit};
     }
 
-    // Requested-vs-effective presentation state, for diagnostics (logs, a future debug overlay,
-    // support reports) — the engine must never silently claim the requested strategy took effect
-    // when the surface actually forced a fallback. `degraded` is true whenever `effective_mode`
-    // isn't `present_mode_preference(strategy)[0]` (the strategy's own ideal mode).
+    /// Requested-vs-effective presentation state, for diagnostics (logs, a future debug overlay,
+    /// support reports) — the engine must never silently claim the requested strategy took effect
+    /// when the surface actually forced a fallback. `degraded` is true whenever `effective_mode`
+    /// isn't `present_mode_preference(strategy)[0]` (the strategy's own ideal mode).
     struct PresentationResolution {
         PresentStrategy strategy = PresentStrategy::TearFreeOrdered;
         PresentMode effective_mode = PresentMode::Fifo;
         bool degraded = false;
-        // Whether this swapchain's vkQueuePresentKHR actually goes out on the compute queue rather
-        // than the graphics queue — set once at swapchain-creation time from SwapchainDesc's own
-        // allow_present_from_compute intent resolved against real per-family surface support (see
-        // that field's doc comment). False whenever the request was denied, disabled, or the device
-        // has no compute queue at all — presentation stays on the graphics queue in every such case.
+        /// Whether this swapchain's vkQueuePresentKHR actually goes out on the compute queue rather
+        /// than the graphics queue — set once at swapchain-creation time from SwapchainDesc's own
+        /// allow_present_from_compute intent resolved against real per-family surface support (see
+        /// that field's doc comment). False whenever the request was denied, disabled, or the device
+        /// has no compute queue at all — presentation stays on the graphics queue in every such case.
         bool present_queue_is_compute = false;
-        // The composite alpha mode the surface actually accepted, which is *not* always the one
-        // requested: a surface only supports the modes it advertises, and a great many Win32 Vulkan
-        // drivers (all current AMD ones, for instance) advertise Opaque and nothing else. Reported
-        // here for the same reason effective_mode is — a transparent-window feature that silently
-        // resolved to Opaque looks to the user like "the compositor is ignoring my alpha", and the
-        // engine must be able to say so instead of claiming the request took effect.
+        /// The composite alpha mode the surface actually accepted, which is *not* always the one
+        /// requested: a surface only supports the modes it advertises, and a great many Win32 Vulkan
+        /// drivers (all current AMD ones, for instance) advertise Opaque and nothing else. Reported
+        /// here for the same reason effective_mode is — a transparent-window feature that silently
+        /// resolved to Opaque looks to the user like "the compositor is ignoring my alpha", and the
+        /// engine must be able to say so instead of claiming the request took effect.
         CompositeAlphaMode effective_composite_alpha = CompositeAlphaMode::Opaque;
-        // True when a non-opaque composite alpha was requested and the surface forced Opaque, i.e.
-        // per-pixel window transparency is impossible on this surface no matter what alpha the app
-        // renders. Distinct from `degraded`, which is only about present modes.
+        /// True when a non-opaque composite alpha was requested and the surface forced Opaque, i.e.
+        /// per-pixel window transparency is impossible on this surface no matter what alpha the app
+        /// renders. Distinct from `degraded`, which is only about present modes.
         bool composite_alpha_degraded = false;
-        // True when this swapchain presents through an OS-compositor path rather than the graphics
-        // API's native swapchain. This distinction matters to window-level code: a
-        // *native*-transparent swapchain still needs the OS told to make the window itself capable of
-        // showing through (e.g. Win32's WS_EX_LAYERED + DwmExtendFrameIntoClientArea, applied by
-        // WindowEffectKind::Transparent) so its own redirection surface composites with real alpha. A
-        // composition-present swapchain already owns that job end to end (on Windows, via an
-        // IDCompositionTarget bound directly to the HWND). *Also* applying the legacy per-window
-        // mechanism on top does not combine the two: it leaves the otherwise-unused legacy redirection
-        // surface's last frame visible as a frozen layer below the live composition content. Callers
-        // must gate WindowEffectKind::Transparent (or any equivalent per-window OS mechanism) on
-        // `!via_composition_present`, not just on whether transparency was requested at all.
+        /// True when this swapchain presents through an OS-compositor path rather than the graphics
+        /// API's native swapchain. This distinction matters to window-level code: a
+        /// *native*-transparent swapchain still needs the OS told to make the window itself capable of
+        /// showing through (e.g. Win32's WS_EX_LAYERED + DwmExtendFrameIntoClientArea, applied by
+        /// WindowEffectKind::Transparent) so its own redirection surface composites with real alpha. A
+        /// composition-present swapchain already owns that job end to end (on Windows, via an
+        /// IDCompositionTarget bound directly to the HWND). *Also* applying the legacy per-window
+        /// mechanism on top does not combine the two: it leaves the otherwise-unused legacy redirection
+        /// surface's last frame visible as a frozen layer below the live composition content. Callers
+        /// must gate WindowEffectKind::Transparent (or any equivalent per-window OS mechanism) on
+        /// `!via_composition_present`, not just on whether transparency was requested at all.
         bool via_composition_present = false;
-        // Whether PresentDesc::completion_fence is honored for *this* swapchain. Not simply the
-        // device-level RHI::Feature::SwapchainMaintenance bit: a composition-present swapchain never
-        // goes through vkQueuePresentKHR at all, so there is no native present-completion fence
-        // mechanism to attach to regardless of whether the device feature is enabled. Callers must
-        // check this per-swapchain value, not RhiDevice::is_enabled() directly, before requesting a
-        // completion fence — the backend returns Unsupported for a fence it reported false here for,
-        // rather than silently accepting and never signaling it.
+        /// Whether PresentDesc::completion_fence is honored for *this* swapchain. Not simply the
+        /// device-level RHI::Feature::SwapchainMaintenance bit: a composition-present swapchain never
+        /// goes through vkQueuePresentKHR at all, so there is no native present-completion fence
+        /// mechanism to attach to regardless of whether the device feature is enabled. Callers must
+        /// check this per-swapchain value, not RhiDevice::is_enabled() directly, before requesting a
+        /// completion fence — the backend returns Unsupported for a fence it reported false here for,
+        /// rather than silently accepting and never signaling it.
         bool supports_completion_fence = false;
-        // Whether SwapchainDesc::request_full_screen_exclusive was actually granted — VK_EXT_
-        // full_screen_exclusive is a NiceToHave device extension (may not exist at all), the surface
-        // must actually report itself exclusive-capable (vkGetPhysicalDeviceSurfacePresentModes2EXT /
-        // VkSurfaceCapabilitiesFullScreenExclusiveEXT), and the window must actually be in
-        // WindowMode::ExclusiveFullscreen — this is false whenever any of that isn't true, so the
-        // caller never has to guess whether the compositor is actually being bypassed. Composition
-        // present and full-screen exclusive are mutually exclusive by construction: composition
-        // present exists specifically to route through the compositor for transparency, the opposite
-        // of what exclusive mode buys — a swapchain that ended up composition-presented
-        // (via_composition_present above) never sets this, and exclusive mode is only ever attempted
-        // on the native vkQueuePresentKHR path.
+        /// Whether SwapchainDesc::request_full_screen_exclusive was actually granted — VK_EXT_
+        /// full_screen_exclusive is a NiceToHave device extension (may not exist at all), the surface
+        /// must actually report itself exclusive-capable (vkGetPhysicalDeviceSurfacePresentModes2EXT /
+        /// VkSurfaceCapabilitiesFullScreenExclusiveEXT), and the window must actually be in
+        /// WindowMode::ExclusiveFullscreen — this is false whenever any of that isn't true, so the
+        /// caller never has to guess whether the compositor is actually being bypassed. Composition
+        /// present and full-screen exclusive are mutually exclusive by construction: composition
+        /// present exists specifically to route through the compositor for transparency, the opposite
+        /// of what exclusive mode buys — a swapchain that ended up composition-presented
+        /// (via_composition_present above) never sets this, and exclusive mode is only ever attempted
+        /// on the native vkQueuePresentKHR path.
         bool full_screen_exclusive_active = false;
     };
 
     enum class ColorSpace : u32 {
         SrgbNonlinear,
         Hdr10St2084,
-        // scRGB: linear light encoded directly in a float format (Format::RGBA16Float is the
-        // conventional pairing), 1.0 == the SDR reference white, values beyond 1.0 (and below 0.0,
-        // for out-of-gamut colors) are legal — no PQ/HLG curve, no fixed-function tonemap needed on
-        // the way out. Backed by VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT. Prefer this over
-        // Hdr10St2084 when the compositor/OS supports it: it avoids baking a peak-nits assumption
-        // into the output encode, so the OS/display handles tone mapping to its own real capability.
+        /// scRGB: linear light encoded directly in a float format (Format::RGBA16Float is the
+        /// conventional pairing), 1.0 == the SDR reference white, values beyond 1.0 (and below 0.0,
+        /// for out-of-gamut colors) are legal — no PQ/HLG curve, no fixed-function tonemap needed on
+        /// the way out. Backed by VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT. Prefer this over
+        /// Hdr10St2084 when the compositor/OS supports it: it avoids baking a peak-nits assumption
+        /// into the output encode, so the OS/display handles tone mapping to its own real capability.
         ScrgbLinear,
-        // Hybrid Log-Gamma (ARIB STD-B67 / BT.2100 HLG): the broadcast-oriented HDR transfer function
-        // (BBC/NHK), scene-referred and self-describing — no HDR metadata is needed or sent for this
-        // mode (see hlgEncode() in sturdy_common.slang), unlike Hdr10St2084. Backed by
-        // VK_COLOR_SPACE_HDR10_HLG_EXT; despite the "HDR10" in the Vulkan enumerant name this is a
-        // distinct, unrelated-to-HDR10 transfer function (Vulkan's naming, not this codebase's).
-        // Pairs with a 10-bit UNORM format (RGB10A2Unorm), same as Hdr10St2084 — like PQ, HLG's OETF
-        // output is a normalized [0,1] code value, not a linear-with-headroom one like ScrgbLinear.
+        /// Hybrid Log-Gamma (ARIB STD-B67 / BT.2100 HLG): the broadcast-oriented HDR transfer function
+        /// (BBC/NHK), scene-referred and self-describing — no HDR metadata is needed or sent for this
+        /// mode (see hlgEncode() in sturdy_common.slang), unlike Hdr10St2084. Backed by
+        /// VK_COLOR_SPACE_HDR10_HLG_EXT; despite the "HDR10" in the Vulkan enumerant name this is a
+        /// distinct, unrelated-to-HDR10 transfer function (Vulkan's naming, not this codebase's).
+        /// Pairs with a 10-bit UNORM format (RGB10A2Unorm), same as Hdr10St2084 — like PQ, HLG's OETF
+        /// output is a normalized [0,1] code value, not a linear-with-headroom one like ScrgbLinear.
         Hdr10Hlg,
-        // Dolby Vision (VK_COLOR_SPACE_DOLBYVISION_EXT). Best-effort plumbing only: real Dolby Vision
-        // requires per-frame dynamic metadata in Dolby's proprietary "RPU" format, which needs a
-        // licensed Dolby SDK to produce — nothing here generates it. Selecting this color space is
-        // therefore expected to report Unsupported on the overwhelming majority of real displays
-        // (Dolby Vision output requires OS/driver-level certification this engine doesn't have), and
-        // even where a surface *does* report the format pair, the shader falls back to plain PQ
-        // encoding (pqEncode(), same as Hdr10St2084) as the closest available approximation — this is
-        // not certified Dolby Vision output, just "don't crash, do something visually reasonable if a
-        // surface ever claims to accept it."
+        /// Dolby Vision (VK_COLOR_SPACE_DOLBYVISION_EXT). Best-effort plumbing only: real Dolby Vision
+        /// requires per-frame dynamic metadata in Dolby's proprietary "RPU" format, which needs a
+        /// licensed Dolby SDK to produce — nothing here generates it. Selecting this color space is
+        /// therefore expected to report Unsupported on the overwhelming majority of real displays
+        /// (Dolby Vision output requires OS/driver-level certification this engine doesn't have), and
+        /// even where a surface *does* report the format pair, the shader falls back to plain PQ
+        /// encoding (pqEncode(), same as Hdr10St2084) as the closest available approximation — this is
+        /// not certified Dolby Vision output, just "don't crash, do something visually reasonable if a
+        /// surface ever claims to accept it."
         DolbyVision,
 
-        // ── Wide color *gamut* spaces — orthogonal to HDR ──
-        // All still nominally [0,1]-range SDR content, just against wider primaries than sRGB/BT.709.
-        // Deliberately NOT part of Core::HdrColorSpaceMode/PresentationSettings::hdr_enabled: selecting
-        // one of these correctly requires the renderer to actually chromatically adapt/gamut-map its
-        // output to the target primaries, which this engine does not do yet (its internal working
-        // space is sRGB/BT.709 primaries throughout) — tagging a swapchain with a wider gamut without
-        // remapping the content would misrepresent colors to the display, not just render
-        // conservatively. Real, selectable RHI-layer capability (create_swapchain() negotiates them
-        // against the surface exactly like any other ColorSpace) for a future color-management pass to
-        // build on; Core::PresentationSettings/Engine don't expose them today.
+        /// ── Wide color *gamut* spaces — orthogonal to HDR ──
+        /// All still nominally [0,1]-range SDR content, just against wider primaries than sRGB/BT.709.
+        /// Deliberately NOT part of Core::HdrColorSpaceMode/PresentationSettings::hdr_enabled: selecting
+        /// one of these correctly requires the renderer to actually chromatically adapt/gamut-map its
+        /// output to the target primaries, which this engine does not do yet (its internal working
+        /// space is sRGB/BT.709 primaries throughout) — tagging a swapchain with a wider gamut without
+        /// remapping the content would misrepresent colors to the display, not just render
+        /// conservatively. Real, selectable RHI-layer capability (create_swapchain() negotiates them
+        /// against the surface exactly like any other ColorSpace) for a future color-management pass to
+        /// build on; Core::PresentationSettings/Engine don't expose them today.
         AdobeRgbLinear,
         AdobeRgbNonlinear,
         DisplayP3Linear,
@@ -300,58 +293,58 @@ namespace SFT::RHI {
         u32 height = 0;
         Format format = Format::BGRA8UnormSrgb;
         ColorSpace color_space = ColorSpace::SrgbNonlinear;
-        // The backend resolves this to a concrete PresentMode against the surface's actual
-        // supported-mode list at creation time (choose_present_mode() above) — never a raw
-        // PresentMode from the caller.
+        /// The backend resolves this to a concrete PresentMode against the surface's actual
+        /// supported-mode list at creation time (choose_present_mode() above) — never a raw
+        /// PresentMode from the caller.
         PresentStrategy present_strategy = PresentStrategy::TearFreeOrdered;
-        // How the swapchain image will be used by renderer code. ColorAttachment is the normal final
-        // render target; TransferSrc/TransferDst cover screenshots, blit-based compositors, and debug copies.
+        /// How the swapchain image will be used by renderer code. ColorAttachment is the normal final
+        /// render target; TransferSrc/TransferDst cover screenshots, blit-based compositors, and debug copies.
         TextureUsage usage = TextureUsage::ColorAttachment;
         CompositeAlphaMode composite_alpha = CompositeAlphaMode::Auto;
         bool clipped = true;
-        // Desired images in the swapchain (0 = backend's choice, typically 2–3). The backend clamps
-        // to the surface's supported range and reports the actual count.
+        /// Desired images in the swapchain (0 = backend's choice, typically 2–3). The backend clamps
+        /// to the surface's supported range and reports the actual count.
         u32 image_count = 0;
-        // The resolved CPU-side frames-in-flight count (Core::RendererCapabilities::
-        // max_frames_in_flight, itself produced by Core::resolve_frames_in_flight — see its doc
-        // comment) — deliberately a separate field from image_count, not derived from it. This is
-        // what sizes the backend's acquisition-semaphore ring: one semaphore per frame slot, indexed
-        // by the caller's frame-slot index (acquire_next_texture's frame_slot_index parameter), so a
-        // semaphore's reuse safety is proven by that slot's own submission fence rather than by a
-        // free-running cursor unrelated to GPU completion. 0 falls back to image_count (or the
-        // backend's own image-count default if that's also 0) purely so callers that genuinely have
-        // no frames-in-flight concept (tests, tools) still get a sane, nonzero ring size.
+        /// The resolved CPU-side frames-in-flight count (Core::RendererCapabilities::
+        /// max_frames_in_flight, itself produced by Core::resolve_frames_in_flight — see its doc
+        /// comment) — deliberately a separate field from image_count, not derived from it. This is
+        /// what sizes the backend's acquisition-semaphore ring: one semaphore per frame slot, indexed
+        /// by the caller's frame-slot index (acquire_next_texture's frame_slot_index parameter), so a
+        /// semaphore's reuse safety is proven by that slot's own submission fence rather than by a
+        /// free-running cursor unrelated to GPU completion. 0 falls back to image_count (or the
+        /// backend's own image-count default if that's also 0) purely so callers that genuinely have
+        /// no frames-in-flight concept (tests, tools) still get a sane, nonzero ring size.
         u32 frames_in_flight = 0;
-        // Optional retiring swapchain for resize/recreation handoff. Backends may pass this to native
-        // APIs such as Vulkan's oldSwapchain/DXGI resize path to reuse presentation resources. The old
-        // handle remains caller-owned: destroy it after this creation succeeds; keep it on failure.
+        /// Optional retiring swapchain for resize/recreation handoff. Backends may pass this to native
+        /// APIs such as Vulkan's oldSwapchain/DXGI resize path to reuse presentation resources. The old
+        /// handle remains caller-owned: destroy it after this creation succeeds; keep it on failure.
         SwapchainHandle old_swapchain{};
-        // Engine intent for presenting from the compute queue instead of graphics when the device/
-        // surface actually support it — see Core::PresentationSettings::allow_present_from_compute
-        // (Core/Renderer.hpp), the layer that resolves into this field, for the full contract. The
-        // backend resolves this against real per-family surface support at creation time, the same
-        // "never assume, always ask the surface" discipline present_strategy above already follows.
+        /// Engine intent for presenting from the compute queue instead of graphics when the device/
+        /// surface actually support it — see Core::PresentationSettings::allow_present_from_compute
+        /// (Core/Renderer.hpp), the layer that resolves into this field, for the full contract. The
+        /// backend resolves this against real per-family surface support at creation time, the same
+        /// "never assume, always ask the surface" discipline present_strategy above already follows.
         bool allow_present_from_compute = true;
-        // Requests VK_EXT_full_screen_exclusive's application-controlled exclusive mode — bypassing
-        // the OS compositor entirely for the lowest achievable latency, distinct from a borderless
-        // window that merely covers the display while DWM/the compositor still owns presentation.
-        // Purely a request: the backend resolves it against real per-surface/device support (same
-        // "never assume, always ask" discipline present_strategy/allow_present_from_compute above
-        // already follow) and reports what it actually got via
-        // PresentationResolution::full_screen_exclusive_active — never silently claims exclusivity a
-        // surface didn't grant. Ignored (stays inactive) unless the window is ALSO in
-        // Platform::Windowing::WindowMode::ExclusiveFullscreen; requesting this for a windowed or
-        // merely-borderless-fullscreen surface has no defined meaning and is left unresolved by the
-        // backend rather than guessed at.
+        /// Requests VK_EXT_full_screen_exclusive's application-controlled exclusive mode — bypassing
+        /// the OS compositor entirely for the lowest achievable latency, distinct from a borderless
+        /// window that merely covers the display while DWM/the compositor still owns presentation.
+        /// Purely a request: the backend resolves it against real per-surface/device support (same
+        /// "never assume, always ask" discipline present_strategy/allow_present_from_compute above
+        /// already follow) and reports what it actually got via
+        /// PresentationResolution::full_screen_exclusive_active — never silently claims exclusivity a
+        /// surface didn't grant. Ignored (stays inactive) unless the window is ALSO in
+        /// Platform::Windowing::WindowMode::ExclusiveFullscreen; requesting this for a windowed or
+        /// merely-borderless-fullscreen surface has no defined meaning and is left unresolved by the
+        /// backend rather than guessed at.
         bool request_full_screen_exclusive = false;
         const char *label = nullptr;
     };
 
-    // One acquired swapchain image, ready to render into and then present. `image_index` identifies
-    // the backing image for the matching present() call; `suboptimal` is set when the swapchain
-    // still works but should be rebuilt soon (e.g. a resize is pending). Composition-backed images
-    // are external D3D resources rather than Vulkan WSI images, so renderers must release them in a
-    // generally usable layout instead of TextureLayout::Present.
+    /// One acquired swapchain image, ready to render into and then present. `image_index` identifies
+    /// the backing image for the matching present() call; `suboptimal` is set when the swapchain
+    /// still works but should be rebuilt soon (e.g. a resize is pending). Composition-backed images
+    /// are external D3D resources rather than Vulkan WSI images, so renderers must release them in a
+    /// generally usable layout instead of TextureLayout::Present.
     struct SurfaceTexture {
         SwapchainHandle swapchain{};
         TextureHandle texture{};
@@ -363,20 +356,20 @@ namespace SFT::RHI {
 
     struct PresentDesc {
         SurfaceTexture texture{};
-        // Optional completion fence for the presentation operation itself, distinct from a graphics
-        // submission fence. Backends attach it only when Feature::SwapchainMaintenance (or an
-        // equivalent native capability) is enabled; it signals when this present no longer keeps the
-        // swapchain alive, allowing a resize to retire only the old presentation resources.
+        /// Optional completion fence for the presentation operation itself, distinct from a graphics
+        /// submission fence. Backends attach it only when Feature::SwapchainMaintenance (or an
+        /// equivalent native capability) is enabled; it signals when this present no longer keeps the
+        /// swapchain alive, allowing a resize to retire only the old presentation resources.
         FenceHandle completion_fence{};
         const char *label = nullptr;
     };
 
-    // Distinguishes the non-error outcomes a successful present can still report. Suboptimal and
-    // OutOfDate both mean the present itself went through, but differ in urgency: Suboptimal means
-    // the swapchain still works and can keep presenting, OutOfDate means it should stop being used
-    // for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-exclusive loss) are
-    // reported through RhiError, not this enum -- see RhiErrorCode::SurfaceLost/
-    // FullScreenExclusiveLost/DeviceLost.
+    /// Distinguishes the non-error outcomes a successful present can still report. Suboptimal and
+    /// OutOfDate both mean the present itself went through, but differ in urgency: Suboptimal means
+    /// the swapchain still works and can keep presenting, OutOfDate means it should stop being used
+    /// for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-exclusive loss) are
+    /// reported through RhiError, not this enum -- see RhiErrorCode::SurfaceLost/
+    /// FullScreenExclusiveLost/DeviceLost.
     enum class PresentOutcome {
         Success,
         Suboptimal,

@@ -21,23 +21,9 @@ namespace SFT::Async {
         IoErrorCode code;
         std::string message;
 
-        IoError(IoErrorCode error_code, const char *error_message) noexcept
-            : code(error_code) {
-            if (error_message) {
-                try {
-                    message = error_message;
-                } catch (...) {
-                }
-            }
-        }
+        IoError(IoErrorCode error_code, const char *error_message) noexcept;
 
-        IoError(IoErrorCode error_code, std::string_view error_message) noexcept
-            : code(error_code) {
-            try {
-                message = error_message;
-            } catch (...) {
-            }
-        }
+        IoError(IoErrorCode error_code, std::string_view error_message) noexcept;
     };
 
 } // namespace SFT::Async

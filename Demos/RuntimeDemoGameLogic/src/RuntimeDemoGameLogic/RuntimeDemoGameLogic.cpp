@@ -22,12 +22,12 @@ namespace SFT::Runtime {
 
     RuntimeDemoGameLogic::RuntimeDemoGameLogic() {
         camera_ = Engine::Camera::perspective(55.0f, 16.0f / 9.0f, 0.05f, 200.0f);
-        // Look diagonally down Sponza's long central hall, with the dispersive test object near center.
+
         camera_.set_position({-10.5f, 2.2f, 0.0f});
         camera_.look_at({0.0f, 1.0f, 0.0f});
 
-        // High-level frame recipe: Runtime selects semantic features and image policy while Engine
-        // keeps graph resources, barriers, pass callbacks and synchronization private.
+
+
         render_graph_ = Engine::RenderGraph::standard();
         render_graph_
             .set_resolution_scale(1.0f)
@@ -87,13 +87,13 @@ namespace SFT::Runtime {
             .label = UString{"dispersive glass sphere"_ustr},
             .primitives = {
                 Engine::ModelPrimitiveDesc{
-                    // Refraction is far more sensitive to normal-interpolation discontinuities than
-                    // diffuse shading is: even a "smooth" mesh only has C0-continuous normals across
-                    // triangle edges, and bending light through that visibly facets a coarse sphere
-                    // in a way flat lighting would hide. Higher tessellation than a typical opaque
-                    // prop needs is what actually fixes it (see sturdy_path_transport.slang's
-                    // sampleDielectricDirection for the shading-normal-based refraction itself, which
-                    // was already correct).
+
+
+
+
+
+
+
                     .mesh = RendererApi::Mesh::uv_sphere(
                         {.radius = 1.1f, .rings = 96, .segments = 192},
                         "dispersive glass sphere"),
@@ -254,8 +254,8 @@ namespace SFT::Runtime {
                 }
             });
 
-        // A second system consumes Runtime's own event type, demonstrating that API consumers can
-        // create event pipelines on top of Engine's built-in input streams without engine changes.
+
+
         engine.update_schedule().add_system(
             [](Ecs::EventReader<BloomThresholdChanged> changes) noexcept {
                 for (const BloomThresholdChanged &change : changes.read()) {
@@ -264,9 +264,9 @@ namespace SFT::Runtime {
                 }
             });
 
-        // Live spectral path tracing tuning — [/] step max_bounces, ,/. step samples_per_pixel. Same
-        // split/apply pattern as Bloom above: this system only mutates SpectralPathTracingTuningState,
-        // request_render_frame() is what actually writes it into render_graph_.scene() every frame.
+
+
+
         spectral_path_tracing_events_.build(engine.ecs_world(), engine.update_schedule());
         spectral_path_tracing_controls_entity_ = engine.ecs_world().spawn(
             SpectralPathTracingKeyboardControls{},
@@ -312,9 +312,9 @@ namespace SFT::Runtime {
                 }
             });
 
-        // Free-fly camera: WASD+QE held state and right-drag mouse-look deltas are tracked here;
-        // request_render_frame() applies the actual per-frame movement (it has real delta time,
-        // Core::FrameInput::delta_seconds — see FlyCameraState's own comment).
+
+
+
         const glm::vec3 initial_euler = camera_.euler_degrees();
         camera_control_entity_ = engine.ecs_world().spawn(FlyCameraState{
             .yaw_degrees = initial_euler.y,
@@ -338,9 +338,9 @@ namespace SFT::Runtime {
                         default: break;
                     }
                 }
-                // SDL's motion-event button-state mask; bit 2 (0x4) is the right mouse button
-                // (SDL_BUTTON_MASK(SDL_BUTTON_RIGHT) == 1u << (3 - 1)) — matches
-                // Platform/src/Platform/Window/SDL3/SDL3Impl.cpp's raw event.motion.state passthrough.
+
+
+
                 constexpr u32 right_mouse_button_mask = 0x4u;
                 for (const Engine::MouseMoveEvent &event : mouse.read()) {
                     if ((event.mouse.buttons & right_mouse_button_mask) != 0) {
@@ -391,8 +391,8 @@ namespace SFT::Runtime {
             Engine::WorldTransform{.value = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 1.12f, 0.0f})},
             Engine::ModelRenderer{.model = spectral_glass_model_});
 
-        // The photon mapper currently emits from the directional sun. Keep this light and the closed
-        // dispersive sphere unconditional so caustics are exercised even without optional sample assets.
+
+
         {
             const glm::vec3 sun_direction = glm::normalize(glm::vec3{0.18f, -1.0f, 0.12f});
             glm::mat4 sun_transform =
@@ -427,11 +427,11 @@ namespace SFT::Runtime {
         if (state->toggle_requested) {
             state->toggle_requested = false;
 
-            // Real per-window display query — this window's HdrToggleState/surface pair is all it
-            // takes; a multi-window app calling this per-surface gets an independently correct
-            // answer for each window even when they're on different monitors with different (or no)
-            // HDR support, since query_hdr_capabilities() never assumes one window's display applies
-            // to another.
+
+
+
+
+
             if (const auto capability = engine.query_hdr_capabilities(surface)) {
                 const RHI::SurfaceHdrCapabilities &caps = capability->capabilities;
                 Foundation::log_info(
@@ -458,10 +458,10 @@ namespace SFT::Runtime {
         if (state->cycle_color_space_requested) {
             state->cycle_color_space_requested = false;
 
-            // Cycles all four Core::HdrColorSpaceMode values in enumerator order — HDR10 -> scRGB ->
-            // HLG -> Dolby Vision (best-effort) -> back to HDR10. See that enum's own doc comment
-            // (Core/Renderer.hpp) for what each mode actually does/doesn't do; Dolby Vision in
-            // particular is expected to report Unsupported on real displays.
+
+
+
+
             Engine::EngineConfig new_config = engine_config_;
             const auto current = static_cast<u8>(new_config.features.presentation.hdr_color_space);
             constexpr u8 mode_count = 4;
@@ -482,11 +482,11 @@ namespace SFT::Runtime {
         if (state->refresh_metadata_requested) {
             state->refresh_metadata_requested = false;
 
-            // Demonstrates RhiDevice::update_hdr_content_light_level() — a manual, caller-supplied
-            // per-scene HDR10 metadata refresh (see its own doc comment, RHI/HdrDisplay.hpp, for why
-            // this is not real HDR10+/ST 2094-40). Runtime has no actual scene-luminance analysis, so
-            // this sends a fixed illustrative value rather than a real measurement — a real game would
-            // compute these from the current frame/scene instead of hardcoding them.
+
+
+
+
+
             constexpr RHI::HdrContentLightLevelUpdate demo_update{
                 .max_content_light_level_nits = 600.0f,
                 .max_frame_average_light_level_nits = 150.0f,
@@ -522,8 +522,8 @@ namespace SFT::Runtime {
 
         Engine::RenderGraph frame_graph = render_graph_;
         if (threshold_view) {
-            // Compose an alternate graph from the same reusable built-in modules. Runtime supplies
-            // only semantic module data; Engine/Renderer still own resources and command recording.
+
+
             frame_graph = Engine::RenderGraph::empty(render_graph_.description());
             Engine::RenderGraphTextureHandle color =
                 frame_graph.compose(Engine::RenderModules::DeferredScene{});
@@ -585,13 +585,13 @@ namespace SFT::Runtime {
             .render_graph = std::move(frame_graph),
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
-        // Snapshot this frame's view_projection as *next* frame's "previous" now that camera_ has
-        // been copied into parameters above — see Camera::commit_frame()'s doc comment.
+
+
         camera_.commit_frame();
         return parameters;
     }
 
-    void RuntimeDemoGameLogic::on_shutdown(Engine::Engine & /*engine*/) noexcept {}
+    void RuntimeDemoGameLogic::on_shutdown(Engine::Engine &           ) noexcept {}
 
     std::unique_ptr<Engine::GameLogic> create_runtime_demo_game_logic() {
         return std::make_unique<RuntimeDemoGameLogic>();

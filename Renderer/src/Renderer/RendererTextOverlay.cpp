@@ -35,8 +35,8 @@ namespace SFT::Renderer {
 
     namespace {
 
-        // Maple Mono NF at the overlay's 18pt nominal size/weight 400 (its only static weight),
-        // paired with Noto Color Emoji as the emoji fallback.
+
+
         constexpr f32 overlay_pixel_size = 18.0f;
 
         [[nodiscard]] optional<vector<std::byte>> read_file_bytes(const string &path) {
@@ -56,9 +56,9 @@ namespace SFT::Renderer {
             return bytes;
         }
 
-        // "Fonts" is a bundled, engine-shipped directory (mirrors how Engine::shaders_directory
-        // defaults to a relative "Shaders" folder) so a preferred family is always found even on a
-        // machine that never had it installed system-wide.
+
+
+
         [[nodiscard]] Text::FontDatabase build_font_database() {
             vector<string> search_dirs{"Fonts"};
             const vector<string> platform_dirs = Platform::font_search_directories();
@@ -76,9 +76,9 @@ namespace SFT::Renderer {
             return std::nullopt;
         }
 
-        // Best-effort default UI font pick. Maple Mono NF is the bundled engine typeface and the
-        // first choice; horizontal layout still comes entirely from HarfBuzz's shaped x_advance,
-        // including any substitutions or positioning selected through its OpenType features.
+
+
+
         [[nodiscard]] optional<string> find_default_font_path(const Text::FontDatabase &database) {
             static const array<UString, 12> preferred_families{
                 UString{"Maple Mono NF"_ustr}, UString{"Segoe UI"_ustr}, UString{"SF Pro Text"_ustr},
@@ -95,12 +95,12 @@ namespace SFT::Renderer {
             return std::nullopt;
         }
 
-        // Best-effort default emoji font pick: Noto Color Emoji (bundled alongside Maple Mono NF —
-        // see Fonts/), falling back to whatever other color-emoji family common OSes tend to ship.
-        // No last-resort fallback to "whatever discovery found first" the way the UI font has one:
-        // an arbitrary non-emoji font picked here would just render emoji as tofu/missing-glyph
-        // boxes, no better than having no emoji font at all — see the `has_emoji_font` degradation
-        // path in ensure_text_overlay_resources().
+
+
+
+
+
+
         [[nodiscard]] optional<string> find_default_emoji_font_path(const Text::FontDatabase &database) {
             static const array<UString, 3> preferred_families{
                 UString{"Noto Color Emoji"_ustr}, UString{"Apple Color Emoji"_ustr},
@@ -137,10 +137,10 @@ namespace SFT::Renderer {
                                                 "Failed to read the debug text overlay font file: " + *font_path);
         }
 
-        // Hinted, not load()'s scale-free path: the overlay always draws at exactly
-        // overlay_pixel_size (never scaled/rotated/animated), which is exactly the case FreeType's
-        // hinting engine (Text::Font::load_hinted) is for — see its doc comment for why a hinted
-        // Font is only valid to rasterize at the one size it was loaded with.
+
+
+
+
         auto font = Text::Font::load_hinted(span<const std::byte>{font_bytes->data(), font_bytes->size()}, overlay_pixel_size);
         if (!font) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -167,8 +167,8 @@ namespace SFT::Renderer {
         guard->line_cache.clear();
         guard->visible_layout = {};
 
-        // Best-effort: an emoji font that fails to load or parse just means emoji render as
-        // whatever tofu the primary font has for those codepoints, not a broken overlay.
+
+
         guard->has_emoji_font = false;
         if (optional<string> emoji_path = find_default_emoji_font_path(database)) {
             if (optional<vector<std::byte>> emoji_bytes = read_file_bytes(*emoji_path)) {
@@ -215,9 +215,9 @@ namespace SFT::Renderer {
             static_cast<f32>(guard->font.ascender() - guard->font.descender() + guard->font.line_gap()) * scale;
         const f32 line_height = std::max(font_line_height, overlay_pixel_size);
 
-        // Virtualize large documents before shaping. One line of overscan on each side retains
-        // accents, outline padding, and unusually tall glyphs crossing the nominal line box while
-        // keeping CPU/GPU work proportional to viewport height instead of document length.
+
+
+
         auto clamp_line_index = [&](f32 index) noexcept -> usize {
             if (!(index > 0.0f)) {
                 return 0;
@@ -267,9 +267,9 @@ namespace SFT::Renderer {
             .emoji_font_id = guard->emoji_font_id,
         };
 
-        // Preserve the shaping features a proportional UI face normally enables by default and
-        // make them explicit for the debug HUD. Tabular figures are the one HUD-specific choice:
-        // changing FPS/frame counters keep a stable width while ordinary UI can opt into `pnum`.
+
+
+
         Text::ShapeOptions shape_options;
         shape_options.features.calt = 1;
         shape_options.features.ccmp = 1;
@@ -280,13 +280,13 @@ namespace SFT::Renderer {
         shape_options.features.mark = 1;
         shape_options.features.mkmk = 1;
         shape_options.features.tnum = 1;
-        // Maple's default zero is slashed; its `zero` alternate is the dotted-center design used
-        // by the debug HUD.
+
+
         shape_options.features.zero = 1;
 
-        // Retain shaped results for the current visible window only. When scrolling, overlapping
-        // lines move into the next cache without reshaping; memory remains O(visible lines), not
-        // O(total document lines).
+
+
+
         vector<TextOverlayResources::CachedLine> next_line_cache;
         next_line_cache.reserve(visible_line_count);
         for (usize i = 0; i < visible_line_count; ++i) {
@@ -359,8 +359,8 @@ namespace SFT::Renderer {
                                                  : Text::select_raster_format(overlay_pixel_size),
                         .outline = outline,
                         .font = glyph.is_color ? &guard->emoji_font : &guard->font,
-                        // This face is already grid-fitted by Font::load_hinted() at exactly 18 px.
-                        // Applying the unhinted-outline optical compensation again would double-bold it.
+
+
                         .stem_darkening = false,
                     });
 

@@ -64,8 +64,8 @@ namespace {
         return passed;
     }
 
-    // Repeated push/drain cycles that cross the underlying index past its capacity many times over,
-    // to exercise wraparound of the masked buffer index (not just the monotonic head_/tail_ counters).
+
+
     bool sustained_cycles_survive_index_wraparound() {
         SFT::Async::SpscRingBuffer<int> ring(4);
         bool passed = true;
@@ -89,10 +89,10 @@ namespace {
         return passed;
     }
 
-    // Real two-thread producer/consumer stress: one thread pushes as fast as it can while another
-    // drains concurrently, verifying every pushed value is eventually observed exactly once, in
-    // order, with none lost or duplicated -- the actual concurrency guarantee this primitive exists
-    // to provide, not just its single-threaded bookkeeping.
+
+
+
+
     bool concurrent_producer_consumer_loses_nothing() {
         constexpr usize ring_capacity = 256;
         constexpr u64 total_items = 2'000'000;
@@ -103,7 +103,7 @@ namespace {
         std::thread producer([&]() {
             for (u64 i = 0; i < total_items; ++i) {
                 while (!ring.try_push(i)) {
-                    std::this_thread::yield(); // ring momentarily full; consumer will catch up
+                    std::this_thread::yield();
                 }
             }
         });
@@ -115,7 +115,7 @@ namespace {
             batch.clear();
             ring.drain_into(batch);
             if (batch.empty()) {
-                std::this_thread::yield(); // nothing available right now; let the producer make progress
+                std::this_thread::yield();
                 continue;
             }
             received.insert(received.end(), batch.begin(), batch.end());

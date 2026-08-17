@@ -1,12 +1,12 @@
-// End-to-end stress/latency test for the high-polling-rate-mouse path described in the input-latency
-// research writeup this engine's WindowManager was tuned against (see WindowManagerPolicy's own doc
-// comments): a synthetic "device" window paces itself against real wall-clock time to emit MouseMoved
-// events at 8kHz (one every 125us), and a consumer loop pumps at a realistic ~80Hz cadence, measuring
-// how stale each delivered event's timestamp_ns is by the time it's observed. This exercises the real
-// DedicatedEventThread poll_loop() background-thread path (falling back to synchronous CallerThread
-// wherever compile_time_window_thread_allowed is false, e.g. macOS/Web) without needing any
-// platform-specific code in the test itself, since the synthetic device only cares about elapsed wall
-// time, not which thread calls pump_events().
+
+
+
+
+
+
+
+
+
 
 #include <Platform/Window/WindowManager.hpp>
 
@@ -40,26 +40,26 @@ namespace {
                                      .count());
     }
 
-    // Generates MouseMoved events at a real 8kHz cadence, paced by wall-clock time rather than a fixed
-    // script, so it behaves the same whether pump_events() is called from a background poll_loop()
-    // thread (DedicatedEventThread mode) or synchronously from the caller (CallerThread fallback).
+
+
+
     class SyntheticDeviceWindow final : public Window {
       public:
-        // Consumed by the next construct() call -- same reasoning as ScriptedWindow::next_script in
-        // WindowManagerAccumulatorTest.cpp: Window's factory contract has no other route to pass
-        // per-instance test parameters through.
+
+
+
         static usize next_target_sample_count;
 
-        // Also consumed by the next construct() call. Stamped into every generated event's otherwise-
-        // unused mouse_move.buttons field so a multi-window test can verify WindowManager never lets
-        // one window's events end up attributed to another's ManagedWindowEvents.
+
+
+
         static u32 next_channel_tag;
 
         ~SyntheticDeviceWindow() noexcept override = default;
 
         [[nodiscard]] static expected<unique_ptr<SyntheticDeviceWindow>, WindowError> construct(
             ConstructorKey key,
-            const WindowConfig & /*config*/) noexcept {
+            const WindowConfig &           ) noexcept {
             auto *window = new (std::nothrow) SyntheticDeviceWindow(key);
             if (window == nullptr) {
                 return unexpected(WindowError{WindowErrorCode::OutOfMemory, "test window allocation failed"});
@@ -81,13 +81,13 @@ namespace {
             if (periods <= 0) {
                 return {};
             }
-            // Cap per-call generation so a debugger pause or a slow CI box can't produce a runaway
-            // burst, and never generate past the configured target.
+
+
             periods = std::min<i64>(periods, max_samples_per_call);
             periods = std::min<i64>(periods, static_cast<i64>(target_sample_count_ - generated_count_));
 
-            // Advance by exactly the consumed period count (not "now") to avoid accumulating drift
-            // across many calls.
+
+
             last_generate_time_ += periods * sample_period;
 
             for (i64 i = 0; i < periods; ++i) {
@@ -130,46 +130,46 @@ namespace {
         expected<void, WindowError> maximize() noexcept override { return {}; }
         expected<void, WindowError> minimize() noexcept override { return {}; }
         expected<void, WindowError> restore() noexcept override { return {}; }
-        expected<void, WindowError> set_title(const char * /*title*/) noexcept override { return {}; }
+        expected<void, WindowError> set_title(const char *          ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override { return WindowPosition{}; }
-        expected<void, WindowError> set_position(WindowPosition /*position*/) noexcept override { return {}; }
+        expected<void, WindowError> set_position(WindowPosition             ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override { return WindowPosition{}; }
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override { return WindowExtent{640, 480}; }
-        expected<void, WindowError> set_size(WindowExtent /*extent*/) noexcept override { return {}; }
+        expected<void, WindowError> set_size(WindowExtent           ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override { return WindowExtent{640, 480}; }
-        expected<void, WindowError> set_minimum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_maximum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_resizable(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_decorated(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_fullscreen(WindowMode /*mode*/) noexcept override { return {}; }
-        expected<void, WindowError> set_opacity(f32 /*opacity*/) noexcept override { return {}; }
+        expected<void, WindowError> set_minimum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_maximum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_resizable(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_decorated(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_fullscreen(WindowMode         ) noexcept override { return {}; }
+        expected<void, WindowError> set_opacity(f32            ) noexcept override { return {}; }
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override { return 1.0F; }
-        expected<void, WindowError> set_cursor_icon(CursorIcon /*icon*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_visible(bool /*visible*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_grabbed(bool /*grabbed*/) noexcept override { return {}; }
-        expected<void, WindowError> set_relative_mouse_mode(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_icon(CursorIcon         ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_visible(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_grabbed(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_relative_mouse_mode(bool            ) noexcept override { return {}; }
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override {
             mouse_locked_ = locked;
             return {};
         }
         [[nodiscard]] bool mouse_locked() const noexcept override { return mouse_locked_; }
-        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect /*effect*/) noexcept override {
+        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect           ) noexcept override {
             return WindowEffectResult::success();
         }
-        expected<void, WindowError> set_effect(WindowEffect /*effect*/) noexcept override { return {}; }
-        expected<void, WindowError> set_blur_enabled(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_transparent(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_effect(WindowEffect           ) noexcept override { return {}; }
+        expected<void, WindowError> set_blur_enabled(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_transparent(bool            ) noexcept override { return {}; }
         [[nodiscard]] expected<vector<const char *>, WindowError> required_vulkan_instance_extensions() const noexcept override {
             return vector<const char *>{};
         }
         expected<void, WindowError> create_vulkan_surface(
-            void * /*instance*/,
-            const void * /*allocation_callbacks*/,
-            void * /*surface_out*/) const noexcept override {
+            void *             ,
+            const void *                         ,
+            void *                ) const noexcept override {
             return {};
         }
         [[nodiscard]] std::string clipboard_text() const noexcept override { return {}; }
-        expected<void, WindowError> set_clipboard_text(std::string_view /*text*/) noexcept override { return {}; }
+        expected<void, WindowError> set_clipboard_text(std::string_view         ) noexcept override { return {}; }
 
       private:
         explicit SyntheticDeviceWindow(ConstructorKey key) noexcept : Window(key) {}
@@ -193,15 +193,15 @@ namespace {
     // Latency is measured against WindowEvent::timestamp_ns (steady_clock epoch), so this doubles as a
     // regression test for the per-event-timestamp plumbing added for latency measurement in the first
     // place: coalesce_mouse_motion() must keep the *latest* sample's timestamp (see WindowManager.cpp)
-    // or every reported latency here would read as the entire test duration instead of milliseconds.
+
     bool high_rate_mouse_input_latency_is_bounded() {
         bool passed = true;
 
-        constexpr usize target_sample_count = 4000; // ~500ms of nominal 8kHz sampling
-        constexpr auto generation_window = std::chrono::milliseconds(650); // generation + drain slack
+        constexpr usize target_sample_count = 4000;
+        constexpr auto generation_window = std::chrono::milliseconds(650);
         constexpr auto final_drain_window = std::chrono::milliseconds(120);
-        constexpr auto pump_interval = std::chrono::milliseconds(12); // ~80Hz consumer cadence
-        constexpr u64 max_latency_ceiling_ns = 250ULL * 1'000'000ULL; // 250ms: generous, CI-safe
+        constexpr auto pump_interval = std::chrono::milliseconds(12);
+        constexpr u64 max_latency_ceiling_ns = 250ULL * 1'000'000ULL;
 
         SyntheticDeviceWindow::next_target_sample_count = target_sample_count;
 
@@ -216,15 +216,15 @@ namespace {
             return passed;
         }
 
-        // Two latency series, deliberately not the same metric: `latencies_ns` covers *every*
-        // MouseMoved event a pump() call hands back, `freshest_latencies_ns` covers only the last
-        // one per call. Coalescing now only merges runs *within* one drain pass rather than across
-        // the whole inter-pump gap (see WindowManager::drain_window_into()'s own doc comment on that
-        // relaxation), so a single pump() call after a longer gap can legitimately return several
-        // committed events -- earlier ones in that batch were fresh *when committed* but are stale by
-        // the time this test's slower consumer cadence finally drains them. What actually matters for
-        // a real consumer (e.g. InputState, which takes the latest position and the summed delta) is
-        // how stale the *freshest* sample is when observed, which freshest_latencies_ns captures.
+
+
+
+
+
+
+
+
+
         std::vector<u64> latencies_ns;
         std::vector<u64> freshest_latencies_ns;
         usize received_count = 0;
@@ -240,7 +240,7 @@ namespace {
                         const u64 now_ns = steady_now_ns();
                         latencies_ns.push_back(event.timestamp_ns <= now_ns ? now_ns - event.timestamp_ns : 0);
                         have_freshest = true;
-                        freshest_timestamp_ns = event.timestamp_ns; // events arrive in FIFO order
+                        freshest_timestamp_ns = event.timestamp_ns;
                     }
                 }
                 if (have_freshest) {
@@ -257,8 +257,8 @@ namespace {
             std::this_thread::sleep_for(pump_interval);
         }
 
-        // Generation has stopped (or is stopping) by now; keep draining briefly to collect stragglers
-        // still in flight through the accumulator.
+
+
         const auto final_drain_start = std::chrono::steady_clock::now();
         while (std::chrono::steady_clock::now() - final_drain_start < final_drain_window) {
             drain_once();
@@ -310,29 +310,29 @@ namespace {
                   << " avg=" << freshest.avg_ms << " p99=" << (static_cast<double>(freshest.p99_ns) / 1e6)
                   << " max=" << (static_cast<double>(freshest.max_ns) / 1e6) << "]\n";
 
-        // The ceiling is checked against the freshest-per-pump-call series, not the all-events one:
-        // that's the metric a real consumer (InputState, which only ever keeps the latest position)
-        // actually experiences. An intermediate, already-superseded coalesced chunk sitting in the
-        // ring a while before drain is expected and harmless -- see drain_window_into()'s own doc
-        // comment on why coalescing runs got shorter with the lock-free ring.
+
+
+
+
+
         passed &= check(freshest.max_ns < max_latency_ceiling_ns,
                         "max observed freshest-sample input latency exceeded the sanity ceiling");
 
         return passed;
     }
 
-    // Multiple windows pumping concurrently at real 8kHz rates through the shared channels_
-    // directory -- specifically stresses the part that changed shape the most in the move to a
-    // lock-free per-window ring: the directory snapshot-under-lock (spawn_window()/destroy_window()
-    // on poll_loop()'s thread, pump()'s consumer-side snapshot) now has more than one live entry
-    // being concurrently produced into while it's read. Verifies both throughput (each window
-    // receives events) and correctness (no window's events are ever attributed to another window's
-    // WindowId -- checked via a per-window tag stamped into mouse_move.buttons).
+
+
+
+
+
+
+
     bool multiple_windows_pump_concurrently_without_cross_talk() {
         bool passed = true;
 
         constexpr usize window_count = 3;
-        constexpr usize target_sample_count = 2000; // ~250ms of nominal 8kHz sampling, per window
+        constexpr usize target_sample_count = 2000;
         constexpr auto generation_window = std::chrono::milliseconds(400);
         constexpr auto final_drain_window = std::chrono::milliseconds(100);
         constexpr auto pump_interval = std::chrono::milliseconds(10);
@@ -343,7 +343,7 @@ namespace {
 
         WindowManager manager{policy};
 
-        std::vector<std::pair<WindowId, u32>> windows; // (id, expected tag)
+        std::vector<std::pair<WindowId, u32>> windows;
         for (u32 tag = 1; tag <= window_count; ++tag) {
             SyntheticDeviceWindow::next_target_sample_count = target_sample_count;
             SyntheticDeviceWindow::next_channel_tag = tag;

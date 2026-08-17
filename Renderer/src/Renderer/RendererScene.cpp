@@ -36,8 +36,8 @@ namespace SFT::Renderer {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
         }
 
-        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
-        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp).
+
+
         const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.scene_frame_resources.size() != frame_count) {
             destroy_scene_gpu_resources(record.scene_frame_resources);
@@ -48,13 +48,13 @@ namespace SFT::Renderer {
         if (!resources.view_buffer) {
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = sizeof(SceneViewGpuData),
-                // Storage (not just Uniform): Shaders/gbuffer_geometry_history.slang binds this as a
-                // StructuredBuffer, not a ConstantBuffer<T> — Slang's explicit [[vk::binding(N, 1)]]
-                // annotation only reliably respects the requested *set* for StructuredBuffer-kind
-                // resources, not ConstantBuffer<T> (observed: the set argument was silently ignored
-                // for a ConstantBuffer<T>, while a StructuredBuffer<T> honored it correctly — see that
-                // file's own comment). No other consumer binds view_buffer as a real uniform buffer
-                // today, so widening its usage costs nothing.
+
+
+
+
+
+
+
                 .usage = RHI::BufferUsage::Uniform | RHI::BufferUsage::Storage,
                 .memory = RHI::MemoryLocation::HostUpload,
                 .label = "renderer scene view buffer",
@@ -84,19 +84,9 @@ namespace SFT::Renderer {
             resources.object_buffer = *buffer;
         }
 
-        // submission.view_projection already carries the D3D12 clip-space Y flip (baked in once, at
-        // Renderer::render_frame's single choke point — see its own comment), so it's used as-is
-        // here rather than flipped again. `projection` alone has NOT been flipped yet (it's read
-        // straight off Camera, which stays canonical-Vulkan on every backend by design), so it needs
-        // its own RHI::gpu_clip_flip call — row-negating projection first and multiplying by the
-        // (unflipped) view afterward is mathematically identical to flipping the combined product,
-        // since row negation of a matrix product distributes onto its left factor. `view` itself is
-        // never flipped: the Y reconciliation is a clip-space-only concept, and previous_view_
-        // projection is intentionally left untouched (shadow/path-tracing follow-up territory).
-        const glm::mat4 flipped_projection = RHI::gpu_clip_flip(submission.camera.projection, device->backend_type());
         const SceneViewGpuData view_data{
             .view = submission.camera.view,
-            .projection = flipped_projection,
+            .projection = submission.camera.projection,
             .view_projection = submission.view_projection,
             .previous_view_projection = submission.camera.previous_view_projection,
             .camera_world_position_near = glm::vec4{submission.camera.world_position, submission.camera.near_plane},
@@ -159,9 +149,9 @@ namespace SFT::Renderer {
                 };
             }
         }
-        // Commit only after all packing tasks join. Each submission took its history snapshot before
-        // dispatch, so this short exclusive section cannot race other windows' frame recording or
-        // make worker packing contend on the shared map.
+
+
+
         {
             auto transform_history = previous_world_transforms_.lock();
             for (const RenderItem &item : submission.draws) {

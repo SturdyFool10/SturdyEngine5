@@ -1,3 +1,4 @@
+#include <RHI/src/RHI/Backend.hpp>
 #include "Backend.hpp"
 
 namespace SFT::RHI {
@@ -52,3 +53,21 @@ string_view backend_display_name(const BackendRegistration &registration) noexce
     }
 
 } // namespace SFT::RHI
+
+namespace SFT::RHI {
+
+    optional<BackendType> BackendRegistry::preferred_backend(
+        span<const BackendType> priority) const noexcept {
+        for (BackendType backend : priority) {
+            if (is_available(backend)) {
+                return backend;
+            }
+        }
+        if (!backends_.empty()) {
+            return backends_.front().backend;
+        }
+        return std::nullopt;
+    }
+
+} // namespace SFT::RHI
+

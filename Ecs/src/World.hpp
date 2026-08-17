@@ -28,9 +28,9 @@ namespace SFT::Ecs {
         struct WorldAccess;
     }
 
-    // Pointer-like direct component access that keeps its World read-borrow alive. This prevents a
-    // Schedule or structural mutation from invalidating the component while the consumer uses it.
-    // Deliberately move-only: copying a borrow makes its lifetime and ownership much less obvious.
+    /// Pointer-like direct component access that keeps its World read-borrow alive. This prevents a
+    /// Schedule or structural mutation from invalidating the component while the consumer uses it.
+    /// Deliberately move-only: copying a borrow makes its lifetime and ownership much less obvious.
     template <class T>
     class ComponentBorrow {
       public:
@@ -69,21 +69,21 @@ namespace SFT::Ecs {
         std::shared_lock<std::shared_mutex> access_;
     };
 
-    // Owns every entity and archetype. The registry is engine/application-owned and must outlive the
-    // World; sharing it across worlds gives every component the same dense ID while stable
-    // ComponentKeys remain portable across process/language boundaries.
+    /// Owns every entity and archetype. The registry is engine/application-owned and must outlive the
+    /// World; sharing it across worlds gives every component the same dense ID while stable
+    /// ComponentKeys remain portable across process/language boundaries.
     class World {
       public:
-        explicit World(ComponentRegistry &registry) noexcept : registry_(&registry) {}
+        explicit World(ComponentRegistry &registry) noexcept;
         ~World() = default;
         World(const World &) = delete;
         World &operator=(const World &) = delete;
         World(World &&) = delete;
         World &operator=(World &&) = delete;
 
-        // Spawns one entity with exactly the given components — its archetype is fixed at spawn time
-        // from the argument types (there's no way to add/remove components afterward yet). `Ts...`
-        // deduce to the decayed argument types (pass components by value or as rvalues).
+        /// Spawns one entity with exactly the given components — its archetype is fixed at spawn time
+        /// from the argument types (there's no way to add/remove components afterward yet). `Ts...`
+        /// deduce to the decayed argument types (pass components by value or as rvalues).
         template <class... Ts>
         [[nodiscard]] Entity spawn(Ts &&...components) {
             ZoneScopedN("World::spawn");
@@ -93,17 +93,11 @@ namespace SFT::Ecs {
             return spawn_unchecked(std::forward<Ts>(components)...);
         }
 
-        void destroy(Entity entity) noexcept {
-            ZoneScopedN("World::destroy");
-            ensure_not_scheduled("destroy entities directly; use Commands::destroy() inside a system");
-            auto access = acquire_direct_mutation("destroy entities");
-            ensure_not_scheduled("destroy entities directly; use Commands::destroy() inside a system");
-            destroy_unchecked(entity);
-        }
+        void destroy(Entity entity) noexcept;
 
-        // Moves `entity` into the archetype for its current signature plus T, placement-constructing
-        // `component` into the new column. Contract violation if `entity` is dead or already has T —
-        // remove_component<T>() first if the intent is to replace it.
+        /// Moves `entity` into the archetype for its current signature plus T, placement-constructing
+        /// `component` into the new column. Contract violation if `entity` is dead or already has T —
+        /// remove_component<T>() first if the intent is to replace it.
         template <class T>
         void add_component(Entity entity, T component) {
             ZoneScopedN("World::add_component");
@@ -113,8 +107,8 @@ namespace SFT::Ecs {
             add_component_unchecked(entity, std::move(component));
         }
 
-        // Moves `entity` into the archetype for its current signature minus T, destroying the removed
-        // column. Contract violation if `entity` is dead or doesn't have T.
+        /// Moves `entity` into the archetype for its current signature minus T, destroying the removed
+        /// column. Contract violation if `entity` is dead or doesn't have T.
         template <class T>
         void remove_component(Entity entity) {
             ZoneScopedN("World::remove_component");
@@ -124,13 +118,7 @@ namespace SFT::Ecs {
             remove_component_unchecked<T>(entity);
         }
 
-        [[nodiscard]] bool is_alive(Entity entity) const noexcept {
-            ZoneScopedN("World::is_alive");
-            ensure_not_scheduled("inspect entity liveness directly");
-            std::shared_lock access{direct_access_mutex_};
-            ensure_not_scheduled("inspect entity liveness directly");
-            return is_alive_unchecked(entity);
-        }
+        [[nodiscard]] bool is_alive(Entity entity) const noexcept;
 
         template <class T>
         [[nodiscard]] ComponentBorrow<T> get_component(Entity entity) noexcept {
@@ -180,10 +168,10 @@ namespace SFT::Ecs {
                 std::move(access)};
         }
 
-        // Every archetype whose signature is a superset of {remove_const_t<Ts>...} — matched fresh on
-        // each call. Archetype counts are small (a handful to a few dozen distinct component-set
-        // combinations, not per-entity), so this linear scan is cheap; caching per-Ts... results is a
-        // documented, not-yet-needed optimization (see plans/ecs-design.md).
+        /// Every archetype whose signature is a superset of {remove_const_t<Ts>...} — matched fresh on
+        /// each call. Archetype counts are small (a handful to a few dozen distinct component-set
+        /// combinations, not per-entity), so this linear scan is cheap; caching per-Ts... results is a
+        /// documented, not-yet-needed optimization (see plans/ecs-design.md).
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query() {
             ZoneScopedN("World::query");
@@ -193,12 +181,12 @@ namespace SFT::Ecs {
             return query_impl<Ts...>(std::move(access));
         }
 
-        [[nodiscard]] ComponentRegistry &registry() noexcept { return *registry_; }
-        [[nodiscard]] const ComponentRegistry &registry() const noexcept { return *registry_; }
+        [[nodiscard]] ComponentRegistry &registry() noexcept;
+        [[nodiscard]] const ComponentRegistry &registry() const noexcept;
 
-        // Binds a non-owning singleton resource. The resource must outlive this binding and every
-        // Schedule using it. Systems request access explicitly with ReadResource<T> or
-        // WriteResource<T>, allowing the scheduler to include resources in conflict analysis.
+        /// Binds a non-owning singleton resource. The resource must outlive this binding and every
+        /// Schedule using it. Systems request access explicitly with ReadResource<T> or
+        /// WriteResource<T>, allowing the scheduler to include resources in conflict analysis.
         template <class T>
         void bind_resource(T &resource) {
             ZoneScopedN("World::bind_resource");
@@ -266,13 +254,13 @@ namespace SFT::Ecs {
             usize size = 0;
             usize align = 0;
             void *object = nullptr;
-            // Non-null only when the bound type is an Events<T> — lets Schedule::run() reset every
-            // bound event buffer at the top of each run without knowing any concrete event type.
+            /// Non-null only when the bound type is an Events<T> — lets Schedule::run() reset every
+            /// bound event buffer at the top of each run without knowing any concrete event type.
             void (*clear)(void *) noexcept = nullptr;
         };
 
-        // Returns a type-erased clear() thunk for T when T is an Events<U> specialization, or nullptr
-        // for an ordinary resource. Computed once per bind_resource<T>() call, not per frame.
+        /// Returns a type-erased clear() thunk for T when T is an Events<U> specialization, or nullptr
+        /// for an ordinary resource. Computed once per bind_resource<T>() call, not per frame.
         template <class T>
         [[nodiscard]] static constexpr auto event_clear_fn() noexcept -> void (*)(void *) noexcept {
             if constexpr (is_event_resource_v<T>) {
@@ -346,8 +334,8 @@ namespace SFT::Ecs {
 
             const u32 source_index = record.archetype_index;
             const u32 source_row = record.row;
-            // archetype_index_for() may append to archetypes_ and invalidate any reference into it
-            // taken beforehand, so every Archetype& below is (re)fetched only after this call returns.
+
+
             const u32 destination_index = archetype_index_for(destination_signature);
             Archetype &destination = archetypes_[destination_index];
             const u32 destination_row = destination.add_row(entity);
@@ -385,8 +373,8 @@ namespace SFT::Ecs {
 
             const u32 source_index = record.archetype_index;
             const u32 source_row = record.row;
-            // Same reference-invalidation caveat as add_component_unchecked: `source` above is not
-            // used again after this call.
+
+
             const u32 destination_index = archetype_index_for(destination_signature);
             Archetype &destination = archetypes_[destination_index];
             const u32 destination_row = destination.add_row(entity);
@@ -398,66 +386,17 @@ namespace SFT::Ecs {
             record.row = destination_row;
         }
 
-        void ensure_not_scheduled(string_view action) const noexcept {
-            ZoneScopedN("World::ensure_not_scheduled");
-            if (scheduled_execution_.load(std::memory_order_acquire)) {
-                Detail::contract_violation(
-                    "Unsafe ECS World access while an async schedule is active: cannot {}.",
-                    action);
-            }
-        }
+        void ensure_not_scheduled(string_view action) const noexcept;
 
-        [[nodiscard]] std::unique_lock<std::shared_mutex> acquire_direct_mutation(string_view action) noexcept {
-            ZoneScopedN("World::acquire_direct_mutation");
-            std::unique_lock access{direct_access_mutex_, std::try_to_lock};
-            if (!access.owns_lock()) {
-                Detail::contract_violation(
-                    "Cannot {} while a direct ECS query or component borrow is active.",
-                    action);
-            }
-            return access;
-        }
+        [[nodiscard]] std::unique_lock<std::shared_mutex> acquire_direct_mutation(string_view action) noexcept;
 
-        [[nodiscard]] std::unique_lock<std::shared_mutex> begin_scheduled_execution() noexcept {
-            ZoneScopedN("World::begin_scheduled_execution");
-            ensure_not_scheduled("start another schedule");
-            std::unique_lock access{direct_access_mutex_, std::try_to_lock};
-            if (!access.owns_lock()) {
-                Detail::contract_violation(
-                    "Cannot start an ECS schedule while a direct World operation, query, or component borrow is active.");
-            }
-            bool expected = false;
-            if (!scheduled_execution_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-                Detail::contract_violation("The same ECS World cannot run multiple schedules concurrently.");
-            }
-            return access;
-        }
+        [[nodiscard]] std::unique_lock<std::shared_mutex> begin_scheduled_execution() noexcept;
 
-        void end_scheduled_execution() noexcept {
-            ZoneScopedN("World::end_scheduled_execution");
-            scheduled_execution_.store(false, std::memory_order_release);
-        }
+        void end_scheduled_execution() noexcept;
 
-        [[nodiscard]] bool is_alive_unchecked(Entity entity) const noexcept {
-            ZoneScopedN("World::is_alive_unchecked");
-            return entity.generation != 0 && entity.index < entity_records_.size() &&
-                   entity_records_[entity.index].generation == entity.generation;
-        }
+        [[nodiscard]] bool is_alive_unchecked(Entity entity) const noexcept;
 
-        void destroy_unchecked(Entity entity) noexcept {
-            ZoneScopedN("World::destroy_unchecked");
-            if (!is_alive_unchecked(entity)) {
-                return;
-            }
-            EntityRecord &record = entity_records_[entity.index];
-            Archetype &archetype = archetypes_[record.archetype_index];
-            const Entity moved = archetype.remove_row(record.row);
-            if (moved) {
-                entity_records_[moved.index].row = record.row;
-            }
-            ++record.generation;
-            free_indices_.push_back(entity.index);
-        }
+        void destroy_unchecked(Entity entity) noexcept;
 
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query_impl(std::shared_lock<std::shared_mutex> direct_access_lock = {}) {
@@ -510,28 +449,9 @@ namespace SFT::Ecs {
             return *static_cast<ResourceT *>(resource->second.object);
         }
 
-        [[nodiscard]] Entity allocate_entity() {
-            ZoneScopedN("World::allocate_entity");
-            if (!free_indices_.empty()) {
-                const u32 index = free_indices_.back();
-                free_indices_.pop_back();
-                return Entity{.index = index, .generation = entity_records_[index].generation};
-            }
-            const auto index = static_cast<u32>(entity_records_.size());
-            entity_records_.push_back(EntityRecord{.generation = 1});
-            return Entity{.index = index, .generation = 1};
-        }
+        [[nodiscard]] Entity allocate_entity();
 
-        [[nodiscard]] u32 archetype_index_for(const Signature &signature) {
-            ZoneScopedN("World::archetype_index_for");
-            for (usize i = 0; i < archetypes_.size(); ++i) {
-                if (archetypes_[i].signature() == signature) {
-                    return static_cast<u32>(i);
-                }
-            }
-            archetypes_.emplace_back(signature, *registry_);
-            return static_cast<u32>(archetypes_.size() - 1);
-        }
+        [[nodiscard]] u32 archetype_index_for(const Signature &signature);
 
         ComponentRegistry *registry_ = nullptr;
         std::vector<EntityRecord> entity_records_;
@@ -545,13 +465,9 @@ namespace SFT::Ecs {
     namespace Detail {
 
         struct WorldAccess {
-            [[nodiscard]] static std::unique_lock<std::shared_mutex> begin_schedule(World &world) noexcept {
-                return world.begin_scheduled_execution();
-            }
+            [[nodiscard]] static std::unique_lock<std::shared_mutex> begin_schedule(World &world) noexcept;
 
-            static void end_schedule(World &world) noexcept {
-                world.end_scheduled_execution();
-            }
+            static void end_schedule(World &world) noexcept;
 
             template <class... Ts>
             [[nodiscard]] static Query<Ts...> query(World &world) {
@@ -568,9 +484,7 @@ namespace SFT::Ecs {
                 return world.spawn_unchecked(std::forward<Ts>(components)...);
             }
 
-            static void destroy(World &world, Entity entity) noexcept {
-                world.destroy_unchecked(entity);
-            }
+            static void destroy(World &world, Entity entity) noexcept;
 
             template <class T>
             static void add_component(World &world, Entity entity, T component) {
@@ -582,16 +496,9 @@ namespace SFT::Ecs {
                 world.remove_component_unchecked<T>(entity);
             }
 
-            // Empties every bound Events<T> resource. Called once at the top of Schedule::run(),
-            // before the stage loop, so consumers never need a per-event-type begin_frame() call.
-            static void clear_event_resources(World &world) noexcept {
-                ZoneScopedN("WorldAccess::clear_event_resources");
-                for (auto &[key, record] : world.resources_) {
-                    if (record.clear != nullptr) {
-                        record.clear(record.object);
-                    }
-                }
-            }
+            /// Empties every bound Events<T> resource. Called once at the top of Schedule::run(),
+            /// before the stage loop, so consumers never need a per-event-type begin_frame() call.
+            static void clear_event_resources(World &world) noexcept;
         };
 
     } // namespace Detail

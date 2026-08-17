@@ -21,20 +21,20 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    // A curve through caller-supplied waypoints — **centripetal Catmull-Rom**, not Bezier: the
-    // curve interpolates *through* every waypoint (what "fit text to a path drawn through these
-    // points" wants), and the centripetal parameterization (alpha = 0.5) avoids the
-    // cusps/self-intersections uniform Catmull-Rom produces when waypoints are unevenly spaced.
-    // Works in both `glm::vec2` and `glm::vec3` (see `Spline2D`/`Spline3D` below) — the Barry-Goldman
-    // evaluation only needs vector +/-/scalar-* and `length()`, which both types provide.
+    /// A curve through caller-supplied waypoints — **centripetal Catmull-Rom**, not Bezier: the
+    /// curve interpolates *through* every waypoint (what "fit text to a path drawn through these
+    /// points" wants), and the centripetal parameterization (alpha = 0.5) avoids the
+    /// cusps/self-intersections uniform Catmull-Rom produces when waypoints are unevenly spaced.
+    /// Works in both `glm::vec2` and `glm::vec3` (see `Spline2D`/`Spline3D` below) — the Barry-Goldman
+    /// evaluation only needs vector +/-/scalar-* and `length()`, which both types provide.
     template <typename Vec>
     class CatmullRomSpline {
       public:
         CatmullRomSpline() noexcept = default;
 
-        // `waypoints` needs at least 2 points. `samples_per_segment` controls the arc-length
-        // table's resolution (used by t_at_arc_length() for even glyph spacing) — 32 is a good
-        // default; raise it for very sharp/high-curvature paths.
+        /// `waypoints` needs at least 2 points. `samples_per_segment` controls the arc-length
+        /// table's resolution (used by t_at_arc_length() for even glyph spacing) — 32 is a good
+        /// default; raise it for very sharp/high-curvature paths.
         [[nodiscard]] static CatmullRomSpline create(vector<Vec> waypoints, u32 samples_per_segment = 32) {
             CatmullRomSpline spline;
             if (waypoints.size() < 2) {
@@ -54,8 +54,8 @@ namespace SFT::Renderer {
 
         [[nodiscard]] bool valid() const noexcept { return segment_count_ > 0; }
 
-        // `t` in [0, segment_count()] — segment index is floor(t), local position within the
-        // segment is frac(t).
+        /// `t` in [0, segment_count()] — segment index is floor(t), local position within the
+        /// segment is frac(t).
         [[nodiscard]] u32 segment_count() const noexcept { return segment_count_; }
 
         [[nodiscard]] Vec position(f32 t) const noexcept {
@@ -71,8 +71,8 @@ namespace SFT::Renderer {
             return evaluate_segment(segment, local);
         }
 
-        // Central-difference tangent (not normalized) — robust for any segment shape without
-        // needing a closed-form derivative of the Barry-Goldman recursion.
+        /// Central-difference tangent (not normalized) — robust for any segment shape without
+        /// needing a closed-form derivative of the Barry-Goldman recursion.
         [[nodiscard]] Vec tangent(f32 t) const noexcept {
             constexpr f32 epsilon = 1.0e-3f;
             const f32 max_t = static_cast<f32>(segment_count_);
@@ -86,9 +86,9 @@ namespace SFT::Renderer {
 
         [[nodiscard]] f32 total_length() const noexcept { return arc_length_table_.empty() ? 0.0f : arc_length_table_.back().length; }
 
-        // Maps an arc-length distance along the curve (from its start) to the equivalent `t` —
-        // this is what makes glyph spacing along the path even by actual advance width instead of
-        // bunching up wherever the raw parameter moves slower than the curve's real speed.
+        /// Maps an arc-length distance along the curve (from its start) to the equivalent `t` —
+        /// this is what makes glyph spacing along the path even by actual advance width instead of
+        /// bunching up wherever the raw parameter moves slower than the curve's real speed.
         [[nodiscard]] f32 t_at_arc_length(f32 arc_length) const noexcept {
             if (arc_length_table_.empty()) {
                 return 0.0f;
@@ -140,7 +140,7 @@ namespace SFT::Renderer {
 
         [[nodiscard]] static f32 knot_delta(const Vec &a, const Vec &b, f32 alpha) noexcept {
             const f32 distance = glm::length(b - a);
-            return distance > 0.0f ? std::pow(distance, alpha) : 1.0e-4f; // avoid a zero-length knot span
+            return distance > 0.0f ? std::pow(distance, alpha) : 1.0e-4f;
         }
 
         [[nodiscard]] static Vec lerp_knots(const Vec &a, const Vec &b, f32 ta, f32 tb, f32 t) noexcept {
@@ -181,7 +181,7 @@ namespace SFT::Renderer {
             }
         }
 
-        vector<Vec> points_; // waypoints with one phantom point prepended and appended
+        vector<Vec> points_;
         u32 segment_count_ = 0;
         vector<Sample> arc_length_table_;
     };
@@ -189,31 +189,31 @@ namespace SFT::Renderer {
     using Spline2D = CatmullRomSpline<glm::vec2>;
     using Spline3D = CatmullRomSpline<glm::vec3>;
 
-    // Where and how a glyph sits on a 2D path: `position` is the glyph's pen origin, `rotation`
-    // (radians) is the path's tangent angle at that point — the caller applies this the same way
-    // a rotated GlyphPlacement would be built for any other 2D text (copy both fields into the
-    // placement; make_glyph_instance applies the rotation around its pen origin).
+    /// Where and how a glyph sits on a 2D path: `position` is the glyph's pen origin, `rotation`
+    /// (radians) is the path's tangent angle at that point — the caller applies this the same way
+    /// a rotated GlyphPlacement would be built for any other 2D text (copy both fields into the
+    /// placement; make_glyph_instance applies the rotation around its pen origin).
     struct GlyphPathPlacement2D {
         glm::vec2 position{0.0f};
         f32 rotation = 0.0f;
     };
 
-    // Walks `spline`'s arc length by each glyph's advance width (scaled from font units to
-    // pixels), placing glyph `i`'s pen origin at that point and rotating it to the path's tangent
-    // there. `start_offset` shifts the whole run's starting arc-length position (e.g. to center
-    // a string on the path, pass `-total_advance_px / 2`).
+    /// Walks `spline`'s arc length by each glyph's advance width (scaled from font units to
+    /// pixels), placing glyph `i`'s pen origin at that point and rotating it to the path's tangent
+    /// there. `start_offset` shifts the whole run's starting arc-length position (e.g. to center
+    /// a string on the path, pass `-total_advance_px / 2`).
     [[nodiscard]] vector<GlyphPathPlacement2D> layout_text_on_spline_2d(const Spline2D &spline,
                                                                                span<const Text::PositionedGlyph> glyphs,
                                                                                u32 units_per_em, f32 pixel_size,
                                                                                f32 start_offset = 0.0f);
 
-    // Same idea in full 3D: one world-space transform per glyph, built from a **rotation-minimizing
-    // frame** (tangent + `up_hint` orthogonalized via Gram-Schmidt) rather than a raw Frenet-Serret
-    // frame, which is known to flip its normal unpredictably through inflection points and straight
-    // segments — the practical fix for "follow the curve's frame in 3D" without that artifact.
-    // `up_hint` is a world-space reference direction (typically world up); if the path's tangent
-    // ever runs parallel to it, an arbitrary stable perpendicular is substituted so the frame never
-    // degenerates. Column-major: transform[0]=right, [1]=up, [2]=forward(tangent), [3]=position.
+    /// Same idea in full 3D: one world-space transform per glyph, built from a **rotation-minimizing
+    /// frame** (tangent + `up_hint` orthogonalized via Gram-Schmidt) rather than a raw Frenet-Serret
+    /// frame, which is known to flip its normal unpredictably through inflection points and straight
+    /// segments — the practical fix for "follow the curve's frame in 3D" without that artifact.
+    /// `up_hint` is a world-space reference direction (typically world up); if the path's tangent
+    /// ever runs parallel to it, an arbitrary stable perpendicular is substituted so the frame never
+    /// degenerates. Column-major: transform[0]=right, [1]=up, [2]=forward(tangent), [3]=position.
     [[nodiscard]] vector<glm::mat4> layout_text_on_spline_3d(const Spline3D &spline,
                                                                     span<const Text::PositionedGlyph> glyphs,
                                                                     u32 units_per_em, f32 pixel_size, glm::vec3 up_hint,

@@ -35,10 +35,6 @@ struct UiViewConstants {
     // `instanceIndexBase` field for why this isn't left to SV_InstanceID/first_instance alone.
     uint instanceIndexBase;
     uint padding;
-    // +1 on Vulkan, -1 on D3D12/Metal/WebGpu (RHI::gpu_clip_y_sign, UiQuadPipelineImpl.cpp) — see
-    // text_sdf.slang's identical field for why this replaces sturdy_clip_position() here.
-    float clipYSign;
-    float3 _pad1;
 };
 
 [[push_constant]] ConstantBuffer<UiViewConstants> viewConstants;
@@ -64,12 +60,10 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     float2 corner = uiQuadCorner(vertexId);
     float2 localPixelPos = corner * inst.size;
     float2 pixelPos = inst.position + localPixelPos;
-    // Pixel space -> clip space: same base mapping as text_sdf.slang, with the same clipYSign
-    // plain-multiply reconciliation for D3D12's NDC — see UiViewConstants' own doc comment.
-    float2 ndc = (pixelPos * safeRcp(viewConstants.viewportSize)) * 2.0 - 1.0;
+    float2 pixelUv = pixelPos * safeRcp(viewConstants.viewportSize);
 
     VertexOutput output;
-    output.position = float4(ndc.x, ndc.y * viewConstants.clipYSign, 0.0, 1.0);
+    output.position = float4(uvToNdc(pixelUv), 0.0, 1.0);
     output.uv = lerp(inst.uvMin, inst.uvMax, corner);
     output.localPixelPos = localPixelPos;
     output.halfSize = inst.size * 0.5;

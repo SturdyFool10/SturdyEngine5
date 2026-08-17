@@ -47,8 +47,8 @@ namespace SFT::Renderer {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
-        // A GraphicsBackendError carrying a Slang compile failure's message + diagnostics (the Slang error
-        // dump is where the actual cause lives, so it must be surfaced, not just the summary line).
+
+
         [[nodiscard]] Core::GraphicsBackendError material_shader_error(const slang::ShaderError &error, const char *operation) {
             string message = string(operation) + " failed: " + error.message;
             if (!error.diagnostics.empty()) {
@@ -58,10 +58,10 @@ namespace SFT::Renderer {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
-        // Whether two templates expose the same binding/parameter *layout* — the test for a hot-reload
-        // that only tweaked shader logic (fast path: swap modules, keep instance UBOs/bind groups' shape)
-        // versus one that changed the interface (slow path: rebuild instances). Compares CPU-side
-        // descriptors only, never GPU handles (which always differ across a rebuild).
+
+
+
+
         [[nodiscard]] bool material_template_layout_compatible(const MaterialTemplateResource &a, const MaterialTemplateResource &b) {
             if (a.has_uniform_block != b.has_uniform_block || a.uniform_block_size != b.uniform_block_size ||
                 a.uniform_set != b.uniform_set || a.uniform_binding != b.uniform_binding ||
@@ -84,10 +84,10 @@ namespace SFT::Renderer {
             return true;
         }
 
-        // Whether two paths point at the same file on disk. Uses std::filesystem::equivalent (resolves
-        // `./`, symlinks, and differing-but-equivalent spellings); on any error (a path that doesn't
-        // exist) falls back to comparing filenames, which is enough to match a watched `Shaders/x.slang`
-        // against a template's stored source path.
+
+
+
+
         [[nodiscard]] bool same_shader_file(std::string_view a, std::string_view b) {
             namespace fs = std::filesystem;
             std::error_code ec;
@@ -97,11 +97,11 @@ namespace SFT::Renderer {
             return !a.empty() && fs::path{a}.filename() == fs::path{b}.filename();
         }
 
-        // Every entry point matching `stage`, in reflection order (which mirrors the compile request's
-        // entry_points order) — a template asking for a depth-only fragment entry
-        // (ShaderAssetDesc::depth_only_fragment_entry_point) compiles two Fragment-stage entries from
-        // the same module, so callers that need "the main one" vs. "the depth-only one" pick by index
-        // rather than by a single first-match.
+
+
+
+
+
         [[nodiscard]] vector<string> entry_point_names(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
             vector<string> names;
             for (const slang::ShaderEntryPointReflection &entry : reflection.entry_points) {
@@ -112,7 +112,7 @@ namespace SFT::Renderer {
             return names;
         }
 
-        // Find the first entry point matching `stage`; returns its reflected name or empty.
+
         [[nodiscard]] optional<string> entry_point_name(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
             vector<string> names = entry_point_names(reflection, stage);
             if (names.empty()) {
@@ -121,8 +121,8 @@ namespace SFT::Renderer {
             return std::move(names.front());
         }
 
-        // The set/binding of the shader's default (global) constant buffer, if it has one — scanned from
-        // the descriptor sets so it matches what generate_bind_group_layouts() emitted.
+
+
         struct UniformLocation {
             bool present = false;
             u32 set = 0;
@@ -144,7 +144,7 @@ namespace SFT::Renderer {
             return UniformLocation{.present = true, .set = 0, .binding = reflection.global_constant_buffer_binding};
         }
 
-        // The GeometryVertex input layout every material pipeline binds (position/normal/uv/color/tangent).
+
         constexpr array<RHI::VertexAttribute, 5> geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -172,7 +172,7 @@ namespace SFT::Renderer {
 
         const slang::ShaderReflection &reflection = shader.reflection();
 
-        // — Shader modules (vertex required, fragment optional) —
+
         const optional<string> vertex_name = entry_point_name(reflection, slang::ShaderStage::Vertex);
         if (!vertex_name) {
             return unexpected(material_error("Material shader has no vertex entry point."));
@@ -234,7 +234,7 @@ namespace SFT::Renderer {
             }
         }
 
-        // — Reflection-derived bind-group + pipeline layouts —
+
         const RHI::ShaderStage visibility = reflected_stage_mask(reflection);
         vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, visibility);
         for (const GeneratedBindGroupLayout &layout : generated) {
@@ -250,9 +250,9 @@ namespace SFT::Renderer {
             resource.bind_group_layout_sets.push_back(layout.set);
         }
 
-        // Derived from reflection rather than hand-written `sizeof(SceneDrawConstants)` — see
-        // generate_push_constant_ranges' doc comment. Only the vertex stage reads scene_draw
-        // (RendererLifecycle.cpp's draw call pushes it with ShaderStage::Vertex), hence Vertex here.
+
+
+
         const vector<RHI::PushConstantRange> scene_draw_constants = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
         if (scene_draw_constants.empty()) {
             destroy_material_template_gpu(resource);
@@ -272,7 +272,7 @@ namespace SFT::Renderer {
         }
         resource.pipeline_layout = *pipeline_layout;
 
-        // — Uniform block + parameters —
+
         const UniformLocation uniform = find_uniform_location(reflection);
         if (uniform.present) {
             resource.has_uniform_block = true;
@@ -291,7 +291,7 @@ namespace SFT::Renderer {
             resource.parameters.push_back(std::move(parameter));
         }
 
-        // — Texture slots —
+
         for (const ReflectedResource &binding : collect_resource_bindings(reflection)) {
             const bool is_texture = binding.type == RHI::BindingType::SampledTexture ||
                                     binding.type == RHI::BindingType::CombinedImageSampler ||
@@ -342,15 +342,15 @@ namespace SFT::Renderer {
         const auto shader_target = shader_target_for_device(*device);
         if (!shader_target) return unexpected(shader_target.error());
 
-        // Material source is caller-configurable, but the active device owns its output ABI.
+
         slang::ShaderCompileOptions backend_options = options;
         backend_options.targets = shader_compile_targets_for_device(*device);
 
-        // The variant cache owns the source + base options and compiles the base (define-less) permutation
-        // now; SKINNED/ALPHA_TEST/... permutations compile lazily on later requests, and a hot-reload
-        // re-drives the same cache against the edited file. enable_shader_disk_cache mirrors
-        // EngineConfig::enable_shader_disk_cache (Engine/EngineModule.hpp), threaded through
-        // Core::RendererCreateInfo and retained on recovery_create_info_ since Renderer::initialize().
+
+
+
+
+
         slang::ShaderVariantCache variant_cache{source, std::move(backend_options), {}, recovery_create_info_.enable_shader_disk_cache};
         auto base = variant_cache.get_or_compile_base();
         if (!base) {
@@ -367,13 +367,13 @@ namespace SFT::Renderer {
             destroy_material_template_gpu(resource);
             return unexpected(built.error());
         }
-        // GPU modules and the C++ reflection snapshot are complete. Keep source/options for hot reload,
-        // but release the compiled base program and Slang global session until another variant/edit
-        // actually needs compilation.
+
+
+
         resource.shader.release_compiler_state();
         variant_cache.release_compiler_memory();
-        // Move the cache in only after a successful build so a compile-but-fails-to-build template doesn't
-        // leave a half-live cache behind.
+
+
         resource.variant_cache = std::move(variant_cache);
 
         resource.alive = true;
@@ -392,24 +392,24 @@ namespace SFT::Renderer {
             return unexpected(material_error("Cannot reload an unknown material template."));
         }
         if (!tmpl->hot_reloadable) {
-            return {}; // Not source-backed — nothing on disk to reload from.
+            return {};
         }
         if (rhi_device() == nullptr) {
             return unexpected(material_error("Cannot reload a material template without an RHI device."));
         }
 
-        // Recompile the base permutation from the (possibly edited) source. `invalidate()` drops every
-        // stale compiled permutation so the whole variant set rebuilds from the new code on next request.
+
+
         tmpl->variant_cache.invalidate();
         auto recompiled = tmpl->variant_cache.get_or_compile_base();
         if (!recompiled) {
-            // Keep the current template intact on a compile error — a broken save shouldn't blank the
-            // screen; the last good pipeline keeps rendering until the file compiles again.
+
+
             return unexpected(material_shader_error(recompiled.error(), "recompile material template on hot-reload"));
         }
 
-        // Build the new GPU objects into a scratch resource first, so a build failure leaves the live
-        // template untouched (the rebuild is all-or-nothing).
+
+
         MaterialTemplateResource next{};
         next.shader = *recompiled;
         if (Core::RendererResult built = build_material_template_gpu(next, next.shader); !built) {
@@ -419,16 +419,16 @@ namespace SFT::Renderer {
         next.shader.release_compiler_state();
         tmpl->variant_cache.release_compiler_memory();
 
-        // The heavy hammer: make sure no in-flight frame still references the objects we're about to
-        // destroy before we swap them. Sanctioned here because a hot-reload is a resource reload, not the
-        // per-frame path — see plans/async-submission-model.md.
+
+
+
         wait_idle();
 
         const bool compatible = material_template_layout_compatible(*tmpl, next);
 
-        // Swap the freshly built GPU objects + reflection-derived descriptors into the live template,
-        // tearing down the old ones. Identity/ownership fields (handle/label/variant_cache/hot_reloadable)
-        // stay put.
+
+
+
         destroy_material_template_gpu(*tmpl);
         tmpl->shader = std::move(next.shader);
         tmpl->vertex_module = next.vertex_module;
@@ -448,13 +448,13 @@ namespace SFT::Renderer {
         tmpl->has_uniform_block = next.has_uniform_block;
         tmpl->parameters = std::move(next.parameters);
         tmpl->texture_slots = std::move(next.texture_slots);
-        // destroy_material_template_gpu() above already erased this template's cached pipeline
-        // variants (see its doc comment); material_pipeline_for() rebuilds them lazily against the new
-        // layout on next use.
 
-        // Fix up every instance of this template. Bind groups always rebuild (they were allocated against
-        // the now-destroyed layouts); on a compatible reload the UBOs keep their size and only need a
-        // re-upload, but on a layout change the instance's whole CPU/GPU state is rebuilt from scratch.
+
+
+
+
+
+
         const MaterialTemplateHandle template_handle = tmpl->handle;
         for (MaterialInstanceResource &instance : material_instances_) {
             if (!instance.alive || instance.material_template != template_handle) {
@@ -487,8 +487,8 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::poll_shader_hot_reload");
         using namespace std::chrono_literals;
 
-        // See shader_hot_reload_lock_'s own doc comment (RendererModule.hpp) — both render_frame()
-        // overloads call this unconditionally every frame, for every window's own render thread.
+
+
         auto guard = shader_hot_reload_lock_.lock();
 
         usize reloaded = 0;
@@ -523,7 +523,7 @@ namespace SFT::Renderer {
                 ShaderHotReloadPollResult result{};
                 result.watcher = std::move(watcher);
                 if (!result.watcher) {
-                    // Primed: the first real poll reports only edits made after the engine started.
+
                     result.watcher = std::make_shared<slang::ShaderWatcher>(std::filesystem::path{"Shaders"});
                 }
                 result.changes = result.watcher->poll();
@@ -541,8 +541,8 @@ namespace SFT::Renderer {
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
         }
-        // See material_pipeline_variants_'s doc comment (RendererModule.hpp) for why the cache lives
-        // there, keyed by handle, rather than inline on MaterialTemplateResource like the struct used to.
+
+
         auto variants_by_template = material_pipeline_variants_.lock();
         vector<MaterialPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
         for (const MaterialPipelineVariant &variant : pipeline_variants) {
@@ -574,8 +574,8 @@ namespace SFT::Renderer {
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = standard_depth_test
                 ? RHI::DepthStencilState{
-                      // No Z-prepass of its own (debug gizmos, other forward-rendered draws) — a
-                      // normal depth test/write against whatever's already in the buffer.
+
+
                       .format = depth_format,
                       .depth_test_enable = true,
                       .depth_write_enable = true,
@@ -584,10 +584,10 @@ namespace SFT::Renderer {
                 : RHI::DepthStencilState{
                       .format = depth_format,
                       .depth_test_enable = true,
-                      // The Z prepass ("z prepass", recorded via depth_only_pipeline_for) already wrote the
-                      // definitive nearest depth for every surviving (non-alpha-discarded) fragment this
-                      // frame — this pass only needs to match it, not write it again, so a fragment whose
-                      // depth doesn't exactly equal the prepass result never runs full PBR shading.
+
+
+
+
                       .depth_write_enable = false,
                       .depth_compare = RHI::CompareOp::Equal,
                   };
@@ -601,11 +601,11 @@ namespace SFT::Renderer {
                             : RHI::ShaderEntry{},
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
-            // Default RasterizationState (CullMode::Back, FrontFace::CounterClockwise) matches
-            // glTF's front-face winding convention (triangles wound CCW when viewed from outside) —
-            // was previously overridden to CullMode::None, meaning every triangle's backface still
-            // rasterized and ran full fragment shading, doubling geometry-pass fragment work for no
-            // reason on closed/mostly-closed meshes.
+
+
+
+
+
             .rasterization = RHI::RasterizationState{},
             .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
@@ -658,8 +658,8 @@ namespace SFT::Renderer {
         RHI::RenderPipelineDesc desc{
             .layout = material_template.pipeline_layout,
             .vertex = RHI::ShaderEntry{.module = material_template.vertex_module, .entry_point = material_template.vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
-            // No fragment stage at all for a template with no alpha-tested cutout entry — the prepass
-            // is then pure rasterization + depth write, nothing else runs per fragment.
+
+
             .fragment = material_template.has_depth_only_fragment
                             ? RHI::ShaderEntry{.module = material_template.depth_only_fragment_module, .entry_point = material_template.depth_only_fragment_entry_point.c_str(), .stage = RHI::ShaderStage::Fragment}
                             : RHI::ShaderEntry{},
@@ -667,10 +667,10 @@ namespace SFT::Renderer {
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = shadow_map
                 ? RHI::RasterizationState{
-                      // Shadow casters are deliberately two-sided. This keeps thin planes, leaves,
-                      // wires, and imperfect imported winding from becoming holes when the light is
-                      // behind their authored front face. Closed meshes still resolve to the nearest
-                      // surface because the depth test selects their light-facing shell.
+
+
+
+
                       .cull_mode = RHI::CullMode::None,
                       .depth_bias_constant = depth_bias,
                       .depth_bias_slope_scale = slope_bias,
@@ -752,8 +752,8 @@ namespace SFT::Renderer {
             instance.textures.push_back(MaterialTextureBinding{.binding = slot.binding, .texture = *white});
         }
 
-        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
-        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp).
+
+
         const u32 frame_count = capabilities_.max_frames_in_flight;
         instance.frames.assign(frame_count, MaterialInstanceFrame{});
         for (MaterialInstanceFrame &frame : instance.frames) {
@@ -789,15 +789,15 @@ namespace SFT::Renderer {
         if (frame_slot >= instance.frames.size()) {
             return unexpected(material_error("Material frame slot out of range."));
         }
-        // See material_frame_prepare_lock_'s own doc comment (RendererModule.hpp) — held for the whole
-        // check-then-rebuild body below, same discipline material_pipeline_for() already uses for its
-        // own lazy cache, so two passes recorded concurrently (RenderGraph::execute_parallel) that
-        // share a material neither has touched yet this frame can't race into the same
-        // MaterialInstanceFrame's dirty-rebuild block at once.
+
+
+
+
+
         auto material_frame_guard = material_frame_prepare_lock_.lock();
         MaterialInstanceFrame &frame = instance.frames[frame_slot];
 
-        // Re-upload this slot's UBO if the CPU value block changed since it was last written.
+
         if (frame.uniform_dirty && frame.uniform_buffer && !instance.uniform_values.empty()) {
             if (auto written = device->write_buffer(frame.uniform_buffer, 0,
                                                     span<const std::byte>{instance.uniform_values.data(), instance.uniform_values.size()});
@@ -807,7 +807,7 @@ namespace SFT::Renderer {
             frame.uniform_dirty = false;
         }
 
-        // (Re)build one bind group per template set when textures/bindings changed.
+
         if (frame.bind_groups_dirty) {
             for (RHI::BindGroupHandle group : frame.bind_groups) {
                 if (group) {
@@ -982,10 +982,10 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return;
         }
-        // Destroys and forgets this template's cached pipelines, keyed by handle — see
-        // material_pipeline_variants_'s doc comment (RendererModule.hpp). A no-op for a resource whose
-        // handle was never used as a key (e.g. the scratch MaterialTemplateResource build_material_template_gpu()
-        // tears down on an early construction failure, before a handle is ever assigned).
+
+
+
+
         {
             auto variants_by_template = material_pipeline_variants_.lock();
             if (auto entry = variants_by_template->find(resource.handle.value); entry != variants_by_template->end()) {

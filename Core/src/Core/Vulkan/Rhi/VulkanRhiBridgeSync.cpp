@@ -1,4 +1,4 @@
-// RHI submission and explicit synchronization objects backed by Vulkan queues/fences/timeline semaphores.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -101,9 +101,9 @@ namespace SFT::Core::Vulkan {
             }
             waits.push_back(swapchain->image_available_semaphores[image_available_index].submit_info(
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0));
-            // Native WSI only needs rendering through the graphics pipeline before it can present.
-            // Composition images instead leave the command stream in GENERAL for an external D3D
-            // consumer, so signal only after its final release barrier and every earlier command ran.
+
+
+
             const VkPipelineStageFlags2 render_complete_stage = swapchain->is_composition_present()
                 ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
                 : VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
@@ -225,7 +225,7 @@ namespace SFT::Core::Vulkan {
         const VkResult result = vkWaitForFences(logical_device_->vk_handle(), static_cast<u32>(vk_fences.size()),
                                                 vk_fences.data(), wait_all ? VK_TRUE : VK_FALSE, timeout_ns);
         if (result == VK_TIMEOUT) {
-            return false; // A real timeout, not an error -- caller must not reclaim anything the fence protects.
+            return false;
         }
         if (result != VK_SUCCESS) {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed, "wait_fences: vkWaitForFences failed.");

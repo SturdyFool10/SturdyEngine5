@@ -4,8 +4,8 @@
 
 namespace SFT::Platform::Windowing {
 
-    // Provider-neutral key identity. WindowKeyboardEvent retains each backend's raw key and
-    // scancode alongside this value for consumers that need provider- or layout-specific data.
+    /// Provider-neutral key identity. WindowKeyboardEvent retains each backend's raw key and
+    /// scancode alongside this value for consumers that need provider- or layout-specific data.
     enum class KeyboardKey : i32 {
         Unknown = 0,
 
@@ -87,8 +87,8 @@ namespace SFT::Platform::Windowing {
         RightSuper,
         Menu,
 
-        // New blocks get their own base offset (well clear of the ~25-entry 0x100 block above) rather
-        // than continuing that sequence, so future insertions into either block never renumber this one.
+        /// New blocks get their own base offset (well clear of the ~25-entry 0x100 block above) rather
+        /// than continuing that sequence, so future insertions into either block never renumber this one.
         F1 = 0x200,
         F2,
         F3,
@@ -112,8 +112,8 @@ namespace SFT::Platform::Windowing {
         F21,
         F22,
         F23,
-        F24, // GLFW defines F25 too; SDL3 caps at F24 (its scancode table stops there) — F24 is this
-             // enum's own ceiling so both backends can map onto the same range.
+        F24,
+
 
         Numpad0 = 0x300,
         Numpad1,
@@ -133,10 +133,10 @@ namespace SFT::Platform::Windowing {
         NumpadEnter,
         NumpadEqual,
 
-        // GLFW has no media-key constants at all (checked its full keycode table) — these stay
-        // KeyboardKey::Unknown on that backend. Same honest architecture-limited-coverage stance
-        // already used elsewhere in this codebase (e.g. Foundation::Cpu's Arm SVE detection, always
-        // false there for the same "the backend genuinely cannot report this" reason).
+        /// GLFW has no media-key constants at all (checked its full keycode table) — these stay
+        /// KeyboardKey::Unknown on that backend. Same honest architecture-limited-coverage stance
+        /// already used elsewhere in this codebase (e.g. Foundation::Cpu's Arm SVE detection, always
+        /// false there for the same "the backend genuinely cannot report this" reason).
         VolumeUp = 0x400,
         VolumeDown,
         Mute,
@@ -190,12 +190,12 @@ namespace SFT::Platform::Windowing {
         }
     }
 
-    // Normalized modifier bitmask — WindowKeyboardEvent::modifiers carries this (SDL3/GLFW backends
-    // translate their own native modifier bits into it), so a consumer never has to know whether an
-    // event came from SDL's SDL_Keymod or GLFW's mods bitfield to check "is Shift held." Left/right
-    // side is deliberately *not* distinguished here (that's what the left/right KeyboardKey
-    // enumerators above are for, via is_modifier_key()/direct key_down() checks) — this is the
-    // coarse "any Shift" convenience the way every other engine's modifier mask works.
+    /// Normalized modifier bitmask — WindowKeyboardEvent::modifiers carries this (SDL3/GLFW backends
+    /// translate their own native modifier bits into it), so a consumer never has to know whether an
+    /// event came from SDL's SDL_Keymod or GLFW's mods bitfield to check "is Shift held." Left/right
+    /// side is deliberately *not* distinguished here (that's what the left/right KeyboardKey
+    /// enumerators above are for, via is_modifier_key()/direct key_down() checks) — this is the
+    /// coarse "any Shift" convenience the way every other engine's modifier mask works.
     enum class KeyModifiers : u32 {
         None = 0,
         Shift = 1u << 0,
@@ -225,11 +225,11 @@ namespace SFT::Platform::Windowing {
         return (value & flag) != KeyModifiers::None;
     }
 
-    // The modifier a given left/right KeyboardKey contributes to the coarse KeyModifiers mask, or
-    // KeyModifiers::None for every non-modifier key. Backends use this to fold their per-side key
-    // state into one mask; InputState (Engine/src/Engine/InputState.hpp) reuses it the same way when
-    // deriving modifiers() from the raw pressed-key set rather than trusting a second, driftable
-    // source of truth.
+    /// The modifier a given left/right KeyboardKey contributes to the coarse KeyModifiers mask, or
+    /// KeyModifiers::None for every non-modifier key. Backends use this to fold their per-side key
+    /// state into one mask; InputState (Engine/src/Engine/InputState.hpp) reuses it the same way when
+    /// deriving modifiers() from the raw pressed-key set rather than trusting a second, driftable
+    /// source of truth.
     [[nodiscard]] constexpr KeyModifiers modifier_for_key(KeyboardKey key) noexcept {
         switch (key) {
             case KeyboardKey::LeftShift:

@@ -1,9 +1,9 @@
-// Consumer-facing header/link smoke test for Sturdy::EngineKit and the lower-level GLM API engine
-// code commonly uses directly. Exact aggregate membership is asserted in EngineKit/CMakeLists.txt;
-// this test deliberately touches no GPU/window/device.
-//
-// Ecs is exercised directly (not just via Engine's own World, which is private) since it's a
-// first-class member of the "core" set, not merely a transitive dependency of Engine.
+
+
+
+
+
+
 #include <Foundation/src/Foundation.hpp>
 #include <Async/src/Async.hpp>
 #include <Ecs/src/World.hpp>

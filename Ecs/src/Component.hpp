@@ -22,9 +22,9 @@ namespace SFT::Ecs {
     using ComponentId = u32;
     inline constexpr ComponentId invalid_component_id = std::numeric_limits<ComponentId>::max();
 
-    // Stable, public identity for a component schema. Unlike ComponentId, this key is independent
-    // of registration order and can cross a C ABI, language binding, serialized scene, or plugin
-    // boundary. The dense ComponentId resolved by ComponentRegistry remains the hot-path value.
+    /// Stable, public identity for a component schema. Unlike ComponentId, this key is independent
+    /// of registration order and can cross a C ABI, language binding, serialized scene, or plugin
+    /// boundary. The dense ComponentId resolved by ComponentRegistry remains the hot-path value.
     struct ComponentKey {
         u64 high = 0;
         u64 low = 0;
@@ -35,12 +35,12 @@ namespace SFT::Ecs {
 
         friend constexpr bool operator==(ComponentKey, ComponentKey) noexcept = default;
 
-        // Two independently seeded FNV-style lanes provide a deterministic 128-bit key. The high
-        // lane uses ordinary UTF-8 bytes/FNV prime; the low lane salts each byte by 0x9d and uses
-        // the next odd multiplier. This does not depend on RTTI, compiler type names, process
-        // addresses, or registration order and is straightforward to reproduce in FFI bindings.
-        // ComponentRegistry still checks the canonical name/schema when a key already exists, so
-        // a hash collision becomes a registration error instead of silent type aliasing.
+        /// Two independently seeded FNV-style lanes provide a deterministic 128-bit key. The high
+        /// lane uses ordinary UTF-8 bytes/FNV prime; the low lane salts each byte by 0x9d and uses
+        /// the next odd multiplier. This does not depend on RTTI, compiler type names, process
+        /// addresses, or registration order and is straightforward to reproduce in FFI bindings.
+        /// ComponentRegistry still checks the canonical name/schema when a key already exists, so
+        /// a hash collision becomes a registration error instead of silent type aliasing.
         [[nodiscard]] static constexpr ComponentKey from_name(std::string_view canonical_name) noexcept {
             constexpr u64 fnv_prime = 1099511628211ull;
             u64 high_hash = 14695981039346656037ull;
@@ -59,10 +59,7 @@ namespace SFT::Ecs {
     static_assert(std::is_trivially_copyable_v<ComponentKey>);
 
     struct ComponentKeyHash {
-        [[nodiscard]] usize operator()(ComponentKey key) const noexcept {
-            const u64 mixed = key.low ^ (key.high + 0x9e3779b97f4a7c15ull + (key.low << 6u) + (key.low >> 2u));
-            return static_cast<usize>(mixed);
-        }
+        [[nodiscard]] usize operator()(ComponentKey key) const noexcept;
     };
 
     enum class ComponentFlags : u32 {
@@ -87,9 +84,9 @@ namespace SFT::Ecs {
     using ComponentMoveConstructFn = void (*)(void *destination, void *source, void *user_data) noexcept;
     using ComponentDestroyFn = void (*)(void *object, void *user_data) noexcept;
 
-    // Complete runtime descriptor used by the non-templated storage core. `user_data` belongs to
-    // the registering module/language runtime and is passed to every lifecycle callback. It must
-    // outlive every World using this registry entry.
+    /// Complete runtime descriptor used by the non-templated storage core. `user_data` belongs to
+    /// the registering module/language runtime and is passed to every lifecycle callback. It must
+    /// outlive every World using this registry entry.
     struct ComponentInfo {
         ComponentKey key{};
         UString canonical_name;
@@ -120,8 +117,8 @@ namespace SFT::Ecs {
     template <class Value>
     using ComponentRegistryExpected = std::expected<Value, ComponentRegistryError>;
 
-    // Native component types specialize this trait with a stable canonical name. Schema version
-    // and flags are optional members; the helpers below provide defaults when omitted.
+    /// Native component types specialize this trait with a stable canonical name. Schema version
+    /// and flags are optional members; the helpers below provide defaults when omitted.
     template <class T>
     struct ComponentTraits {
         static constexpr std::string_view name{};
@@ -216,9 +213,9 @@ namespace SFT::Ecs {
         return ComponentKey::from_name(Detail::component_name<std::remove_cv_t<T>>());
     }
 
-    // Engine-owned registry shared by every World that needs interoperable component IDs. It is
-    // intentionally non-copyable/non-movable: Worlds keep a non-owning reference and the registry
-    // must outlive them. Descriptor addresses remain stable as later types register.
+    /// Engine-owned registry shared by every World that needs interoperable component IDs. It is
+    /// intentionally non-copyable/non-movable: Worlds keep a non-owning reference and the registry
+    /// must outlive them. Descriptor addresses remain stable as later types register.
     class ComponentRegistry {
       public:
         ComponentRegistry() = default;
@@ -243,9 +240,9 @@ namespace SFT::Ecs {
             return register_component(Detail::make_component_info<std::remove_cv_t<T>>());
         }
 
-        // Native typed operations use this contract form after startup validation. A duplicate
-        // canonical name/key with incompatible metadata is a programming/configuration error, so
-        // it terminates instead of injecting expected-handling into every spawn/query hot path.
+        /// Native typed operations use this contract form after startup validation. A duplicate
+        /// canonical name/key with incompatible metadata is a programming/configuration error, so
+        /// it terminates instead of injecting expected-handling into every spawn/query hot path.
         template <class T>
         [[nodiscard]] ComponentId component() {
             ZoneScopedN("ComponentRegistry::component");
@@ -273,8 +270,8 @@ namespace SFT::Ecs {
 
 } // namespace SFT::Ecs
 
-// Concise registration helper for ordinary native components. Use the versioned form when a
-// serialized/reflected schema changes incompatibly.
+
+
 #define SFT_ECS_COMPONENT(TYPE, CANONICAL_NAME)                 \
     template <>                                                 \
     struct SFT::Ecs::ComponentTraits<TYPE> {                    \

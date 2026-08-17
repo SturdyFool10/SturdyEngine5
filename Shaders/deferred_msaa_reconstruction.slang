@@ -18,18 +18,6 @@ struct VertexOutput {
     float4 position : SV_Position;
 };
 
-[shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID) {
-    VertexOutput output;
-    float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = fullscreenTrianglePosition(uv);
-    return output;
-}
-
-Texture2D<float4> shadedColor;
-Texture2D<float> shadedDepth;
-Texture2DMS<float> geometryDepth;
-
 struct ReconstructionConstants {
     uint width;
     uint height;
@@ -42,6 +30,18 @@ struct ReconstructionConstants {
 };
 
 [[push_constant]] ConstantBuffer<ReconstructionConstants> reconstruction;
+
+[shader("vertex")]
+VertexOutput vertexMain(uint vertexId : SV_VertexID) {
+    VertexOutput output;
+    float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
+    output.position = fullscreenTrianglePosition(uv);
+    return output;
+}
+
+Texture2D<float4> shadedColor;
+Texture2D<float> shadedDepth;
+Texture2DMS<float> geometryDepth;
 
 float viewDepth(float deviceDepth) {
     // Conventional Vulkan/D3D 0..1 perspective depth used by this renderer (near=0,

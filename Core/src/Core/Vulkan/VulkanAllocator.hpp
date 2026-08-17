@@ -29,8 +29,8 @@ using SFT::Core::RendererExpected;
 
 namespace SFT::Core::Vulkan {
 
-    // Owns a VmaAllocator. Move-only; destroyed via destroy() or the destructor (whichever
-    // comes first).
+    /// Owns a VmaAllocator. Move-only; destroyed via destroy() or the destructor (whichever
+    /// comes first).
     class VulkanAllocator {
       public:
         struct CreateDesc {
@@ -38,12 +38,12 @@ namespace SFT::Core::Vulkan {
             VkDevice device = VK_NULL_HANDLE;
             VkInstance instance = VK_NULL_HANDLE;
             u32 api_version = 0;
-            // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT is deliberately not on by default: it
-            // makes VMA tag *every* allocation with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, which is a
-            // validation error unless the bufferDeviceAddress physical device feature is also
-            // enabled at device-creation time (see VulkanBackendDevice.cpp's createDevice()) — only
-            // pass it here once something actually requests
-            // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT and that feature has been enabled to match.
+            /// VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT is deliberately not on by default: it
+            /// makes VMA tag *every* allocation with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, which is a
+            /// validation error unless the bufferDeviceAddress physical device feature is also
+            /// enabled at device-creation time (see VulkanBackendDevice.cpp's createDevice()) — only
+            /// pass it here once something actually requests
+            /// VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT and that feature has been enabled to match.
             VmaAllocatorCreateFlags flags = 0;
         };
 
@@ -58,7 +58,7 @@ namespace SFT::Core::Vulkan {
 
         VulkanAllocator &operator=(VulkanAllocator &&o) noexcept;
 
-        // Imports Vulkan entry points from volk, then creates the allocator.
+        /// Imports Vulkan entry points from volk, then creates the allocator.
         [[nodiscard]] static RendererExpected<VulkanAllocator> create(const CreateDesc &desc) noexcept;
 
         [[nodiscard]] VmaAllocator vk_handle() const noexcept;

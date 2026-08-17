@@ -20,9 +20,9 @@
 
 #include <RHI/RHI.hpp>
 
-// Translation between the API-agnostic Sturdy.RHI vocabulary and concrete Vulkan enums/flags. Kept in
-// one place so the RHI backend (:VulkanRhiBackend) reads as straight descriptor mapping. Every function
-// is a pure `to_vk(...)`; there is no state here.
+/// Translation between the API-agnostic Sturdy.RHI vocabulary and concrete Vulkan enums/flags. Kept in
+/// one place so the RHI backend (:VulkanRhiBackend) reads as straight descriptor mapping. Every function
+/// is a pure `to_vk(...)`; there is no state here.
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
@@ -309,8 +309,17 @@ namespace SFT::Core::Vulkan {
         return VK_CULL_MODE_NONE;
     }
 
+    /// Inverted on purpose — do not "fix" this to the obvious 1:1 mapping.
+    ///
+    /// Vulkan is the one backend whose viewport gets a negative-height flip to reconcile its native
+    /// +Y-down NDC against the +Y-up convention every RHI matrix/shader is authored in (see
+    /// VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment). That viewport-space mirror also
+    /// reverses how the rasterizer classifies a triangle's winding, so passing front_face through
+    /// unchanged would silently cull exactly the faces that should be visible. D3D12's equivalent
+    /// conversion (D3D12DevicePipelines.cpp) needs no such inversion, because D3D12's viewport is never
+    /// touched.
     [[nodiscard]] constexpr VkFrontFace to_vk(rhi::FrontFace face) noexcept {
-        return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     }
 
     [[nodiscard]] constexpr VkBlendFactor to_vk(rhi::BlendFactor factor) noexcept {
@@ -399,8 +408,8 @@ namespace SFT::Core::Vulkan {
     }
 
     [[nodiscard]] constexpr VkPipelineStageFlags2 to_vk(rhi::PipelineStage stages) noexcept {
-        // The RHI PipelineStage bits are laid out to mirror VkPipelineStage2, but map explicitly rather
-        // than bit-cast so the contract survives either enum being reordered.
+
+
         VkPipelineStageFlags2 out = 0;
         using S = rhi::PipelineStage;
         if (rhi::has_any(stages, S::DrawIndirect)) out |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
@@ -487,7 +496,7 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
-    // How a MemoryLocation maps onto a VMA allocation request.
+    /// How a MemoryLocation maps onto a VMA allocation request.
     struct VmaMapping {
         VmaMemoryUsage usage = VMA_MEMORY_USAGE_AUTO;
         VmaAllocationCreateFlags flags = 0;

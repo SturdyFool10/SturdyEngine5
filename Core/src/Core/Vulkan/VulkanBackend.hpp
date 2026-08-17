@@ -28,14 +28,14 @@ using std::unordered_map;
 
 namespace SFT::Core::Vulkan {
 
-    // Vulkan renderer backend — implements the API-agnostic EngineBackend contract.
-    //
-    // Destructor contract: ~VulkanBackend() calls wait_idle() first, then releases all Vulkan
-    // objects in reverse creation order (surfaces → swapchains → device → allocator → instance).
+    /// Vulkan renderer backend — implements the API-agnostic EngineBackend contract.
+    ///
+    /// Destructor contract: ~VulkanBackend() calls wait_idle() first, then releases all Vulkan
+    /// objects in reverse creation order (surfaces → swapchains → device → allocator → instance).
     class VulkanBackend final : public EngineBackend {
       public:
         ~VulkanBackend() override;
-        // begin EngineBackend Compliance Functions
+        /// begin EngineBackend Compliance Functions
         RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) override;
         RendererExpected<RenderSurfaceHandle> create_window_surface(Window &window, u32 desired_frames_in_flight = 2) override;
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
@@ -47,12 +47,12 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface) override;
         [[nodiscard]] optional<GpuInfo> gpu_info() const override;
         void wait_idle() noexcept override;
-        // end EngineBackend Compliance Functions
+
 
         RendererExpected<RenderSurfaceHandle> initVulkan(const RendererCreateInfo &init);
         RendererResult createVulkanInstance(const RendererCreateInfo &init);
-        // GPU/device bring-up only ever runs once, against the surface of the first window
-        // passed to initialize() — every subsequent window shares the resulting device/queue.
+        /// GPU/device bring-up only ever runs once, against the surface of the first window
+        /// passed to initialize() — every subsequent window shares the resulting device/queue.
         RendererResult findPhysicalDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult discoverGraphicsQueue(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
         RendererResult createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface);
@@ -84,9 +84,9 @@ namespace SFT::Core::Vulkan {
         RendererCreateInfo create_info_{};
         RendererCapabilities capabilities_{};
 
-        // Every per-window GPU resource bundle (surface + swapchain, eventually per-frame sync
-        // objects) lives here, keyed by the owning window's stable WindowId. Windows are never
-        // recycled into a reused slot — when one is destroyed its entry is erased outright.
+        /// Every per-window GPU resource bundle (surface + swapchain, eventually per-frame sync
+        /// objects) lives here, keyed by the owning window's stable WindowId. Windows are never
+        /// recycled into a reused slot — when one is destroyed its entry is erased outright.
         unordered_map<WindowId, VulkanSurface> surfaces_;
 
         bool initialized_ = false;
@@ -99,10 +99,10 @@ namespace SFT::Core::Vulkan {
         RHI::FeatureNegotiationReport feature_report_{};
         bool hdr_swapchain_colorspace_enabled_ = false;
         bool hdr_metadata_enabled_ = false;
-        // VK_KHR_get_surface_capabilities2, an instance-level dependency VK_EXT_full_screen_exclusive
-        // requires — set once at instance-creation time (VulkanBackendInstance.cpp), read at device-
-        // creation time (VulkanBackendDevice.cpp) to decide whether the device extension itself is
-        // even worth checking for.
+        /// VK_KHR_get_surface_capabilities2, an instance-level dependency VK_EXT_full_screen_exclusive
+        /// requires — set once at instance-creation time (VulkanBackendInstance.cpp), read at device-
+        /// creation time (VulkanBackendDevice.cpp) to decide whether the device extension itself is
+        /// even worth checking for.
         bool surface_capabilities2_enabled_ = false;
         bool surface_maintenance1_enabled_ = false;
         std::unique_ptr<RHI::RhiDevice> rhiDevice;

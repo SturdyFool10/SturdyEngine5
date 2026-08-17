@@ -11,8 +11,8 @@ namespace SFT::KeyboardTester {
 
     namespace {
 
-        // KeyboardKey is normalized by every window provider, so the same layout handles ordinary
-        // and modifier keys without depending on SDL/GLFW constants.
+
+
         struct KeyLayoutSlot {
             Engine::KeyboardKey key;
             f32 width_units;
@@ -22,24 +22,24 @@ namespace SFT::KeyboardTester {
         using enum Engine::KeyboardKey;
 
         constexpr std::array<KeyLayoutSlot, 61> kLayout{{
-            // Row 0: number row.
+
             {GraveAccent, 1.0f, 0}, {Digit1, 1.0f, 0}, {Digit2, 1.0f, 0}, {Digit3, 1.0f, 0},
             {Digit4, 1.0f, 0}, {Digit5, 1.0f, 0}, {Digit6, 1.0f, 0}, {Digit7, 1.0f, 0},
             {Digit8, 1.0f, 0}, {Digit9, 1.0f, 0}, {Digit0, 1.0f, 0}, {Minus, 1.0f, 0},
             {Equal, 1.0f, 0}, {Backspace, 2.0f, 0},
-            // Row 1: qwerty row.
+
             {Tab, 1.5f, 1}, {Q, 1.0f, 1}, {W, 1.0f, 1}, {E, 1.0f, 1}, {R, 1.0f, 1},
             {T, 1.0f, 1}, {Y, 1.0f, 1}, {U, 1.0f, 1}, {I, 1.0f, 1}, {O, 1.0f, 1},
             {P, 1.0f, 1}, {LeftBracket, 1.0f, 1}, {RightBracket, 1.0f, 1}, {Backslash, 1.5f, 1},
-            // Row 2: home row.
+
             {CapsLock, 1.75f, 2}, {A, 1.0f, 2}, {S, 1.0f, 2}, {D, 1.0f, 2}, {F, 1.0f, 2},
             {G, 1.0f, 2}, {H, 1.0f, 2}, {J, 1.0f, 2}, {K, 1.0f, 2}, {L, 1.0f, 2},
             {Semicolon, 1.0f, 2}, {Apostrophe, 1.0f, 2}, {Enter, 2.25f, 2},
-            // Row 3: bottom letter row.
+
             {LeftShift, 2.25f, 3}, {Z, 1.0f, 3}, {X, 1.0f, 3}, {C, 1.0f, 3}, {V, 1.0f, 3},
             {B, 1.0f, 3}, {N, 1.0f, 3}, {M, 1.0f, 3}, {Comma, 1.0f, 3}, {Period, 1.0f, 3},
             {Slash, 1.0f, 3}, {RightShift, 2.25f, 3},
-            // Row 4: modifier and space row.
+
             {LeftControl, 1.25f, 4}, {LeftSuper, 1.25f, 4}, {LeftAlt, 1.25f, 4},
             {Space, 6.25f, 4}, {RightAlt, 1.25f, 4}, {RightSuper, 1.25f, 4},
             {Menu, 1.25f, 4}, {RightControl, 1.25f, 4},
@@ -56,10 +56,10 @@ namespace SFT::KeyboardTester {
             f32 world_depth = kUnitSize;
         };
 
-        // Lays every kLayout slot out left-to-right within its row (row order top-to-bottom becomes
-        // -Z-to-+Z, so a camera looking straight down with world_up={0,0,-1} — see the constructor
-        // below — sees the number row at the top of the screen and the space bar at the bottom,
-        // matching a physical keyboard), then centers the whole grid on the origin on both axes.
+
+
+
+
         [[nodiscard]] std::vector<KeyPlacement> compute_key_placements() {
             std::vector<KeyPlacement> placements(kLayout.size());
 
@@ -93,9 +93,9 @@ namespace SFT::KeyboardTester {
 
     KeyboardTesterGameLogic::KeyboardTesterGameLogic() {
         camera_ = Engine::Camera::orthographic(9.0f, 16.0f / 9.0f, 0.05f, 100.0f);
-        // Looking straight down (-Y): world_up must not be parallel to that forward direction (the
-        // default {0,1,0} would be), so pick an axis in the ground plane instead — see
-        // compute_key_placements()'s doc comment for how this choice maps rows to screen position.
+
+
+
         camera_.set_position({0.0f, 12.0f, 0.0f});
         camera_.look_at({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f});
 
@@ -145,9 +145,9 @@ namespace SFT::KeyboardTester {
                 return std::unexpected(model.error());
             }
 
-            // Idle appearance: a dim, faintly emissive gray so every key is visible against the
-            // background even under low ambient light. apply_key_color_changes() below brightens
-            // this to a saturated color the instant a real key press matches this slot.
+
+
+
             Engine::AssetResult configured = assets.set_model_vec4(
                 *model, 0, "base_color_factor", glm::vec4{0.08f, 0.09f, 0.11f, 1.0f});
             if (configured) configured = assets.set_model_float(*model, 0, "metallic_factor", 0.0f);
@@ -223,7 +223,7 @@ namespace SFT::KeyboardTester {
 
     std::optional<Engine::RenderFrameParameters> KeyboardTesterGameLogic::request_render_frame(
         Engine::Engine &engine,
-        Core::RenderSurfaceHandle /*surface*/,
+        Core::RenderSurfaceHandle            ,
         const Core::FrameInput &frame) {
         apply_key_color_changes(engine);
         camera_.set_viewport_size(frame.framebuffer_width, frame.framebuffer_height);
@@ -241,7 +241,7 @@ namespace SFT::KeyboardTester {
         return parameters;
     }
 
-    void KeyboardTesterGameLogic::on_shutdown(Engine::Engine & /*engine*/) noexcept {}
+    void KeyboardTesterGameLogic::on_shutdown(Engine::Engine &           ) noexcept {}
 
     std::unique_ptr<Engine::GameLogic> create_keyboard_tester_game_logic() {
         return std::make_unique<KeyboardTesterGameLogic>();

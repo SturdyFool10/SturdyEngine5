@@ -84,9 +84,9 @@ namespace SFT::Renderer {
     Core::RendererResult TextRenderTarget::render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
                                                   span<const GlyphPlacement> glyphs) {
         ZoneScopedN("TextRenderTarget::render");
-        // Standalone one-shot render (not part of any per-frame render graph), so — unlike the
-        // main frame's shared encoder — it owns and submits/waits on its own command encoder for
-        // its whole lifetime, atlas upload included.
+
+
+
         auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text render target render"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create text render target encoder"));
@@ -127,9 +127,9 @@ namespace SFT::Renderer {
             }
         }
 
-        // A render target has no nested clip regions of its own (see this class's own doc comment
-        // — always one fixed target), so every glyph gets the same full-target scissor and paint
-        // group (0 — no interleaving concept here either).
+
+
+
         const vector<RHI::Rect2D> scissors(
             instances.size(),
             RHI::Rect2D{.x = 0, .y = 0, .width = config_.width, .height = config_.height});
@@ -218,9 +218,9 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(waited.error(), "wait text render target fence"));
         }
         if (!*waited) {
-            // Real timeout (wait_forever is used here, so unreachable outside a device hang) -- the
-            // fence is not confirmed signaled, so destroying anything it protects here would be a
-            // real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+
+
+
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "wait text render target fence: vkWaitForFences timed out."});
         }

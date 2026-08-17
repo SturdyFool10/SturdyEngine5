@@ -98,8 +98,8 @@ void randomized_transactions_match_reference() {
         reference.replace(start, end - start, replacement);
         assert(applied->snapshot.flatten() == reference);
         for (usize offset = 0; offset <= reference.size(); ++offset) {
-            // The reference generated here only uses ASCII plus complete inserted emoji, so valid
-            // document boundaries are either byte 0/end, ASCII positions, or emoji edges.
+
+
             if (offset != 0 && offset != reference.size() &&
                 (static_cast<unsigned char>(reference[offset]) & 0xc0u) == 0x80u) continue;
             const auto point = applied->snapshot.offset_to_point({offset});
@@ -123,11 +123,11 @@ void rejects_malformed_or_mid_scalar_edits() {
     assert(!invalid && invalid.error() == DocumentError::InvalidUtf8);
 }
 
-// Regression test for a resolve() bug found while writing the undo-grouping tests below: resolving
-// an anchor across more than one intervening edit must replay each edit's ChangeSet in the order it
-// actually happened (oldest to newest), not in the order walking ->parent visits them (newest to
-// oldest) — every previously-existing test only ever resolved across exactly one edit, so this path
-// was completely untested before.
+
+
+
+
+
 void anchor_resolves_across_many_edits() {
     Document document{"0123456789"};
     const auto anchor = document.snapshot().anchor_at({5}, AnchorBias::Before);
@@ -146,14 +146,14 @@ void anchor_resolves_across_many_edits() {
 }
 
 void clip_offset_and_max_point() {
-    Document document{"a😀b"}; // 'a' (1 byte) + U+1F600 (4 bytes) + 'b' (1 byte) = 6 bytes
+    Document document{"a😀b"};
     const DocumentSnapshot s = document.snapshot();
     assert(s.clip_offset({0}) == ByteOffset{0});
     assert(s.clip_offset({6}) == ByteOffset{6});
-    assert(s.clip_offset({100}) == ByteOffset{6}); // out-of-range clamps to the end
-    assert(s.clip_offset({3}, Bias::Before) == ByteOffset{1}); // mid-emoji rounds back to its start
-    assert(s.clip_offset({3}, Bias::After) == ByteOffset{5}); // ...or forward to its end
-    assert(s.max_point() == TextPoint{0, 3}); // "a", the emoji (1 scalar), "b" => 3 scalars, one line
+    assert(s.clip_offset({100}) == ByteOffset{6});
+    assert(s.clip_offset({3}, Bias::Before) == ByteOffset{1});
+    assert(s.clip_offset({3}, Bias::After) == ByteOffset{5});
+    assert(s.max_point() == TextPoint{0, 3});
 }
 
 LongestLine reference_longest_line(const std::string &text) {
@@ -171,10 +171,10 @@ LongestLine reference_longest_line(const std::string &text) {
     return LongestLine{best_line, best_len};
 }
 
-// Deliberately builds a document with multiple leaves/branch levels (piece_target_bytes=16KiB,
-// leaf_piece_capacity=32) so the longest line ends up straddling a leaf boundary somewhere, which is
-// exactly the case join()'s "boundary line" handling exists for — a longest-line query that only
-// checked each chunk's own internal longest line would silently miss this.
+
+
+
+
 void longest_line_tracks_across_leaf_boundaries() {
     std::string text;
     std::minstd_rand random{0x1234};
@@ -259,8 +259,8 @@ void word_boundaries_match_reference() {
     const DocumentSnapshot snapshot = document.snapshot();
     std::minstd_rand random{0xbeef};
     for (usize i = 0; i < 500; ++i) {
-        // Half the samples land in the handwritten segment (where class transitions are dense);
-        // the rest are uniform over the whole (multi-leaf) document.
+
+
         const usize offset = i % 2 == 0 ? filler.size() + random() % (sample.size() + 1) : random() % (text.size() + 1);
         const auto [expected_start, expected_end] = reference_word_range(text, offset);
         const auto actual = snapshot.word_range_at({offset});
@@ -281,7 +281,7 @@ void line_indent_and_blank_lines() {
     const LineIndent tab = s.line_indent(2);
     assert(tab.whitespace_scalars == 1 && tab.has_tabs && !tab.has_spaces);
     assert(s.is_line_blank(3));
-    const LineIndent mixed = s.line_indent(4); // leading "\t  " precedes "mixed_indent"
+    const LineIndent mixed = s.line_indent(4);
     assert(mixed.whitespace_scalars == 3 && mixed.has_spaces && mixed.has_tabs);
 }
 
@@ -300,7 +300,7 @@ void matching_bracket_scans() {
     Document unbalanced{"(foo"};
     assert(!unbalanced.snapshot().matching_bracket({0}));
 
-    // Exercise the windowed forward/backward scan spanning more than one 4KiB window.
+
     const std::string huge = "(" + std::string(10'000, 'x') + ")";
     Document big{huge};
     const DocumentSnapshot bs = big.snapshot();
@@ -337,11 +337,11 @@ void find_and_find_all_match_reference() {
 }
 
 // Regression test for a real bug found during self-review: find_all()'s cross-chunk carry logic
-// didn't track how much of the carried tail was already consumed by a previous match, so a match
-// ending near a ~16KiB piece boundary inside a repetitive run could produce a second, overlapping
-// match. Constructs that exact failure shape — a run of 'a's straddling piece_target_bytes (16384)
-// at every possible offset — against a pattern ("aaa") that only divides the run evenly in an
-// overlapping way, and checks both against a reference and the non-overlap property directly.
+
+
+
+
+
 void find_all_never_overlaps_across_piece_boundaries() {
     const auto reference_find_all = [](const std::string &text, const std::string &pattern) {
         vector<std::pair<usize, usize>> matches;
@@ -387,10 +387,10 @@ void detects_indent_style_and_line_ending() {
 void anchor_range_resolves_through_edits() {
     Document document{"hello world"};
     const DocumentSnapshot before = document.snapshot();
-    // Bias::After at the insertion point (offset 0) is what makes the anchor track "the start of
-    // hello" through an insert landing exactly there, rather than staying pinned to absolute 0 —
-    // Bias::Before would deliberately stay put, same as the existing anchor_at() convention tested
-    // in coordinates_and_snapshots() above.
+
+
+
+
     const auto start_anchor = before.anchor_at({0}, AnchorBias::After);
     const auto end_anchor = before.anchor_at({5}, AnchorBias::After);
     assert(start_anchor && end_anchor);
@@ -404,15 +404,15 @@ void anchor_range_resolves_through_edits() {
     assert(resolved && applied->snapshot.slice(*resolved).flatten() == "hello");
 }
 
-// Undo grouping (EditKind::Typing/Deletion) is the trickiest new piece: it restructures how many
-// undo()/redo() calls a burst costs without collapsing the underlying revision chain, and composes a
-// synthesized Change spanning the whole burst. All three properties get checked here: burst
-// collapsing, group boundaries at a Standalone edit, and backspace (right-to-left) composition.
+
+
+
+
 void undo_redo_groups_typing_and_deletion_bursts() {
-    // Splice::replacement is a borrowed string_view that "need only outlive apply()" (see its own
-    // doc comment in Document.hpp) — the char must be named in a local that outlives the apply()
-    // call, not passed as a std::string temporary that replace() would otherwise bind a dangling
-    // view to.
+
+
+
+
     Document document{};
     for (char c : {'a', 'b', 'c'}) {
         const usize end = document.snapshot().byte_size();
@@ -479,17 +479,17 @@ void undo_redo_groups_typing_and_deletion_bursts() {
     assert(backspace_undo->changes.changes.front().inserted_text.cpp_string() == "def");
 }
 
-// Undo grouping folds undo()/redo() step *counting*, but must never collapse the actual revision
-// chain — an Anchor created mid-burst still has to resolve correctly, both while the burst continues
-// and after it. If it didn't, coalescing would be an observable behavior change, not just a UX one.
+
+
+
 void anchors_resolve_correctly_across_coalesced_bursts() {
     Document document{"x"};
-    // Bias::After is what makes the anchor track 'x' through inserts landing exactly at its
-    // position, the same convention exercised in anchor_range_resolves_through_edits() above.
+
+
     const auto anchor = document.snapshot().anchor_at({0}, AnchorBias::After);
     assert(anchor);
     for (char c : {'a', 'b', 'c'}) {
-        const usize end = document.snapshot().byte_size() - 1; // grow the "abc" prefix, just before 'x'
+        const usize end = document.snapshot().byte_size() - 1;
         const std::string ch(1, c);
         EditTransaction t{document.revision()};
         t.replace({{end}, {end}}, ch);
@@ -500,11 +500,11 @@ void anchors_resolve_correctly_across_coalesced_bursts() {
     assert(resolved && *resolved == ByteOffset{3});
 }
 
-// The fuzz test above never grows past a few hundred bytes, so its tree never grows past a single
-// leaf and split()/concat()'s branch-node code paths (everything beyond a lone leaf) go completely
-// unexercised. This starts from a multi-leaf, multi-branch-level document instead, so every boundary
-// case of a real split (offset landing exactly between two children, inside one, etc.) and both arms
-// of concat's uneven-height spine descent get hit repeatedly.
+
+
+
+
+
 void randomized_large_document_transactions_match_reference() {
     std::string reference;
     reference.reserve(700'000);
@@ -549,10 +549,10 @@ void randomized_large_document_transactions_match_reference() {
     }
 }
 
-// Document::apply() is meant to be path-local: each edit is split() + concat() surgery bounded by
-// tree depth (O(log n) node allocations), not a flatten-the-whole-tree-and-rebuild pass (O(n)). This
-// exercises that guarantee two ways: per-edit wall-clock time should not scale with document size,
-// and tree depth should stay small even for a large document.
+
+
+
+
 void large_document_edits_stay_path_local() {
     using Clock = std::chrono::steady_clock;
     const auto build_repeated = [](usize target_bytes) {

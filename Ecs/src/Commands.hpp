@@ -19,21 +19,15 @@ namespace SFT::Ecs {
 
         using DeferredCommand = std::move_only_function<void(World &) noexcept>;
 
-        // One async query chunk owns one command buffer, so recording requires no locks. Schedule
-        // applies buffers in dispatch order after every task in the current dependency stage has
-        // completed, keeping structural mutation deterministic and query storage stable.
+        /// One async query chunk owns one command buffer, so recording requires no locks. Schedule
+        /// applies buffers in dispatch order after every task in the current dependency stage has
+        /// completed, keeping structural mutation deterministic and query storage stable.
         struct CommandBuffer {
             std::vector<DeferredCommand> operations;
 
             [[nodiscard]] Commands view() noexcept;
 
-            void apply(World &world) noexcept {
-                ZoneScopedN("CommandBuffer::apply");
-                for (DeferredCommand &operation : operations) {
-                    operation(world);
-                }
-                operations.clear();
-            }
+            void apply(World &world) noexcept;
         };
 
     } // namespace Detail
@@ -45,15 +39,10 @@ namespace SFT::Ecs {
         Commands(Commands &&) noexcept = default;
         Commands &operator=(Commands &&) noexcept = default;
 
-        void destroy(Entity entity) noexcept {
-            ZoneScopedN("Commands::destroy");
-            buffer_->operations.emplace_back([entity](World &world) noexcept {
-                Detail::WorldAccess::destroy(world, entity);
-            });
-        }
+        void destroy(Entity entity) noexcept;
 
-        // Spawning is deferred, so no Entity can be returned synchronously. The components are
-        // owned by the command until the stage boundary and moved into the new archetype row there.
+        /// Spawning is deferred, so no Entity can be returned synchronously. The components are
+        /// owned by the command until the stage boundary and moved into the new archetype row there.
         template <class... Ts>
         void spawn(Ts &&...components) noexcept {
             ZoneScopedN("Commands::spawn");
@@ -74,9 +63,9 @@ namespace SFT::Ecs {
                 });
         }
 
-        // Deferred archetype transition: T is moved into the command buffer now, then placement-
-        // constructed into `entity`'s new archetype row at the stage boundary. Contract violation
-        // (at apply time) if `entity` is dead or already has T by then.
+        /// Deferred archetype transition: T is moved into the command buffer now, then placement-
+        /// constructed into `entity`'s new archetype row at the stage boundary. Contract violation
+        /// (at apply time) if `entity` is dead or already has T by then.
         template <class T>
         void add_component(Entity entity, T component) noexcept {
             ZoneScopedN("Commands::add_component");
@@ -88,8 +77,8 @@ namespace SFT::Ecs {
                 });
         }
 
-        // Deferred archetype transition: destroys T on `entity` at the stage boundary. Contract
-        // violation (at apply time) if `entity` is dead or doesn't have T by then.
+        /// Deferred archetype transition: destroys T on `entity` at the stage boundary. Contract
+        /// violation (at apply time) if `entity` is dead or doesn't have T by then.
         template <class T>
         void remove_component(Entity entity) noexcept {
             ZoneScopedN("Commands::remove_component");
@@ -101,13 +90,11 @@ namespace SFT::Ecs {
       private:
         friend struct Detail::CommandBuffer;
 
-        explicit Commands(Detail::CommandBuffer &buffer) noexcept : buffer_(&buffer) {}
+        explicit Commands(Detail::CommandBuffer &buffer) noexcept;
 
         Detail::CommandBuffer *buffer_ = nullptr;
     };
 
-    inline Commands Detail::CommandBuffer::view() noexcept {
-        return Commands{*this};
-    }
+
 
 } // namespace SFT::Ecs

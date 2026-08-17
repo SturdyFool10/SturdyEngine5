@@ -1,6 +1,6 @@
-// RhiDevice render (graphics) pipeline creation/destruction via GraphicsPipelineBuilder — always
-// dynamic-rendering, matching the engine's no-VkRenderPass stance. Mesh-shader pipeline requests are
-// rejected unless the device exposes the matching RHI features.
+
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

@@ -76,13 +76,13 @@ namespace SFT::Engine {
             }
         };
 
-        // image_index -> {srgb, linear} x {TextureKind} cached texture assets. A glTF image
-        // referenced from both an sRGB-decoded slot (base color) and a linear-data slot
-        // (metallic/roughness) would otherwise upload the same bytes twice with two different
-        // color-space interpretations, so the cache key includes color space; it also includes
-        // TextureKind (see AssetManager.hpp) since the same image referenced with two different
-        // kinds (e.g. as ColorOpaque in one material and ColorAlpha in another) must not reuse a
-        // texture compressed for the wrong one.
+
+
+
+
+
+
+
         struct ImageCache {
             std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>> entries;
         };
@@ -95,12 +95,12 @@ namespace SFT::Engine {
             return static_cast<usize>(kind);
         }
 
-        // Fetches a glTF image's raw encoded (PNG/JPEG/etc.) bytes regardless of how it's stored —
-        // an embedded buffer view, a base64 data URI, or an external file on disk. Shared by
-        // load_image() below (buffer-view/data-uri branches only — its external-file branch keeps
-        // calling AssetManager::load_texture() directly for that path's dedup cache, see its own
-        // comment) and by decode_gltf_image_pixels() (which needs every source uniformly, since
-        // ORM channel-packing has no path-based dedup to preserve).
+
+
+
+
+
+
         [[nodiscard]] AssetExpected<std::vector<std::byte>> fetch_gltf_image_bytes(
             const cgltf_image &image, const std::filesystem::path &base_dir) {
             if (image.buffer_view != nullptr) {
@@ -174,9 +174,9 @@ namespace SFT::Engine {
             return bytes;
         }
 
-        // Fetches + decodes a glTF image to raw RGBA8 pixels without uploading anything — used only
-        // by import_gltf's ORM channel-packing path (see its packed_orm_texture block), which needs
-        // the pixels in hand before it knows whether packing is even possible (matching dimensions).
+
+
+
         [[nodiscard]] AssetExpected<Detail::DecodedImage> decode_gltf_image_pixels(
             const cgltf_image &image, const std::filesystem::path &base_dir) {
             auto encoded = fetch_gltf_image_bytes(image, base_dir);
@@ -203,9 +203,9 @@ namespace SFT::Engine {
             const UString label = label_from_name(image.name, "gltf_image");
 
             AssetExpected<Asset> loaded = [&]() -> AssetExpected<Asset> {
-                // The external-file case keeps calling AssetManager::load_texture() directly
-                // (rather than routing through fetch_gltf_image_bytes) so repeated references to
-                // the same file still hit its own path-based dedup cache.
+
+
+
                 if (image.buffer_view == nullptr && image.uri != nullptr &&
                     !std::string_view{image.uri}.starts_with("data:")) {
                     std::string decoded_uri = image.uri;
@@ -227,9 +227,9 @@ namespace SFT::Engine {
             return loaded;
         }
 
-        // glTF punctual lights are photometric (lux for directional, candela for point/spot); this
-        // is the standard lm/W factor (also used by Filament and the Khronos glTF sample viewer) to
-        // land in this engine's own ad hoc radiometric radiance scale.
+
+
+
         constexpr f32 kPhotometricToRadiometric = 1.0f / 683.0f;
 
         void collect_node_instances(
@@ -278,38 +278,38 @@ namespace SFT::Engine {
             }
         }
 
-        // Deferred per-primitive glTF-spec-default parameter values, applied after create_model()
-        // returns a material instance — ModelPrimitiveDesc has no generic float/vec4 parameter slots,
-        // only vertex_color/textures (Engine/AssetManager.hpp), and every MaterialInstance parameter
-        // is otherwise zero-initialized (plans/pbr-material-system.md).
+
+
+
+
         struct PendingMaterial {
             glm::vec4 base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
             f32 metallic_factor = 1.0f;
             f32 roughness_factor = 1.0f;
             f32 specular_factor = 1.0f;
             f32 ior = 1.5f;
-            // cgltf in this dependency revision does not expose KHR_materials_transmission/volume/
-            // dispersion yet. Keep spec-safe opaque defaults; callers can set the reflected parameters
-            // through AssetManager::set_model_float after import.
+
+
+
             f32 transmission_factor = 0.0f;
             f32 dispersion_cauchy_b = 0.0042f;
             f32 absorption_coefficient = 0.0f;
-            // 0.0 never discards (glTF OPAQUE, and this struct's own default). MASK sets the glTF
-            // material's real alphaCutoff; BLEND is treated as opaque — see gbuffer_geometry.slang's
-            // alpha_cutoff comment for why true blending isn't supported by this deferred pass yet.
+
+
+
             f32 alpha_cutoff = 0.0f;
-            // glTF defaults: no baked occlusion (strength irrelevant with no texture bound) and no
-            // emissive contribution at all. emissive_factor is a vec4 (w unused) rather than vec3
-            // because AssetManager::set_model_vec4 is the only vector setter available and requires
-            // an exact 16-byte match against the reflected shader parameter — same reason
-            // base_color_factor is a vec4 in glTF itself.
+
+
+
+
+
             f32 occlusion_strength = 1.0f;
             glm::vec4 emissive_factor{0.0f, 0.0f, 0.0f, 0.0f};
-            // KHR_materials_emissive_strength default when the extension is absent.
+
             f32 emissive_strength = 1.0f;
-            // 0.0 (default): metallic_roughness_texture holds glTF's own G=roughness/B=metallic
-            // layout. 1.0: it was BC5-compressed (TextureKind::MetallicRoughness) and instead holds
-            // R=roughness/G=metallic — see gbuffer_geometry.slang's own read of this flag.
+
+
+
             f32 metallic_roughness_channels_rg = 0.0f;
         };
 
@@ -354,15 +354,15 @@ namespace SFT::Engine {
         const std::filesystem::path base_dir = source.parent_path();
         ImageCache image_cache{
             .entries = std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>>(data.images_count)};
-        // ORM-packed textures (AssetManager::create_orm_texture) bypass ImageCache entirely (they
-        // have no single source image_index to key on), so they're tracked separately for the
-        // VRAM-usage log below.
+
+
+
         std::vector<Asset> packed_texture_assets;
 
-        // Lazily created once and shared by every material with no real normalTexture: a flat
-        // (128, 128, 255) tangent-space normal (unpacks to (0, 0, 1), a no-op perturbation) — bound
-        // explicitly rather than relying on Renderer's own default-white-texture fallback, which
-        // would otherwise decode as tangent-space (1, 1, 1), a non-unit, wrong-pointing vector.
+
+
+
+
         std::optional<Asset> flat_normal_texture;
         const auto get_flat_normal_texture = [&]() -> AssetExpected<Asset> {
             if (flat_normal_texture) {
@@ -404,9 +404,9 @@ namespace SFT::Engine {
 
             for (cgltf_size primitive_index = 0; primitive_index < mesh.primitives_count; ++primitive_index) {
                 const cgltf_primitive &primitive = mesh.primitives[primitive_index];
-                // Only triangle-list primitives are handled — every Khronos glTF-Sample-Assets model
-                // uses TRIANGLES, and the other five modes (points/lines/strip/fan variants) are rare
-                // enough in real content to not be worth the extra triangulation logic here.
+
+
+
                 if (primitive.type != cgltf_primitive_type_triangles) {
                     primitive_failed = true;
                     primitive_error = gltf_error(AssetErrorCode::Unsupported,
@@ -514,9 +514,9 @@ namespace SFT::Engine {
                     }
                 }
 
-                // makeSurfaceBasis()-derived shading only needs a plausible smooth normal, not the
-                // source mesh's authored one — synthesize via face-normal accumulation when the glTF
-                // primitive omits NORMAL (legal per spec; renderers are expected to compute one).
+
+
+
                 if (normal_accessor == nullptr) {
                     std::vector<glm::vec3> accumulated(vertex_count, glm::vec3{0.0f});
                     for (usize i = 0; i + 2 < indices.size(); i += 3) {
@@ -536,11 +536,11 @@ namespace SFT::Engine {
                     }
                 }
 
-                // Standard UV-gradient tangent generation (Lengyel's method) when the primitive omits
-                // TANGENT (legal per spec) but has UVs to derive one from — needed for correct normal
-                // mapping (gbuffer_geometry.slang's TBN basis). Skipped without UVs: there's no
-                // meaningful tangent direction to compute, and the vertex's default {1,0,0,1} is only
-                // wrong if a normal map is actually sampled, which a UV-less primitive can't do anyway.
+
+
+
+
+
                 if (tangent_accessor == nullptr && !uvs.empty()) {
                     std::vector<glm::vec3> tan_accum(vertex_count, glm::vec3{0.0f});
                     std::vector<glm::vec3> bitan_accum(vertex_count, glm::vec3{0.0f});
@@ -599,14 +599,14 @@ namespace SFT::Engine {
                             ? material->occlusion_texture.texture
                             : nullptr;
 
-                    // The "Texture Set" case in scope for this pass: when occlusion and
-                    // metallic-roughness are two DIFFERENT source images (not the common glTF "ORM"
-                    // convention of one shared texture), pack them into a single BC7 texture
-                    // (R = occlusion, G = roughness, B = metallic) instead of uploading two —
-                    // AssetManager::create_orm_texture. Bound to both material slots below with no
-                    // shader changes, since each slot already only reads its own channels. Any
-                    // failure (fetch/decode/dimension mismatch/pack) just falls back to loading the
-                    // two images independently, exactly like before this pass.
+
+
+
+
+
+
+
+
                     std::optional<Asset> packed_orm_texture;
                     if (mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
                         mr_gltf_texture->image != occlusion_gltf_texture->image) {
@@ -625,10 +625,10 @@ namespace SFT::Engine {
                             }
                         }
                     }
-                    // Same source image referenced from both slots (the common ORM convention) —
-                    // loaded once below as ColorAlpha/BC7 and bound to both slots, same as before
-                    // this pass (kept as BC7, not BC4/BC5, since it's genuinely still serving two
-                    // different channel groups out of one texture).
+
+
+
+
                     const bool occlusion_shares_mr_image =
                         mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
                         mr_gltf_texture->image == occlusion_gltf_texture->image;
@@ -647,10 +647,10 @@ namespace SFT::Engine {
                         if (const cgltf_texture *texture = pbr.base_color_texture.texture;
                             texture != nullptr && texture->image != nullptr) {
                             const auto image_index = static_cast<usize>(texture->image - data.images);
-                            // glTF spec: alpha is ignored entirely in OPAQUE mode, so a texture used
-                            // there can drop to BC1 (half BC7's size, alpha always reads back 1.0)
-                            // with no observable difference. MASK/BLEND keep BC7 — MASK genuinely
-                            // needs real alpha for the cutoff test above.
+
+
+
+
                             const TextureKind base_color_kind = material->alpha_mode == cgltf_alpha_mode_opaque
                                 ? TextureKind::ColorOpaque
                                 : TextureKind::ColorAlpha;
@@ -675,12 +675,12 @@ namespace SFT::Engine {
                             });
                         } else if (mr_gltf_texture != nullptr) {
                             const auto image_index = static_cast<usize>(mr_gltf_texture->image - data.images);
-                            // A standalone metallic-roughness texture (no occlusion partner to pack
-                            // with, see packed_orm_texture above) is decoded, re-channeled G/B -> R/G
-                            // (Detail::pack_metallic_roughness_rg), and uploaded as
-                            // TextureKind::MetallicRoughness (BC5, half BC7's size). Any failure
-                            // (fetch/decode/repack) falls back to the original G/B-layout BC7 path
-                            // below — never a hard primitive failure, since that path is always valid.
+
+
+
+
+
+
                             std::optional<Asset> mr_texture_bc5;
                             if (AssetExpected<Detail::DecodedImage> mr_pixels =
                                     decode_gltf_image_pixels(*mr_gltf_texture->image, base_dir)) {
@@ -706,8 +706,8 @@ namespace SFT::Engine {
                                 mr_texture_asset = *mr_texture_bc5;
                                 material_values.metallic_roughness_channels_rg = 1.0f;
                             } else {
-                                // glTF packs roughness/metallic as data (G/B channels), not display
-                                // color — decoding it sRGB would corrupt every value that isn't 0 or 1.
+
+
                                 AssetExpected<Asset> mr_texture = load_image(
                                     assets, *mr_gltf_texture->image, image_index, TextureColorSpace::Linear,
                                     TextureKind::ColorAlpha, base_dir, image_cache);
@@ -754,12 +754,12 @@ namespace SFT::Engine {
                             });
                         } else {
                             const auto image_index = static_cast<usize>(occlusion_gltf_texture->image - data.images);
-                            // Occlusion is packed data (conventionally the R channel). When it's a
-                            // standalone texture (no metallic-roughness partner sharing the same
-                            // image), it's the only channel any shader reads from this texture, so
-                            // it drops to BC4 (half BC7's size). When it shares its source image
-                            // with metallic-roughness (the ORM convention), it keeps BC7 — see
-                            // occlusion_shares_mr_image's own comment above.
+
+
+
+
+
+
                             AssetExpected<Asset> occlusion_texture = load_image(
                                 assets, *occlusion_gltf_texture->image, image_index, TextureColorSpace::Linear,
                                 occlusion_shares_mr_image ? TextureKind::ColorAlpha : TextureKind::Mask, base_dir,
@@ -794,19 +794,19 @@ namespace SFT::Engine {
                     }
                 }
 
-                // Bound unconditionally (even with no material at all, i.e. glTF's default material)
-                // since every material instance always has some texture in this slot regardless —
-                // Renderer::initialize_material_instance_state falls back to a plain white texture,
-                // which would be wrong here (see get_flat_normal_texture's doc comment).
+
+
+
+
                 AssetExpected<Asset> normal_texture = [&]() -> AssetExpected<Asset> {
                     if (const cgltf_texture *texture = primitive.material != nullptr
                                                             ? primitive.material->normal_texture.texture
                                                             : nullptr;
                         texture != nullptr && texture->image != nullptr) {
                         const auto image_index = static_cast<usize>(texture->image - data.images);
-                        // Normal maps are data (tangent-space directions), not display color —
-                        // sRGB-decoding one would corrupt every direction that isn't axis-aligned.
-                        // NormalMap -> BC5 (X/Y only; gbuffer_geometry.slang reconstructs Z).
+
+
+
                         return load_image(
                             assets, *texture->image, image_index, TextureColorSpace::Linear,
                             TextureKind::NormalMap, base_dir, image_cache);
@@ -912,11 +912,11 @@ namespace SFT::Engine {
             }
         }
 
-        // Load-time summary: triangle count + a rough VRAM estimate, so a game watching this log (or
-        // a tool parsing it) can catch an unexpectedly heavy asset before it ships. Built entirely
-        // from AssetManager's own already-computed, already-queryable numbers (AssetInfo::memory_bytes,
-        // ModelAssetInfo::triangle_count) rather than re-deriving them here, so this log can never
-        // drift out of sync with what AssetManager::info()/model_info() report to a caller later.
+
+
+
+
+
         {
             usize total_triangles = 0;
             usize total_mesh_bytes = 0;

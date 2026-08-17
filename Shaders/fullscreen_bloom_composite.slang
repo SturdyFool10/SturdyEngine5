@@ -10,6 +10,13 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
+struct BloomCompositeConstants {
+    float bloomIntensity;
+    uint thresholdEnabled;
+};
+
+[[push_constant]] ConstantBuffer<BloomCompositeConstants> composite;
+
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
@@ -21,13 +28,6 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 Texture2D<float4> sceneTexture;
 Texture2D<float4> bloomTexture;
 SamplerState sourceSampler;
-
-struct BloomCompositeConstants {
-    float bloomIntensity;
-    uint thresholdEnabled;
-};
-
-[[push_constant]] ConstantBuffer<BloomCompositeConstants> composite;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {

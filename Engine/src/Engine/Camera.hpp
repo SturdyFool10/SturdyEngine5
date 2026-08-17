@@ -61,8 +61,8 @@ namespace SFT::Engine {
         [[nodiscard]] CameraContainment classify(const CameraAabb &bounds) const noexcept;
     };
 
-    // A complete game-facing camera object. It owns transform, lens/projection, physical-camera and
-    // temporal state while keeping renderer matrices as a derived implementation detail.
+    /// A complete game-facing camera object. It owns transform, lens/projection, physical-camera and
+    /// temporal state while keeping renderer matrices as a derived implementation detail.
     class Camera {
       public:
         Camera() noexcept = default;
@@ -76,8 +76,8 @@ namespace SFT::Engine {
                                                  f32 near_clip = 0.05f,
                                                  f32 far_clip = 1000.0f) noexcept;
 
-        // Transform and basis. Orientation is local-camera -> world; the conventional camera looks
-        // down local -Z with +Y up and +X right.
+        /// Transform and basis. Orientation is local-camera -> world; the conventional camera looks
+        /// down local -Z with +Y up and +X right.
         [[nodiscard]] glm::vec3 position() const noexcept;
         void set_position(glm::vec3 position) noexcept;
         [[nodiscard]] glm::quat orientation() const noexcept;
@@ -106,7 +106,7 @@ namespace SFT::Engine {
         void frame_sphere(glm::vec3 center, f32 radius, f32 padding = 1.1f) noexcept;
         void frame_bounds(const CameraAabb &bounds, f32 padding = 1.1f) noexcept;
 
-        // Projection/lens.
+        /// Projection/lens.
         [[nodiscard]] CameraProjectionMode projection_mode() const noexcept;
         void set_perspective(f32 vertical_fov_degrees, f32 near_clip, f32 far_clip) noexcept;
         void set_orthographic(f32 vertical_size, f32 near_clip, f32 far_clip) noexcept;
@@ -133,11 +133,9 @@ namespace SFT::Engine {
         void clear_jitter() noexcept;
         [[nodiscard]] bool reverse_z() const noexcept;
         void set_reverse_z(bool enabled) noexcept;
-        [[nodiscard]] bool flip_projection_y() const noexcept;
-        void set_flip_projection_y(bool enabled) noexcept;
 
-        // Physical-camera metadata and useful conversions. Focal length and FOV stay synchronized;
-        // aperture/shutter/ISO/focus are available to depth-of-field, motion-blur, and exposure systems.
+        /// Physical-camera metadata and useful conversions. Focal length and FOV stay synchronized;
+        /// aperture/shutter/ISO/focus are available to depth-of-field, motion-blur, and exposure systems.
         [[nodiscard]] f32 focal_length_mm() const noexcept;
         void set_focal_length_mm(f32 millimeters) noexcept;
         [[nodiscard]] glm::vec2 sensor_size_mm() const noexcept;
@@ -157,7 +155,7 @@ namespace SFT::Engine {
         [[nodiscard]] f32 exposure_multiplier() const noexcept;
         [[nodiscard]] f32 ev100() const noexcept;
 
-        // View policy commonly consumed by culling/render orchestration.
+        /// View policy commonly consumed by culling/render orchestration.
         [[nodiscard]] u32 culling_mask() const noexcept;
         void set_culling_mask(u32 mask) noexcept;
         [[nodiscard]] i32 priority() const noexcept;
@@ -171,8 +169,11 @@ namespace SFT::Engine {
         [[nodiscard]] glm::vec4 normalized_viewport() const noexcept;
         void set_normalized_viewport(glm::vec4 rectangle) noexcept;
 
-        // Derived transforms and coordinate conversion. Screen coordinates use a top-left origin and
-        // depth in [0,1], matching the engine's Vulkan/WebGPU-style projection contract.
+        /// Derived transforms and coordinate conversion. Screen coordinates use a top-left origin and
+        /// depth in [0,1]. projection_matrix() is glm::perspectiveRH_ZO/orthoRH_ZO's native +Y-up NDC,
+        /// unmodified — every backend reconciles its own native convention against this one value
+        /// (D3D12 needs nothing; Vulkan flips its viewport — see RHI::Viewport's own doc comment), so
+        /// this matrix is never backend-flipped and no caller should flip it either.
         [[nodiscard]] glm::mat4 world_matrix() const noexcept;
         [[nodiscard]] glm::mat4 view_matrix() const noexcept;
         [[nodiscard]] glm::mat4 projection_matrix() const noexcept;
@@ -189,7 +190,7 @@ namespace SFT::Engine {
         [[nodiscard]] bool sees_sphere(glm::vec3 center, f32 radius) const noexcept;
         [[nodiscard]] CameraContainment sees(const CameraAabb &bounds) const noexcept;
 
-        // Temporal history for motion vectors/TAA. Call commit_frame() after submitting this camera.
+        /// Temporal history for motion vectors/TAA. Call commit_frame() after submitting this camera.
         void commit_frame() noexcept;
         void reset_history() noexcept;
         [[nodiscard]] bool has_history() const noexcept;
@@ -213,7 +214,6 @@ namespace SFT::Engine {
         glm::vec2 lens_shift_{0.0f};
         glm::vec2 jitter_ndc_{0.0f};
         bool reverse_z_ = false;
-        bool flip_projection_y_ = true;
 
         f32 focal_length_mm_ = 20.7846f;
         glm::vec2 sensor_size_mm_{36.0f, 24.0f};

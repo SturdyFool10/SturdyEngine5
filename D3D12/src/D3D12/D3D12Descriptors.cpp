@@ -1,3 +1,4 @@
+#include <D3D12/src/D3D12/D3D12Descriptors.hpp>
 #include <D3D12/D3D12Descriptors.hpp>
 
 #pragma region Imports
@@ -6,7 +7,7 @@
 
 namespace SFT::D3D12 {
 
-    // ─── CpuDescriptorAllocator ──────────────────────────────────────────────────
+
 
     rhi::RhiResult CpuDescriptorAllocator::initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type,
                                                       u32 chunk_capacity) {
@@ -25,9 +26,9 @@ namespace SFT::D3D12 {
             return operation_failed("CpuDescriptorAllocator::allocate: allocator was never initialized.");
         }
         if (count == 0) {
-            // A bind group with (say) no samplers legitimately asks for a zero-sized sampler range.
-            // An invalid range is the correct answer: it is never bound, never freed, and never
-            // consumes heap space.
+
+
+
             return DescriptorRange{};
         }
         if (count > chunk_capacity_) {
@@ -90,7 +91,7 @@ namespace SFT::D3D12 {
         return handle;
     }
 
-    // ─── ShaderVisibleDescriptorHeap ─────────────────────────────────────────────
+
 
     rhi::RhiResult ShaderVisibleDescriptorHeap::initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type,
                                                            u32 capacity) {
@@ -136,3 +137,24 @@ namespace SFT::D3D12 {
     }
 
 } // namespace SFT::D3D12
+
+namespace SFT::D3D12 {
+
+    bool DescriptorRange::is_valid() const noexcept { return count != 0; }
+
+    u32 CpuDescriptorAllocator::increment() const noexcept { return increment_; }
+
+    D3D12_DESCRIPTOR_HEAP_TYPE CpuDescriptorAllocator::heap_type() const noexcept { return type_; }
+
+    void ShaderVisibleDescriptorHeap::reset() noexcept { cursor_ = 0; }
+
+    ID3D12DescriptorHeap *ShaderVisibleDescriptorHeap::heap() const noexcept { return heap_.Get(); }
+
+    bool ShaderVisibleDescriptorHeap::is_valid() const noexcept { return heap_ != nullptr; }
+
+    u32 ShaderVisibleDescriptorHeap::increment() const noexcept { return increment_; }
+
+    u32 ShaderVisibleDescriptorHeap::capacity() const noexcept { return capacity_; }
+
+} // namespace SFT::D3D12
+

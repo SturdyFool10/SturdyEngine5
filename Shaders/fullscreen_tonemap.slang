@@ -27,20 +27,6 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
-[shader("vertex")]
-VertexOutput vertexMain(uint vertexId : SV_VertexID) {
-    VertexOutput output;
-    // Classic attribute-less fullscreen triangle: uv sweeps (0,0),(2,0),(0,2) so the primitive covers
-    // the whole [-1,1] clip rect with the screen inside its first quadrant. Vulkan NDC Y and texture V
-    // both point down, so map uv straight to clip space (uv*2-1) — negating Y here would flip the image.
-    output.uv = float2((vertexId << 1) & 2, vertexId & 2);
-    output.position = fullscreenTrianglePosition(output.uv);
-    return output;
-}
-
-Texture2D<float4> sceneColor;
-SamplerState sceneSampler;
-
 // Field order/types here must match Renderer/RendererPostProcess.cpp's TonemapConstants exactly —
 // every field is a plain scalar (no vec3/array members) specifically so this struct's natural size
 // matches that C++ struct byte-for-byte; see that file's doc comment on why alignas(16) is avoided.
@@ -88,6 +74,18 @@ struct TonemapConstants {
 
 [[push_constant]] ConstantBuffer<TonemapConstants> tonemap;
 
+[shader("vertex")]
+VertexOutput vertexMain(uint vertexId : SV_VertexID) {
+    VertexOutput output;
+    // Classic attribute-less fullscreen triangle: uv sweeps (0,0),(2,0),(0,2) so the primitive covers
+    // the whole [-1,1] clip rect with the screen inside its first quadrant.
+    output.uv = float2((vertexId << 1) & 2, vertexId & 2);
+    output.position = fullscreenTrianglePosition(output.uv);
+    return output;
+}
+
+Texture2D<float4> sceneColor;
+SamplerState sceneSampler;
 
 float4 sampleScene(float2 uv) {
     return sceneColor.SampleLevel(sceneSampler, uv, 0.0);

@@ -169,7 +169,7 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
 [[nodiscard]] RendererExpected<VulkanPipeline> VulkanPipeline::create_graphics_dynamic(
             VkDevice device,
             VkPipelineCache cache,
-            VkGraphicsPipelineCreateInfo info // taken by value so we can assert renderPass is null
+            VkGraphicsPipelineCreateInfo info
             ) noexcept {
             ZoneScopedN("VulkanPipeline::create_graphics_dynamic");
             if (device == VK_NULL_HANDLE) [[unlikely]] {
@@ -468,7 +468,7 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
                 .patchControlPoints = patch_control_points_,
             };
-            // Viewport/scissor are dynamic by default; counts still need to be valid.
+
             const VkPipelineViewportStateCreateInfo viewport{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
                 .viewportCount = 1,
@@ -526,9 +526,9 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .depthAttachmentFormat = depth_format_,
                 .stencilAttachmentFormat = stencil_format_,
             };
-            // Dynamic rendering requires depth/stencil state whenever either attachment format is
-            // declared, even when all tests/writes are disabled. Conversely, a truly color-only
-            // pipeline with both formats undefined should omit the state entirely.
+
+
+
             const bool has_depth_stencil_attachment =
                 depth_format_ != VK_FORMAT_UNDEFINED || stencil_format_ != VK_FORMAT_UNDEFINED;
             const VkGraphicsPipelineCreateInfo info{

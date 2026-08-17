@@ -66,9 +66,9 @@ namespace SFT::Platform::Windowing {
                     break;
             }
 
-            // Keep automatic routing in the shared backend so enable and disable operate on the same
-            // per-surface state. In particular, disabling must remove a KDE fallback object rather than
-            // returning early after a no-op ext-background-effect disable.
+
+
+
             return Detail::set_wayland_background_blur(handle, effect);
         }
 #endif

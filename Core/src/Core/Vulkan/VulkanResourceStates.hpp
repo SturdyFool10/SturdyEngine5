@@ -10,9 +10,9 @@
 
 namespace SFT::Core::Vulkan {
 
-    // Renderer-facing image states used by the Vulkan backend when compiling multipass dynamic
-    // rendering work. They describe the next use of a subresource; the helpers below translate that
-    // use into synchronization2 stage/access/layout fields.
+    /// Renderer-facing image states used by the Vulkan backend when compiling multipass dynamic
+    /// rendering work. They describe the next use of a subresource; the helpers below translate that
+    /// use into synchronization2 stage/access/layout fields.
     enum class VulkanImageUse : u8 {
         Undefined,
         Present,

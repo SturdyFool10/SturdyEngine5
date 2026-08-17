@@ -1,7 +1,7 @@
-// RhiDevice shader-module resource creation/destruction. Takes raw SPIR-V bytecode straight through
-// VulkanDevice::create_shader_module — the Slang-reflection-carrying VulkanShaderModule wrapper the
-// demo render path uses is a different, source-file-keyed concern and not what this generic RHI entry
-// point is for.
+
+
+
+
 #include <Foundation/src/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)

@@ -1,7 +1,7 @@
-// RhiDevice binding-model resources: bind group layouts, bind groups (ordinary ones share a growable
-// pool of DescriptorPoolChunks; update-after-bind/variable-count/acceleration-structure ones keep a
-// dedicated exactly-sized pool — see VulkanRhiBridge.hpp's BindGroupRecord comment), and pipeline
-// layouts. Mirrors RHI's own :Binding partition, which groups these three together.
+
+
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -33,20 +33,20 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
-        // Sized generously relative to how many descriptors one ordinary bind group actually uses
-        // (typically 1-3): kMaxSetsPerChunk sets rarely exhaust any one type's budget first, so in
-        // practice a chunk's lifetime is bounded by set count, not descriptor count. A frame's whole
-        // per-pass bind-group churn (a double-digit count, not hundreds) fits many times over in one
-        // chunk, so steady state costs zero pool creation at all after the first one or two chunks.
+
+
+
+
+
         constexpr u32 kDescriptorPoolChunkMaxSets = 256;
         constexpr u32 kDescriptorPoolChunkTypeCapacity = 1024;
 
         [[nodiscard]] RendererExpected<VulkanDescriptorPool> create_descriptor_pool_chunk(VkDevice device) {
-            // A cold-start/growth event, not a per-frame one — if this ever logs more than a handful
-            // of times over an application's lifetime, something is either creating far more bind
-            // groups per frame than this renderer's built-in passes do, or churning through them fast
-            // enough to matter; worth knowing either way, the same reasoning as this file's other
-            // one-time-cost logs (shader compiles, pipeline builds).
+
+
+
+
+
             Foundation::log_info("Vulkan: creating a new shared descriptor pool chunk ({} sets, {} descriptors/type capacity).",
                                  kDescriptorPoolChunkMaxSets, kDescriptorPoolChunkTypeCapacity);
             const array<VkDescriptorPoolSize, 7> sizes{
@@ -92,9 +92,9 @@ namespace SFT::Core::Vulkan {
                                     rhi::has_any(entry.flags, rhi::BindingFlags::UpdateAfterBind);
         }
 
-        // A layout with any bindless descriptor-indexing flag needs the flags chained through pNext;
-        // update-after-bind additionally requires the matching create-flag (and an update-after-bind
-        // pool at bind-group time — see create_bind_group below).
+
+
+
         const VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
             .pNext = nullptr,
@@ -137,12 +137,12 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "create_bind_group: unknown bind group layout handle.");
         }
 
-        // Mirror the layout's bindless requirements: an update-after-bind layout can only be allocated
-        // from an update-after-bind pool, and a variable-count final binding's actual size is chosen
-        // here (we use the layout's declared count as the size). Acceleration-structure descriptors
-        // also skip the shared-chunk path below — rare/bindless-shaped in practice, and giving them
-        // their own exactly-sized pool avoids every shared chunk needing AS descriptor budget it will
-        // almost never use.
+
+
+
+
+
+
         bool needs_update_after_bind = false;
         bool has_variable_count = false;
         bool has_acceleration_structure = false;
@@ -181,8 +181,8 @@ namespace SFT::Core::Vulkan {
         i32 shared_chunk_index = -1;
 
         if (needs_update_after_bind || has_variable_count || has_acceleration_structure) {
-            // Dedicated pool sized to exactly this one set — unchanged from how this engine has always
-            // handled these rarer, bindless-shaped cases (see BindGroupRecord's doc comment).
+
+
             vector<VkDescriptorPoolSize> pool_sizes;
             for (const rhi::BindGroupLayoutEntry &entry : layout_record->entries) {
                 const VkDescriptorType type = to_vk(entry.type);
@@ -221,10 +221,10 @@ namespace SFT::Core::Vulkan {
             dedicated_pool = std::move(*pool);
             set = *allocated;
         } else {
-            // Common case: allocate from the current shared chunk, growing (appending and switching to
-            // a fresh chunk) whenever the current one can't satisfy this request. This is the path that
-            // replaces one-vkCreateDescriptorPool-per-bind-group with amortized-to-near-zero steady-
-            // state pool creation — see create_descriptor_pool_chunk()'s doc comment above.
+
+
+
+
             auto chunks = descriptor_pool_chunks_.lock();
             if (chunks->empty()) {
                 auto pool = create_descriptor_pool_chunk(logical_device_->vk_handle());
@@ -250,11 +250,11 @@ namespace SFT::Core::Vulkan {
             set = *allocated;
         }
 
-        // Building the descriptor writes can still fail on a malformed desc (an entry referencing a
-        // binding/handle that doesn't exist) even though the set itself was allocated fine. Collecting
-        // that failure here instead of returning directly lets the shared-chunk path below free the
-        // set back to its chunk on the way out — the dedicated-pool path doesn't need that (the local
-        // `dedicated_pool` simply gets destroyed once this function returns, taking the set with it).
+
+
+
+
+
         const rhi::RhiExpected<void> write_result = [&]() -> rhi::RhiExpected<void> {
         DescriptorSetWriter writer;
         writer.set_descriptor_set(set);

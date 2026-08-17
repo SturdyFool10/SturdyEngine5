@@ -23,21 +23,21 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    // Converts an RHI-level error into a Core::GraphicsBackendError, tagged with `operation` for
-    // context. Free-standing (unlike the private Renderer::graphics_error_from_rhi member) so any
-    // Renderer-side class outside the main Renderer object — the tiled glyph atlas
-    // (Renderer/TextAtlas.cppm), the tiled text canvas (Renderer/TextCanvas.cppm) — can report RHI
-    // failures the same way the rest of the engine does.
+    /// Converts an RHI-level error into a Core::GraphicsBackendError, tagged with `operation` for
+    /// context. Free-standing (unlike the private Renderer::graphics_error_from_rhi member) so any
+    /// Renderer-side class outside the main Renderer object — the tiled glyph atlas
+    /// (Renderer/TextAtlas.cppm), the tiled text canvas (Renderer/TextCanvas.cppm) — can report RHI
+    /// failures the same way the rest of the engine does.
     [[nodiscard]] Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, const char *operation);
 
-    // Clamps a desired tile edge length to the device's actual max 2D image dimension, so a tiled
-    // resource (the glyph atlas — Renderer/TextAtlas.cppm; the large text canvas —
-    // Renderer/TextCanvas.cppm) can never request a texture the GPU structurally cannot create.
-    // `limits.max_texture_dimension_2d` unset (0, e.g. queried too early) leaves `desired` as-is.
+    /// Clamps a desired tile edge length to the device's actual max 2D image dimension, so a tiled
+    /// resource (the glyph atlas — Renderer/TextAtlas.cppm; the large text canvas —
+    /// Renderer/TextCanvas.cppm) can never request a texture the GPU structurally cannot create.
+    /// `limits.max_texture_dimension_2d` unset (0, e.g. queried too early) leaves `desired` as-is.
     [[nodiscard]] u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept;
 
-    // A tile's position in an infinite logical grid of same-size square tiles. Signed so a grid
-    // can extend in every direction from a (0, 0) origin (a canvas scrolled negative, say).
+    /// A tile's position in an infinite logical grid of same-size square tiles. Signed so a grid
+    /// can extend in every direction from a (0, 0) origin (a canvas scrolled negative, say).
     struct TileCoord {
         i32 x = 0;
         i32 y = 0;
@@ -48,8 +48,8 @@ namespace SFT::Renderer {
         [[nodiscard]] usize operator()(TileCoord coord) const noexcept;
     };
 
-    // Which tile a logical pixel coordinate falls in, and its offset within that tile. Floors
-    // toward negative infinity (not toward zero), so tiling stays consistent across the origin.
+    /// Which tile a logical pixel coordinate falls in, and its offset within that tile. Floors
+    /// toward negative infinity (not toward zero), so tiling stays consistent across the origin.
     struct TileAddress {
         TileCoord tile{};
         u32 local_x = 0;
@@ -58,22 +58,22 @@ namespace SFT::Renderer {
 
     [[nodiscard]] TileAddress locate_in_grid(i32 logical_x, i32 logical_y, u32 tile_size) noexcept;
 
-    // Every tile a logical rectangle [x, x+width) x [y, y+height) overlaps — used to split a draw
-    // or upload that crosses tile boundaries (Renderer/TextCanvas.cppm's draw_run()).
+    /// Every tile a logical rectangle [x, x+width) x [y, y+height) overlaps — used to split a draw
+    /// or upload that crosses tile boundaries (Renderer/TextCanvas.cppm's draw_run()).
     [[nodiscard]] vector<TileCoord> tiles_overlapping(i32 x, i32 y, u32 width, u32 height, u32 tile_size) noexcept;
 
-    // A least-recently-used index over `Key`, shared by the glyph atlas (Renderer/TextAtlas.cpp,
-    // evicting individual glyph rectangles) and the large text canvas (Renderer/TextCanvas.cpp,
-    // evicting whole tiles). Tracks residency order only — it does not own whatever `Key` maps to;
-    // the caller looks up/destroys the associated resource when `evict_one()` returns a key.
+    /// A least-recently-used index over `Key`, shared by the glyph atlas (Renderer/TextAtlas.cpp,
+    /// evicting individual glyph rectangles) and the large text canvas (Renderer/TextCanvas.cpp,
+    /// evicting whole tiles). Tracks residency order only — it does not own whatever `Key` maps to;
+    /// the caller looks up/destroys the associated resource when `evict_one()` returns a key.
     template <typename Key, typename Hash = std::hash<Key>>
     class LruIndex {
       public:
         LruIndex() = default;
 
-        // `nodes_` stores iterators into `order_`, so compiler-generated copy/move would preserve
-        // iterators associated with another list under MSVC's checked-iterator mode. Rebuild the
-        // index after every transfer to keep splice()/erase() tied to this exact list instance.
+        /// `nodes_` stores iterators into `order_`, so compiler-generated copy/move would preserve
+        /// iterators associated with another list under MSVC's checked-iterator mode. Rebuild the
+        /// index after every transfer to keep splice()/erase() tied to this exact list instance.
         LruIndex(const LruIndex &other) : order_(other.order_) { rebuild_nodes(); }
 
         LruIndex &operator=(const LruIndex &other) {
@@ -98,17 +98,17 @@ namespace SFT::Renderer {
             return *this;
         }
 
-        // Marks `key` as most-recently-used, inserting it if not already tracked. Returns true if
-        // this was a new insertion (the caller must still assign it storage), false if `key` was
-        // already resident (its position in the LRU order is simply refreshed).
+        /// Marks `key` as most-recently-used, inserting it if not already tracked. Returns true if
+        /// this was a new insertion (the caller must still assign it storage), false if `key` was
+        /// already resident (its position in the LRU order is simply refreshed).
         bool touch(Key key) {
-            // Do not pass the cached iterator to splice: a surrounding atlas/vector transfer can
-            // preserve the key map while MSVC invalidates its checked-iterator association. Locate
-            // the node in this list instead; only an iterator obtained from `order_` is legal here.
+
+
+
             const auto node = std::ranges::find(order_, key);
             if (node != order_.end()) {
-                // Erase/reinsert avoids MSVC's checked-iterator splice association issue entirely.
-                // The LRU owns keys by value, so this does not alter the observable cache identity.
+
+
                 order_.erase(node);
                 order_.push_front(key);
                 nodes_[key] = order_.begin();
@@ -119,7 +119,7 @@ namespace SFT::Renderer {
             return true;
         }
 
-        // Evicts and returns the least-recently-used key, or nullopt if nothing is tracked.
+        /// Evicts and returns the least-recently-used key, or nullopt if nothing is tracked.
         [[nodiscard]] optional<Key> evict_one() {
             if (order_.empty()) {
                 return std::nullopt;
@@ -130,9 +130,9 @@ namespace SFT::Renderer {
             return key;
         }
 
-        // Evicts the least-recently-used key accepted by `predicate`. This lets a caller pin the
-        // resources referenced by the draw it is currently building while still reclaiming older
-        // entries. Walking from the back preserves ordinary LRU order among eligible entries.
+        /// Evicts the least-recently-used key accepted by `predicate`. This lets a caller pin the
+        /// resources referenced by the draw it is currently building while still reclaiming older
+        /// entries. Walking from the back preserves ordinary LRU order among eligible entries.
         template <typename Predicate>
         [[nodiscard]] optional<Key> evict_one_if(Predicate &&predicate) {
             for (auto reverse = order_.rbegin(); reverse != order_.rend(); ++reverse) {
@@ -170,7 +170,7 @@ namespace SFT::Renderer {
             }
         }
 
-        list<Key> order_; // front = most-recently-used, back = least-recently-used
+        list<Key> order_;
         unordered_map<Key, typename list<Key>::iterator, Hash> nodes_;
     };
 

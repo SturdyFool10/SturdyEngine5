@@ -145,7 +145,7 @@ void VulkanShaderModule::destroy() noexcept {
             ZoneScopedN("VulkanShaderModuleKeyHash::operator");
             const std::size_t h1 = std::hash<UString>{}(key.source_file);
             const std::size_t h2 = std::hash<UString>{}(key.entry_point);
-            // 0x9e3779b97f4a7c15 is the 64-bit golden-ratio constant; the usual hash_combine mix.
+
             return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
         }
 

@@ -27,8 +27,8 @@ namespace SFT::Runtime {
             }
 
             [[nodiscard]] UString primary_window_title(
-                Engine::Engine & /*engine*/,
-                const Engine::ApplicationFrameStats & /*stats*/) override {
+                Engine::Engine &           ,
+                const Engine::ApplicationFrameStats &          ) override {
                 return config_.primary_window_title;
             }
 

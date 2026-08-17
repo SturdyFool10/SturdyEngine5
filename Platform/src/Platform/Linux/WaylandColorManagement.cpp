@@ -108,8 +108,8 @@ namespace SFT::Platform::Windowing::Detail {
         void information_done(void *data, wp_image_description_info_v1 *) noexcept {
             auto &query = *static_cast<ColorQuery *>(data);
             query.information_done = true;
-            // The server object is gone after this destructor event, but wayland-client retains the
-            // local proxy until wp_image_description_info_v1_destroy() calls wl_proxy_destroy().
+
+
         }
 
         void information_icc_file(void *, wp_image_description_info_v1 *, i32 fd, u32) noexcept {
@@ -199,9 +199,9 @@ namespace SFT::Platform::Windowing::Detail {
         if (query.queue == nullptr) {
             return std::nullopt;
         }
-        // Queue assignment must happen before get_registry creates its child proxy. Creating through
-        // a queue-bound wrapper makes inheritance atomic with respect to SDL's concurrent Wayland
-        // reader; get_registry()+wl_proxy_set_queue() would leave a race window on the default queue.
+
+
+
         wl_proxy *display_wrapper = static_cast<wl_proxy *>(
             wl_proxy_create_wrapper(query.display));
         if (display_wrapper == nullptr) {
@@ -218,8 +218,8 @@ namespace SFT::Platform::Windowing::Detail {
         }
         wl_registry_add_listener(query.registry, &registry_listener, &query);
 
-        // First roundtrip discovers/binds the manager; the second receives its initial capability
-        // events. Both are isolated to this private queue and never dispatch SDL's Wayland objects.
+
+
         if (wl_display_roundtrip_queue(query.display, query.queue) < 0 ||
             wl_display_roundtrip_queue(query.display, query.queue) < 0 ||
             query.manager == nullptr) {

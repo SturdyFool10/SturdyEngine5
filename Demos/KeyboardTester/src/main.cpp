@@ -15,7 +15,7 @@ namespace {
             SFT::Platform::Windowing::WindowGraphicsApi::Vulkan;
         config.application.engine.app_name = "Sturdy Engine 5 Keyboard Tester";
         config.application.engine.shaders_directory = "Shaders";
-        // Flat-shaded quads only — no raytracing feature requirements, unlike RuntimeDemo.
+
         config.application.engine.features.presentation.vsync = SFT::Core::VSyncMode::Adaptive;
         config.application.engine.features.presentation.latency = SFT::Core::LatencyMode::Ultra;
         config.application.primary_window_title_update_interval_seconds = 0.25;
@@ -36,8 +36,8 @@ namespace {
 
 } // namespace
 
-// Each delivered product owns its actual OS entrypoint. Runtime is only the reusable host library;
-// this demo executable chooses its GameLogic factory and startup policy explicitly above.
+
+
 #if defined(STURDY_PLATFORM_WINDOWS) && (defined(DIST) || defined(SFT_USE_WINMAIN))
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -45,7 +45,7 @@ namespace {
 #endif
 #include <windows.h>
 
-i32 WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*cmd_line*/, int /*show_cmd*/) {
+i32 WINAPI WinMain(HINSTANCE             , HINSTANCE                  , LPSTR             , int             ) {
     return sturdy_run(SFT::Foundation::args_from_windows_command_line());
 }
 

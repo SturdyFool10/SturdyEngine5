@@ -13,7 +13,7 @@ using SFT::Core::RendererResult;
 
 namespace SFT::Core::Vulkan {
 
-    // ─── VulkanFence ─────────────────────────────────────────────────────────────
+
 
     class VulkanFence {
       public:
@@ -33,10 +33,10 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkFence vk_handle() const noexcept;
         [[nodiscard]] bool is_valid() const noexcept;
 
-        // Returns true if signaled, false if not ready.
+        /// Returns true if signaled, false if not ready.
         [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept;
 
-        // Returns success for both VK_SUCCESS and VK_TIMEOUT.
+        /// Returns success for both VK_SUCCESS and VK_TIMEOUT.
         [[nodiscard]] RendererResult wait(u64 timeout_ns = UINT64_MAX) noexcept;
 
         [[nodiscard]] RendererResult reset() noexcept;
@@ -48,7 +48,7 @@ namespace SFT::Core::Vulkan {
         VkFence fence_ = VK_NULL_HANDLE;
     };
 
-    // ─── VulkanSemaphore ──────────────────────────────────────────────────────────
+
 
     class VulkanSemaphore {
       public:
@@ -72,16 +72,16 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkSemaphoreType type() const noexcept;
         [[nodiscard]] bool is_timeline() const noexcept;
 
-        // Timeline semaphore operations — undefined behaviour on a binary semaphore.
+        /// Timeline semaphore operations — undefined behaviour on a binary semaphore.
         [[nodiscard]] RendererExpected<u64> counter_value() const noexcept;
 
         [[nodiscard]] RendererResult signal(u64 value) noexcept;
 
-        // Returns success for both VK_SUCCESS and VK_TIMEOUT.
+        /// Returns success for both VK_SUCCESS and VK_TIMEOUT.
         [[nodiscard]] RendererResult wait(u64 value, u64 timeout_ns = UINT64_MAX) noexcept;
 
-        // Builds this semaphore's wait/signal entry for a VkSubmitInfo2. value is ignored by the
-        // driver for binary semaphores — only pass a meaningful one for a timeline semaphore.
+        /// Builds this semaphore's wait/signal entry for a VkSubmitInfo2. value is ignored by the
+        /// driver for binary semaphores — only pass a meaningful one for a timeline semaphore.
         [[nodiscard]] VkSemaphoreSubmitInfo submit_info(VkPipelineStageFlags2 stage, u64 value = 0) const noexcept;
 
         void destroy() noexcept;
@@ -97,12 +97,12 @@ namespace SFT::Core::Vulkan {
         VkSemaphoreType type_ = VK_SEMAPHORE_TYPE_BINARY;
     };
 
-    // ─── VulkanEvent ──────────────────────────────────────────────────────────────
 
-    // Owns a VkEvent — the fine-grained *split-barrier* primitive: signal a dependency at one point in
-    // a command stream (set_event2) and wait on it later (wait_events2), letting unrelated GPU work
-    // overlap the gap. Create with `device_only` when the event is only ever set/waited on the GPU
-    // (the synchronization2-recommended fast path; host set/reset/status then become invalid).
+
+    /// Owns a VkEvent — the fine-grained *split-barrier* primitive: signal a dependency at one point in
+    /// a command stream (set_event2) and wait on it later (wait_events2), letting unrelated GPU work
+    /// overlap the gap. Create with `device_only` when the event is only ever set/waited on the GPU
+    /// (the synchronization2-recommended fast path; host set/reset/status then become invalid).
     class VulkanEvent {
       public:
         VulkanEvent() = default;
@@ -120,7 +120,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkEvent vk_handle() const noexcept;
         [[nodiscard]] bool is_valid() const noexcept;
 
-        // Host-side operations — only valid for a non-`device_only` event.
+        /// Host-side operations — only valid for a non-`device_only` event.
         [[nodiscard]] RendererExpected<bool> is_signaled() const noexcept;
         [[nodiscard]] RendererResult set() noexcept;
         [[nodiscard]] RendererResult reset() noexcept;

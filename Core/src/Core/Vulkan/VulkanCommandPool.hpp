@@ -42,10 +42,10 @@ namespace SFT::Core::Vulkan {
 
         void free(vector<VkCommandBuffer> &buffers) noexcept;
 
-        // Recycles all command buffers allocated from this pool back to the pool.
+        /// Recycles all command buffers allocated from this pool back to the pool.
         [[nodiscard]] RendererResult reset(VkCommandPoolResetFlags flags = 0) noexcept;
 
-        // Returns unused memory from the pool to the system allocator (Vulkan 1.1+).
+        /// Returns unused memory from the pool to the system allocator (Vulkan 1.1+).
         void trim(VkCommandPoolTrimFlags flags = 0) noexcept;
 
         void destroy() noexcept;

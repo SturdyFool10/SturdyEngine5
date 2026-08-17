@@ -26,8 +26,8 @@ namespace SFT::Async {
 
         struct NoResult {};
 
-        // External threads block on the completion atomic. Scheduler workers instead execute queued
-        // work while waiting, preventing nested task graphs from deadlocking a saturated pool.
+        /// External threads block on the completion atomic. Scheduler workers instead execute queued
+        /// work while waiting, preventing nested task graphs from deadlocking a saturated pool.
         void wait_for_task(std::atomic<bool> &done) noexcept;
         void notify_scheduler_task_completion() noexcept;
 
@@ -82,8 +82,8 @@ namespace SFT::Async {
             return state_ && state_->done.load(std::memory_order_acquire);
         }
 
-        // Worker-side waits use cooperative work helping and therefore follow structured fork/join
-        // semantics: tasks must not synchronously wait on an ancestor in the active call stack.
+        /// Worker-side waits use cooperative work helping and therefore follow structured fork/join
+        /// semantics: tasks must not synchronously wait on an ancestor in the active call stack.
         auto wait() const noexcept {
             state_->wait();
             if constexpr (!std::is_void_v<R>) {

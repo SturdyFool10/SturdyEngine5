@@ -178,9 +178,9 @@ namespace SFT::Platform::Windowing::Detail {
             assign_queue(connection->registry, connection->event_queue);
             wl_registry_add_listener(connection->registry, &registry_listener, connection.get());
 
-            // The first roundtrip discovers globals and sends bind requests from registry_global();
-            // the second receives ext-background-effect's initial capabilities event. The dedicated
-            // queue keeps these dispatches isolated from SDL's own Wayland event queue.
+
+
+
             if (wl_display_roundtrip_queue(display, connection->event_queue) < 0 ||
                 wl_display_roundtrip_queue(display, connection->event_queue) < 0) {
                 destroy_connection(*connection);
@@ -198,8 +198,8 @@ namespace SFT::Platform::Windowing::Detail {
             }
             wl_region *region = wl_compositor_create_region(connection.compositor);
             if (region != nullptr) {
-                // Both protocols clip the region to the surface. A maximal positive rectangle avoids
-                // coupling effect state to window resize events while still covering every real size.
+
+
                 wl_region_add(region, 0, 0, INT_MAX, INT_MAX);
             }
             return region;
@@ -294,8 +294,8 @@ namespace SFT::Platform::Windowing::Detail {
             return WindowEffectResult::failed("Failed to discover Wayland background-effect globals.");
         }
 
-        // Process capability/registry events already read by another Wayland thread without ever
-        // dispatching SDL's queue. This keeps ext capability changes current after initial discovery.
+
+
         if (wl_display_dispatch_queue_pending(display, connection->event_queue) < 0) {
             return WindowEffectResult::failed("Failed to dispatch pending Wayland background-effect events.");
         }

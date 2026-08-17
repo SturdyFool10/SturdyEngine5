@@ -80,8 +80,8 @@ namespace SFT::Renderer {
         }
 
         if (resource->bottom_level_acceleration_structure) {
-            // A submitted frame's TLAS may still reference this BLAS. Mesh destruction is uncommon;
-            // use the coarse safe point until BLAS retirement is tracked per frame slot.
+
+
             wait_idle();
             if (RHI::RhiDevice *device = rhi_device()) {
                 device->destroy_acceleration_structure(resource->bottom_level_acceleration_structure);
@@ -89,11 +89,11 @@ namespace SFT::Renderer {
             resource->bottom_level_acceleration_structure = {};
         }
 
-        // The mesh's bytes live in the shared vertex/index arenas (try_upload_mesh), not a dedicated
-        // buffer this resource owns, so there's nothing to individually free here — only whole-arena
-        // teardown (destroy_all_resources) or a real free-list allocator (not implemented yet; nothing
-        // else in the engine reclaims evicted GPU memory either — see asset-manager.md) could reclaim
-        // this range. Evicting a mesh here just stops it from being drawn/replayed on future growth.
+
+
+
+
+
         vector<GeometryVertex>{}.swap(resource->vertices);
         vector<u32>{}.swap(resource->indices);
         resource->vertex_offset = 0;
@@ -177,7 +177,7 @@ namespace SFT::Renderer {
             }
         }
         material_instances_.clear();
-        // Specialized material pipeline variants must go before the templates/modules they link.
+
         destroy_object_history_resources();
         destroy_instance_cull_resources();
         for (MaterialTemplateResource &resource : material_templates_) {
@@ -211,9 +211,9 @@ namespace SFT::Renderer {
             resource.alive = false;
             resource.label.clear();
         }
-        // Off-screen targets own the GPU objects behind non-owning TextureHandle sampling wrappers.
-        // Destroy those owners first; the texture table loop below then only destroys resources whose
-        // wrapper itself owns the GPU allocation.
+
+
+
         destroy_all_offscreen_render_targets();
         for (TextureResource &resource : textures_) {
             if (resource.owns_gpu_resources) {
@@ -233,12 +233,12 @@ namespace SFT::Renderer {
         }
         textures_.clear();
 
-        // Reclaim every window's in-flight frame slots and destroy each slot's (reusable) fence, then the
-        // window's presentation resources. Safe: teardown runs after the destructor's wait_idle(), so no
-        // slot's GPU work is still pending. Also normally a no-op for scene_frame_resources/hiz_pyramid
-        // by this point — every window already ran destroy_window_surface() (which cleans up its own
-        // record's copies) before ~Renderer() gets here — but kept as a defensive sweep over whatever
-        // window_surfaces_ still holds, rather than assuming that's always true.
+
+
+
+
+
+
         auto window_surfaces_guard = window_surfaces_.lock();
         for (auto &record : *window_surfaces_guard) {
             if (RHI::RhiDevice *device = rhi_device()) {
@@ -260,8 +260,8 @@ namespace SFT::Renderer {
             destroy_hiz_pyramid(record->hiz_pyramid);
             destroy_rhi_presentation_resources(*record);
         }
-        // Frame-slot bloom bind groups reference bloom_'s cached layout and sampler, so they must be
-        // destroyed above before the shared pipeline resources are torn down.
+
+
         destroy_bloom_resources();
         destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
@@ -290,10 +290,10 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(new_buffer.error(), "grow geometry arena"));
         }
 
-        // Bulk GPU-to-GPU copy of the old buffer's already-written region into the new, bigger one —
-        // arena offsets are append-only/stable across growth, so this is one copy, not a replay of
-        // every mesh's retained CPU payload. Growth is a routine asset-loading operation, unlike the
-        // full per-mesh replay used after backend reconstruction.
+
+
+
+
         if (arena.buffer && arena.used_bytes > 0) {
             auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "geometry arena growth copy"});
             if (!encoder) {
@@ -337,9 +337,9 @@ namespace SFT::Renderer {
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait geometry arena growth fence"));
             }
             if (!*waited) {
-                // Real timeout (this call uses wait_forever, so unreachable outside a device hang) --
-                // the fence is not confirmed signaled, so destroying anything it protects here would
-                // be a real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+
+
+
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "wait geometry arena growth fence: vkWaitForFences timed out.");
             }
@@ -349,8 +349,8 @@ namespace SFT::Renderer {
         }
 
         if (arena.buffer) {
-            // Every BLAS references the shared arena's device address. Growing either arena changes that
-            // address, so lazily rebuild all mesh BLAS before the next ray-query frame.
+
+
             for (MeshResource &mesh_resource : meshes_) {
                 if (mesh_resource.bottom_level_acceleration_structure) {
                     device->destroy_acceleration_structure(mesh_resource.bottom_level_acceleration_structure);
@@ -379,9 +379,9 @@ namespace SFT::Renderer {
             index_arena_.usage |= RHI::BufferUsage::AccelerationStructureInput;
         }
 
-        // Alive meshes always retain their authoritative replay payload.
-        // Alive meshes always retain their authoritative replay payload. Reaching this branch means
-        // internal state was corrupted rather than a caller-selected residency policy being unavailable.
+
+
+
         if (mesh.vertices.empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot upload or restore an alive mesh with no CPU replay data.");

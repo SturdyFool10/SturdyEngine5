@@ -1,4 +1,4 @@
-// RHI surface/swapchain/presentation implementation for Vulkan.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -7,19 +7,19 @@
 #define VK_USE_PLATFORM_XLIB_KHR
 #define VK_USE_PLATFORM_XCB_KHR
 #define VK_USE_PLATFORM_WAYLAND_KHR
-// Xlib.h's `typedef XID Window;` collides with SFT::Platform::Windowing::Window (brought into
-// this TU unqualified via Core/Renderer.hpp's `using ...::Window;`) — nothing in this file names
-// X11's Window type directly (surface creation goes through reinterpret_cast/static_cast on the
-// raw handle), so rename it out of the way for every header that spells the bare word "Window",
-// including vulkan_xlib.h below, then undef once both are done with it.
+
+
+
+
+
 #define Window X11Window
 #include <X11/Xlib.h>
 #include <wayland-client.h>
 #include <xcb/xcb.h>
-// X11 headers also define several bare-word macros that collide with this codebase's own
-// enumerators (RHI::CompareOp::Always, RHI::BufferUsage::None, Slang's Bool,
-// WindowEffectResultKind::Success) — undef every one known to collide, not just the first one
-// that happened to bite.
+
+
+
+
 #if defined(Success)
 #undef Success
 #endif
@@ -81,9 +81,9 @@ namespace SFT::Core::Vulkan {
                 case rhi::PresentMode::FifoRelaxed: return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
                 case rhi::PresentMode::Mailbox: return VK_PRESENT_MODE_MAILBOX_KHR;
                 case rhi::PresentMode::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
-                // The canonical enumerant is the _KHR one (VK_KHR_present_mode_fifo_latest_ready);
-                // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT is defined as a plain alias of it in
-                // vulkan_core.h, not a distinct value.
+
+
+
                 case rhi::PresentMode::FifoLatestReady: return VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
             }
             return VK_PRESENT_MODE_FIFO_KHR;
@@ -96,18 +96,18 @@ namespace SFT::Core::Vulkan {
                 case VK_PRESENT_MODE_MAILBOX_KHR: return rhi::PresentMode::Mailbox;
                 case VK_PRESENT_MODE_IMMEDIATE_KHR: return rhi::PresentMode::Immediate;
                 case VK_PRESENT_MODE_FIFO_LATEST_READY_KHR: return rhi::PresentMode::FifoLatestReady;
-                default: return std::nullopt; // an exotic mode outside RHI::PresentMode's set — not a candidate.
+                default: return std::nullopt;
             }
         }
 
-        // Translates the surface's real, freshly-queried present-mode list into RHI candidates —
-        // never assume a mode is available because it was available on another GPU/window/monitor/
-        // OS/surface. `fifo_latest_ready_enabled` gates FifoLatestReady specifically: the surface
-        // query can legitimately report VK_PRESENT_MODE_FIFO_LATEST_READY_KHR as a raw WSI
-        // capability even when the *device* hasn't enabled VK_KHR_present_mode_fifo_latest_ready /
-        // its presentModeFifoLatestReady feature bit — passing it to vkCreateSwapchainKHR without
-        // that feature enabled is invalid per spec, so it's excluded from the candidate list here
-        // rather than only caught at swapchain-creation time.
+
+
+
+
+
+
+
+
         [[nodiscard]] vector<rhi::PresentMode> supported_rhi_present_modes(span<const VkPresentModeKHR> vk_modes,
                                                                            bool fifo_latest_ready_enabled) {
             vector<rhi::PresentMode> supported;
@@ -123,10 +123,10 @@ namespace SFT::Core::Vulkan {
             return supported;
         }
 
-        // Resolves `strategy` against the surface's real supported modes, logging the outcome —
-        // info when the strategy's own ideal mode was available, warning when the surface forced a
-        // degraded fallback (see RHI::PresentationResolution's own doc comment for what "degraded"
-        // means). Never silently claims the requested strategy took effect when it didn't.
+
+
+
+
         [[nodiscard]] rhi::PresentationResolution resolve_present_mode(span<const VkPresentModeKHR> vk_modes,
                                                                        rhi::PresentStrategy strategy,
                                                                        bool fifo_latest_ready_enabled) {
@@ -149,9 +149,9 @@ namespace SFT::Core::Vulkan {
                 case rhi::ColorSpace::Hdr10St2084: return VK_COLOR_SPACE_HDR10_ST2084_EXT;
                 case rhi::ColorSpace::ScrgbLinear: return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
                 case rhi::ColorSpace::Hdr10Hlg: return VK_COLOR_SPACE_HDR10_HLG_EXT;
-                // Deprecated in the Vulkan spec itself (no reason given in the API XML) but still the
-                // only enumerant that exists for it — see ColorSpace::DolbyVision's own doc comment
-                // (Swapchain.hpp) for why this is best-effort plumbing, not certified Dolby Vision.
+
+
+
                 case rhi::ColorSpace::DolbyVision: return VK_COLOR_SPACE_DOLBYVISION_EXT;
                 case rhi::ColorSpace::AdobeRgbLinear: return VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT;
                 case rhi::ColorSpace::AdobeRgbNonlinear: return VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT;
@@ -162,11 +162,11 @@ namespace SFT::Core::Vulkan {
             return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         }
 
-        // Every ColorSpace other than the Vulkan-core default (SrgbNonlinear) is only exposed once
-        // VK_EXT_swapchain_colorspace is enabled — not just the HDR ones — so this gates all of them
-        // uniformly rather than enumerating cases as they're added. When no exact (format, colorSpace)
-        // pair is exposed, choose_surface_format below falls back to *any* format sharing the
-        // requested color space rather than silently downgrading to SDR.
+
+
+
+
+
         [[nodiscard]] bool requires_swapchain_colorspace_extension(rhi::ColorSpace color_space) noexcept {
             return color_space != rhi::ColorSpace::SrgbNonlinear;
         }
@@ -247,17 +247,17 @@ namespace SFT::Core::Vulkan {
             }
         }
 
-        // Resolves the requested composite alpha against the surface's real, freshly-queried
-        // supported set — same "never assume a mode is available" discipline as resolve_present_mode
-        // above, and with the same requested-vs-effective reporting, because the failure mode here is
-        // otherwise invisible: a surface that only supports Opaque will happily create a swapchain
-        // that discards every alpha value the app writes, and the window then composites over black
-        // with no error anywhere. Very common in practice — current Win32 AMD drivers advertise
-        // Opaque and nothing else, so per-pixel window transparency through the Vulkan WSI is simply
-        // unavailable there regardless of what the window manager is told.
-        //
-        // The fallback deliberately never prefers Opaque over a supported non-opaque mode when a
-        // non-opaque one was asked for: Opaque doesn't approximate transparency, it cancels it.
+
+
+
+
+
+
+
+
+
+
+
         [[nodiscard]] rhi::CompositeAlphaMode resolve_composite_alpha(VkCompositeAlphaFlagsKHR supported,
                                                                      rhi::CompositeAlphaMode requested) noexcept {
             const auto is_supported = [supported](rhi::CompositeAlphaMode mode) noexcept {
@@ -267,8 +267,8 @@ namespace SFT::Core::Vulkan {
             if (requested != rhi::CompositeAlphaMode::Auto && is_supported(requested)) {
                 return requested;
             }
-            // Auto documents itself as "prefer opaque"; only an explicit non-opaque request means the
-            // caller actually wants the compositor to see alpha.
+
+
             const bool wants_transparency =
                 requested != rhi::CompositeAlphaMode::Auto && requested != rhi::CompositeAlphaMode::Opaque;
             if (wants_transparency) {
@@ -289,16 +289,16 @@ namespace SFT::Core::Vulkan {
             return rhi::CompositeAlphaMode::Opaque;
         }
 
-        // Builds the VkHdrMetadataEXT this bridge sends via vkSetHdrMetadataEXT, preferring the
-        // display's real, platform-reported primaries/white-point/luminance
-        // (rhi::HdrDisplayMetadata — sourced from EDID/OS/window-system, see HdrMetadataSource) over
-        // a fixed guess. `hdr_query` is the freshly-queried capability for this exact surface/display
-        // (query_platform_hdr_display_capabilities() is called fresh at every create_swapchain(), so
-        // this reflects the display the window is on *right now*, not whatever was true at startup —
-        // matters for windows that move to a different monitor between swapchain rebuilds). Falls back
-        // to conservative DCI-P3-ish primaries and a 1000/0.001 nit range — this bridge's original
-        // fixed values — whenever the platform can't report real metadata (display_metadata unset:
-        // Linux/X11 without DRM/EDID access, an unsupported OS backend, or the query itself failing).
+
+
+
+
+
+
+
+
+
+
         [[nodiscard]] VkHdrMetadataEXT build_hdr_metadata(const rhi::SurfaceHdrCapabilityQuery &hdr_query) noexcept {
             VkHdrMetadataEXT metadata{
                 .sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT,
@@ -418,7 +418,7 @@ namespace SFT::Core::Vulkan {
                               "create_surface: raw-native Vulkan RHI surfaces are not compiled into this platform build.");
 #endif
 
-        return surfaces_.insert(make_surface_record(surface, /*owns_surface=*/true, desc));
+        return surfaces_.insert(make_surface_record(surface,                  true, desc));
     }
 
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface, const rhi::SurfaceDesc &desc) {
@@ -427,7 +427,7 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                   "import_surface: cannot import a null VkSurfaceKHR.");
         }
-        return surfaces_.insert(make_surface_record(surface, /*owns_surface=*/false, desc));
+        return surfaces_.insert(make_surface_record(surface,                  false, desc));
     }
 
     void VulkanRhiDeviceBridge::destroy_surface(rhi::SurfaceHandle handle) noexcept {
@@ -502,15 +502,15 @@ namespace SFT::Core::Vulkan {
         rhi::PresentationResolution resolution =
             resolve_present_mode(*modes, desc.present_strategy, fifo_latest_ready_enabled);
 
-        // Present-from-compute: only relevant when the device actually has a compute queue and its
-        // family differs from graphics' (VulkanBackendDevice.cpp's dedicated-compute-family search
-        // explicitly excludes the graphics bit, so whenever a compute queue exists its family is
-        // *always* different from graphics' — a same-family compute queue would need none of this,
-        // since presenting from a different VkQueue in the same family needs no ownership transfer).
-        // desc.allow_present_from_compute is the engine's request (Core::PresentationSettings,
-        // opt-out by default); queue_family_supports_present() is the one place that request gets
-        // checked against real per-surface support, same "never assume" discipline
-        // resolve_present_mode() above already follows for present modes.
+
+
+
+
+
+
+
+
+
         bool present_via_compute = false;
         if (desc.allow_present_from_compute && compute_queue_ != nullptr &&
             compute_queue_->family_index() != graphics_queue_->family_index()) {
@@ -531,9 +531,9 @@ namespace SFT::Core::Vulkan {
         resolution.composite_alpha_degraded =
             transparency_requested && effective_composite_alpha == rhi::CompositeAlphaMode::Opaque;
         if (resolution.composite_alpha_degraded) {
-            // Loud, not silent: this is the difference between "the window shows what's behind it"
-            // and "the window is black where the app wrote alpha", and nothing further down the
-            // pipeline can detect or fix it.
+
+
+
             Foundation::log_warn(
                 "Swapchain requested composite alpha {} for transparent composition, but this surface only "
                 "supports {:#x} — falling back to Opaque. The compositor will discard the alpha this "
@@ -547,27 +547,27 @@ namespace SFT::Core::Vulkan {
                                  rhi::composite_alpha_mode_name(effective_composite_alpha));
         }
 
-        // Default (native-path) answer for PresentationResolution::supports_completion_fence — the
-        // composition-mode branch immediately below overrides this to false once it knows it's taking
-        // that path, since a composition-present swapchain has no vkQueuePresentKHR to attach
-        // VkSwapchainPresentFenceInfoKHR to regardless of whether the device feature is enabled.
+
+
+
+
         resolution.supports_completion_fence = enabled_features_.has(rhi::Feature::SwapchainMaintenance);
 
-        // On Windows, try composition present for every swapchain generation — including the initial
-        // opaque one. Switching this HWND from native vkQueuePresentKHR to DirectComposition only when
-        // transparency is enabled leaves the native swapchain's final opaque image in the window's
-        // redirection surface beneath the new transparent visual. Starting on one presenter model
-        // avoids that persistent underlay; a transparency toggle then only replaces one composition
-        // presenter with another. The native path remains the fallback when the platform compositor or
-        // required Vulkan/D3D interop is unavailable. Exclusive fullscreen is intentionally native:
-        // it bypasses the compositor, which is fundamentally incompatible with composition present.
-        // The compile-time capability gate avoids asking the portable unsupported stub on every
-        // non-Windows swapchain creation.
+
+
+
+
+
+
+
+
+
+
         if (GraphicsPlatform::composition_present_compiled() && !desc.request_full_screen_exclusive) {
-            // STORAGE_BIT has no counterpart among the D3D11 bind flags the composition presenter's
-            // shared textures are created with (render target + shader resource only, no UAV) —
-            // stripped here rather than requested-and-rejected by the import. COLOR_ATTACHMENT_BIT is
-            // always forced on: rendering into this image is the entire reason it's acquired.
+
+
+
+
             const VkImageUsageFlags composition_usage =
                 (usage & ~static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_STORAGE_BIT)) | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             const u32 composition_image_count = choose_image_count(*caps, desc.image_count);
@@ -577,20 +577,20 @@ namespace SFT::Core::Vulkan {
                 .window = surface->desc.window,
                 .label = surface->desc.label != nullptr ? std::string_view{surface->desc.label} : std::string_view{},
             };
-            // Ignore (compositor treats every pixel as fully opaque) for a caller that never asked for
-            // transparency at all — faithfully reproducing an opaque request rather than quietly
-            // upgrading it to Premultiplied, which would cost a real (if usually invisible) blend at
-            // composite time for no reason the caller asked for.
+
+
+
+
             const GraphicsPlatform::CompositionAlphaMode composition_alpha_mode =
                 transparency_requested ? GraphicsPlatform::CompositionAlphaMode::Premultiplied
                                        : GraphicsPlatform::CompositionAlphaMode::Ignore;
 
-            // Reuse-in-place vs. rebuild: format, alpha mode, and image-ring size are fixed at DXGI
-            // swap-chain creation. CompositionPresenter::resize() invalidates its shared images, so it
-            // is only valid for an actual extent change with the same image-ring configuration. A
-            // same-size policy rebuild (vsync/image-count/etc.) must build a fresh presenter instead:
-            // moving the presenter without replacing its image imports would leave the new record with
-            // an empty image ring.
+
+
+
+
+
+
             const bool can_resize_in_place = old_record != nullptr && old_record->owns_composition_resources &&
                 old_record->composition.presenter != nullptr &&
                 old_record->composition_vk_format == format.format &&
@@ -601,13 +601,13 @@ namespace SFT::Core::Vulkan {
 
             RendererExpected<CompositionSwapchainResources> composition = [&]() -> RendererExpected<CompositionSwapchainResources> {
                 if (can_resize_in_place) {
-                    // Reuses the same D3D device, DXGI factory, and — critically — the same already-
-                    // attached DirectComposition target/visual, instead of paying full device creation
-                    // plus a target detach/reattach on every single resize event. That
-                    // detach-then-reattach is what caused visible flicker during live window resizing
-                    // before this path existed: for the brief window between the old target's
-                    // SetRoot(nullptr) and the new target's SetRoot(visual), the compositor has nothing
-                    // to show for this HWND at all.
+
+
+
+
+
+
+
                     auto resized = resize_composition_swapchain_resources(
                         logical_device_->vk_handle(), physical_device_->vk_handle(),
                         std::move(old_record->composition), format.format, composition_usage, extent.width,
@@ -615,21 +615,21 @@ namespace SFT::Core::Vulkan {
                     if (resized) {
                         return resized;
                     }
-                    // Resize failed (rare — a real DXGI/driver-level failure, not just "the old
-                    // presenter doesn't exist"): `old_record->composition.presenter` was already moved
-                    // into the failed attempt and is now gone regardless of outcome (its RAII teardown
-                    // already ran), so falling through to a fresh build below is both the only option
-                    // left and exactly as safe as the ordinary no-old-presenter case — there is no
-                    // longer an old target attached to this HWND to conflict with a new one.
+
+
+
+
+
+
                     Foundation::log_warn(
                         "Composition presenter resize-in-place failed ({}); rebuilding from scratch.",
                         resized.error().message);
                 }
 
-                // DirectComposition supports exactly one IDCompositionTarget per HWND at a time. The old
-                // presenter's target must detach before the replacement attaches, but first all Vulkan
-                // work using its shared images must complete; the D3D presenter can then drain its own
-                // queued copies during destruction without releasing an image out from under Vulkan.
+
+
+
+
                 if (old_record != nullptr && old_record->owns_composition_resources &&
                     old_record->composition.presenter != nullptr) {
                     const VkResult idle_result = vkDeviceWaitIdle(logical_device_->vk_handle());
@@ -653,19 +653,19 @@ namespace SFT::Core::Vulkan {
                 record.composition_vk_format = format.format;
                 record.composition_alpha_mode = composition_alpha_mode;
 
-                // Composition present delivers exactly what was asked for — real transparency when
-                // requested (the degraded/Opaque verdict above described only the native WSI path, and
-                // no longer describes what this swapchain will do), or a faithfully opaque surface
-                // when it wasn't.
+
+
+
+
                 resolution.effective_composite_alpha =
                     transparency_requested ? rhi::CompositeAlphaMode::Premultiplied : rhi::CompositeAlphaMode::Opaque;
                 resolution.composite_alpha_degraded = false;
-                // Tells window-level code not to also apply a legacy per-window OS transparency
-                // mechanism on top of this — see via_composition_present's own doc comment
-                // (RHI/Swapchain.hpp) for the ghosted-stale-frame symptom that combination produces.
+
+
+
                 resolution.via_composition_present = true;
-                // No vkQueuePresentKHR on this path — see supports_completion_fence's own doc comment
-                // (RHI/Swapchain.hpp) for why that's true independent of the device-level feature bit.
+
+
                 resolution.supports_completion_fence = false;
                 record.presentation_resolution = resolution;
                 record.present_via_compute = false;
@@ -714,10 +714,10 @@ namespace SFT::Core::Vulkan {
                     record.image_available_semaphores.push_back(std::move(*image_available));
                 }
 
-                // DXGI's own Present() vsync meaning is the closest equivalent this record can carry —
-                // composition present has no per-present concept of "which present mode" the way
-                // vkQueuePresentKHR does. Immediate/Mailbox both mean "don't wait for vblank" in
-                // spirit; every other PresentMode is a vsync'd mode.
+
+
+
+
                 record.composition_sync_interval = (resolution.effective_mode == rhi::PresentMode::Immediate ||
                                                     resolution.effective_mode == rhi::PresentMode::Mailbox)
                                                        ? 0u
@@ -725,35 +725,35 @@ namespace SFT::Core::Vulkan {
 
                 return swapchains_.insert(std::move(record));
             }
-            // Composition present wasn't available (unsupported format, unavailable compositor,
-            // disabled Vulkan/D3D interop, ...) — fall through to the native vkQueuePresentKHR path.
+
+
             Foundation::log_info(
                 "Composition present unavailable ({}); falling back to vkQueuePresentKHR.",
                 composition.error().message);
         }
 
-        // Presenting from a different queue *family* than the one that rendered into the image is a
-        // real queue-family-ownership concern for an EXCLUSIVE-sharing-mode swapchain image (the
-        // default below) — CONCURRENT sharing across exactly the two families that ever touch this
-        // image sidesteps needing an explicit ownership-transfer barrier pair every frame, at the
-        // (here negligible — only two queue families, one swapchain image at a time) usual CONCURRENT
-        // bandwidth cost. The second family index is never read unless present_via_compute is true
-        // (which already implies compute_queue_ != nullptr), so the graphics-family fallback here
-        // avoids dereferencing a possibly-null compute_queue_ rather than expressing anything real.
+
+
+
+
+
+
+
+
         const std::array<u32, 2> concurrent_queue_families{
             graphics_queue_->family_index(),
             compute_queue_ != nullptr ? compute_queue_->family_index() : graphics_queue_->family_index(),
         };
 
-        // Only ever attempted on this, the native vkQueuePresentKHR path — composition present exists
-        // specifically to route around a surface's own compositing (for transparency), which is the
-        // opposite of what exclusive mode buys, so the two are mutually exclusive by construction (see
-        // PresentationResolution::full_screen_exclusive_active's own doc comment, RHI/Swapchain.hpp).
-        // Built before VkSwapchainCreateInfoKHR below so its pNext chain can be attached at creation —
-        // VK_EXT_full_screen_exclusive requires the chain be present at swapchain creation time, not
-        // just at the later vkAcquireFullScreenExclusiveModeEXT call. Must stay alive at least through
-        // that vkCreateSwapchainKHR call (including the Fifo-retry below), which is why it's declared
-        // in this scope rather than a narrower one.
+
+
+
+
+
+
+
+
+
         std::unique_ptr<FullScreenExclusiveRequest> full_screen_exclusive_request;
         if (desc.request_full_screen_exclusive && enabled_features_.has(rhi::Feature::FullScreenExclusive)) {
             full_screen_exclusive_request = build_full_screen_exclusive_request(GraphicsPlatform::NativeSurfaceHandle{
@@ -786,11 +786,11 @@ namespace SFT::Core::Vulkan {
 
         auto swapchain = VulkanSwapchain::create(logical_device_->vk_handle(), info);
         if (!swapchain && resolution.effective_mode != rhi::PresentMode::Fifo) {
-            // Even a mode reported as supported by the query above can fail at creation time if the
-            // surface/platform state changed in between (window moved to another monitor, display
-            // mode changed, compositor state changed, ...) — retry once with the one present mode
-            // every conformant Vulkan implementation is guaranteed to accept, rather than failing
-            // the whole swapchain (re)build outright.
+
+
+
+
+
             Foundation::log_warn(
                 "Swapchain creation with present mode {} failed; retrying with the guaranteed-available Fifo.",
                 rhi::present_mode_name(resolution.effective_mode));
@@ -805,11 +805,11 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(swapchain.error());
         }
 
-        // Acquiring after creation (not just requesting via the pNext chain above) is required by
-        // spec — the chain alone only makes acquisition legal, it doesn't itself grant exclusivity.
-        // Failure here is ordinary and expected (window not focused, another app holds the monitor,
-        // ...), not fatal: the swapchain is already fully usable non-exclusively, so this only ever
-        // logs and leaves full_screen_exclusive_active false rather than failing create_swapchain.
+
+
+
+
+
         bool full_screen_exclusive_active = false;
         if (full_screen_exclusive_request) {
             if (auto acquired = acquire_full_screen_exclusive_mode(logical_device_->vk_handle(), swapchain->vk_handle());
@@ -825,9 +825,9 @@ namespace SFT::Core::Vulkan {
         }
         resolution.full_screen_exclusive_active = full_screen_exclusive_active;
 
-        // Flip-model composed presentation on Windows (the fast "Composed: Flip" path vs. the
-        // legacy blit-copy "Composed: Copy with GPU/CPU" path) needs imageCount >= 2 and an opaque
-        // composite alpha. Both are already this bridge's default resolution.
+
+
+
 
         VkHdrMetadataEXT initial_hdr_metadata{};
         bool initial_hdr_metadata_set = false;
@@ -848,31 +848,31 @@ namespace SFT::Core::Vulkan {
         SwapchainRecord record{};
         record.swapchain = std::move(*swapchain);
         record.surface = desc.surface;
-        // Requested-vs-effective state for diagnostics (see PresentationResolution's own doc
-        // comment) — reflects whatever mode the swapchain actually ended up with, including the
-        // Fifo-retry-on-creation-failure path above.
+
+
+
         record.presentation_resolution = resolution;
         record.present_via_compute = present_via_compute;
         record.full_screen_exclusive_active = full_screen_exclusive_active;
-        // Retained so update_hdr_content_light_level() can resend this metadata with just the
-        // content-light-level fields overwritten, without re-querying display primaries — see
-        // SwapchainRecord::stored_hdr_metadata's own doc comment (VulkanRhiBridge.hpp).
+
+
+
         record.stored_hdr_metadata = initial_hdr_metadata;
         record.has_hdr_metadata = initial_hdr_metadata_set;
         record.textures.reserve(record.swapchain.image_count());
         record.views.reserve(record.swapchain.image_count());
         record.render_finished_semaphores.reserve(record.swapchain.image_count());
-        // Indexed by *image* index (set in acquire_next_texture, read in submit()) — records which
-        // image_available_semaphores slot ended up signaled for that image's most recent acquire,
-        // since vkAcquireNextImageKHR doesn't let the caller choose which image it gets back. Stays
-        // sized to image_count, independent of the frames-in-flight ring below.
+
+
+
+
         record.image_available_signal_indices.resize(record.swapchain.image_count(), 0);
 
-        // One image_available semaphore per resolved CPU-side frame slot, not per swapchain image —
-        // see SwapchainDesc::frames_in_flight's own doc comment. acquire_next_texture indexes this by
-        // the caller's frame_slot_index, so a semaphore's reuse safety is proven by that slot's own
-        // submission fence (Renderer::render_frame_rhi's "wait in-flight frame fence" stage) rather
-        // than by a free-running cursor with no relationship to GPU completion.
+
+
+
+
+
         const u32 frames_in_flight_count = desc.frames_in_flight != 0
             ? desc.frames_in_flight
             : std::max<u32>(1, record.swapchain.image_count());
@@ -966,26 +966,26 @@ namespace SFT::Core::Vulkan {
             for (rhi::TextureHandle texture : record->textures) {
                 textures_.erase(texture);
             }
-            // Views/textures above already destroyed the actual VkImage/VkImageView handles for a
-            // composition-present record (they were inserted into the same texture_views_/textures_
-            // pools as any native swapchain image) — this only releases what's left: the VkDeviceMemory
-            // still recorded in record->composition (moved-from VulkanImage objects there no longer
-            // own anything, so destroying them again is a no-op), the two imported semaphores, and the
-            // presenter itself. Checking owns_composition_resources rather than is_composition_present()
-            // deliberately: a retired record whose presenter create_swapchain() already released early
-            // (see that release's own doc comment for why) still needs this call to free everything it
-            // left behind — destroy_composition_swapchain_resources() resetting an already-null
-            // presenter is a safe no-op, so calling it unconditionally here for such a record is exactly
-            // right, not redundant.
+
+
+
+
+
+
+
+
+
+
+
             if (record->owns_composition_resources) {
                 destroy_composition_swapchain_resources(logical_device_->vk_handle(), record->composition);
             }
-            // Must run before record->swapchain's own destructor (below, via swapchains_.erase())
-            // destroys the underlying VkSwapchainKHR — releasing exclusive mode operates on that
-            // still-live handle. Gated on full_screen_exclusive_active, not merely "is this a native
-            // swapchain": see release_full_screen_exclusive_mode's own doc comment
-            // (VulkanRhiBridgeFullScreenExclusive.hpp) for why releasing one that never actually
-            // acquired exclusive mode is unsafe to do unconditionally.
+
+
+
+
+
+
             if (record->full_screen_exclusive_active) {
                 release_full_screen_exclusive_mode(logical_device_->vk_handle(), record->swapchain.vk_handle());
             }
@@ -1014,11 +1014,11 @@ namespace SFT::Core::Vulkan {
                                   "acquire_next_texture: frame_slot_index is out of range for this swapchain's frame ring.");
         }
 
-        // The semaphore for this acquire is the caller's own frame slot's semaphore, not a
-        // free-running cursor — its safety is proven by that slot's submission fence having already
-        // signaled (the caller's "wait in-flight frame fence" stage, which always runs before this
-        // call for a reused slot). A timeout/not-ready result below never touches this index, so it
-        // can never desynchronize semaphore-reuse tracking from actual GPU completion.
+
+
+
+
+
         const u32 semaphore_index = frame_slot_index;
 
         if (record->is_composition_present()) {
@@ -1036,13 +1036,13 @@ namespace SFT::Core::Vulkan {
                                       "image index.");
             }
 
-            // Bridges the presenter's imported timeline fence into this record's ordinary per-frame
-            // binary semaphore, so every consumer downstream of acquire_next_texture (in particular
-            // RendererLifecycle's frame-submission wait list) keeps working exactly as it does for a
-            // native swapchain image without knowing this path exists. An empty submit — no command
-            // buffer — whose only job is that wait/signal translation. wait_fence_value == 0 means this
-            // image slot has never been presented (CompositionAcquisition's own doc comment) and needs
-            // no wait at all.
+
+
+
+
+
+
+
             const VkSemaphoreSubmitInfo wait_info = record->composition.present_complete_semaphore.submit_info(
                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, acquisition.value.wait_fence_value);
             const VkSemaphoreSubmitInfo signal_info =
@@ -1127,10 +1127,10 @@ namespace SFT::Core::Vulkan {
 
         if (record->is_composition_present()) {
             if (desc.completion_fence) {
-                // SwapchainMaintenance's present-completion fence is a native-WSI mechanism
-                // (VkSwapchainPresentFenceInfoKHR, attached to vkQueuePresentKHR below) with nothing
-                // to attach to here — there is no VkSwapchainKHR in this record at all. Honest failure
-                // rather than silently accepting and never signaling the fence.
+
+
+
+
                 return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
                                       "present: completion fences are not supported for a composition-present "
                                       "swapchain.");
@@ -1153,9 +1153,9 @@ namespace SFT::Core::Vulkan {
                 return rhi_error_from_graphics(submitted.error());
             }
             if (queue_lock_wait_ms != nullptr) {
-                // Nothing here waits on the queue-present lock vkQueuePresentKHR would (this path
-                // never calls it) — 0 is the correct value, not a stale one left over from a previous
-                // native-path call through this same out-param.
+
+
+
                 *queue_lock_wait_ms = 0.0;
             }
 
@@ -1166,11 +1166,11 @@ namespace SFT::Core::Vulkan {
                                       string("present: composition presenter present failed: ") +
                                           present_message.message);
             }
-            // Composition present has no native OutOfDate/Suboptimal signal of its own — a resize is
-            // instead driven by the renderer noticing its window size changed and calling
-            // create_swapchain again (RendererLifecycle.cpp), exactly as it already does for the
-            // native path. desc.texture.suboptimal still passes through so a stale acquire is reported
-            // the same way it would be for a native swapchain.
+
+
+
+
+
             return desc.texture.suboptimal ? rhi::PresentOutcome::Suboptimal : rhi::PresentOutcome::Success;
         }
 
@@ -1206,21 +1206,21 @@ namespace SFT::Core::Vulkan {
             .pSwapchains = &swapchain,
             .pImageIndices = &image_index,
         };
-        // record->present_via_compute was decided once at create_swapchain() time against this exact
-        // swapchain's surface (RHI::PresentationResolution::present_queue_is_compute's own doc
-        // comment) — compute_queue_ is guaranteed non-null whenever it's true. Otherwise use the
-        // dedicated same-family presentation queue when device creation found one; it aliases graphics
-        // on single-queue hardware and therefore remains portable without ownership transfers.
+
+
+
+
+
         VulkanQueue &present_queue =
             (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *present_queue_;
         auto result = present_queue.present(info, queue_lock_wait_ms);
         if (!result) {
             return rhi_error_from_graphics(result.error());
         }
-        // acquire_next_texture's own staleness signal (desc.texture.suboptimal) folds in here too:
-        // if present() itself came back clean but the image was already known-suboptimal at
-        // acquisition, the overall outcome must still say so -- Suboptimal, not silently Success.
-        // OutOfDate always wins over Suboptimal (it is the more urgent of the two).
+
+
+
+
         switch (*result) {
             case PresentOutcome::OutOfDate:
                 return rhi::PresentOutcome::OutOfDate;

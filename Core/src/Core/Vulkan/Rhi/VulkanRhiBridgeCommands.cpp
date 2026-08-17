@@ -1,4 +1,4 @@
-// RHI command encoder implementations backed by Vulkan command buffers.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -48,12 +48,21 @@ namespace SFT::Core::Vulkan {
             };
         }
 
+
+
+
+
+
+
+
+
+
         [[nodiscard]] constexpr VkViewport to_vk_viewport(const rhi::Viewport &viewport) noexcept {
             return VkViewport{
                 .x = viewport.x,
-                .y = viewport.y,
+                .y = viewport.y + viewport.height,
                 .width = viewport.width,
-                .height = viewport.height,
+                .height = -viewport.height,
                 .minDepth = viewport.min_depth,
                 .maxDepth = viewport.max_depth,
             };
@@ -443,17 +452,17 @@ namespace SFT::Core::Vulkan {
         VulkanRhiCommandEncoder(VulkanRhiDeviceBridge &bridge, VulkanRhiDeviceBridge::CommandBufferRecord &&record)
             : VulkanRhiEncoderCommon(bridge, record_.command_buffer), record_(std::move(record)) {}
 
-        // Backs VulkanNativeAccessExtension::native_command_buffer() — the only place the concrete
-        // encoder type is visible outside this translation unit is through that dynamic_cast.
+
+
         [[nodiscard]] VkCommandBuffer native_vk_command_buffer() const noexcept { return command_buffer_.vk_handle(); }
 
         rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> begin_render_pass(const rhi::RenderPassDesc &desc) override {
             RenderingInfo rendering;
             rendering.set_render_area(to_vk_rect(desc.render_area)).set_view_mask(desc.view_mask);
             if (desc.allow_bundles) {
-                // Required before vkCmdExecuteCommands (RenderPassEncoder::execute_bundles) is legal
-                // inside this render pass instance — see RHI::RenderPassDesc::allow_bundles' own doc
-                // comment for the crash this fixes (VUID-vkCmdExecuteCommands-flags-06024).
+
+
+
                 rendering.add_flags(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT);
             }
 
@@ -897,9 +906,9 @@ namespace SFT::Core::Vulkan {
     void VulkanRhiDeviceBridge::return_command_buffer(CommandBufferRecord &&record) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::return_command_buffer");
         const u32 family_index = record.pool.family_index();
-        // Recycles the pool's one command buffer back to initial state so the next checkout's
-        // begin() is legal without a separate per-buffer reset -- VulkanCommandPool::create() already
-        // requests VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT (VulkanCommandPool.hpp).
+
+
+
         if (auto reset = record.pool.reset(); !reset) {
             Foundation::log_warn("Command pool reset failed while returning it to the free list ({}) -- dropping it instead of reusing.",
                                  reset.error().message);
@@ -928,11 +937,11 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "create_command_encoder: queue lane is not available.");
         }
 
-        // Reuse a returned (pool, command buffer) pair for this queue family when one is available --
-        // see command_buffer_free_list_'s own doc comment. Only mints a fresh
-        // vkCreateCommandPool/vkAllocateCommandBuffers pair when the free list for this family is
-        // empty (steady state should exhaust this fallback after the first few frames reach the real
-        // peak concurrent-encoder count).
+
+
+
+
+
         CommandBufferRecord record;
         if (std::optional<CommandBufferRecord> reused = checkout_command_buffer(queue->family_index())) {
             record = std::move(*reused);
@@ -1018,8 +1027,8 @@ namespace SFT::Core::Vulkan {
         render_bundles_.erase(handle);
     }
 
-    // Defined here, not in VulkanNativeAccessExtension.cppm: VulkanRhiCommandEncoder is a
-    // module-implementation-unit-local type, only nameable from within this translation unit.
+
+
     VkCommandBuffer VulkanNativeAccessExtension::native_command_buffer(const rhi::CommandEncoder &encoder) const noexcept {
         ZoneScopedN("VulkanNativeAccessExtension::native_command_buffer");
         if (const auto *vulkan_encoder = dynamic_cast<const VulkanRhiCommandEncoder *>(&encoder)) {

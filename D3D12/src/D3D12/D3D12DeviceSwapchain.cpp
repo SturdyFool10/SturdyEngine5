@@ -1,21 +1,21 @@
-// Surfaces, swapchains, acquisition, and presentation.
-//
-// ─── Two things DXGI does differently from a Vulkan WSI, both load-bearing ───────────────────────
-//
-// 1. **The flip model forbids sRGB back-buffer formats.** A flip-model swapchain (the only model
-//    worth using, and the only one that can composite) accepts exactly R8G8B8A8_UNORM,
-//    B8G8R8A8_UNORM, R10G10B10A2_UNORM, and R16G16B16A16_FLOAT. An sRGB swapchain is expressed by
-//    creating the buffers as UNORM and putting the _SRGB format on the *render target view* — which
-//    is a documented, explicitly-supported combination, not a trick. So a caller asking for
-//    BGRA8UnormSrgb gets a B8G8R8A8_UNORM swapchain whose views are B8G8R8A8_UNORM_SRGB, and sees no
-//    difference: the same shader output lands correctly encoded either way.
-//
-// 2. **There is no acquire operation.** Vulkan's vkAcquireNextImageKHR both picks an image and gives
-//    you a semaphore proving it is free; DXGI's GetCurrentBackBufferIndex only picks. What throttles
-//    the CPU instead is the *frame-latency waitable object*, which this backend requests on every
-//    swapchain and waits on inside acquire_next_texture(). That places the block at the same point in
-//    the frame a Vulkan acquire would, so a caller's frame pacing behaves the same on both backends.
-//    `frame_slot_index` consequently has nothing to select here — see acquire_next_texture().
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -35,13 +35,13 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // Buffers a flip-model swapchain needs. Two is the minimum DXGI accepts; three is what any
-        // tear-free-but-latest strategy needs to have a spare frame queued without stalling.
+
+
         constexpr u32 minimum_flip_buffer_count = 2;
         constexpr u32 default_flip_buffer_count = 3;
 
-        // The back-buffer format for `format`, or DXGI_FORMAT_UNKNOWN when the flip model cannot
-        // present it at all. See this file's header comment for why sRGB collapses to UNORM.
+
+
         [[nodiscard]] DXGI_FORMAT to_flip_model_format(rhi::Format format) noexcept {
             switch (format) {
                 case rhi::Format::RGBA8Unorm:
@@ -73,8 +73,8 @@ namespace SFT::D3D12 {
             return DXGI_ALPHA_MODE_IGNORE;
         }
 
-        // How a PresentStrategy is realized on DXGI, plus whether that realization is a genuine match
-        // or a fallback the caller must be told about through PresentationResolution::degraded.
+
+
         struct ResolvedPresent {
             rhi::PresentMode mode = rhi::PresentMode::Fifo;
             u32 sync_interval = 1;
@@ -88,9 +88,9 @@ namespace SFT::D3D12 {
             switch (strategy) {
                 case rhi::PresentStrategy::Unsynchronized:
                     if (tearing_available) {
-                        // The only real "VSync off" DXGI has: sync interval 0 *plus* the tearing flag.
-                        // Sync interval 0 alone does not tear — it replaces the queued frame instead,
-                        // which is mailbox behaviour, not immediate.
+
+
+
                         resolved = {rhi::PresentMode::Immediate, 0, true, false, default_flip_buffer_count};
                     } else {
                         resolved = {rhi::PresentMode::Mailbox, 0, false, true, default_flip_buffer_count};
@@ -98,23 +98,23 @@ namespace SFT::D3D12 {
                     break;
                 case rhi::PresentStrategy::TearFreeOrdered:
                 case rhi::PresentStrategy::VariableRefresh:
-                    // Plain FIFO, exactly as both strategies ask for. VariableRefresh is deliberately
-                    // identical: VRR is a display/driver pacing behaviour rather than a present mode,
-                    // so requesting it changes nothing about the present call itself.
+
+
+
                     resolved = {rhi::PresentMode::Fifo, 1, false, false, default_flip_buffer_count};
                     break;
                 case rhi::PresentStrategy::TearFreeLatest:
                 case rhi::PresentStrategy::TearFreeLatestReady:
-                    // Sync interval 0 without the tearing flag: the presentation engine discards
-                    // older queued frames and shows the newest at vblank, never tearing. That is
-                    // Mailbox, and it is a genuine match rather than a fallback.
+
+
+
                     resolved = {rhi::PresentMode::Mailbox, 0, false, false, default_flip_buffer_count};
                     break;
                 case rhi::PresentStrategy::AdaptiveTearing:
-                    // DXGI has no per-frame "tear only if late" mode — the tearing flag is an
-                    // all-or-nothing property of each Present call, with no lateness signal to key it
-                    // off. Presenting at sync interval 1 keeps the tear-free guarantee, which is the
-                    // safe half of the request, and the caller is told it was degraded.
+
+
+
+
                     resolved = {rhi::PresentMode::Fifo, 1, false, true, default_flip_buffer_count};
                     break;
             }
@@ -198,7 +198,7 @@ namespace SFT::D3D12 {
 
     } // namespace
 
-    // ─── Surfaces ────────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::SurfaceHandle> D3D12Device::create_surface(const rhi::SurfaceDesc &desc) {
         if (desc.system != rhi::WindowSystem::Win32) {
@@ -214,8 +214,8 @@ namespace SFT::D3D12 {
         if (desc.label != nullptr) {
             record.stored_label = desc.label;
         }
-        // The stored copy, never the caller's pointer — query_hdr_capabilities() may run long after
-        // the caller's label string has gone away.
+
+
         record.desc.label = record.stored_label.empty() ? nullptr : record.stored_label.c_str();
         return surfaces_.insert(std::move(record));
     }
@@ -228,14 +228,14 @@ namespace SFT::D3D12 {
         if (record == nullptr) {
             return invalid_argument("query_hdr_capabilities: unknown surface handle.");
         }
-        // Answered by graphicsPlatform's OS-level display query rather than by DXGI's own
-        // IDXGIOutput6::GetDesc1. The two overlap, but only the platform query reaches the things a
-        // caller actually has to branch on — whether the *OS* has HDR turned on for that display, and
-        // the EDID-derived mastering metadata — which DXGI does not report at all.
+
+
+
+
         return rhi::query_platform_hdr_display_capabilities(record->desc);
     }
 
-    // ─── Swapchains ──────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::SwapchainHandle> D3D12Device::create_swapchain(const rhi::SwapchainDesc &desc) {
         ZoneScopedN("D3D12Device::create_swapchain");
@@ -258,11 +258,11 @@ namespace SFT::D3D12 {
             resolved.buffer_count = std::clamp(desc.image_count, static_cast<u32>(minimum_flip_buffer_count), static_cast<u32>(DXGI_MAX_SWAP_CHAIN_BUFFERS));
         }
 
-        // DXGI flip-model swapchains have a one-per-HWND rule. Vulkan can hand the retiring
-        // swapchain to vkCreateSwapchainKHR, but DXGI has no equivalent: the old object must be
-        // released before CreateSwapChainForHwnd. The renderer only reaches this point after it has
-        // drained the previous present, and destroy_swapchain() additionally waits idle before
-        // releasing the back buffers.
+
+
+
+
+
         if (desc.old_swapchain.is_valid()) {
             const SwapchainRecord *old_record = swapchains_.find(desc.old_swapchain);
             if (old_record == nullptr) {
@@ -283,8 +283,8 @@ namespace SFT::D3D12 {
             .Format = back_buffer_format,
             .Stereo = FALSE,
             .SampleDesc = {.Count = 1, .Quality = 0},
-            // A flip-model back buffer is never multisampled — MSAA is resolved into it, never
-            // rendered directly into it, which is why SampleDesc is fixed at 1 above.
+
+
             .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
             .BufferCount = resolved.buffer_count,
             .Scaling = DXGI_SCALING_STRETCH,
@@ -303,15 +303,15 @@ namespace SFT::D3D12 {
         ComPtr<IDXGISwapChain1> swapchain1;
 
         if (wants_transparency) {
-            // The composition path. Unlike the Vulkan backend — which has to allocate its own shared
-            // textures and blit into a DXGI back buffer once per frame, because DXGI buffers cannot be
-            // imported into Vulkan — D3D12 renders straight into the composition swapchain's own back
-            // buffers. Same transparency, none of the per-frame copy.
+
+
+
+
             swapchain_desc.AlphaMode = to_dxgi_alpha_mode(desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
                                                               ? rhi::CompositeAlphaMode::Premultiplied
                                                               : desc.composite_alpha);
-            // A composition swapchain is HWND-less and must be sized in whole pixels with no stretch
-            // scaling, or the compositor resamples every frame.
+
+
             swapchain_desc.Scaling = DXGI_SCALING_STRETCH;
 
             if (const HRESULT hr = factory_->CreateSwapChainForComposition(graphics_queue_.Get(), &swapchain_desc, nullptr, &swapchain1);
@@ -346,9 +346,9 @@ namespace SFT::D3D12 {
                 FAILED(hr)) {
                 return hresult_error(hr, "create_swapchain (CreateSwapChainForHwnd)");
             }
-            // Alt+Enter's automatic mode switch is DXGI second-guessing the application's own
-            // fullscreen handling; the engine owns window mode, so it is disabled here rather than
-            // fought later.
+
+
+
             (void)factory_->MakeWindowAssociation(surface->hwnd, DXGI_MWA_NO_ALT_ENTER);
         }
 
@@ -360,17 +360,17 @@ namespace SFT::D3D12 {
         record.sync_interval = resolved.sync_interval;
         record.present_flags = resolved.wants_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
 
-        // Match DXGI's queued-frame limit to the caller's already-resolved CPU frame-slot count. The
-        // documented zero fallback mirrors SwapchainDesc::frames_in_flight and the Vulkan backend.
+
+
         const u32 frames_in_flight_count =
             desc.frames_in_flight != 0 ? desc.frames_in_flight : std::max<u32>(1, record.image_count);
         if (const HRESULT hr = record.swapchain->SetMaximumFrameLatency(frames_in_flight_count); FAILED(hr)) {
             return hresult_error(hr, "create_swapchain (SetMaximumFrameLatency)");
         }
 
-        // Color space is negotiated, never assumed: an HDR color space on a display the OS has HDR
-        // switched off for is rejected here rather than silently producing wrong colors. Retain what
-        // was actually selected so metadata operations cannot key off the request after a fallback.
+
+
+
         record.effective_color_space = rhi::ColorSpace::SrgbNonlinear;
         DXGI_COLOR_SPACE_TYPE color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
         bool color_space_degraded = false;
@@ -413,20 +413,20 @@ namespace SFT::D3D12 {
             .strategy = desc.present_strategy,
             .effective_mode = resolved.mode,
             .degraded = resolved.degraded || color_space_degraded,
-            // DXGI binds a swapchain to the queue it was created against and offers no equivalent of
-            // presenting from a different queue family, so this is always false regardless of the
-            // request — reported honestly rather than echoed back.
+
+
+
             .present_queue_is_compute = false,
             .effective_composite_alpha = effective_alpha,
             .composite_alpha_degraded = wants_transparency && effective_alpha == rhi::CompositeAlphaMode::Opaque,
             .via_composition_present = record.is_composition_present(),
-            // PresentDesc::completion_fence has no DXGI counterpart: there is no per-present
-            // completion object to attach a fence to. Reported unsupported per-swapchain, which is
-            // exactly what that field documents callers must check.
+
+
+
             .supports_completion_fence = false,
-            // Exclusive fullscreen is reachable through SetFullscreenState, but it is a window-mode
-            // decision the platform layer owns, and this backend never enters it behind the caller's
-            // back — so it is never claimed active.
+
+
+
             .full_screen_exclusive_active = false,
         };
         (void)desc.allow_present_from_compute;
@@ -456,9 +456,9 @@ namespace SFT::D3D12 {
 
             TextureRecord texture{};
             texture.resource = std::move(buffer);
-            // The *requested* RHI format, including its sRGB-ness, even though the resource itself is
-            // UNORM — that is what makes create_texture_view() build an _SRGB render target view over
-            // it, which is the whole mechanism described in this file's header comment.
+
+
+
             texture.format = format;
             texture.resource_format = to_flip_model_format(format);
             texture.dimension = rhi::TextureDimension::Dim2D;
@@ -469,8 +469,8 @@ namespace SFT::D3D12 {
             texture.usage = usage | rhi::TextureUsage::ColorAttachment;
             texture.is_swapchain_image = true;
             if (!enhanced_barriers_) {
-                // A freshly-presented back buffer is in PRESENT state, which is the state a legacy
-                // barrier must name as the "before" state of the first transition each frame.
+
+
                 texture.legacy_states.assign(1, D3D12_RESOURCE_STATE_PRESENT);
             }
             set_debug_name(texture.resource.Get(), "Sturdy swapchain back buffer");
@@ -509,23 +509,23 @@ namespace SFT::D3D12 {
         if (!record) {
             return;
         }
-        // A composition swapchain's visual tree outlives the swapchain object in DWM's eyes: simply
-        // releasing the ComPtrs below detaches this process's references, but DWM keeps compositing
-        // the last frame the visual ever committed until the root is explicitly cleared and that
-        // clear is committed. Skipping this (e.g. on a resize, which recreates the whole composition
-        // device/target/visual trio via create_swapchain's old_swapchain path) leaves the old,
-        // now-destroyed swapchain's last presented frame visible underneath/alongside the new one —
-        // read as a frozen/pasted-over frame. Mirrors CompositionPresent.cpp's teardown on the Vulkan
-        // side.
+
+
+
+
+
+
+
+
         if (record->composition_target != nullptr) {
             (void)record->composition_target->SetRoot(nullptr);
         }
         if (record->composition_device != nullptr) {
             (void)record->composition_device->Commit();
         }
-        // Back buffers are referenced by the presentation engine until every queued present has
-        // retired, and releasing them earlier is a use-after-free the runtime reports as a device
-        // removal. Draining is the only way to know they are free.
+
+
+
         wait_idle();
         destroy_swapchain_textures(*record);
         if (record->frame_latency_waitable != nullptr) {
@@ -549,8 +549,8 @@ namespace SFT::D3D12 {
                 "update_hdr_content_light_level: only an HDR10 ST2084 swapchain has HDR10 metadata to update.");
         }
 
-        // Work on a copy so both the mastering-display fields and the last successfully-submitted CLL
-        // values remain intact if DXGI rejects the update. Only MaxCLL and MaxFALL are overwritten.
+
+
         DXGI_HDR_METADATA_HDR10 metadata = record->stored_hdr_metadata;
         metadata.MaxContentLightLevel =
             encode_hdr_metadata_value<UINT16>(update.max_content_light_level_nits, 1.0);
@@ -566,7 +566,7 @@ namespace SFT::D3D12 {
         return {};
     }
 
-    // ─── Acquire / present ───────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::SurfaceTexture> D3D12Device::acquire_next_texture(rhi::SwapchainHandle swapchain,
                                                                             u32 frame_slot_index) {
@@ -576,16 +576,16 @@ namespace SFT::D3D12 {
             return invalid_argument("acquire_next_texture: unknown swapchain handle.");
         }
 
-        // `frame_slot_index` selects an acquisition semaphore under Vulkan. DXGI has no such object
-        // (see this file's header comment), so there is nothing to index — the waitable object below
-        // provides the same throttling for every slot. Accepted and ignored rather than rejected, so
-        // one caller works unchanged against both backends.
+
+
+
+
         (void)frame_slot_index;
 
         if (record->frame_latency_waitable != nullptr) {
-            // A finite wait, not INFINITE: a swapchain whose window was destroyed never signals, and
-            // reporting NotReady lets the caller skip a frame and re-check rather than deadlock. The
-            // RHI documents NotReady as safe to retry with the same slot index.
+
+
+
             if (WaitForSingleObjectEx(record->frame_latency_waitable, 1000, TRUE) == WAIT_TIMEOUT) {
                 return rhi::rhi_error(rhi::RhiErrorCode::NotReady,
                                       "acquire_next_texture: the presentation engine did not release a back buffer.");
@@ -604,10 +604,10 @@ namespace SFT::D3D12 {
             .view = record->views[index],
             .image_index = index,
             .suboptimal = false,
-            // False even on the composition path: SurfaceTexture::composition_present exists to warn a
-            // renderer that its images are *external* resources needing a general layout instead of
-            // TextureLayout::Present. A D3D12 composition swapchain's buffers are ordinary DXGI back
-            // buffers, so the normal Present layout is correct and the caveat does not apply.
+
+
+
+
             .composition_present = false,
         };
     }
@@ -634,9 +634,9 @@ namespace SFT::D3D12 {
         const HRESULT hr = record->swapchain->Present1(record->sync_interval, record->present_flags, &parameters);
 
         if (hr == DXGI_STATUS_OCCLUDED) {
-            // The window is fully hidden. The present succeeded and the swapchain is still usable, but
-            // DXGI throttles further presents until it is visible again — Suboptimal is exactly that
-            // "works, but rebuild/re-check soon" meaning.
+
+
+
             return rhi::PresentOutcome::Suboptimal;
         }
         if (hr == DXGI_STATUS_MODE_CHANGED || hr == DXGI_STATUS_MODE_CHANGE_IN_PROGRESS) {
@@ -646,7 +646,7 @@ namespace SFT::D3D12 {
             return hresult_error(hr, "present (Present1)");
         }
         if (record->is_composition_present() && record->composition_device != nullptr) {
-            // The compositor only picks up the new frame once the visual tree is committed.
+
             (void)record->composition_device->Commit();
         }
         return rhi::PresentOutcome::Success;

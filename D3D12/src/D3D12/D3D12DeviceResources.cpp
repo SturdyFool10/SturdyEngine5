@@ -1,5 +1,5 @@
-// Buffers, textures, texture views, samplers, and shader modules, plus the staged-upload path
-// write_buffer() needs for DeviceLocal memory.
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -16,10 +16,10 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // The state a resource must be created in for its heap type. D3D12 fixes two of the three:
-        // an UPLOAD resource is permanently GENERIC_READ and a READBACK resource permanently COPY_DEST
-        // — they cannot be transitioned at all, which is why buffer barriers on host-visible memory
-        // are correctly no-ops in this backend.
+
+
+
+
         [[nodiscard]] D3D12_RESOURCE_STATES initial_state_for_heap(D3D12_HEAP_TYPE heap) noexcept {
             switch (heap) {
                 case D3D12_HEAP_TYPE_UPLOAD:
@@ -32,8 +32,8 @@ namespace SFT::D3D12 {
         }
 
         [[nodiscard]] u32 texture_array_layers(const rhi::TextureDesc &desc) noexcept {
-            // Extent3D::depth_or_layers is depth for 3D and array layers otherwise, so a 3D texture
-            // always has exactly one "layer" in D3D12's DepthOrArraySize sense of an array.
+
+
             return desc.dimension == rhi::TextureDimension::Dim3D ? 1u : std::max(1u, desc.extent.depth_or_layers);
         }
 
@@ -46,7 +46,7 @@ namespace SFT::D3D12 {
 
     } // namespace
 
-    // ─── Buffers ─────────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::BufferHandle> D3D12Device::create_buffer(const rhi::BufferDesc &desc) {
         ZoneScopedN("D3D12Device::create_buffer");
@@ -59,32 +59,32 @@ namespace SFT::D3D12 {
 
         u64 size = desc.size;
         if (rhi::has_any(desc.usage, rhi::BufferUsage::Uniform)) {
-            // A constant-buffer view's size must be a multiple of 256 bytes, so a buffer that will
-            // ever back one is padded at creation rather than failing later at CBV creation time with
-            // an error the caller cannot act on.
+
+
+
             size = align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         }
 
         D3D12_HEAP_TYPE heap_type = to_d3d12_heap_type(desc.memory);
-        // ReBAR fast path: a DeviceLocal buffer that a caller actually seeds from the CPU (TransferDst
-        // — see MemoryLocation::DeviceLocal's own doc comment, "upload to it via a staging buffer +
-        // copy") can skip that staging buffer + copy entirely when D3D12_HEAP_TYPE_GPU_UPLOAD is
-        // available: that heap type is simultaneously GPU-local and CPU-mappable. A DeviceLocal buffer
-        // *without* TransferDst is never routed through write_buffer()'s staging path in the first
-        // place (it's written only by the GPU — AS scratch, compute-only storage, …), so it stays on
-        // D3D12_HEAP_TYPE_DEFAULT rather than spending ReBAR budget on a resource that never needs it.
+
+
+
+
+
+
+
         const bool use_gpu_upload_heap = heap_type == D3D12_HEAP_TYPE_DEFAULT && gpu_upload_heap_supported_ &&
                                           rhi::has_any(desc.usage, rhi::BufferUsage::TransferDst);
         if (use_gpu_upload_heap) {
             heap_type = D3D12_HEAP_TYPE_GPU_UPLOAD;
         }
         const CD3DX12_HEAP_PROPERTIES heap_properties(heap_type);
-        // Upload/readback heaps have fixed CPU-visible resource states and cannot carry UAV flags.
-        // Storage usage also represents read-only structured/byte-address buffers, which are valid on
-        // those heaps and are used for per-frame scene data; only DeviceLocal storage needs the UAV
-        // creation flag that permits shader writes. GPU_UPLOAD is deliberately excluded from this
-        // restriction: its memory segment is LOCAL (VRAM) exactly like DEFAULT — the CPU-mapping
-        // ability is additive, not a trade for DEFAULT's state/flag flexibility.
+
+
+
+
+
+
         D3D12_RESOURCE_FLAGS resource_flags = to_d3d12_resource_flags(desc.usage);
         if (heap_type == D3D12_HEAP_TYPE_UPLOAD || heap_type == D3D12_HEAP_TYPE_READBACK) {
             resource_flags &= ~D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -139,10 +139,10 @@ namespace SFT::D3D12 {
             return invalid_argument("map_buffer: buffer is DeviceLocal memory, which is not host-mappable.");
         }
         if (record->mapped == nullptr) {
-            // A null read range says "the CPU will not read this mapping". That is a real correctness
-            // statement on discrete GPUs, where an upload heap is write-combined and reading it back
-            // is catastrophically slow — so it is only passed for HostUpload; HostReadback maps the
-            // full range precisely because reading is the point.
+
+
+
+
             const CD3DX12_RANGE read_range(0, record->memory == rhi::MemoryLocation::HostReadback ? static_cast<SIZE_T>(record->size) : 0);
             if (const HRESULT hr = record->resource->Map(0, &read_range, &record->mapped); FAILED(hr)) {
                 return hresult_error(hr, "map_buffer (Map)");
@@ -157,8 +157,8 @@ namespace SFT::D3D12 {
         if (record == nullptr || record->mapped == nullptr) {
             return;
         }
-        // A null written range means "assume the whole resource may have been written", which is the
-        // only safe assumption for an upload buffer the caller wrote through a plain span.
+
+
         record->resource->Unmap(0, nullptr);
         record->mapped = nullptr;
     }
@@ -214,8 +214,8 @@ namespace SFT::D3D12 {
         std::memcpy(mapped, data.data(), data.size());
         staging->Unmap(0, nullptr);
 
-        // The copy queue, when the device has one: a blocking upload has no reason to sit behind
-        // queued graphics work, and a buffer copy needs nothing a copy engine lacks.
+
+
         const rhi::QueueClass queue_class = copy_queue_ != nullptr ? rhi::QueueClass::Transfer
                                                                    : rhi::QueueClass::Graphics;
         auto command = acquire_command_buffer(rhi::QueueLane{queue_class, 0});
@@ -230,18 +230,18 @@ namespace SFT::D3D12 {
         }
 
         rhi::RhiResult executed = execute_and_wait(command->list.Get(), queue_class);
-        // The staging resource and the command record are only safe to release once the copy has
-        // completed, which execute_and_wait() has just proven — hence the recycle here and not before.
+
+
         return_command_buffer(std::move(*command));
         return executed;
     }
 
     rhi::RhiResult D3D12Device::write_via_gpu_upload_heap(BufferRecord &record, u64 offset, span<const std::byte> data) {
         ZoneScopedN("D3D12Device::write_via_gpu_upload_heap");
-        // A transient Map/Unmap per call, same shape as upload_via_staging()'s staging buffer, rather
-        // than reusing the record->mapped cache: that cache is map_buffer()/unmap_buffer()'s contract
-        // with the caller, and this path runs underneath write_buffer() without either of those being
-        // called. A null read range says the CPU will not read back through this mapping.
+
+
+
+
         void *mapped = nullptr;
         const CD3DX12_RANGE no_read(0, 0);
         if (const HRESULT hr = record.resource->Map(0, &no_read, &mapped); FAILED(hr)) {
@@ -252,7 +252,7 @@ namespace SFT::D3D12 {
         return {};
     }
 
-    // ─── Textures ────────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::TextureHandle> D3D12Device::create_texture(const rhi::TextureDesc &desc) {
         ZoneScopedN("D3D12Device::create_texture");
@@ -280,10 +280,10 @@ namespace SFT::D3D12 {
             .Flags = to_d3d12_resource_flags(desc.usage, desc.format),
         };
 
-        // An optimized clear value is not cosmetic on D3D12: a render/depth target created without one
-        // makes every ClearRenderTargetView/ClearDepthStencilView a slow path and produces a debug-
-        // layer warning on each clear. The value chosen matches what the render-pass encoder's own
-        // LoadOp::Clear defaults produce.
+
+
+
+
         D3D12_CLEAR_VALUE clear_value{};
         const bool wants_clear_value =
             rhi::has_any(desc.usage, rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::DepthStencilAttachment);
@@ -322,11 +322,11 @@ namespace SFT::D3D12 {
                                         D3D12_RESOURCE_STATE_COMMON);
         }
 
-        // concurrent_queue_classes is deliberately consumed and discarded: D3D12 has no queue-family
-        // ownership model at all — a committed resource is visible to every queue on the device — so
-        // there is nothing to configure and nothing to transfer. Vulkan's exclusive/concurrent split
-        // simply has no counterpart here, which is why the field is documented as collapsing
-        // harmlessly on backends without one.
+
+
+
+
+
         (void)desc.concurrent_queue_classes;
         return textures_.insert(std::move(record));
     }
@@ -336,7 +336,7 @@ namespace SFT::D3D12 {
         textures_.erase(handle);
     }
 
-    // ─── Texture views ───────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::TextureViewHandle> D3D12Device::create_texture_view(const rhi::TextureViewDesc &desc) {
         ZoneScopedN("D3D12Device::create_texture_view");
@@ -365,9 +365,9 @@ namespace SFT::D3D12 {
         const bool is_3d = desc.view_type == rhi::TextureViewType::View3D;
         const bool multisampled = texture->samples != rhi::SampleCount::X1;
 
-        // Every view kind the source texture's usage permits is created up front, so binding a texture
-        // or attaching it never has to allocate a descriptor mid-frame. A rollback guard releases
-        // whatever succeeded if a later one fails, so a partial view never escapes.
+
+
+
         struct Rollback {
             D3D12Device &device;
             TextureViewRecord &record;
@@ -536,7 +536,7 @@ namespace SFT::D3D12 {
         }
     }
 
-    // ─── Samplers ────────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::SamplerHandle> D3D12Device::create_sampler(const rhi::SamplerDesc &desc) {
         ZoneScopedN("D3D12Device::create_sampler");
@@ -551,8 +551,8 @@ namespace SFT::D3D12 {
         sampler.AddressV = to_d3d12(desc.address_v);
         sampler.AddressW = to_d3d12(desc.address_w);
         sampler.MipLODBias = desc.mip_lod_bias;
-        // MaxAnisotropy is an integer 1..16 in D3D12; 0 in the descriptor means "no anisotropy", which
-        // still has to be expressed as 1 rather than 0 (0 is invalid).
+
+
         sampler.MaxAnisotropy = static_cast<UINT>(std::clamp(desc.max_anisotropy, 1.0f, 16.0f));
         sampler.ComparisonFunc = desc.compare_enable ? to_d3d12(desc.compare) : D3D12_COMPARISON_FUNC_NEVER;
         sampler.MinLOD = desc.min_lod;
@@ -569,14 +569,14 @@ namespace SFT::D3D12 {
         }
     }
 
-    // ─── Shader modules ──────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::ShaderModuleHandle> D3D12Device::create_shader_module(const rhi::ShaderModuleDesc &desc) {
         ZoneScopedN("D3D12Device::create_shader_module");
         if (desc.language != rhi::ShaderLanguage::Dxil) {
-            // Deliberately not a silent translation attempt: D3D12 consumes DXIL and nothing else, and
-            // shader compilation lives above the RHI (Core/Slang), which already knows how to target
-            // DXIL. Accepting SPIR-V here and cross-compiling would move a compiler into the backend.
+
+
+
             return unsupported("create_shader_module: the D3D12 backend requires ShaderLanguage::Dxil.");
         }
         if (desc.code.empty()) {

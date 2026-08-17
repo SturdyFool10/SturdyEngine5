@@ -1,5 +1,5 @@
-// RhiDevice buffer resource creation/destruction plus the two upload paths: a direct mapped write for
-// host-visible memory, and a staged blocking copy for DeviceLocal memory (see upload_via_staging).
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -157,8 +157,8 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::OperationFailed,
                                   "upload_via_staging: failed to create a staging command pool/fence.");
         }
-        // Returns `upload` to upload_pool_ on every exit path below (success or error) so a failed
-        // upload never leaks a live command pool/fence out of the free-list.
+
+
         struct ReleaseGuard {
             VulkanRhiDeviceBridge &bridge;
             UploadResources &resources;

@@ -3,9 +3,9 @@
 
 namespace SFT::RHI {
 
-    // Compile-time policy knobs. Games/ports can define these before building the engine to force the
-    // global renderer threading envelope down to a safe subset. Runtime backend selection still gets the
-    // final say through `RenderThreadingCapabilities`.
+
+
+
 #if defined(STURDY_RHI_FORCE_SINGLE_THREADED)
     inline constexpr bool compile_time_rhi_multithreading_allowed = false;
 #elif defined(STURDY_PLATFORM_WEB)
@@ -21,11 +21,11 @@ namespace SFT::RHI {
 #endif
 
     enum class RenderThreadingMode : u8 {
-        // Everything, including event pumping and graphics calls, runs on the caller/main thread.
+        /// Everything, including event pumping and graphics calls, runs on the caller/main thread.
         SingleThreaded,
-        // A dedicated render owner thread executes all RHI/backend calls. Other threads may prepare CPU data.
+        /// A dedicated render owner thread executes all RHI/backend calls. Other threads may prepare CPU data.
         DedicatedRenderThread,
-        // Multiple workers may record command work in parallel, subject to backend object ownership rules.
+        /// Multiple workers may record command work in parallel, subject to backend object ownership rules.
         ParallelCommandRecording,
     };
 

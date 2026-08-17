@@ -87,11 +87,11 @@ namespace SFT::Platform::Windowing {
                 return result;
             }
 
-            // DwmEnableBlurBehindWindow (legacy Aero-Glass blur) is a known blocker for flip-model
-            // composed presentation on this HWND — falling back to it here silently trades away
-            // presentation performance for chrome on whatever window it's applied to. Fine for
-            // incidental UI chrome windows; avoid wiring this fallback onto the render/swapchain
-            // window without knowing that tradeoff is being made.
+
+
+
+
+
             WindowEffectResult fallback = set_legacy_blur(hwnd, true);
             if (fallback.succeeded()) [[likely]] {
                 Detail::window_warn("Windows DWM backdrop degraded to legacy blur: hwnd={} label='{}'", log_hwnd(hwnd), label);
@@ -101,12 +101,12 @@ namespace SFT::Platform::Windowing {
             return WindowEffectResult::failed("Requested Windows backdrop failed and legacy blur fallback also failed.");
         }
 
-        // Toggles WS_EX_LAYERED plus DWM's "extend frame into client area" glass effect, the
-        // documented way to make an already-open window's client area (including a live Vulkan/D3D
-        // swapchain) show through per-pixel rather than paint opaque — no window recreation needed.
-        // Only controls whether the *window* is capable of showing through: the swapchain must also
-        // use a non-opaque RHI::CompositeAlphaMode and actually write meaningful alpha for anything
-        // to visibly change (see WindowEffectKind::Transparent's doc comment).
+
+
+
+
+
+
         WindowEffectResult set_transparent(HWND hwnd, bool enabled) noexcept {
             const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             const LONG_PTR new_ex_style = enabled ? (ex_style | WS_EX_LAYERED) : (ex_style & ~WS_EX_LAYERED);

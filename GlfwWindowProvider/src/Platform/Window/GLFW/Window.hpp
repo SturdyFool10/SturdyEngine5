@@ -138,10 +138,10 @@ namespace SFT::Platform::Windowing::GLFW {
 
         GLFWWindow(ConstructorKey key, GLFWwindow *window) noexcept;
 
-        // Shared bodies of close_requested()/size()/native_window_handle(), callable from a caller
-        // that already holds glfw_window_mutex() (pump_events(), set_fullscreen(),
-        // enable_window_effect() respectively) without re-locking it — glfw_window_mutex() is a
-        // non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
+        /// Shared bodies of close_requested()/size()/native_window_handle(), callable from a caller
+        /// that already holds glfw_window_mutex() (pump_events(), set_fullscreen(),
+        /// enable_window_effect() respectively) without re-locking it — glfw_window_mutex() is a
+        /// non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
         [[nodiscard]] bool close_requested_locked() const noexcept;
         [[nodiscard]] expected<WindowExtent, WindowError> size_locked() const noexcept;
         [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle_locked() const noexcept;
@@ -157,9 +157,9 @@ namespace SFT::Platform::Windowing::GLFW {
         bool mouse_locked_ = false;
         GLFWcursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
-        // Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see
-        // fullscreen_mode()'s own doc comment (Window.hpp) for why this has to survive past the call
-        // that set it.
+        /// Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see
+        /// fullscreen_mode()'s own doc comment (Window.hpp) for why this has to survive past the call
+        /// that set it.
         WindowMode fullscreen_mode_ = WindowMode::Windowed;
     };
 

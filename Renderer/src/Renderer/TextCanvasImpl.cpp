@@ -61,7 +61,7 @@ namespace SFT::Renderer {
             } else if (glyph.outline != nullptr) {
                 const Text::GlyphBounds bounds = Text::glyph_bounds(*glyph.outline);
                 if (bounds.empty) {
-                    return std::nullopt; // spaces/control glyphs have no visible tile coverage
+                    return std::nullopt;
                 }
                 left_units = bounds.left;
                 bottom_units = bounds.bottom;
@@ -125,9 +125,9 @@ namespace SFT::Renderer {
             if (!bounds) {
                 continue;
             }
-            // Distance-field reconstruction and stem darkening affect at most a fraction of a
-            // screen pixel beyond the vector edge. One pixel keeps that antialiasing fringe in
-            // every overlapped tile without treating the atlas's transparent guard band as ink.
+
+
+
             constexpr f32 fringe = 1.0f;
             const f32 left = std::floor(bounds->left - fringe);
             const f32 top = std::floor(bounds->top - fringe);
@@ -162,10 +162,10 @@ namespace SFT::Renderer {
             return it != tile_glyphs_.end() ? it->second : empty_glyphs;
         }();
 
-        // This tile render is a standalone one-shot (an on-demand offscreen re-raster of one dirty
-        // tile, not part of any per-frame render graph), so — unlike the main frame's shared
-        // encoder — it owns and submits/waits on its own command encoder for its whole lifetime,
-        // atlas upload included.
+
+
+
+
         auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text canvas tile render"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create text canvas tile encoder"));
@@ -201,9 +201,9 @@ namespace SFT::Renderer {
             }
         }
 
-        // One tile has no nested clip regions of its own (it's a single fixed-size render target),
-        // so every glyph gets the same full-tile scissor and paint group (0 — no interleaving
-        // concept here either).
+
+
+
         const vector<RHI::Rect2D> scissors(
             instances.size(), RHI::Rect2D{.x = 0, .y = 0, .width = tile_size_, .height = tile_size_});
         const vector<u32> paint_groups(instances.size(), 0);
@@ -295,9 +295,9 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(waited.error(), "wait text canvas tile fence"));
         }
         if (!*waited) {
-            // Real timeout (wait_forever is used here, so unreachable outside a device hang) -- the
-            // fence is not confirmed signaled, so destroying anything it protects here would be a
-            // real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+
+
+
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "wait text canvas tile fence: vkWaitForFences timed out."});
         }
@@ -326,8 +326,8 @@ namespace SFT::Renderer {
                 break;
             }
             if (std::ranges::find(keep, *victim) != keep.end()) {
-                // Still needed this call — put it back at the front and stop; nothing else is
-                // evictable without violating the caller's own viewport request.
+
+
                 lru_.touch(*victim);
                 break;
             }

@@ -3,17 +3,17 @@
 namespace SFT::Text::Detail {
 
 UString read_name(hb_face_t *face, hb_ot_name_id_t name_id) {
-            // hb_ot_name_get_utf8 follows HarfBuzz's snprintf-style idiom: the return value is the
-            // *full* string length regardless of truncation, while `text_size` is IN (buffer
-            // capacity) / OUT (bytes actually written) — a zero-capacity probe call still reports
-            // the true length via the return value, even though it writes nothing.
+
+
+
+
             unsigned int probe_capacity = 0;
             const unsigned int full_length = hb_ot_name_get_utf8(face, name_id, HB_LANGUAGE_INVALID, &probe_capacity, nullptr);
             if (full_length == 0) {
                 return {};
             }
             string text(full_length, '\0');
-            unsigned int capacity = full_length + 1; // + room for the trailing NUL hb writes
+            unsigned int capacity = full_length + 1;
             text.resize(capacity);
             hb_ot_name_get_utf8(face, name_id, HB_LANGUAGE_INVALID, &capacity, text.data());
             text.resize(std::min(capacity, full_length));

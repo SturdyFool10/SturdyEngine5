@@ -1,6 +1,6 @@
-// Bridge construction, introspection, wait_idle/render_frame, and the shared error-conversion
-// helpers every other VulkanRhiBridge*.cpp file relies on. Also VulkanBackend::installRhiBridge()/
-// rhi_device() — the two-line glue that used to live in the now-removed flat VulkanBackendRhi.cpp.
+
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -257,14 +257,14 @@ namespace SFT::Core::Vulkan {
             });
         }
 
-        // write_buffer()'s staged upload path for DeviceLocal buffers (VulkanRhiBridgeBuffers.cpp)
-        // checks pool/fence pairs out of upload_pool_ lazily, on first use — nothing to pre-create here.
 
-        // AMDVLK can fault inside vkCreateGraphicsPipelines when fed a persisted cache blob left by
-        // a prior driver/process crash, instead of rejecting incompatible initial data as Vulkan
-        // requires. Start every device with a fresh in-memory cache until persisted blobs have a
-        // driver-independent integrity envelope; the cache still accelerates this process's pipeline
-        // creation, but untrusted disk bytes never reach the ICD during startup.
+
+
+
+
+
+
+
         if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), {})) {
             pipeline_cache_ = std::move(*cache);
         }
@@ -272,11 +272,11 @@ namespace SFT::Core::Vulkan {
 
     VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge() {
         ZoneScopedN("VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge");
-        // Backend switching can invalidate higher-level caches before every individual shader-module
-        // owner gets an opportunity to call destroy_shader_module(). Shader modules are raw Vulkan
-        // handles in the resource pool (unlike the RAII-backed pipeline/layout pools), so explicitly
-        // purge every residual module while the device is still alive. Device idle is mandatory before
-        // destroying any module that may still be referenced by a submitted command buffer/pipeline.
+
+
+
+
+
         wait_idle();
         if (logical_device_ != nullptr) {
             shader_modules_.drain([this](VkShaderModule module) noexcept {
@@ -322,16 +322,16 @@ namespace SFT::Core::Vulkan {
             return index == 0 && fallback != nullptr && fallback->is_valid() ? fallback : nullptr;
         };
 
-        // Lane index 0 always resolves to the class's own primary `_queue_` member, never into
-        // `*_queue_lanes()[0]` — `vkGetDeviceQueue(device, family, 0, ...)` is spec-guaranteed to
-        // return the identical VkQueue handle each call, so `_queue_lanes_[0]` (built independently
-        // by VulkanDevice::get_queue_lanes) wraps the same native queue as the primary `_queue_`
-        // member in a *second* VulkanQueue object with its own, separately-locked
-        // `submission_lock_` — two independently-locked C++ wrappers around one native queue give no
-        // real mutual exclusion between them. Routing lane 0 to the primary member for every class
-        // (not just Graphics, which already did this) closes that off; `_queue_lanes_[0]` itself is
-        // still constructed (harmless, just never returned to a caller through this function, the
-        // only path any `*_queue_lanes()` entry is ever consumed from).
+
+
+
+
+
+
+
+
+
+
         switch (lane.queue) {
             case rhi::QueueClass::Graphics:
                 return lane.index == 0 ? graphics_queue_ : lane_from(logical_device_->graphics_queue_lanes(), nullptr);
@@ -414,9 +414,9 @@ namespace SFT::Core::Vulkan {
         auto &device_present_queue = logicalDevice.present_queue();
         auto &device_compute_queue = logicalDevice.compute_queue();
         auto &device_transfer_queue = logicalDevice.transfer_queue();
-        // A distinct queue in the same family can present without queue-family ownership transfers.
-        // Do not adopt a different-family present queue until the swapchain image ownership handoff is
-        // implemented; gfxQueue is already selected with primary-surface presentation support.
+
+
+
         VulkanQueue *present_queue = &gfxQueue;
         if (device_present_queue.has_value() &&
             device_present_queue->family_index() == gfxQueue.family_index() &&
@@ -429,8 +429,8 @@ namespace SFT::Core::Vulkan {
             compute_queue != nullptr && compute_queue->family_index() != gfxQueue.family_index()) {
             transfer_queue = compute_queue;
         }
-        // Startup installs the bridge once. Existing module/BMI layout issues can leave this unique_ptr
-        // containing a garbage pre-assignment value, so avoid deleting that value before first ownership.
+
+
         [[maybe_unused]] RHI::RhiDevice *discarded_bridge = rhiDevice.release();
         rhiDevice = std::make_unique<VulkanRhiDeviceBridge>(*this, vulkan_instance, physicalDevice, logicalDevice, gfxQueue,
                                                             *present_queue, compute_queue, transfer_queue, vmaAllocator, feature_report_,

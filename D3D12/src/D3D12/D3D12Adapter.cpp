@@ -14,10 +14,10 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // The lowest feature level this backend targets. 11_0 is the D3D12 floor, but every capability
-        // the RHI treats as *base* (dynamic-rendering-equivalent rendering, compute, timeline sync via
-        // fences, the full common format set) is available there, so nothing is gained by demanding
-        // 12_0 and it would exclude otherwise-working hardware.
+
+
+
+
         constexpr D3D_FEATURE_LEVEL minimum_feature_level = D3D_FEATURE_LEVEL_11_0;
 
         [[nodiscard]] const char *vendor_name(u32 vendor_id) noexcept {
@@ -29,7 +29,7 @@ namespace SFT::D3D12 {
                 case 0x8086:
                     return "Intel";
                 case 0x1414:
-                    return "Microsoft"; // WARP / the software adapter
+                    return "Microsoft";
                 case 0x13B5:
                     return "ARM";
                 case 0x5143:
@@ -87,17 +87,17 @@ namespace SFT::D3D12 {
             }
         }
 
-        // CheckFeatureSupport with the boilerplate removed. Returns false (leaving `data` at whatever
-        // the caller zero-initialized it to) when the runtime doesn't know the feature at all, which is
-        // exactly how an older runtime reports "this options structure postdates me".
+
+
+
         template <typename Data>
         [[nodiscard]] bool check_feature(ID3D12Device *device, D3D12_FEATURE feature, Data &data) noexcept {
             return SUCCEEDED(device->CheckFeatureSupport(feature, &data, sizeof(data)));
         }
 
-        // The highest shader model the runtime *and* driver both support. The query is documented to be
-        // asked highest-first and to fail down to a supported value, which is why this walks a list
-        // rather than asking once.
+
+
+
         [[nodiscard]] D3D_SHADER_MODEL highest_shader_model(ID3D12Device *device) noexcept {
             constexpr D3D_SHADER_MODEL candidates[] = {
                 D3D_SHADER_MODEL_6_9,
@@ -121,10 +121,10 @@ namespace SFT::D3D12 {
         }
 
         void fill_sample_counts(ID3D12Device *device, rhi::DeviceLimits &limits) noexcept {
-            // Probed against RGBA8Unorm: the RHI's limit is a single device-wide figure, and this is
-            // the format every backend's "how much MSAA can I ask for" answer is conventionally
-            // quoted against. Per-format support still has to be queried per-format by anyone who
-            // needs it — which is exactly why DeviceLimits documents this as a hint, not a guarantee.
+
+
+
+
             u32 mask = 0;
             u32 highest = 1;
             for (u32 count : {1u, 2u, 4u, 8u, 16u}) {
@@ -150,22 +150,22 @@ namespace SFT::D3D12 {
         DeviceCapabilities caps{};
         rhi::FeatureSet &features = caps.features;
 
-        // ── Baseline: capabilities D3D12 guarantees on every conformant device ──
-        //
-        // These are not assumptions. Timeline synchronization is what an ID3D12Fence *is*; there is no
-        // render-pass object to opt out of, so the RHI's dynamic-rendering model is the only model;
-        // and BC texture compression, cube arrays, 32-bit indices, indirect draws, and occlusion/
-        // timestamp queries are all core D3D12 with no capability bit to query.
+
+
+
+
+
+
         for (rhi::Feature feature : {
                  rhi::Feature::TimelineSynchronization,
                  rhi::Feature::DynamicRendering,
                  rhi::Feature::TextureCompressionBC,
                  rhi::Feature::ImageCubeArray,
                  rhi::Feature::FullDrawIndexUint32,
-                 // Feature::PrimitiveRestart is deliberately absent: D3D12 bakes the strip-cut index
-                 // into the PSO while the index format is per-draw dynamic state, so the correct cut
-                 // value is unknowable at pipeline creation. See create_render_pipeline()'s own
-                 // comment on IBStripCutValue.
+
+
+
+
                  rhi::Feature::MultiDrawIndirect,
                  rhi::Feature::DrawIndirectFirstInstance,
                  rhi::Feature::DrawIndirectCount,
@@ -173,10 +173,10 @@ namespace SFT::D3D12 {
                  rhi::Feature::PreciseOcclusionQueries,
                  rhi::Feature::TimestampQueries,
                  rhi::Feature::PipelineStatisticsQueries,
-                 // D3D12 query heaps have no "reset" step at all: a slot is overwritten by the next
-                 // Begin/EndQuery. Reporting HostQueryReset supported is accurate — the host-side reset
-                 // the feature names is trivially available (and a no-op) — and lets a caller skip the
-                 // per-frame reset command the Vulkan path needs.
+
+
+
+
                  rhi::Feature::HostQueryReset,
                  rhi::Feature::AnisotropicFiltering,
                  rhi::Feature::IndependentBlend,
@@ -222,9 +222,9 @@ namespace SFT::D3D12 {
                 features.set(rhi::Feature::StorageImageReadWithoutFormat);
             }
 
-            // Tier 2 supports the table-backed descriptor arrays and shader indexing this backend
-            // exposes. Bind groups are immutable after creation, so update-after-bind is deliberately
-            // not included. The scalar RHI limit must also be safe for sampler-bearing bindings.
+
+
+
             if (options0.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2) {
                 for (rhi::Feature feature : {rhi::Feature::DescriptorIndexing,
                                              rhi::Feature::RuntimeDescriptorArrays,
@@ -286,9 +286,9 @@ namespace SFT::D3D12 {
             if (options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0) {
                 features.set(rhi::Feature::AccelerationStructures);
                 features.set(rhi::Feature::RayTracingPipeline);
-                // DXR's fixed limits — the spec's, not a per-device query, because D3D12 exposes no
-                // equivalent of VkPhysicalDeviceRayTracingPipelinePropertiesKHR. The portable base
-                // alignment applies to the shader-table start, not merely each shader record's stride.
+
+
+
                 caps.properties.ray_tracing.max_ray_recursion_depth = D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH;
                 caps.properties.ray_tracing.shader_group_handle_size = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 caps.properties.ray_tracing.shader_group_base_alignment =
@@ -310,7 +310,7 @@ namespace SFT::D3D12 {
             options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1) {
             features.set(rhi::Feature::MeshShader);
             features.set(rhi::Feature::TaskShader);
-            // DX12 mesh/amplification shader model limits are fixed by the API specification.
+
             caps.properties.mesh_shader.max_task_work_group_invocations = 128;
             caps.properties.mesh_shader.max_mesh_work_group_invocations = 128;
             caps.properties.mesh_shader.max_mesh_output_vertices = 256;
@@ -337,10 +337,10 @@ namespace SFT::D3D12 {
         if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS12, options12)) {
             caps.enhanced_barriers = options12.EnhancedBarriersSupported != FALSE;
             if (caps.enhanced_barriers) {
-                // Only with enhanced barriers does this backend actually implement the
-                // (stage, access) -> (stage, access) + layout model :Barrier specifies. On the legacy
-                // fallback the barriers still work, but the fine-grained scoping is collapsed, so
-                // reporting Synchronization2 there would be a claim the backend cannot honor.
+
+
+
+
                 features.set(rhi::Feature::Synchronization2);
                 features.set(rhi::Feature::UnifiedImageLayouts);
             }
@@ -362,9 +362,9 @@ namespace SFT::D3D12 {
                 features.set(rhi::Feature::DepthBiasControl);
                 features.set(rhi::Feature::ExtendedDynamicState2);
             }
-            // ReBAR-backed heap: CPU-mappable *and* GPU-local. Only reported true on hardware/OS
-            // combinations that actually back it with Resizable BAR, so this is a real capability
-            // probe, not just an SDK-header check. create_buffer() is the consumer.
+
+
+
             caps.gpu_upload_heap_supported = options16.GPUUploadHeapSupported != FALSE;
         }
 
@@ -388,18 +388,18 @@ namespace SFT::D3D12 {
             features.set(rhi::Feature::ShaderQuadControl);
         }
 
-        // ── Limits ──
+
         rhi::DeviceLimits &limits = caps.limits;
         limits.max_texture_dimension_2d = D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION;
         limits.max_texture_array_layers = D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
-        // Bind groups are register spaces, of which D3D12 has no hard cap — the real constraint is the
-        // 64-DWORD root signature, and 8 sets' worth of descriptor tables (1 DWORD each) plus root
-        // constants fits comfortably. Reported as the portable budget rather than a hardware limit.
+
+
+
         limits.max_bind_groups = 8;
-        // Root constants share the 64-DWORD root signature budget with every descriptor table and root
-        // descriptor, so the whole budget can never be spent on constants. 128 bytes (32 DWORDs) leaves
-        // half the signature for bindings, and matches the push-constant size the common Vulkan
-        // baseline guarantees, so a renderer sized for one fits the other.
+
+
+
+
         limits.max_push_constants_size = 128;
         limits.max_vertex_buffers = D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT;
         limits.max_vertex_attributes = D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT;
@@ -410,16 +410,16 @@ namespace SFT::D3D12 {
         limits.max_compute_workgroup_size_y = D3D12_CS_THREAD_GROUP_MAX_Y;
         limits.max_compute_workgroup_size_z = D3D12_CS_THREAD_GROUP_MAX_Z;
         limits.min_uniform_buffer_offset_alignment = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
-        // Structured/raw buffer views are addressed in elements, and the strictest element alignment
-        // D3D12 imposes on a raw (ByteAddress) view is 16 bytes.
+
+
         limits.min_storage_buffer_offset_alignment = 16;
         limits.timestamp_valid_bits = 64;
         fill_sample_counts(device, limits);
 
-        // ── Queue topology ──
-        // D3D12's engines are fixed and always present: DIRECT, COMPUTE, and COPY are separate
-        // hardware engines on every conformant device, so async compute/transfer are topology facts
-        // here rather than the negotiated maybe they are under Vulkan.
+
+
+
+
         caps.queue_infos.push_back(rhi::QueueInfo{
             .queue = rhi::QueueClass::Graphics,
             .capabilities = rhi::QueueCapability::Graphics | rhi::QueueCapability::Compute |
@@ -452,7 +452,7 @@ namespace SFT::D3D12 {
         return caps;
     }
 
-    // ─── D3D12Adapter ────────────────────────────────────────────────────────────
+
 
     D3D12Adapter::D3D12Adapter(ComPtr<IDXGIFactory6> factory, ComPtr<IDXGIAdapter4> adapter, ComPtr<ID3D12Device> device, rhi::AdapterInfo info, DeviceCapabilities capabilities, bool debug_layer_enabled)
         : factory_(std::move(factory)), adapter_(std::move(adapter)), device_(std::move(device)),
@@ -492,9 +492,9 @@ namespace SFT::D3D12 {
                                    std::string(extension.name_space) + "." + std::string(extension.name) + "'.");
             }
         }
-        // Queue requests are checked against the fixed D3D12 engine topology rather than used to build
-        // queues: unlike Vulkan, queues are not created at device-creation time, so a request can only
-        // ever be validated here, never honored differently.
+
+
+
         for (const rhi::QueueRequest &queue_request : request.queue_requests) {
             const auto it = std::ranges::find_if(capabilities_.queue_infos, [&](const rhi::QueueInfo &info) {
                 return info.queue == queue_request.queue;
@@ -532,7 +532,7 @@ namespace SFT::D3D12 {
         return unique_ptr<rhi::RhiDevice>(std::move(device));
     }
 
-    // ─── D3D12Instance ───────────────────────────────────────────────────────────
+
 
     D3D12Instance::D3D12Instance(ComPtr<IDXGIFactory6> factory, bool debug_layer_enabled, bool allow_tearing)
         : factory_(std::move(factory)), debug_layer_enabled_(debug_layer_enabled), allow_tearing_(allow_tearing) {}
@@ -544,10 +544,10 @@ namespace SFT::D3D12 {
 
         for (UINT index = 0;; ++index) {
             ComPtr<IDXGIAdapter1> adapter1;
-            // EnumAdapterByGpuPreference orders by real GPU preference (the OS's own
-            // discrete-vs-integrated policy, which also honors per-application overrides in Windows
-            // graphics settings) rather than by bus order, so the caller's own scoring starts from a
-            // sensible ordering instead of "whatever was plugged in first".
+
+
+
+
             if (factory_->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter1)) == DXGI_ERROR_NOT_FOUND) {
                 break;
             }
@@ -561,9 +561,9 @@ namespace SFT::D3D12 {
                 continue;
             }
 
-            // A device has to exist to answer any capability question at all (see this file's header
-            // comment), so an adapter that cannot produce one is not an adapter this backend can
-            // report — skipped rather than surfaced as a broken entry.
+
+
+
             ComPtr<ID3D12Device> device;
             if (FAILED(D3D12CreateDevice(adapter.Get(), minimum_feature_level, IID_PPV_ARGS(&device)))) {
                 continue;
@@ -610,19 +610,19 @@ namespace SFT::D3D12 {
         bool debug_layer_enabled = false;
 
         if (desc.enable_validation) {
-            // Must precede every D3D12CreateDevice call in the process — the debug layer is opted into
-            // globally before device creation, not per device, so this cannot be deferred to
-            // create_device() the way a Vulkan validation-layer enable could be.
+
+
+
             ComPtr<ID3D12Debug> debug;
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
                 debug->EnableDebugLayer();
                 debug_layer_enabled = true;
                 factory_flags |= DXGI_CREATE_FACTORY_DEBUG;
 
-                // GPU-based validation catches the class of errors the CPU-side layer structurally
-                // cannot (out-of-bounds descriptor-table indexing, uninitialized descriptor reads) —
-                // exactly the errors this backend's bindless/descriptor-table binding model can
-                // produce. Best-effort: it needs ID3D12Debug1, which some older runtimes lack.
+
+
+
+
                 ComPtr<ID3D12Debug1> debug1;
                 if (SUCCEEDED(debug.As(&debug1))) {
                     debug1->SetEnableGPUBasedValidation(TRUE);
@@ -633,9 +633,9 @@ namespace SFT::D3D12 {
                     "Tools optional feature is probably not installed); continuing without it.");
             }
 
-            // Device Removed Extended Data: turns a bare DXGI_ERROR_DEVICE_REMOVED into an auto-
-            // breadcrumb trail naming the last commands the GPU executed. Costs nothing until a
-            // removal actually happens, and a TDR without it is close to undiagnosable.
+
+
+
             ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred;
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
                 dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -648,15 +648,15 @@ namespace SFT::D3D12 {
             return hresult_error(hr, "create_d3d12_instance (CreateDXGIFactory2)");
         }
 
-        // Tearing support is a factory-level DXGI capability, not a device one, and it is what any
-        // real "VSync off" present mode depends on — queried once here and carried into every device.
+
+
         BOOL allow_tearing = FALSE;
         if (FAILED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow_tearing, sizeof(allow_tearing)))) {
             allow_tearing = FALSE;
         }
 
-        (void)desc.headless; // DXGI needs no presentation opt-in at instance scope; a headless device
-                             // simply never creates a surface.
+        (void)desc.headless;
+
         return unique_ptr<rhi::RhiInstance>(
             std::make_unique<D3D12Instance>(std::move(factory), debug_layer_enabled, allow_tearing != FALSE));
     }

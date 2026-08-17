@@ -1,4 +1,4 @@
-// RHI query set creation, host readback, and host reset backed by VulkanQueryPool.
+
 #pragma region Imports
 #include "volk.h"
 #include <cstddef>

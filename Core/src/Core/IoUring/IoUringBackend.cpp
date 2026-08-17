@@ -1,21 +1,21 @@
 #include "IoUringBackend.hpp"
 
-// Talks to io_uring directly through its raw syscalls (io_uring_setup/io_uring_enter) and the
-// kernel-shared submission/completion ring memory (mmap()ed from the ring fd), rather than linking
-// liburing. liburing has no portable CMake package (its own build is a hand-rolled ./configure +
-// Make, awkward to FetchContent alongside this engine's other CMake-native dependencies), and the
-// io_uring UAPI itself (<linux/io_uring.h>, stable since Linux 5.1) is small enough for the single
-// synchronous "read one whole file" operation this backend needs that going straight to the
-// syscalls is less code and one fewer vendored dependency than wrapping liburing would be. This is
-// the same shape of tradeoff DirectStorageBackend.cpp makes on Windows, just via COM there instead
-// of raw syscalls.
-//
-// Everything below is Linux-only and guarded to match IoUringBackend.hpp's own guard: Core's
-// CMakeLists never adds this file to a non-Linux build, but nothing stops a reader-side tool from
-// parsing it with another platform's flags (clangd infers a command from a sibling TU for any file
-// missing a compile_commands.json entry, so a Windows view lands here with a Windows target). The
-// guard keeps the Linux UAPI headers and syscalls out of any such parse instead of relying on the
-// build system's per-OS file list being the only thing that ever looks at this file.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #if defined(__linux__)
 
 #include <Foundation/src/Foundation.hpp>
@@ -37,11 +37,11 @@
 
 #include <tracy/Tracy.hpp>
 
-// glibc only gained wrapper functions for these in 2.36 (mid-2022) -- go straight to syscall(2)
-// with the raw numbers so this also builds against older glibc, matching liburing's own approach.
-// Values are the stable x86-64 syscall table entries (SFT is x86-64-only today, see
-// STURDY_GRAPHICS_PLATFORM_ARCH_X86_64 in cmake/SturdyPlatform.cmake) -- revisit if this engine
-// ever grows another Linux target architecture.
+
+
+
+
+
 #if !defined(SYS_io_uring_setup)
     #define SYS_io_uring_setup 425
 #endif
@@ -61,16 +61,16 @@ namespace SFT::Core {
             return static_cast<int>(syscall(SYS_io_uring_enter, ring_fd, to_submit, min_complete, flags, nullptr, 0));
         }
 
-        // One persistent ring (8 SQEs -- more would buy nothing, see the header's own doc comment
-        // for why this backend only ever has one request in flight), reused under state_mutex() for
-        // every read_file_io_uring() call. Mirrors DirectStorageBackend's single persistent-queue
-        // design on Windows.
+
+
+
+
         struct IoUringState {
             int ring_fd = -1;
 
             void *sq_ring_ptr = nullptr;
             usize sq_ring_size = 0;
-            void *cq_ring_ptr = nullptr; // == sq_ring_ptr when IORING_FEAT_SINGLE_MMAP.
+            void *cq_ring_ptr = nullptr;
             usize cq_ring_size = 0;
             io_uring_sqe *sqes = nullptr;
             usize sqes_size = 0;
@@ -117,7 +117,7 @@ namespace SFT::Core {
             }
         }
 
-        // Callers must hold state_mutex().
+
         [[nodiscard]] bool ensure_initialized_locked() {
             IoUringState &s = state();
             if (s.init_attempted) {
@@ -215,9 +215,9 @@ namespace SFT::Core {
             return unexpected(
                 RHI::rhi_error(RHI::RhiErrorCode::OperationFailed, "read_file_io_uring: could not stat '" + path.string() + "'."));
         }
-        // IORING_OP_READ's len field is a plain __u32 -- same 4GiB-per-request ceiling
-        // DirectStorageBackend imposes on Windows (see its own doc comment); no texture asset this
-        // pipeline handles comes close, so this is a hard reject rather than a chunking loop.
+
+
+
         if (static_cast<u64>(file_stat.st_size) > std::numeric_limits<unsigned>::max()) {
             close(fd);
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
@@ -227,9 +227,9 @@ namespace SFT::Core {
 
         std::vector<std::byte> bytes(file_size);
 
-        // Only one request is ever in flight on this ring (see the header's own doc comment), so
-        // the submission slot at the current tail is always free -- no need to check against
-        // sq_head/ring capacity first.
+
+
+
         std::atomic_ref<unsigned> sq_tail_ref(*s.sq_tail);
         const unsigned tail = sq_tail_ref.load(std::memory_order_relaxed);
         const unsigned index = tail & *s.sq_ring_mask;
@@ -244,8 +244,8 @@ namespace SFT::Core {
         sqe.user_data = 1;
 
         s.sq_array[index] = index;
-        // Release: makes the SQE contents and the array write above visible to the kernel before
-        // it observes the new tail value.
+
+
         sq_tail_ref.store(tail + 1, std::memory_order_release);
 
         const int enter_result = sys_io_uring_enter(s.ring_fd, 1, 1, IORING_ENTER_GETEVENTS);
@@ -255,10 +255,10 @@ namespace SFT::Core {
                                               "read_file_io_uring: io_uring_enter failed for '" + path.string() + "'."));
         }
 
-        // io_uring_enter(..., min_complete=1, IORING_ENTER_GETEVENTS) blocks until at least our one
-        // completion is posted, so the CQE at the current head is guaranteed ready -- the acquire
-        // load here is what makes that CQE's contents (written by the kernel before it advanced
-        // cq_tail) visible to this thread.
+
+
+
+
         std::atomic_ref<unsigned> cq_tail_ref(*s.cq_tail);
         std::atomic_ref<unsigned> cq_head_ref(*s.cq_head);
         (void)cq_tail_ref.load(std::memory_order_acquire);

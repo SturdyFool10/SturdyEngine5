@@ -32,7 +32,7 @@ namespace SFT::Async {
 
     void DedicatedThread::enqueue(unique_ptr<Detail::TaskBase> task) noexcept {
 #if defined(STURDY_PLATFORM_WEB)
-        // No background thread exists on Web (see the class docs) — run it immediately, inline.
+
         task->execute();
 #else
         {
@@ -44,9 +44,9 @@ namespace SFT::Async {
     }
 
     void DedicatedThread::worker_loop() noexcept {
-        // name_ is set once in the constructor and never touched again, and this object outlives the
-        // thread (the destructor joins before the object can be destroyed) -- the pointer stays valid
-        // for tracy::SetThreadName's requirement of a stable pointer for the thread's whole lifetime.
+
+
+
         tracy::SetThreadName(name_.c_str());
         while (running_.load(std::memory_order_acquire)) {
             unique_ptr<Detail::TaskBase> task;
@@ -63,8 +63,8 @@ namespace SFT::Async {
                 continue;
             }
 
-            // Bounded poll rather than an indefinite wait: a missed notify_one() (the classic
-            // condition_variable pitfall) then only costs up to this timeout, never correctness.
+
+
             unique_lock<std::mutex> lock(wake_mutex_);
             wake_cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
                 if (!running_.load(std::memory_order_acquire)) {
@@ -81,9 +81,9 @@ namespace SFT::Async {
     }
 
     bool DedicatedThread::pin_to_fastest_core() noexcept {
-        // ranked_physical_cores(), not ranked_logical_cores(): pinning to a physical core rather than
-        // a logical/SMT-sibling slot avoids landing this dedicated thread on the same physical core as
-        // one of Async::Scheduler's own workers (SchedulerImpl.cpp sizes/pins its pool the same way).
+
+
+
         const std::vector<u32> ranked = ranked_physical_cores();
         if (ranked.empty()) {
             return false;

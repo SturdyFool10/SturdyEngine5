@@ -51,8 +51,8 @@ void draw_cubic_to(hb_draw_funcs_t *, void *draw_data, hb_draw_state_t *,
         }
 
 void draw_close_path(hb_draw_funcs_t *, void *, hb_draw_state_t *, void *) {
-            // Contours decoded from glyf/CFF outlines are always implicitly closed (the last point
-            // meets the first); no explicit closing segment is needed in this representation.
+
+
         }
 
 hb_draw_funcs_t *shared_draw_funcs() noexcept {

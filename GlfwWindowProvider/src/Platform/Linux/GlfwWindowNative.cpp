@@ -93,35 +93,35 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 
     namespace {
 
-        // ── X11: XIMPreeditCallbacks-style IME composition ──────────────────────────────────────
-        //
-        // Deliberately not intercepting GLFW's own X11 event loop (XFilterEvent/XNextEvent) at all
-        // — XIMPreeditCallbacks input style makes the XIM server invoke these callbacks directly
-        // whenever composition text changes, entirely out-of-band from ordinary X11 event delivery,
-        // so GLFW's own key handling (which already correctly delivers final committed characters
-        // for IME-composed text today) is completely undisturbed by any of this.
 
-        // One XIC's full preedit state — Xlib's XIM API has no "get my callback's own client data
-        // back" query outside the callback invocations themselves, so this file keeps its own map
-        // from X11 Window XID to state instead (the `::` qualifier throughout this block picks X11's
-        // global `Window` XID typedef over SFT::Platform::Windowing::Window, the class this whole
-        // file's enclosing namespace would otherwise resolve a bare `Window` to).
+
+
+
+
+
+
+
+
+
+
+
+
         struct X11ImeState {
             XIC ic = nullptr;
             ImePreeditCallback callback = nullptr;
             void *userData = nullptr;
-            // UTF-32 (wchar_t is 4 bytes on every mainstream Linux libc) accumulation buffer,
-            // spliced in place per XIMPreeditDrawCallbackStruct's chg_first/chg_length/text fields
-            // — converted to UTF-8 fresh each time the callback actually fires, not kept in sync
-            // incrementally, since composition strings are short and this runs at typing speed, not
-            // per-frame.
+
+
+
+
+
             wstring preeditBuffer;
         };
 
         [[nodiscard]] XIM &x11_shared_im() noexcept {
-            // One XIM per process, opened lazily against whichever Display GLFW's own X11 backend is
-            // already using, and never closed — X11 apps conventionally hold their XIM connection
-            // for the process lifetime; the input method server outlives any single window anyway.
+
+
+
             static XIM im = nullptr;
             return im;
         }
@@ -158,19 +158,19 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             return result;
         }
 
-        // XNPreeditStartCallback — return value is the maximum preedit length the application can
-        // accept, or -1 for unbounded (this buffer is a resizable wstring, so always unbounded).
-        int x11_preedit_start_callback(XIC /*ic*/, XPointer clientData, XPointer /*callData*/) {
+
+
+        int x11_preedit_start_callback(XIC       , XPointer clientData, XPointer             ) {
             if (auto *state = reinterpret_cast<X11ImeState *>(clientData)) {
                 state->preeditBuffer.clear();
             }
             return -1;
         }
 
-        // XNPreeditDrawCallback — describes an in-place splice (delete chg_length chars starting at
-        // chg_first, then insert call_data->text if non-null), not a flat replacement of the whole
-        // string; call_data->caret is the new cursor offset (in characters) after the splice.
-        void x11_preedit_draw_callback(XIC /*ic*/, XPointer clientData, XPointer callDataRaw) {
+
+
+
+        void x11_preedit_draw_callback(XIC       , XPointer clientData, XPointer callDataRaw) {
             auto *state = reinterpret_cast<X11ImeState *>(clientData);
             auto *callData = reinterpret_cast<XIMPreeditDrawCallbackStruct *>(callDataRaw);
             if (!state || !callData) [[unlikely]] {
@@ -192,11 +192,11 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
                             insertion.push_back(static_cast<wchar_t>(text->string.wide_char[i]));
                         }
                     } else if (text->string.multi_byte != nullptr) {
-                        // Best-effort fallback: the XIM server reported locale multi-byte text
-                        // instead of wide_char. mbrtowc() decodes it per the current locale, which
-                        // is correct on any locale (not just UTF-8 ones) as long as the process
-                        // locale was actually set (setlocale(LC_CTYPE, "")) — an XIM connection
-                        // can't exist at all otherwise, so this is a safe assumption here.
+
+
+
+
+
                         mbstate_t mbState{};
                         const char *cursor = text->string.multi_byte;
                         usize remaining = strlen(cursor);
@@ -221,9 +221,9 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
-        // XNPreeditDoneCallback — composition ended (confirmed or cancelled); empty text + cursorPos
-        // -1 is this codebase's own "composition ended" contract (ImePreeditCallback's doc comment).
-        void x11_preedit_done_callback(XIC /*ic*/, XPointer clientData, XPointer /*callData*/) {
+
+
+        void x11_preedit_done_callback(XIC       , XPointer clientData, XPointer             ) {
             if (auto *state = reinterpret_cast<X11ImeState *>(clientData)) {
                 state->preeditBuffer.clear();
                 if (state->callback) {
@@ -238,13 +238,13 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
                 return false;
             }
             if (!x11_shared_im()) {
-                // NULL modifiers/encoding args: accept the locale's own default input method,
-                // exactly as XSetLocaleModifiers()'s own documented default behavior intends — this
-                // engine doesn't second-guess the user's configured input method.
+
+
+
                 x11_shared_im() = XOpenIM(display, nullptr, nullptr, nullptr);
                 if (!x11_shared_im()) [[unlikely]] {
-                    // No XIM server available (common on a minimal X setup with no input method
-                    // running) — not an error, just "this session never gets composition events."
+
+
                     return false;
                 }
             }
@@ -302,10 +302,10 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             if (it == x11_ime_states().end() || !it->second->ic) {
                 return;
             }
-            // X11/XIM's positioning model is a spot point (where the candidate/status window
-            // anchors), not an excluded rectangle like Win32's CFS_EXCLUDE — the rect's top-left is
-            // the natural equivalent; the input method decides its own window placement from there,
-            // same as every other X11 application.
+
+
+
+
             XPoint spot{static_cast<short>(x), static_cast<short>(y)};
             if (XVaNestedList list = XVaCreateNestedList(0, XNSpotLocation, &spot, nullptr)) {
                 XSetICValues(it->second->ic, XNPreeditAttributes, list, nullptr);
@@ -331,26 +331,26 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 
     namespace {
 
-        // ── Wayland: zwp_text_input_v3 ───────────────────────────────────────────────────────────
-        //
-        // GLFW's own Wayland backend binds its own wl_seat/registry internally but exposes neither
-        // via public API, so this binds an entirely independent wl_registry to the same wl_display
-        // (glfwGetWaylandDisplay()) — standard, safe Wayland practice; GLFW's own registry binding
-        // is untouched. Both stay on the *default* event queue (confirmed by inspecting GLFW's own
-        // wl_init.c: no wl_display_create_queue/wl_proxy_set_queue anywhere), which is what makes
-        // ongoing preedit_string/commit_string/done events arrive for free as a side effect of
-        // GLFW's own wl_display_dispatch() inside its regular pollEvents() — no separate dispatch
-        // loop needed on this side for steady-state operation.
-        //
-        // Caveat, flagged honestly rather than silently assumed: the *initial* global-binding
-        // round-trip below (wl_display_roundtrip()) synchronously drains the default queue,
-        // including whatever GLFW's own registry listener does in response to the same global
-        // announcements — this has not been verified against a real compositor/GLFW combination in
-        // this session (no Wayland environment available to test against). If this turns out to
-        // cause reentrancy trouble with GLFW's own Wayland init path in practice, the fix is binding
-        // our registry to a private queue for the startup round-trip only, then migrating the seat/
-        // manager/text-input objects back onto the default queue before relying on GLFW's dispatch
-        // for steady state — not attempted here since it can't be validated blind either.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         struct WaylandGlobals {
             wl_registry *registry = nullptr;
@@ -375,7 +375,7 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
-        void wayland_registry_global_remove(void * /*data*/, wl_registry * /*registry*/, uint32_t /*name*/) {}
+        void wayland_registry_global_remove(void *         , wl_registry *             , uint32_t         ) {}
 
         constexpr wl_registry_listener kRegistryListener{
             .global = wayland_registry_global,
@@ -406,9 +406,9 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             zwp_text_input_v3 *textInput = nullptr;
             ImePreeditCallback callback = nullptr;
             void *userData = nullptr;
-            // The protocol batches preedit_string/commit_string updates and only actually commits
-            // them on a matching `done` event (serial-numbered) — buffered here and only forwarded
-            // to `callback` once `done` fires, per the protocol's own documented contract.
+
+
+
             std::string pendingPreedit;
             bool pendingPreeditSet = false;
         };
@@ -419,17 +419,17 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         }
 
         void wayland_text_input_enter(void *, zwp_text_input_v3 *, wl_surface *) {
-            // Focus tracking is implicit in the protocol via enter/leave, but this file keys its own
-            // state by wl_surface* (set at install time) rather than reacting to enter/leave — a
-            // GLFW window's own focus/lifetime already governs when install/remove are called, and
-            // duplicating that as a second focus-tracking mechanism here would risk the two
-            // disagreeing. Intentionally empty.
+
+
+
+
+
         }
 
         void wayland_text_input_leave(void *, zwp_text_input_v3 *, wl_surface *) {}
 
         void wayland_text_input_preedit_string(void *data, zwp_text_input_v3 *, const char *text,
-                                               int32_t /*cursorBegin*/, int32_t /*cursorEnd*/) {
+                                               int32_t                , int32_t              ) {
             auto *state = static_cast<WaylandImeState *>(data);
             if (!state) [[unlikely]] {
                 return;
@@ -438,23 +438,23 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             state->pendingPreeditSet = true;
         }
 
-        void wayland_text_input_commit_string(void * /*data*/, zwp_text_input_v3 * /*textInput*/, const char * /*text*/) {
-            // Not forwarded through this hook — GLFW's own Wayland backend already delivers
-            // committed text via its ordinary keyboard/text-input handling into the standard char
-            // callback (glfw_char_callback, GLFWImpl.cpp), same as every other text a GLFW app
-            // receives. Only the preedit half is new here.
+        void wayland_text_input_commit_string(void *         , zwp_text_input_v3 *              , const char *         ) {
+
+
+
+
         }
 
         void wayland_text_input_delete_surrounding_text(void *, zwp_text_input_v3 *, uint32_t, uint32_t) {}
 
-        void wayland_text_input_done(void *data, zwp_text_input_v3 *, uint32_t /*serial*/) {
+        void wayland_text_input_done(void *data, zwp_text_input_v3 *, uint32_t           ) {
             auto *state = static_cast<WaylandImeState *>(data);
             if (!state || !state->pendingPreeditSet || !state->callback) [[unlikely]] {
                 return;
             }
-            // An empty preedit_string payload (or one never sent before this done) means
-            // composition ended — matches this codebase's own "empty = ended" contract
-            // (ImePreeditCallback's own doc comment) with no special-casing needed here.
+
+
+
             state->callback(state->pendingPreedit.c_str(), state->pendingPreedit.empty() ? -1 : 0, state->userData);
             state->pendingPreeditSet = false;
         }
@@ -506,8 +506,8 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             if (it == wayland_ime_states().end() || !it->second->textInput) {
                 return;
             }
-            // The protocol's own direct equivalent of Win32's composition-exclusion rect — no
-            // translation needed, unlike X11's spot-point model.
+
+
             zwp_text_input_v3_set_cursor_rectangle(it->second->textInput, x, y, width, height);
             zwp_text_input_v3_commit(it->second->textInput);
         }
@@ -522,9 +522,9 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             } else {
                 zwp_text_input_v3_disable(it->second->textInput);
             }
-            // The protocol requires a matching commit() after enable()/disable() (and after any
-            // state-changing request) before the compositor applies it — see set_cursor_rectangle's
-            // own commit() call above for the same rule.
+
+
+
             zwp_text_input_v3_commit(it->second->textInput);
         }
 
@@ -603,7 +603,7 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 #endif
     }
 
-#else // !defined(__linux__)
+#else
 
     bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept {
         (void)window_handle;

@@ -16,33 +16,33 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    // A mesh's data no longer owns a dedicated GPU buffer — it's a sub-range of the Renderer's shared
-    // vertex/index arenas (see Renderer::vertex_arena_/index_arena_ and try_upload_mesh), so any number
-    // of distinct meshes can be drawn from one bound buffer via per-draw base_vertex/first_index —
-    // the prerequisite for indirect/multi-draw across heterogeneous geometry.
+    /// A mesh's data no longer owns a dedicated GPU buffer — it's a sub-range of the Renderer's shared
+    /// vertex/index arenas (see Renderer::vertex_arena_/index_arena_ and try_upload_mesh), so any number
+    /// of distinct meshes can be drawn from one bound buffer via per-draw base_vertex/first_index —
+    /// the prerequisite for indirect/multi-draw across heterogeneous geometry.
     struct MeshResource {
         MeshHandle handle{};
         UString label;
         vector<GeometryVertex> vertices;
         vector<u32> indices;
-        // Element (not byte) offsets into the shared arenas — directly usable as
-        // DrawIndexedArgs::base_vertex / DrawIndexedArgs::first_index / DrawArgs::first_vertex.
+        /// Element (not byte) offsets into the shared arenas — directly usable as
+        /// DrawIndexedArgs::base_vertex / DrawIndexedArgs::first_index / DrawArgs::first_vertex.
         u32 vertex_offset = 0;
         u32 index_offset = 0;
-        // Immutable draw metadata retained alongside the CPU recovery payload. In particular,
-        // index_count determines indexed vs. non-indexed draws.
+        /// Immutable draw metadata retained alongside the CPU recovery payload. In particular,
+        /// index_count determines indexed vs. non-indexed draws.
         u32 vertex_count = 0;
         u32 index_count = 0;
         bool gpu_resident = false;
         RHI::AccelerationStructureHandle bottom_level_acceleration_structure{};
         bool alive = false;
-        // `vertices`/`indices` are the authoritative replay payload. Renderer-managed GPU state must
-        // survive a complete backend/device reconstruction, so alive meshes retain these arrays until
-        // destroy_mesh() rather than exposing a CPU-residency opt-out.
-        // Object-space bounding sphere (mesh-local, before any world_transform), computed once from
-        // `vertices` at upload time — CPU frustum culling (Culling.hpp, applied per geometry pass in
-        // RendererLifecycle.cpp) transforms this by each RenderItem's world_transform rather than
-        // recomputing it from raw geometry every frame.
+        /// `vertices`/`indices` are the authoritative replay payload. Renderer-managed GPU state must
+        /// survive a complete backend/device reconstruction, so alive meshes retain these arrays until
+        /// destroy_mesh() rather than exposing a CPU-residency opt-out.
+        /// Object-space bounding sphere (mesh-local, before any world_transform), computed once from
+        /// `vertices` at upload time — CPU frustum culling (Culling.hpp, applied per geometry pass in
+        /// RendererLifecycle.cpp) transforms this by each RenderItem's world_transform rather than
+        /// recomputing it from raw geometry every frame.
         glm::vec3 bounds_center{0.0f};
         f32 bounds_radius = 0.0f;
     };
@@ -59,33 +59,33 @@ namespace SFT::Renderer {
         RHI::TextureHandle texture{};
         RHI::TextureViewHandle view{};
         RHI::SamplerHandle sampler{};
-        // Authoritative replay description for renderer-owned textures. Pixel data is deep-copied at
-        // creation because the caller's span is ephemeral; empty data preserves allocation-only textures.
+        /// Authoritative replay description for renderer-owned textures. Pixel data is deep-copied at
+        /// creation because the caller's span is ephemeral; empty data preserves allocation-only textures.
         u32 width = 0;
         u32 height = 0;
         u32 mip_levels = 1;
         RHI::Format format = RHI::Format::Undefined;
         vector<byte> pixel_data;
-        // Retained with the replay payload so device recovery recreates streamed textures with the
-        // same cross-queue sharing mode used by their transfer-queue upload.
+        /// Retained with the replay payload so device recovery recreates streamed textures with the
+        /// same cross-queue sharing mode used by their transfer-queue upload.
         vector<RHI::QueueClass> concurrent_queue_classes;
         bool alive = false;
-        // False for a handle minted by Renderer::adopt_texture() — the caller created (and keeps
-        // owning) `texture`/`view`/`sampler`, so destroy_texture() must release only this wrapper
-        // entry, not the underlying RHI objects.
+        /// False for a handle minted by Renderer::adopt_texture() — the caller created (and keeps
+        /// owning) `texture`/`view`/`sampler`, so destroy_texture() must release only this wrapper
+        /// entry, not the underlying RHI objects.
         bool owns_gpu_resources = true;
-        // False for borrowed views whose wrapper lifetime belongs to another Renderer resource (an
-        // off-screen target). Public destroy_texture() must not invalidate such a target-owned wrapper;
-        // destroying the owning target retires it explicitly.
+        /// False for borrowed views whose wrapper lifetime belongs to another Renderer resource (an
+        /// off-screen target). Public destroy_texture() must not invalidate such a target-owned wrapper;
+        /// destroying the owning target retires it explicitly.
         bool externally_destroyable = true;
     };
 
-    // Result of Renderer::submit_texture_upload(): a submitted-but-not-yet-waited-on pixel upload.
-    // The caller owns both handles until it confirms `fence` has signaled (RHI::RhiDevice::
-    // wait_fences) -- only then are `command_buffer`/`fence` safe to destroy. Deliberately does not
-    // track the staging buffer that fed the copy: that buffer's lifetime is entirely the caller's own
-    // responsibility (a one-off buffer for the synchronous path, a ring-owned chunk for the
-    // asynchronous streaming path).
+    /// Result of Renderer::submit_texture_upload(): a submitted-but-not-yet-waited-on pixel upload.
+    /// The caller owns both handles until it confirms `fence` has signaled (RHI::RhiDevice::
+    /// wait_fences) -- only then are `command_buffer`/`fence` safe to destroy. Deliberately does not
+    /// track the staging buffer that fed the copy: that buffer's lifetime is entirely the caller's own
+    /// responsibility (a one-off buffer for the synchronous path, a ring-owned chunk for the
+    /// asynchronous streaming path).
     struct TextureUploadSubmission {
         RHI::CommandBufferHandle command_buffer{};
         RHI::FenceHandle fence{};

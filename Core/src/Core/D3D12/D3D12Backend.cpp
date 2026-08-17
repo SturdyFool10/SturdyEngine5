@@ -92,8 +92,8 @@ namespace SFT::Core::D3D12 {
             .label = "SturdyEngine D3D12 device",
         };
 
-        // DXGI already orders adapters by high-performance preference. A selected inventory identity
-        // overrides that policy; otherwise choose the first adapter satisfying the explicit request.
+
+
         const auto selected = std::ranges::find_if(*adapters, [&](const auto &candidate) {
             return candidate->supported_features().contains_all(device_request.required_features) &&
                    (init.physical_device_id.empty() || candidate->info().physical_device_id == init.physical_device_id);
@@ -179,7 +179,7 @@ namespace SFT::Core::D3D12 {
     void D3D12Backend::on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept {
         (void)surface;
         (void)extent;
-        // DXGI swapchain recreation is owned by RHI; D3D12 surfaces retain only the HWND.
+
     }
 
     RendererCapabilities D3D12Backend::capabilities() const noexcept { return capabilities_; }

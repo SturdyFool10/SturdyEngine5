@@ -1,6 +1,6 @@
-// Bind group layouts, bind groups, and pipeline layouts (root signatures) — the RHI's descriptor-set
-// model expressed in D3D12's root-signature model. See D3D12Device.hpp's header comment for the
-// mapping and the register-assignment ABI this file implements.
+
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -17,9 +17,9 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // Which D3D12 register class a binding type occupies. `CombinedImageSampler` is handled
-        // separately by its callers because it occupies two at once (an SRV *and* a sampler), which a
-        // single return value cannot express.
+
+
+
         enum class RegisterClass : u32 { Cbv, Srv, Uav, Sampler };
 
         [[nodiscard]] RegisterClass register_class_of(rhi::BindingType type) noexcept {
@@ -32,10 +32,10 @@ namespace SFT::D3D12 {
                 case rhi::BindingType::ReadOnlyStorageBuffer:
                 case rhi::BindingType::SampledTexture:
                 case rhi::BindingType::AccelerationStructure:
-                // D3D12 has no tile-local input attachment (Feature::DynamicRenderingLocalRead is never
-                // reported supported here). The portable, always-correct reading of an input attachment
-                // is "an SRV over the attachment texture", which is what the caller must fall back to
-                // anyway once the feature is absent.
+
+
+
+
                 case rhi::BindingType::InputAttachment:
                     return RegisterClass::Srv;
                 case rhi::BindingType::CombinedImageSampler:
@@ -108,10 +108,10 @@ namespace SFT::D3D12 {
             };
         }
 
-        // Descriptor-range flags carrying the caller's BindingFlags intent. These are what actually
-        // license the bindless behaviours the RHI names: VOLATILE says the descriptors may change after
-        // the table is bound (Vulkan's update-after-bind), and DESCRIPTORS_VOLATILE additionally allows
-        // slots to be unwritten as long as the shader never reads them (partially-bound).
+
+
+
+
         [[nodiscard]] D3D12_DESCRIPTOR_RANGE_FLAGS to_range_flags(rhi::BindingFlags flags,
                                                                    bool is_sampler) noexcept {
             D3D12_DESCRIPTOR_RANGE_FLAGS result = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
@@ -127,7 +127,7 @@ namespace SFT::D3D12 {
 
     } // namespace
 
-    // ─── Bind group layouts ──────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::BindGroupLayoutHandle> D3D12Device::create_bind_group_layout(
         const rhi::BindGroupLayoutDesc &desc) {
@@ -135,9 +135,9 @@ namespace SFT::D3D12 {
 
         BindGroupLayoutRecord record{};
         record.entries.assign(desc.entries.begin(), desc.entries.end());
-        // Sorted by binding so table offsets are assigned in a stable, register-ascending order —
-        // which is also the order a D3D12 descriptor range wants, since one range covers
-        // [BaseShaderRegister, BaseShaderRegister + NumDescriptors) contiguously.
+
+
+
         std::ranges::sort(record.entries, [](const rhi::BindGroupLayoutEntry &a,
                                              const rhi::BindGroupLayoutEntry &b) { return a.binding < b.binding; });
 
@@ -155,8 +155,8 @@ namespace SFT::D3D12 {
                         "create_bind_group_layout: has_dynamic_offset is only meaningful for a buffer binding.");
                 }
                 if (count != 1) {
-                    // A root descriptor is a single address, not an array — there is no D3D12 construct
-                    // for an array of root descriptors, so an array binding cannot also be dynamic.
+
+
                     return unsupported(
                         "create_bind_group_layout: a dynamic-offset binding cannot be an array binding on D3D12.");
                 }
@@ -212,7 +212,7 @@ namespace SFT::D3D12 {
         bind_group_layouts_.erase(handle);
     }
 
-    // ─── Pipeline layouts (root signatures) ──────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::PipelineLayoutHandle> D3D12Device::create_pipeline_layout(
         const rhi::PipelineLayoutDesc &desc) {
@@ -223,9 +223,9 @@ namespace SFT::D3D12 {
         record.sets.resize(record.set_layouts.size());
 
         vector<CD3DX12_ROOT_PARAMETER1> parameters;
-        // Ranges must outlive the D3D12_ROOT_PARAMETER1 objects that point at them, right through
-        // D3D12SerializeVersionedRootSignature — hence one stable arena rather than a local per set.
-        // Reserved up front because a reallocation would dangle every already-initialized parameter.
+
+
+
         vector<vector<CD3DX12_DESCRIPTOR_RANGE1>> range_storage;
         range_storage.reserve(record.set_layouts.size() * 2);
 
@@ -238,9 +238,9 @@ namespace SFT::D3D12 {
             const UINT space = static_cast<UINT>(set_index);
             SetRootParameters &mapping = record.sets[set_index];
 
-            // Root descriptors first, so their (cheap, one-DWORD-each) parameters cluster at the front
-            // of the root signature — the arrangement D3D12's own guidance recommends for the
-            // most-frequently-changed arguments, which dynamic-offset buffers are by definition.
+
+
+
             for (const DynamicSlot &slot : layout->dynamic_slots) {
                 CD3DX12_ROOT_PARAMETER1 parameter{};
                 const D3D12_SHADER_VISIBILITY visibility = to_d3d12_visibility(slot.visibility);
@@ -305,8 +305,8 @@ namespace SFT::D3D12 {
             }
         }
 
-        // Push constants: one merged root-constant block spanning every range (see D3D12Device.hpp's
-        // push-constant note for why merging is forced rather than chosen).
+
+
         if (!desc.push_constant_ranges.empty()) {
             u32 end_bytes = 0;
             rhi::ShaderStage stages = rhi::ShaderStage::None;
@@ -324,29 +324,29 @@ namespace SFT::D3D12 {
             }
             record.push_constant_values = end_bytes / 4;
             CD3DX12_ROOT_PARAMETER1 parameter{};
-            // Slang lowers [[push_constant]] ConstantBuffer<T> for DXIL as b0, space0. Root
-            // constants occupy that same CBV register namespace (but do not collide with SRV/UAV/
-            // sampler descriptor tables), so placing them in a synthetic space after the bind-group
-            // tables makes the root signature incompatible with every such DXIL module.
+
+
+
+
             parameter.InitAsConstants(record.push_constant_values, 0, 0,
                                       to_d3d12_visibility(stages));
             record.push_constant_root_parameter = static_cast<i32>(parameters.size());
             parameters.push_back(parameter);
         }
 
-        // ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT is set unconditionally. It is only *required* for a
-        // vertex-input pipeline, and it costs one root-signature DWORD of budget on nothing else, but
-        // a root signature is shared across every pipeline built from this layout — including mesh and
-        // compute ones — and omitting it would make a later vertex pipeline fail to create against an
-        // otherwise valid layout.
+
+
+
+
+
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc{};
         root_signature_desc.Init_1_1(static_cast<UINT>(parameters.size()),
                                      parameters.empty() ? nullptr : parameters.data(), 0, nullptr,
                                      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-        // Root signature 1.1 is requested and 1.0 accepted as a fallback: the descriptor-range flags
-        // above only exist in 1.1, so a 1.0-only runtime silently loses the volatility annotations,
-        // which is a validity-preserving loss (1.0 semantics are the conservative ones).
+
+
+
         D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature_support{D3D_ROOT_SIGNATURE_VERSION_1_1};
         if (FAILED(device_->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &root_signature_support,
                                                 sizeof(root_signature_support)))) {
@@ -372,9 +372,9 @@ namespace SFT::D3D12 {
             return hresult_error(hr, "create_pipeline_layout (CreateRootSignature)");
         }
         set_debug_name(record.root_signature.Get(), desc.label);
-        // Hashed from the serialized blob rather than taken from the ComPtr address, so the PSO cache
-        // name D3D12DevicePipelines.cpp derives from this stays the same across process runs whenever
-        // the root signature's actual content does (see PipelineLayoutRecord's own comment).
+
+
+
         record.root_signature_content_hash =
             fnv1a_bytes(fnv1a_offset_basis, blob->GetBufferPointer(), blob->GetBufferSize());
 
@@ -385,7 +385,7 @@ namespace SFT::D3D12 {
         pipeline_layouts_.erase(handle);
     }
 
-    // ─── Bind groups ─────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::BindGroupHandle> D3D12Device::create_bind_group(const rhi::BindGroupDesc &desc) {
         ZoneScopedN("D3D12Device::create_bind_group");
@@ -402,9 +402,9 @@ namespace SFT::D3D12 {
                 return invalid_argument(
                     "create_bind_group: variable_descriptor_count exceeds the layout's declared maximum.");
             }
-            // The variable binding is the last one, so shrinking it just shortens the table's tail —
-            // every other slot's table_offset is unaffected, which is exactly why the RHI requires it
-            // to be last.
+
+
+
             resource_count = variable.table_offset + desc.variable_descriptor_count;
         }
 
@@ -438,12 +438,12 @@ namespace SFT::D3D12 {
             record.samplers = *range;
         }
 
-        // Individual SampledTexture/StorageTexture/Sampler bindings each source a single descriptor
-        // from an independently-allocated view, so their source ranges aren't contiguous with one
-        // another and can't collapse into one CopyDescriptorsSimple call. ID3D12Device::CopyDescriptors
-        // (plural) still batches them into a single driver call: it takes an array of dest/src range
-        // starts with implicit size-one ranges (nullptr size arrays), so every 1-descriptor copy this
-        // loop would otherwise issue individually is queued here and flushed once after the loop.
+
+
+
+
+
+
         vector<D3D12_CPU_DESCRIPTOR_HANDLE> resource_copy_dests;
         vector<D3D12_CPU_DESCRIPTOR_HANDLE> resource_copy_srcs;
         vector<D3D12_CPU_DESCRIPTOR_HANDLE> sampler_copy_dests;
@@ -496,9 +496,9 @@ namespace SFT::D3D12 {
                         const u64 size = entry.size != 0 ? entry.size : buffer->size - entry.offset;
                         const D3D12_CONSTANT_BUFFER_VIEW_DESC cbv{
                             .BufferLocation = buffer->gpu_address + entry.offset,
-                            // A CBV's size must be a 256-byte multiple; rounding up is safe because
-                            // create_buffer() already padded any Uniform-usage buffer's allocation to
-                            // the same alignment, so the rounded range is still inside the resource.
+
+
+
                             .SizeInBytes = static_cast<UINT>(align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)),
                         };
                         device_->CreateConstantBufferView(&cbv, destination);
@@ -555,8 +555,8 @@ namespace SFT::D3D12 {
                             return invalid_argument(
                                 "create_bind_group: acceleration-structure binding names an unknown handle.");
                         }
-                        // The only SRV in D3D12 created with a null resource: a TLAS is referenced by
-                        // GPU virtual address, not by ID3D12Resource.
+
+
                         D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
                         srv.Format = DXGI_FORMAT_UNKNOWN;
                         srv.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
@@ -590,7 +590,7 @@ namespace SFT::D3D12 {
                         break;
                     }
                     case rhi::BindingType::Sampler:
-                        break; // handled by the sampler branch below
+                        break;
                 }
             }
 

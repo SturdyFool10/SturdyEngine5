@@ -14,10 +14,10 @@
 using std::expected;
 using std::unexpected;
 
-// Browser windows have no OS-level chrome to apply blur/acrylic/mica effects to and no native
-// window handle in the X11/Wayland/Win32/Cocoa sense (a WebGPU surface is created from the HTML
-// canvas element directly, not from a NativeWindowHandle) — every entry point here degrades
-// gracefully to "unsupported" rather than modeling browser-specific behavior that does not exist.
+
+
+
+
 namespace SFT::Platform::Windowing {
 
     OperatingSystem current_operating_system() noexcept {

@@ -11,11 +11,11 @@ struct HueBarConstants {
     float2 position;
     float2 size;
     float2 viewportSize;
-    // See UI::CustomElement.hpp's UiElementConstants doc comment: clipYSign/_pad0 complete the
+    // See UI::CustomElement.hpp's UiElementConstants doc comment: _reserved0/_reserved1 complete the
     // shared prefix to a clean 32 bytes, so params below starts at byte 32 with no implicit compiler
     // gap to account for on the C++ packing side (UI::pack_gradient_shader_params).
-    float clipYSign;
-    float _pad0;
+    float _reserved0;
+    float _reserved1;
     float4 params; // x = opacity (0..1), yzw unused.
     float4 cornerRadius; // topLeft, topRight, bottomLeft, bottomRight.
 };
@@ -30,7 +30,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
-    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize, constants.clipYSign);
+    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize);
     output.localPixelPos = uiQuadCorner(vertexId) * constants.size;
     return output;
 }

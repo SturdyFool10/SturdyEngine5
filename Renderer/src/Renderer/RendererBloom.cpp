@@ -160,9 +160,9 @@ namespace SFT::Renderer {
             -> Core::RendererExpected<RHI::RenderPipelineHandle> {
             RHI::ColorTargetState target{.format = color_format, .blend_enable = additive, .write_mask = RHI::ColorWriteMask::All};
             if (additive) {
-                // Progressive Jimenez reconstruction is an energy-normalized interpolation between
-                // the filtered coarse level and the existing finer level. The dynamic blend constant
-                // carries scatter: src*scatter + dst*(1-scatter).
+
+
+
                 target.color = RHI::BlendComponent{
                     .src_factor = RHI::BlendFactor::ConstantColor,
                     .dst_factor = RHI::BlendFactor::OneMinusConstantColor,
@@ -230,7 +230,8 @@ namespace SFT::Renderer {
                 normalized_scatter, normalized_scatter, normalized_scatter, normalized_scatter});
         }
         pass.set_bind_group(sampled_set, bind_group);
-        pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const BloomConstants>{&constants, 1}));
+        pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
+                                std::as_bytes(span<const BloomConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};
     }
@@ -372,9 +373,9 @@ namespace SFT::Renderer {
             return unexpected(bloom_error("bloom composite shader produced no bind-group layout (expected two sampled textures + one sampler)."));
         }
 
-        // Track the first two SampledTexture bindings in reflection order: fullscreen_bloom_composite.slang
-        // declares sceneTexture before bloomTexture, so entry order matches declaration order the same way
-        // the (now-reverted) two-texture tonemap prototype relied on.
+
+
+
         bool has_scene_binding = false;
         bool has_bloom_binding = false;
         bool has_sampler_binding = false;
@@ -497,8 +498,8 @@ namespace SFT::Renderer {
             .label = "bloom composite bind group",
         });
         if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create bloom composite bind group"));
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
-        // run concurrently with another pass's push_back into the same shared vector.
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(*pipeline);
@@ -507,7 +508,8 @@ namespace SFT::Renderer {
             .bloom_intensity = bloom_intensity,
             .threshold_enabled = threshold_enabled ? 1u : 0u,
         };
-        pass.set_push_constants(RHI::ShaderStage::Fragment, 0, std::as_bytes(span<const BloomCompositeConstants>{&constants, 1}));
+        pass.set_push_constants(RHI::ShaderStage::Fragment, 0,
+                                std::as_bytes(span<const BloomCompositeConstants>{&constants, 1}));
         pass.draw(RHI::DrawArgs{.vertex_count = 3});
         return {};
     }

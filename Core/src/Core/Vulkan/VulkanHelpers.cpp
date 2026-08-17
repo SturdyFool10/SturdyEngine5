@@ -214,7 +214,7 @@ const char *vendor_name(u32 vendor_id) noexcept {
     }
 
 UString format_driver_version(u32 vendor_id, u32 version) {
-        if (vendor_id == 0x10DE) { // NVIDIA
+        if (vendor_id == 0x10DE) {
             return std::format("{}.{}.{}.{}",
                                (version >> 22) & 0x3FF,
                                (version >> 14) & 0x0FF,
@@ -222,7 +222,7 @@ UString format_driver_version(u32 vendor_id, u32 version) {
                                version & 0x03F);
         }
 #if defined(STURDY_PLATFORM_WINDOWS)
-        if (vendor_id == 0x8086) { // Intel (Windows-only encoding)
+        if (vendor_id == 0x8086) {
             return std::format("{}.{}", version >> 14, version & 0x3FFF);
         }
 #endif

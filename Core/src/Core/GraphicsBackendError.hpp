@@ -20,11 +20,11 @@ namespace SFT::Core {
         InitializationFailed,
         DeviceLost,
         SurfaceLost,
-        // The presentation engine revoked exclusive-fullscreen ownership it had previously granted
-        // (VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) — a normal, recoverable state transition
-        // (another app took focus, the user alt-tabbed, ...), not a device/surface failure. The
-        // swapchain itself is still valid; callers should fall back to windowed/borderless
-        // presentation and mark the swapchain dirty for rebuild rather than hard-failing.
+        /// The presentation engine revoked exclusive-fullscreen ownership it had previously granted
+        /// (VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) — a normal, recoverable state transition
+        /// (another app took focus, the user alt-tabbed, ...), not a device/surface failure. The
+        /// swapchain itself is still valid; callers should fall back to windowed/borderless
+        /// presentation and mark the swapchain dirty for rebuild rather than hard-failing.
         FullScreenExclusiveLost,
         OutOfMemory,
         Unsupported,
@@ -57,11 +57,11 @@ namespace SFT::Core {
 
     [[nodiscard]] unexpected<GraphicsBackendError> graphics_backend_error(GraphicsBackendErrorCode code, string message);
 
-    // Distinguishes the non-error outcomes a successful vkQueuePresentKHR call can still report.
-    // Suboptimal and OutOfDate both presented (the driver honored the call) but differ in urgency:
-    // Suboptimal means the swapchain still works and can keep presenting, OutOfDate means it should
-    // stop being used for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-
-    // exclusive loss) are reported through GraphicsBackendError, not this enum.
+    /// Distinguishes the non-error outcomes a successful vkQueuePresentKHR call can still report.
+    /// Suboptimal and OutOfDate both presented (the driver honored the call) but differ in urgency:
+    /// Suboptimal means the swapchain still works and can keep presenting, OutOfDate means it should
+    /// stop being used for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-
+    /// exclusive loss) are reported through GraphicsBackendError, not this enum.
     enum class PresentOutcome {
         Success,
         Suboptimal,

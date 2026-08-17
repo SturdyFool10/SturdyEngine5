@@ -1,5 +1,5 @@
-// Device bring-up and teardown, introspection accessors, queue plumbing, the blocking
-// submit-and-wait helper the internal upload/resolve paths share, and command-list recycling.
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -19,10 +19,10 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // Where the ID3D12PipelineLibrary blob is persisted between runs. Under the repo-root
-        // `.cache/` directory (already gitignored — see .gitignore's `/.cache/` entry) rather than an
-        // OS profile directory, matching Core::Slang::ShaderCache's convention (ShaderCache.hpp) that
-        // this is a build-local generated artifact, not user data.
+
+
+
+
         constexpr const wchar_t *pipeline_library_cache_path = L".cache/d3d12_pipeline_library.bin";
 
         [[nodiscard]] vector<std::byte> read_pipeline_library_blob() {
@@ -43,11 +43,11 @@ namespace SFT::D3D12 {
             return data;
         }
 
-        // Loads the on-disk blob into a fresh library, or hands back an empty one when there is no
-        // usable blob. A blob a driver/OS update made stale is documented Microsoft behavior for
-        // CreatePipelineLibrary to reject (it returns DXGI_ERROR_INVALID_CALL, among other codes) — not
-        // corruption this backend should treat as fatal, so any failure just falls through to the
-        // empty-library attempt rather than propagating.
+
+
+
+
+
         [[nodiscard]] ComPtr<ID3D12PipelineLibrary1> load_pipeline_library(ID3D12Device *device) {
             ComPtr<ID3D12Device1> device1;
             if (FAILED(device->QueryInterface(IID_PPV_ARGS(&device1)))) {
@@ -65,9 +65,9 @@ namespace SFT::D3D12 {
             return library;
         }
 
-        // Serializes `library` back to pipeline_library_cache_path, tolerating every failure mode
-        // (nothing stored yet, a full disk, a denied write) by simply skipping the write — losing the
-        // cache costs a cold rebuild next run, never correctness.
+
+
+
         void save_pipeline_library(ID3D12PipelineLibrary1 *library) {
             if (library == nullptr) {
                 return;
@@ -83,8 +83,8 @@ namespace SFT::D3D12 {
             std::error_code ec;
             const std::filesystem::path path(pipeline_library_cache_path);
             std::filesystem::create_directories(path.parent_path(), ec);
-            // Write to a temp file then rename, so a crash/power-loss mid-write never leaves a
-            // truncated blob that a later load_pipeline_library() could mistake for a valid one.
+
+
             const std::filesystem::path temp_path = path.wstring() + L".tmp";
             {
                 std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
@@ -132,14 +132,14 @@ namespace SFT::D3D12 {
     }
 
     D3D12Device::~D3D12Device() {
-        // Every destructor below releases COM objects the GPU may still be reading. Draining first is
-        // not optional — D3D12 has no equivalent of Vulkan's "destroying an in-use object is a
-        // validation error you might get away with"; releasing a resource with pending references
-        // produces a live-object report at best and a device removal at worst.
+
+
+
+
         wait_idle();
 
-        // Not GPU-owned state, so this could run before wait_idle() too, but keeping every teardown
-        // step after the drain avoids having to reason about which of them are safe before it.
+
+
         if (pipeline_library_supported_) {
             save_pipeline_library(pipeline_library_.lock()->Get());
         }
@@ -168,17 +168,17 @@ namespace SFT::D3D12 {
             return operation_failed("D3D12Device::initialize: no ID3D12Device was supplied.");
         }
 
-        // Optional newer interfaces. A failed QueryInterface is not an error — it is how a runtime
-        // predating an interface reports itself, and every use site is already written to check.
+
+
         (void)device_.As(&device5_);
         (void)device_.As(&device8_);
         (void)device_.As(&device10_);
 
-        // Best-effort: standing up even an *empty* library can fail (older runtime lacking
-        // ID3D12Device1, driver refusing it), and a PSO disk cache is an optimization, never something
-        // create-device should be able to fail over. pipeline_library_supported_ downgrades to false
-        // in that case, so every create_render_pipeline()/create_compute_pipeline() call site can trust
-        // one flag instead of separately null-checking the ComPtr.
+
+
+
+
+
         if (pipeline_library_supported_) {
             if (ComPtr<ID3D12PipelineLibrary1> library = load_pipeline_library(device_.Get());
                 library != nullptr) {
@@ -193,9 +193,9 @@ namespace SFT::D3D12 {
         } else {
             return std::unexpected(queue.error());
         }
-        // Compute and copy queues are best-effort: a device that refuses one still works, it just
-        // aliases that class onto the direct queue via queue_for_lane(). Failing device creation for
-        // them would reject hardware that can run everything the RHI's base tier promises.
+
+
+
         if (auto queue = create_queue(device_.Get(), D3D12_COMMAND_LIST_TYPE_COMPUTE, "Sturdy compute queue")) {
             compute_queue_ = std::move(*queue);
         }
@@ -234,9 +234,9 @@ namespace SFT::D3D12 {
             }
         }
 
-        // The RHI reports timestamp period in nanoseconds per tick; D3D12 reports ticks per second, and
-        // only from a queue (each engine has its own clock). The graphics queue's is the one every
-        // caller's per-pass timing is quoted against.
+
+
+
         UINT64 timestamp_frequency = 0;
         if (SUCCEEDED(graphics_queue_->GetTimestampFrequency(&timestamp_frequency)) && timestamp_frequency != 0) {
             limits_.timestamp_period_ns = 1'000'000'000.0f / static_cast<f32>(timestamp_frequency);

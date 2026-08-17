@@ -10,8 +10,8 @@
 
 namespace SFT::Core::D3D12 {
 
-    // Windows-only renderer backend. It owns the API-neutral RHI instance/device pair and translates
-    // Core window surfaces into the D3D12 RHI's Win32 surface records.
+    /// Windows-only renderer backend. It owns the API-neutral RHI instance/device pair and translates
+    /// Core window surfaces into the D3D12 RHI's Win32 surface records.
     class D3D12Backend final : public EngineBackend {
       public:
         ~D3D12Backend() override;

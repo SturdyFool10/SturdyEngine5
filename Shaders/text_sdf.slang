@@ -44,11 +44,6 @@ struct TextViewConstants {
     // of API draw-call base-instance values is not portable across shader-language backends.
     uint instanceIndexBase;
     uint padding;
-    // +1 on Vulkan, -1 on D3D12/Metal/WebGpu (RHI::gpu_clip_y_sign, TextInstanceImpl.cpp) — replaces
-    // the legacy STURDY_CLIP_Y_SIGN macro/sturdy_clip_position() wrapper for this main-path shader: a
-    // plain multiply against C++-supplied data instead of a shader-compile-time branch.
-    float clipYSign;
-    float3 _pad1;
 };
 
 [[push_constant]] ConstantBuffer<TextViewConstants> viewConstants;
@@ -83,14 +78,10 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     float2 right = float2(cosR, sinR) * inst.size.x;
     float2 up = float2(-sinR, cosR) * inst.size.y;
     float2 pixelPos = inst.position + corner.x * right + corner.y * up;
-    // Pixel space -> clip space: Vulkan NDC Y and this engine's pixel-space Y both point down, so
-    // the base mapping is a direct scale/offset. clipYSign (viewConstants, see TextViewConstants'
-    // own doc comment) folds the D3D12 NDC-Y reconciliation in as a plain multiply — no macro/branch
-    // — replacing the legacy sturdy_clip_position() wrapper for this shader.
-    float2 ndc = (pixelPos * safeRcp(viewConstants.viewportSize)) * 2.0 - 1.0;
+    float2 pixelUv = pixelPos * safeRcp(viewConstants.viewportSize);
 
     VertexOutput output;
-    output.position = float4(ndc.x, ndc.y * viewConstants.clipYSign, 0.0, 1.0);
+    output.position = float4(uvToNdc(pixelUv), 0.0, 1.0);
     output.uv = lerp(inst.uvMin, inst.uvMax, corner);
     output.color = inst.color;
     output.formatKind = inst.formatKind;

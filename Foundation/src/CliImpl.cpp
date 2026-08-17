@@ -10,7 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <shellapi.h> // CommandLineToArgvW
+#include <shellapi.h>
 #endif
 
 #if defined(STURDY_PLATFORM_WINDOWS)
@@ -20,11 +20,11 @@ namespace SFT::Foundation {
     CliArgs args_from_windows_command_line() {
         CliArgs args;
 
-        // WinMain only hands us a raw command line, so we must tokenize it — honoring Windows'
-        // quoting rules (double-quoted spans keep their spaces, "" is an escaped quote, backslashes
-        // are only special immediately before a quote, ...). Rather than re-implement those subtle,
-        // easy-to-get-wrong rules, defer to CommandLineToArgvW on the full process command line,
-        // which applies the exact same parsing the CRT uses to populate argv.
+
+
+
+
+
         int wide_argc = 0;
         LPWSTR *wide_argv = ::CommandLineToArgvW(::GetCommandLineW(), &wide_argc);
         if (wide_argv == nullptr) {
@@ -39,8 +39,8 @@ namespace SFT::Foundation {
                 continue;
             }
 
-            // Two-call WideCharToMultiByte: first to size the UTF-8 buffer, then to fill it. Passing
-            // the exact length (not -1) keeps the terminating null out of the produced string.
+
+
             const int utf8_len = ::WideCharToMultiByte(
                 CP_UTF8, 0, wide_argv[i], wide_len, nullptr, 0, nullptr, nullptr);
             std::string utf8(static_cast<std::size_t>(utf8_len), '\0');

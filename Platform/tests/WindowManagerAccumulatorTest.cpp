@@ -1,10 +1,10 @@
-// WindowManager's event accumulator: mouse-motion coalescing and the per-window accumulation cap
-// (see WindowManagerPolicy's own doc comments). Driven entirely through a fake Window, so this is a
-// provider-independent test of the manager itself — the same accumulator both SDL3 and the optional
-// GLFW provider feed, which is why it lives here rather than beside either one.
-//
-// CallerThread pump mode throughout: pump() is then fully synchronous (poll-and-drain inline), so
-// every assertion below is deterministic rather than racing a background poll pass.
+
+
+
+
+
+
+
 
 #include <Platform/Window/WindowManager.hpp>
 
@@ -27,20 +27,20 @@ namespace {
         return condition;
     }
 
-    // Replays a fixed script of events on its first pump_events() call and nothing afterwards, so a
-    // single pump() call sees exactly the sequence a test set up.
+
+
     class ScriptedWindow final : public Window {
       public:
-        // Consumed (and cleared) by the next construct() call — Window's factory contract gives no
-        // route to pass test data through WindowConfig, and the alternative (a per-instance setter)
-        // is unreachable because WindowManager owns every Window it creates.
+
+
+
         static std::vector<WindowEvent> next_script;
 
         ~ScriptedWindow() noexcept override = default;
 
         [[nodiscard]] static expected<unique_ptr<ScriptedWindow>, WindowError> construct(
             ConstructorKey key,
-            const WindowConfig & /*config*/) noexcept {
+            const WindowConfig &           ) noexcept {
             auto *window = new (std::nothrow) ScriptedWindow(key);
             if (window == nullptr) {
                 return unexpected(WindowError{WindowErrorCode::OutOfMemory, "test window allocation failed"});
@@ -83,46 +83,46 @@ namespace {
         expected<void, WindowError> maximize() noexcept override { return {}; }
         expected<void, WindowError> minimize() noexcept override { return {}; }
         expected<void, WindowError> restore() noexcept override { return {}; }
-        expected<void, WindowError> set_title(const char * /*title*/) noexcept override { return {}; }
+        expected<void, WindowError> set_title(const char *          ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override { return WindowPosition{}; }
-        expected<void, WindowError> set_position(WindowPosition /*position*/) noexcept override { return {}; }
+        expected<void, WindowError> set_position(WindowPosition             ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override { return WindowPosition{}; }
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override { return WindowExtent{640, 480}; }
-        expected<void, WindowError> set_size(WindowExtent /*extent*/) noexcept override { return {}; }
+        expected<void, WindowError> set_size(WindowExtent           ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override { return WindowExtent{640, 480}; }
-        expected<void, WindowError> set_minimum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_maximum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_resizable(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_decorated(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_fullscreen(WindowMode /*mode*/) noexcept override { return {}; }
-        expected<void, WindowError> set_opacity(f32 /*opacity*/) noexcept override { return {}; }
+        expected<void, WindowError> set_minimum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_maximum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_resizable(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_decorated(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_fullscreen(WindowMode         ) noexcept override { return {}; }
+        expected<void, WindowError> set_opacity(f32            ) noexcept override { return {}; }
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override { return 1.0F; }
-        expected<void, WindowError> set_cursor_icon(CursorIcon /*icon*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_visible(bool /*visible*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_grabbed(bool /*grabbed*/) noexcept override { return {}; }
-        expected<void, WindowError> set_relative_mouse_mode(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_icon(CursorIcon         ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_visible(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_grabbed(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_relative_mouse_mode(bool            ) noexcept override { return {}; }
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override {
             mouse_locked_ = locked;
             return {};
         }
         [[nodiscard]] bool mouse_locked() const noexcept override { return mouse_locked_; }
-        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect /*effect*/) noexcept override {
+        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect           ) noexcept override {
             return WindowEffectResult::success();
         }
-        expected<void, WindowError> set_effect(WindowEffect /*effect*/) noexcept override { return {}; }
-        expected<void, WindowError> set_blur_enabled(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_transparent(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_effect(WindowEffect           ) noexcept override { return {}; }
+        expected<void, WindowError> set_blur_enabled(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_transparent(bool            ) noexcept override { return {}; }
         [[nodiscard]] expected<vector<const char *>, WindowError> required_vulkan_instance_extensions() const noexcept override {
             return vector<const char *>{};
         }
         expected<void, WindowError> create_vulkan_surface(
-            void * /*instance*/,
-            const void * /*allocation_callbacks*/,
-            void * /*surface_out*/) const noexcept override {
+            void *             ,
+            const void *                         ,
+            void *                ) const noexcept override {
             return {};
         }
         [[nodiscard]] std::string clipboard_text() const noexcept override { return {}; }
-        expected<void, WindowError> set_clipboard_text(std::string_view /*text*/) noexcept override { return {}; }
+        expected<void, WindowError> set_clipboard_text(std::string_view         ) noexcept override { return {}; }
 
       private:
         explicit ScriptedWindow(ConstructorKey key) noexcept : Window(key) {}
@@ -142,7 +142,7 @@ namespace {
         return event;
     }
 
-    // Runs one synchronous pump() over `script` and hands back what the accumulator produced.
+
     [[nodiscard]] vector<WindowEvent> pump_script(std::vector<WindowEvent> script, WindowManagerPolicy policy, bool &passed) {
         policy.event_pump_mode = WindowEventPumpMode::CallerThread;
         policy.platform_allows_threads = true;
@@ -167,10 +167,10 @@ namespace {
         return events;
     }
 
-    // A high-polling-rate mouse delivers a long run of MouseMoved events per frame. Each run must
-    // collapse to a single event carrying the newest position and the *summed* motion, and must not
-    // merge across an intervening event — merging across a button press would move the pointer
-    // position that click is attributed to.
+
+
+
+
     bool mouse_motion_coalesces_without_losing_motion() {
         bool passed = true;
 
@@ -201,20 +201,20 @@ namespace {
                             "coalescing lost motion from the second run");
         }
 
-        // Opting out must preserve every raw sample point, for a consumer that needs them.
+
         const vector<WindowEvent> raw = pump_script(script, WindowManagerPolicy{.coalesce_mouse_motion = false}, passed);
         passed &= check(raw.size() == script.size(), "coalesce_mouse_motion=false still merged motion events");
         return passed;
     }
 
-    // The accumulator is bounded even when a consumer stops pumping under a live input stream, and
-    // the close/resize latches survive the drop path since they are entry flags, not list entries.
+
+
     bool accumulator_is_bounded_and_keeps_state_latches() {
         bool passed = true;
         constexpr usize cap = 8;
 
-        // Alternating kinds so nothing coalesces and the cap is genuinely reached, with a
-        // CloseRequested past the cap to prove the latch is not lost with the dropped events.
+
+
         std::vector<WindowEvent> script;
         for (usize i = 0; i < cap * 4; ++i) {
             script.push_back(motion(static_cast<f32>(i), 0.0F, 1.0F, 0.0F));

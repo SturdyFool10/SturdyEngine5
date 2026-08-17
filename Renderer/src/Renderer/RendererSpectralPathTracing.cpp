@@ -62,14 +62,14 @@ namespace SFT::Renderer {
         struct SpectralMaterialGpu {
             glm::vec4 base_color{0.8f, 0.8f, 0.8f, 1.0f};
             glm::vec4 emissive_and_strength{0.0f, 0.0f, 0.0f, 1.0f};
-            // x roughness factor, y metallic factor, z occlusion strength, w dielectric F0.
+
             glm::vec4 surface{0.5f, 0.0f, 1.0f, 0.04f};
             glm::vec4 transmission{0.0f, 1.4878f, 0.0042f, 0.0f};
-            // base color, metallic/roughness, normal, occlusion texture heap indices.
+
             glm::uvec4 texture_indices0{~0u};
-            // emissive texture index; remaining lanes reserved for material extensions.
+
             glm::uvec4 texture_indices1{~0u};
-            // x alpha cutoff, y normal-map scale, zw reserved.
+
             glm::vec4 alpha_and_normal{0.0f, 1.0f, 0.0f, 0.0f};
         };
         static_assert(sizeof(SpectralMaterialGpu) == 112);
@@ -124,13 +124,13 @@ namespace SFT::Renderer {
             "hashPhotonsMain",
         };
 
-        // VkGeometryInstanceFlagBitsKHR / D3D12_RAYTRACING_INSTANCE_FLAGS bit, matching the raw byte
-        // AccelerationStructureInstance::set_shader_binding_table_offset_and_flags packs verbatim.
-        // Every BLAS geometry is built Opaque (see ensure_spectral_mesh_acceleration_structures), so
-        // leaving an instance's flags at zero lets ray queries take the hardware opaque auto-commit
-        // fast path for it. Only alpha-cutout materials need this instance-level override to force
-        // the any-hit-equivalent candidate evaluation traceSpectralClosestSurface relies on for
-        // masking — see that function's RAY_FLAG_NONE comment for the other half of this contract.
+
+
+
+
+
+
+
         constexpr u8 kForceNoOpaqueInstanceFlag = 0x08u;
 
         [[nodiscard]] usize spectral_pipeline_index(SpectralRenderMode mode) noexcept {
@@ -223,9 +223,9 @@ namespace SFT::Renderer {
             .targets = shader_compile_targets_for_device(device),
             .entry_points = std::move(entry_requests),
         };
-        // One ShaderCompiler shared across all three spectral shaders below (integrators, photon
-        // caustics, depth) so they reuse the same Slang global session rather than each paying to
-        // create their own -- each still gets its own disk-cache entry via a fresh ShaderVariantCache.
+
+
+
         slang::ShaderCompiler compiler;
         slang::ShaderVariantCache shader_cache{
             slang::ShaderSource::from_file("Shaders/spectral_integrators.slang", "spectral_integrators"),
@@ -599,8 +599,8 @@ namespace SFT::Renderer {
             }
 
             const u32 primitive_count = mesh_resource->index_count / 3u;
-            // The current hit-data ABI always vertex-pulls through geometryIndices. Non-indexed meshes
-            // stay raster-only until generated index data is added to their replay record.
+
+
             if (primitive_count == 0) {
                 continue;
             }
@@ -704,9 +704,9 @@ namespace SFT::Renderer {
                 return unexpected(graphics_error_from_rhi(waited.error(), "wait mesh BLAS build"));
             }
             if (!*waited) {
-                // Real timeout (wait_forever is used here, so unreachable outside a device hang) --
-                // the fence is not confirmed signaled, so destroying anything it protects here would
-                // be a real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+
+
+
                 return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                  "wait mesh BLAS build: vkWaitForFences timed out."));
             }
@@ -1002,8 +1002,8 @@ namespace SFT::Renderer {
                                              "Cannot allocate spectral accumulation without an RHI device."));
         }
         if (record.spectral_accumulation.texture || record.spectral_accumulation.view) {
-            // A history image is shared by every frame submission for this window, rather than owned by
-            // one ring slot. Resizing is cold-path work and must retire all users before replacement.
+
+
             drain_frames_in_flight(record);
             destroy_spectral_accumulation_target(record);
         }
@@ -1147,9 +1147,9 @@ namespace SFT::Renderer {
             !targets.has_value()) {
             return targets;
         }
-        // A fresh/resized buffer (ensure_frame_spectral_photon_targets above just recreated it) always
-        // needs emission regardless of the caller's accumulation-reset signal — its contents are
-        // otherwise uninitialized device memory.
+
+
+
         emission_needed = emission_needed || !slot.spectral_photon_targets.populated;
         if (!enabled || !emission_needed) {
             return {};

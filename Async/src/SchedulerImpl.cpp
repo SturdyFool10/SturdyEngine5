@@ -38,16 +38,16 @@ namespace SFT::Async {
             return "?";
         }
 
-        // A single worker's task queue: push/pop from the back (owner), steal from the front
-        // (thief). Built on `Mutex<T>` rather than a lock-free Chase-Lev deque — simpler to get
-        // right, at the cost of a little contention under heavy stealing. A lock-free version is a
-        // drop-in optimization behind this same interface if that ever shows up in a profile.
+
+
+
+
         class WorkerDeque {
           public:
-            // `debug_name` labels this deque's mutex in Tracy's lock view (Mutex<T>::set_debug_name,
-            // Async/src/Mutex.hpp) -- this is the scheduler's documented contention-sensitive hot
-            // path (see class comment above), so it's one of the few Async::Mutex instances worth
-            // telling apart on the timeline rather than leaving under the shared generic label.
+
+
+
+
             explicit WorkerDeque(const char *debug_name = nullptr) noexcept { tasks_.set_debug_name(debug_name); }
 
             void push_back(unique_ptr<Detail::TaskBase> task) noexcept {
@@ -87,21 +87,21 @@ namespace SFT::Async {
         struct Pool {
             vector<thread> threads;
             vector<unique_ptr<WorkerDeque>> deques;
-            WorkerDeque injector{"Scheduler Injector"}; // fallback queue fed by non-worker threads
+            WorkerDeque injector{"Scheduler Injector"};
             std::atomic<bool> running{false};
-            // Tasks available in a deque, excluding work already executing. This keeps idle workers
-            // asleep while the pool is fully occupied by long-running tasks.
+
+
             std::atomic<u32> queued_count{0};
             std::atomic<u32> waiting_worker_count{0};
             std::mutex wake_mutex;
             condition_variable wake_cv;
             SchedulerConfig config{};
 
-            // Workers are created in best-core-first order (see initialize()'s use of
-            // ranked_physical_cores()), so worker indices [0, heavy_worker_count) already name the
-            // fastest cores on this machine — no separate ranked-index table needed at enqueue time.
-            // `Heavy` tasks (TaskWeight) are seeded onto one of these deques round-robin; `Light` tasks
-            // (the default, and every existing call site) are completely unaffected.
+
+
+
+
+
             usize heavy_worker_count = 1;
             std::atomic<u32> heavy_round_robin{0};
         };
@@ -111,7 +111,7 @@ namespace SFT::Async {
             return instance;
         }
 
-        // -1 on any thread that isn't a scheduler worker (the main thread, an app thread, ...).
+
         thread_local i32 t_worker_index = -1;
         thread_local u32 t_steal_cursor = 0;
 
@@ -141,19 +141,19 @@ namespace SFT::Async {
         }
 
         [[nodiscard]] bool execute_one_task(Pool &p, u32 index) noexcept {
-            // Cheap lock-free bail-out before try_take_task's mutex-guarded scan (own deque, the
-            // injector, then every other worker's deque — up to worker_count separate mutex
-            // lock/unlocks). queued_count is incremented in enqueue() *before* the task is actually
-            // pushed (see that function's own comment), so it can only ever over-report ("count says
-            // work might be there, but the push hasn't landed yet" — the caller just loops and tries
-            // again) — it can never under-report, so this can never cause a real task to be missed.
-            // Without this gate, an idle worker's spin phase (up to idle_spin_iterations per backoff
-            // cycle) pays a full multi-mutex scan on *every single iteration* even when nothing is
-            // queued anywhere — with N workers mostly idle (real parallel render-graph work is brief
-            // and bursty, not enough to keep every worker busy), that is N threads hammering each
-            // other's queue mutexes nonstop. Measured via flamegraph: pthread_mutex_lock/unlock plus
-            // this function together accounted for the large majority of steady-state CPU samples in
-            // an otherwise near-idle frame before this fix.
+
+
+
+
+
+
+
+
+
+
+
+
+
             if (p.queued_count.load(std::memory_order_acquire) == 0) {
                 return false;
             }
@@ -170,8 +170,8 @@ namespace SFT::Async {
 
         void worker_loop(u32 index) noexcept {
             t_worker_index = static_cast<i32>(index);
-            // Lives for the rest of this call, which is the worker thread's entire lifetime (the loop
-            // below only returns at shutdown) — tracy::SetThreadName keeps the pointer, not a copy.
+
+
             char tracy_thread_name[32];
             std::snprintf(tracy_thread_name, sizeof(tracy_thread_name), "Async Worker %u", index);
             tracy::SetThreadName(tracy_thread_name);
@@ -198,9 +198,9 @@ namespace SFT::Async {
                     continue;
                 }
 
-                // Nothing anywhere right now — sleep briefly after a spin/yield grace period. The
-                // predicate is re-checked on every loop iteration regardless, so a missed wakeup only
-                // costs up to this timeout, never correctness.
+
+
+
                 unique_lock<std::mutex> idle_lock(p.wake_mutex);
                 p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), [&p]() {
                     return !p.running.load(std::memory_order_acquire) || p.queued_count.load(std::memory_order_acquire) > 0;
@@ -236,8 +236,8 @@ namespace SFT::Async {
                 continue;
             }
 
-            // A worker cannot use done.wait() after an empty scan: work enqueued later may be
-            // required to complete `done`, but enqueueing that work does not modify this atomic.
+
+
             unique_lock<std::mutex> idle_lock(p.wake_mutex);
             p.wake_cv.wait_for(
                 idle_lock,
@@ -273,13 +273,13 @@ namespace SFT::Async {
         }
 
         SchedulerConfig active_config = config;
-        // One worker per *physical* core, not per logical/SMT hardware thread: this pool is meant for
-        // CPU-bound work-stealing, where a second software thread sharing an already-busy physical
-        // core's execution units adds contention, not throughput. ranked_physical_cores() collapses
-        // SMT siblings to one representative each (Foundation::Cpu::CoreMap); it degrades to one entry
-        // per logical core (old behavior) wherever physical-core topology isn't known. One core is
-        // reserved unpinned for the caller (main/render thread), same as the old hardware_concurrency()
-        // headroom.
+
+
+
+
+
+
+
         if (active_config.worker_count == 0) {
             const vector<u32> physical_cores = ranked_physical_cores();
             const u32 physical_count = physical_cores.empty()
@@ -305,14 +305,14 @@ namespace SFT::Async {
             p.threads.emplace_back(worker_loop, i);
         }
 
-        // Pin each worker to a distinct real *physical* core, best-ranked first
-        // (ranked_physical_cores(), Topology.hpp) — worker_count was sized off the same list above, so
-        // (barring a pinning failure) every worker lands on its own physical core with none shared and
-        // none idle. Worker indices [0, heavy_worker_count) below are therefore already the fastest
-        // cores on this machine by construction, with no separate lookup needed at enqueue time. This
-        // is the scheduler's default placement behavior (no opt-out config flag); pinning failures are
-        // logged once and otherwise harmless — a worker just keeps floating across cores exactly like
-        // every worker did before this change.
+
+
+
+
+
+
+
+
         const vector<u32> ranked_cores = ranked_physical_cores();
         u32 pinned_count = 0;
         if (!ranked_cores.empty()) {
@@ -340,9 +340,9 @@ namespace SFT::Async {
             core_map.distinct_type_count(),
             core_map.is_hybrid());
 
-        // One line per distinct core type (CoreCapabilities equality -- CoreMap.hpp) so an actually
-        // hybrid or multi-CCD X3D machine shows exactly what the ranking above saw: which cores got
-        // grouped together, why (CoreType and/or cache size), and how many of each this run has.
+
+
+
         for (usize type_index = 0; type_index < core_map.distinct_type_count(); ++type_index) {
             const vector<usize> &members = core_map.core_indices_of_type(type_index);
             const Foundation::Cpu::CoreCapabilities &rep = core_map.core(members.front());
@@ -402,16 +402,16 @@ namespace SFT::Async {
             initialize();
         }
 
-        // Publish the count before the queue entry so a worker can never dequeue and decrement from
-        // zero. Seeing a positive count slightly early is harmless: it is only an idle-wakeup hint.
-        // This increment, and every other detail of execute_one_task()'s lock-free gate, is identical
-        // regardless of `weight` below — only the destination deque changes.
+
+
+
+
         p.queued_count.fetch_add(1, std::memory_order_acq_rel);
 
-        // Heavy is a placement *seed*, not a pin: it lands on one of the best-ranked workers' own
-        // deques (see initialize()'s core-ranked worker order), but try_take_task()'s existing
-        // work-stealing is completely unchanged, so any other worker can still pick it up if that
-        // worker is busy. Light (the default) is byte-for-byte today's existing path.
+
+
+
+
         if (weight == TaskWeight::Heavy && p.heavy_worker_count > 0) {
             const u32 index = p.heavy_round_robin.fetch_add(1, std::memory_order_relaxed) %
                                static_cast<u32>(p.heavy_worker_count);

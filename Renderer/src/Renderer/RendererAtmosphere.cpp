@@ -1,14 +1,14 @@
-// Hillaire/Bruneton-style precomputed atmospheric scattering: per-frame constants buffer plus the
-// three LUT-bake compute passes (transmittance/multi-scattering/sky-view — see
-// Shaders/sturdy_atmosphere.slang and Shaders/sky_*_lut.slang for the shared math and bake shaders).
-// Consumed by Shaders/deferred_shadow_lighting.slang for the sky background and aerial perspective.
-//
-// Phase 1: atmosphere physics parameters are hardcoded Earth defaults (Bruneton's commonly used
-// reference values), not yet user-configurable — exposing them through Engine's public settings API
-// is deferred to a follow-up (see agent_collaboration.md) so this doesn't have to touch the render
-// graph description types being actively refactored elsewhere in this tree. The buffer/shader
-// plumbing here does not change when that follow-up lands; only prepare_atmosphere_frame's literals
-// get replaced with real submitted values.
+
+
+
+
+
+
+
+
+
+
+
 
 #include <Foundation/src/Foundation.hpp>
 
@@ -55,10 +55,10 @@ namespace SFT::Renderer {
                        : fallback;
         }
 
-        // Earth reference constants (Bruneton's commonly used values) — identical to
-        // Shaders/sturdy_atmosphere.slang's defaultEarthAtmosphere(), which documents each field.
-        // Phase 2 replaces this with real user-submitted values; nothing else about the buffer layout
-        // or the shaders that read it changes when that lands.
+
+
+
+
         struct EarthAtmosphereDefaults {
             static constexpr glm::vec3 kRayleighScattering{5.802e-6f, 13.558e-6f, 33.1e-6f};
             static constexpr f32 kRayleighScaleHeight = 8000.0f;
@@ -134,11 +134,11 @@ namespace SFT::Renderer {
             EarthAtmosphereDefaults::kAtmosphereRadiusMeters, 0.0f};
         gpu.ground_albedo = glm::vec4{EarthAtmosphereDefaults::kGroundAlbedo, 0.0f};
 
-        // The planet is re-centered directly beneath the camera every frame (world "up" is always
-        // +Y in this engine's atmosphere model) — standard large-radius precision trick, the same
-        // idea CSM's per-frame texel snapping already uses elsewhere in this codebase. Camera drift
-        // horizontally relative to the ~6360km planet radius is astronomically small, so this is not
-        // an approximation that trades away accuracy, just numerical range.
+
+
+
+
+
         const glm::vec3 planet_center_world{
             submission.camera.world_position.x,
             -EarthAtmosphereDefaults::kPlanetRadiusMeters,
@@ -149,9 +149,9 @@ namespace SFT::Renderer {
 
         const DirectionalLight &sun = submission.lighting.sun;
         const glm::vec3 sun_direction_toward_scene = safe_normalize(sun.direction, glm::vec3{0.0f, -1.0f, 0.0f});
-        // Pre-negated here (toward the sun, not toward the scene) — see AtmosphereGpuData::
-        // sun_direction_angular_radius's own doc comment in sturdy_atmosphere.slang for why every
-        // atmosphere shader wants this convention instead of DirectionalLightGpuData's.
+
+
+
         gpu.sun_direction_angular_radius = glm::vec4{
             -sun_direction_toward_scene,
             glm::radians(std::clamp(std::isfinite(sun.angular_radius_degrees) ? sun.angular_radius_degrees : 0.27f, 0.0f, 10.0f)),
@@ -180,10 +180,10 @@ namespace SFT::Renderer {
         const auto shader_target = shader_target_for_device(*device);
         if (!shader_target) return unexpected(shader_target.error());
 
-        // Same reflection-driven compute-pipeline build as Renderer::ensure_instance_cull_resources
-        // (RendererGpuCulling.cpp), repeated once per bake shader — no push constants in any of the
-        // three, so pipeline_layout's range list is always empty (matching
-        // ensure_shadow_lighting_resources' pipeline layout, not instance-cull's).
+
+
+
+
         auto build_lut_pipeline = [&](const char *shader_path, const char *module_name, const char *label,
                                        AtmosphereLutBakePipeline &out) -> Core::RendererResult {
             const slang::ShaderCompileOptions options{

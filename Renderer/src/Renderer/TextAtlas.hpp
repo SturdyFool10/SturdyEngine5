@@ -20,11 +20,11 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    // Identifies one cached glyph rasterization: which font, which glyph, at what reference pixel
-    // size, in which distance-field format. A glyph used at multiple sizes/formats concurrently
-    // (the same font small in a UI label and large on a 3D sign) gets one cache entry per distinct
-    // key — see Text::select_raster_format's hysteresis for why the format is part of the key
-    // rather than something re-derived live every lookup.
+    /// Identifies one cached glyph rasterization: which font, which glyph, at what reference pixel
+    /// size, in which distance-field format. A glyph used at multiple sizes/formats concurrently
+    /// (the same font small in a UI label and large on a 3D sign) gets one cache entry per distinct
+    /// key — see Text::select_raster_format's hysteresis for why the format is part of the key
+    /// rather than something re-derived live every lookup.
     struct GlyphKey {
         u64 font_id = 0;
         u32 glyph_id = 0;
@@ -37,13 +37,13 @@ namespace SFT::Renderer {
         [[nodiscard]] usize operator()(const GlyphKey &key) const noexcept;
     };
 
-    // What the atlas needs to rasterize a glyph on a cache miss. `outline`/`font` are non-owning
-    // and only dereferenced if this exact (font, glyph, size, format) isn't already resident — the
-    // caller (a font/shaping layer) owns their lifetime for the duration of the call. `outline` is
-    // used for `RasterFormat::SDF`/`MSDF` (Text::rasterize_glyph); `font` is used for
-    // `RasterFormat::Color` (Text::rasterize_color_glyph, which extracts each COLR layer's outline
-    // itself, or decodes an embedded PNG strike — either way it needs the font, not a pre-extracted
-    // outline).
+    /// What the atlas needs to rasterize a glyph on a cache miss. `outline`/`font` are non-owning
+    /// and only dereferenced if this exact (font, glyph, size, format) isn't already resident — the
+    /// caller (a font/shaping layer) owns their lifetime for the duration of the call. `outline` is
+    /// used for `RasterFormat::SDF`/`MSDF` (Text::rasterize_glyph); `font` is used for
+    /// `RasterFormat::Color` (Text::rasterize_color_glyph, which extracts each COLR layer's outline
+    /// itself, or decodes an embedded PNG strike — either way it needs the font, not a pre-extracted
+    /// outline).
     struct GlyphRequest {
         u64 font_id = 0;
         u32 glyph_id = 0;
@@ -54,45 +54,45 @@ namespace SFT::Renderer {
         const Text::Font *font = nullptr;
     };
 
-    // Images/views superseded by grow-only atlas replacement. They remain alive until the command
-    // buffer that copies from them (and every earlier queued draw that sampled them) retires.
+    /// Images/views superseded by grow-only atlas replacement. They remain alive until the command
+    /// buffer that copies from them (and every earlier queued draw that sampled them) retires.
     struct TextAtlasRetiredResources {
         vector<RHI::TextureHandle> textures;
         vector<RHI::TextureViewHandle> texture_views;
     };
 
-    // Where a resident glyph lives in the atlas: which tile, and its normalized UV rect within
-    // that tile's texture. `raster_size_px` is the tightly packed resident raster rectangle in
-    // pixels — an instance builder uses it together
-    // with `reference_ppem` to size the glyph's screen/world quad without shrinking for padding.
+    /// Where a resident glyph lives in the atlas: which tile, and its normalized UV rect within
+    /// that tile's texture. `raster_size_px` is the tightly packed resident raster rectangle in
+    /// pixels — an instance builder uses it together
+    /// with `reference_ppem` to size the glyph's screen/world quad without shrinking for padding.
     struct GlyphSlot {
         u32 tile_index = 0;
         glm::vec2 uv_min{0.0f};
         glm::vec2 uv_max{0.0f};
         glm::vec2 raster_size_px{0.0f};
-        // Actual em size at which this atlas entry was generated. It may be lower than the
-        // requested display size when an unusually large glyph must be down-rasterized to fit a tile;
-        // distance fields then scale it back up without clipping.
+        /// Actual em size at which this atlas entry was generated. It may be lower than the
+        /// requested display size when an unusually large glyph must be down-rasterized to fit a tile;
+        /// distance fields then scale it back up without clipping.
         f32 reference_ppem = 0.0f;
         Text::RasterFormat format = Text::RasterFormat::SDF;
-        // Where the resident raster sits relative to the pen, in its own pixel space (see
-        // Text::RasterizedGlyph's doc comment for the convention) — an instance builder rescales
-        // these by the same reference-ppem-relative factor it applies to the resident raster size
-        // before placing the glyph's quad, since a cache hit may be drawn at a different actual
-        // pixel size than the one this slot's raster was generated at.
+        /// Where the resident raster sits relative to the pen, in its own pixel space (see
+        /// Text::RasterizedGlyph's doc comment for the convention) — an instance builder rescales
+        /// these by the same reference-ppem-relative factor it applies to the resident raster size
+        /// before placing the glyph's quad, since a cache hit may be drawn at a different actual
+        /// pixel size than the one this slot's raster was generated at.
         f32 bearing_x = 0.0f;
         f32 bearing_top = 0.0f;
     };
 
-    // An LRU, tile-based cache of rasterized glyphs backed by RHI textures. Three independent
-    // sub-atlases are maintained — R8Unorm (SDF), RGBA8Unorm (MSDF), and RGBA8Unorm (Color, for
-    // emoji — see Text/ColorGlyph.cpp) — each with its own lazily allocated image. A format starts
-    // with no VRAM allocation; its first image is small, then that image is replaced by a doubled
-    // image up to a configured/device-clamped ceiling. Existing texels are copied to the same
-    // coordinates and the smaller image is fence-retired. Images never shrink, including after
-    // eviction. This keeps ordinary UI text cheap while allowing multilingual workloads to grow.
-    // Every glyph reserves only its actual padded ink rectangle. Eviction returns that rectangle
-    // to a coalescing free-rectangle allocator instead of throwing away a whole tile.
+    /// An LRU, tile-based cache of rasterized glyphs backed by RHI textures. Three independent
+    /// sub-atlases are maintained — R8Unorm (SDF), RGBA8Unorm (MSDF), and RGBA8Unorm (Color, for
+    /// emoji — see Text/ColorGlyph.cpp) — each with its own lazily allocated image. A format starts
+    /// with no VRAM allocation; its first image is small, then that image is replaced by a doubled
+    /// image up to a configured/device-clamped ceiling. Existing texels are copied to the same
+    /// coordinates and the smaller image is fence-retired. Images never shrink, including after
+    /// eviction. This keeps ordinary UI text cheap while allowing multilingual workloads to grow.
+    /// Every glyph reserves only its actual padded ink rectangle. Eviction returns that rectangle
+    /// to a coalescing free-rectangle allocator instead of throwing away a whole tile.
     class TextAtlas {
       public:
         struct Config {
@@ -106,16 +106,16 @@ namespace SFT::Renderer {
 
         [[nodiscard]] static Core::RendererExpected<TextAtlas> create(RHI::RhiDevice &device, const Config &config);
 
-        // Ensures every glyph in `requests` is resident (rasterizing any misses in parallel via
-        // Async::par_iter, then recording their upload — one batched staging-buffer copy plus the
-        // layout-transition barriers around it — into the caller's `encoder`), and marks each as
-        // most-recently-used. `out_slots` is resized to `requests.size()` and filled in request
-        // order. Deliberately does NOT submit or wait: `encoder` is the caller's own per-frame
-        // command encoder (already recording the rest of the frame), so this upload becomes just
-        // more commands in that one queue submission — no separate fence, no CPU stall. The staging
-        // buffer this call creates on a miss is appended to `out_transient_buffers`; the caller must
-        // keep it alive (and eventually destroy it) until the frame's fence retires, since the GPU
-        // copy hasn't necessarily run yet when this function returns.
+        /// Ensures every glyph in `requests` is resident (rasterizing any misses in parallel via
+        /// Async::par_iter, then recording their upload — one batched staging-buffer copy plus the
+        /// layout-transition barriers around it — into the caller's `encoder`), and marks each as
+        /// most-recently-used. `out_slots` is resized to `requests.size()` and filled in request
+        /// order. Deliberately does NOT submit or wait: `encoder` is the caller's own per-frame
+        /// command encoder (already recording the rest of the frame), so this upload becomes just
+        /// more commands in that one queue submission — no separate fence, no CPU stall. The staging
+        /// buffer this call creates on a miss is appended to `out_transient_buffers`; the caller must
+        /// keep it alive (and eventually destroy it) until the frame's fence retires, since the GPU
+        /// copy hasn't necessarily run yet when this function returns.
         [[nodiscard]] Core::RendererResult ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                            span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
                                                            vector<RHI::BufferHandle> &out_transient_buffers,
@@ -141,8 +141,8 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle view{};
             RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
             u32 size = 0;
-            // Disjoint rectangles covering every currently unused texel in this tile. Allocation
-            // guillotine-splits one rectangle; release merges compatible neighbors back together.
+            /// Disjoint rectangles covering every currently unused texel in this tile. Allocation
+            /// guillotine-splits one rectangle; release merges compatible neighbors back together.
             vector<AtlasRect> free_rects;
         };
 
@@ -157,9 +157,9 @@ namespace SFT::Renderer {
             u32 raster_width = 0;
             u32 raster_height = 0;
             f32 reference_ppem = 0.0f;
-            // Only known once Text::rasterize_glyph actually runs (upload_misses), so a fresh
-            // cache-miss RectLocation is inserted into resident_ with these left at 0 and
-            // overwritten right after rasterizing — see GlyphSlot's doc comment for what they mean.
+            /// Only known once Text::rasterize_glyph actually runs (upload_misses), so a fresh
+            /// cache-miss RectLocation is inserted into resident_ with these left at 0 and
+            /// overwritten right after rasterizing — see GlyphSlot's doc comment for what they mean.
             f32 bearing_x = 0.0f;
             f32 bearing_top = 0.0f;
         };

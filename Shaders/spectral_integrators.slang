@@ -64,7 +64,7 @@ RWTexture2D<float4> accumulationOutput;
 
 float3 reconstructWorldPosition(uint2 pixel, float depth) {
     float2 uv = (float2(pixel) + 0.5) / float2(frame.extent);
-    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    float4 clip = float4(uvToNdc(uv), depth, 1.0);
     float4 world = mul(clip, frame.inverseViewProjection);
     return world.xyz / max(world.w, 1.0e-6);
 }
@@ -72,7 +72,7 @@ float3 reconstructWorldPosition(uint2 pixel, float depth) {
 void primaryRay(uint2 pixel, inout uint rng, out float3 origin, out float3 direction) {
     float2 jitter = float2(spectralRandom(rng), spectralRandom(rng)) - 0.5;
     float2 uv = (float2(pixel) + 0.5 + jitter) / float2(frame.extent);
-    float4 farClip = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    float4 farClip = float4(uvToNdc(uv), 1.0, 1.0);
     float4 farWorld = mul(farClip, frame.inverseViewProjection);
     origin = frame.cameraPosition.xyz;
     direction = normalize(farWorld.xyz / max(farWorld.w, 1.0e-6) - origin);

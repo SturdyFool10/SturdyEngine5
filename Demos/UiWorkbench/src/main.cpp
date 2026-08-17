@@ -13,8 +13,8 @@ namespace {
         SFT::Runtime::RuntimeConfig config{};
         config.application.primary_window.title = "Sturdy Engine 5 UI Workbench";
         config.application.primary_window.extent = {1440, 900};
-        // Linux selects an alpha-capable visual only at window creation time. The workbench keeps
-        // composition opaque until its UI toggle requests a premultiplied-alpha swapchain.
+
+
         config.application.primary_window.transparent = true;
         config.application.primary_window.graphics_api =
             SFT::Platform::Windowing::WindowGraphicsApi::Vulkan;
@@ -22,8 +22,8 @@ namespace {
         config.application.engine.app_name = "Sturdy Engine 5 UI Workbench";
         config.application.engine.shaders_directory = "Shaders";
         config.application.engine.features.presentation.hdr_enabled = false;
-        // Desktop UI uses scRGB so authored sRGB primaries and full-precision window alpha survive
-        // HDR presentation; the compositor maps linear light to the display's actual HDR capability.
+
+
         config.application.engine.features.presentation.hdr_color_space =
             SFT::Core::HdrColorSpaceMode::ScrgbLinear;
         config.application.engine.features.presentation.vsync = SFT::Core::VSyncMode::Off;
@@ -55,7 +55,7 @@ namespace {
 #endif
 #include <windows.h>
 
-i32 WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*cmd_line*/, int /*show_cmd*/) {
+i32 WINAPI WinMain(HINSTANCE             , HINSTANCE                  , LPSTR             , int             ) {
     return sturdy_run(SFT::Foundation::args_from_windows_command_line());
 }
 

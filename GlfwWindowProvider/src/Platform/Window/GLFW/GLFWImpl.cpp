@@ -84,12 +84,12 @@ namespace SFT::Platform::Windowing::GLFW {
             }
         }
 
-        // Best-effort: GLFW_CURSOR_DISABLED alone still applies the OS pointer-acceleration curve to
-        // the deltas GLFW synthesizes from cursor position; GLFW_RAW_MOUSE_MOTION additionally pulls
-        // straight from the raw HID/evdev report where the platform supports it (SDL3's relative mode
-        // gets this by default — see SDL3Impl.cpp's SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE — this is the
-        // GLFW-backend equivalent). Silently skipped where unsupported, same "check before enabling
-        // a best-effort hardware feature" stance as other optional-capability code in this codebase.
+
+
+
+
+
+
         void apply_raw_mouse_motion(GLFWwindow *window, bool enabled) noexcept {
             if (enabled && glfwRawMouseMotionSupported()) {
                 glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -150,12 +150,12 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(error);
         }
 
-        // Process-wide, not per-window — see sdl_window_mutex()'s equivalent doc comment
-        // (SDL3Impl.cpp) for why one lock covers every GLFWWindow instance, and why this is
-        // Async::Mutex<std::monostate> rather than a bare mutex. Non-recursive: callers must never
-        // lock it twice on the same thread (see enable_window_effect()'s use of
-        // native_window_handle_locked() instead of native_window_handle(), and the equivalent
-        // *_locked() helpers pump_events()/set_fullscreen() use, for exactly that reason).
+
+
+
+
+
+
         Async::Mutex<std::monostate> &glfw_window_mutex() noexcept {
             static Async::Mutex<std::monostate> mutex;
             return mutex;
@@ -186,8 +186,8 @@ namespace SFT::Platform::Windowing::GLFW {
         [[nodiscard]] int to_glfw_standard_cursor(CursorIcon icon) noexcept {
             switch (icon) {
                 case CursorIcon::Default: return GLFW_ARROW_CURSOR;
-                // GLFW has no open/closed-hand standard cursor — see CursorIcon's own doc comment
-                // (Window.hpp) for why both fall back to POINTING_HAND instead of doing nothing.
+
+
                 case CursorIcon::Pointer:
                 case CursorIcon::Grab:
                 case CursorIcon::Grabbing: return GLFW_POINTING_HAND_CURSOR;
@@ -206,10 +206,10 @@ namespace SFT::Platform::Windowing::GLFW {
                           : nullptr;
         }
 
-        // GLFW has no native per-event timestamp (unlike SDL3's SDL_GetTicksNS()-based one), so
-        // callbacks stamp steady_clock::now() at the moment each fires -- delivery time rather than
-        // hardware capture time, but callbacks run synchronously inside glfwPollEvents(), so the two
-        // are close.
+
+
+
+
         [[nodiscard]] u64 steady_now_ns() noexcept {
             return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
@@ -367,12 +367,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
-    // Detail::ImePreeditCallback trampoline — `user_data` is the GLFWWindow* passed at
-    // install_ime_composition_hook() time (GLFWWindow::construct(), below), not resolved via
-    // glfwGetWindowUserPointer() the way the other glfw_*_callback functions above resolve their
-    // target, since the native IME hook has no GLFWwindow* of its own to look one up from (Win32's
-    // subclass callback, X11's XIM callback, and Wayland's text-input listener each only carry
-    // whatever opaque user-data pointer was handed to them at install time).
+
+
+
+
+
+
     void glfw_native_preedit_trampoline(const char *text, int cursor_pos, void *user_data) {
         ZoneScopedN("GLFW::glfw_native_preedit_trampoline");
         auto *target = static_cast<GLFWWindow *>(user_data);
@@ -621,9 +621,9 @@ namespace SFT::Platform::Windowing::GLFW {
 
         try {
             auto wrapper = unique_ptr<GLFWWindow>(new GLFWWindow(key, window));
-            // monitor_for_mode(config.mode) above already applied config.mode's GLFW-level effect to
-            // the window being created — this just makes fullscreen_mode() report it accurately from
-            // construction onward, matching what set_fullscreen() does for every mode change after.
+
+
+
             wrapper->fullscreen_mode_ = config.mode;
             glfwSetWindowUserPointer(window, wrapper.get());
             glfwSetWindowCloseCallback(window, glfw_close_callback);
@@ -637,9 +637,9 @@ namespace SFT::Platform::Windowing::GLFW {
             glfwSetCursorPosCallback(window, glfw_cursor_pos_callback);
             glfwSetMouseButtonCallback(window, glfw_mouse_button_callback);
             glfwSetScrollCallback(window, glfw_scroll_callback);
-            // No-op (returns false) on a platform without a native IME implementation wired up yet
-            // — see Detail::install_ime_composition_hook's own doc comment (GlfwWindowNative.hpp)
-            // for why that's an expected outcome, not an error, and doesn't block window creation.
+
+
+
             (void)Detail::install_ime_composition_hook(window, &glfw_native_preedit_trampoline, wrapper.get());
             ++glfw_window_count();
             Foundation::log_info("GLFW window wrapper constructed: wrapper={} "
@@ -718,8 +718,8 @@ namespace SFT::Platform::Windowing::GLFW {
         if (auto live = require_live_window(window_, "pump_events"); !live) [[unlikely]] {
             return live;
         }
-        // close_requested_locked(), not close_requested(): this lock is already held above, and
-        // glfw_window_mutex() is non-recursive — see its own doc comment.
+
+
         Foundation::log_trace("GLFW poll events begin: wrapper={} native_ptr={} "
                              "close_requested_before={}",
                              static_cast<void *>(this),
@@ -954,10 +954,10 @@ namespace SFT::Platform::Windowing::GLFW {
         }
 #endif
 
-        // GLFW has no native global-desktop cursor query (unlike SDL3's SDL_GetGlobalMouseState),
-        // so supported desktop backends derive it from the window position plus the window-relative
-        // cursor position. During a held drag, native mouse capture keeps that relative position
-        // updating after the cursor leaves the client area on Win32 and X11.
+
+
+
+
         f64 x = 0.0;
         f64 y = 0.0;
         glfwGetCursorPos(window_, &x, &y);
@@ -1131,8 +1131,8 @@ namespace SFT::Platform::Windowing::GLFW {
             return live;
         }
         if (mode == WindowMode::Windowed) [[likely]] {
-            // size_locked(), not size(): this lock is already held above, and glfw_window_mutex() is
-            // non-recursive — see its own doc comment.
+
+
             auto current_size = size_locked();
             const WindowExtent extent = current_size ? *current_size : WindowExtent{};
             Foundation::log_info(
@@ -1182,9 +1182,9 @@ namespace SFT::Platform::Windowing::GLFW {
                             mode_info->height,
                             mode_info->refreshRate);
         glfwSetWindowMonitor(window_, monitor, 0, 0, mode_info->width, mode_info->height, mode_info->refreshRate);
-        // GLFW, like SDL3, has no notion of "exclusive" distinct from a monitor-covering windowed-
-        // fullscreen window at this layer — see fullscreen_mode()'s own doc comment (Window.hpp) for
-        // why the requested mode is still recorded precisely rather than collapsed here.
+
+
+
         fullscreen_mode_ = mode;
         return glfw_success();
     }
@@ -1252,9 +1252,9 @@ namespace SFT::Platform::Windowing::GLFW {
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
-        // Skip the churn entirely on the overwhelmingly common case (nothing changed since last
-        // call) — a caller driving this off per-frame hover state, as UI::Context::desired_cursor()
-        // is meant to be, would otherwise recreate a native cursor object every single frame.
+
+
+
         if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
             return glfw_success();
         }
@@ -1364,8 +1364,8 @@ namespace SFT::Platform::Windowing::GLFW {
             effect.enabled,
             effect.color_argb,
             static_cast<int>(effect.linux_blur_protocol));
-        // native_window_handle_locked(), not native_window_handle(): this lock is already held
-        // above, and glfw_window_mutex() is non-recursive — see its own doc comment.
+
+
         auto handle = native_window_handle_locked();
         if (!handle) [[unlikely]] {
             return WindowEffectResult::failed("GLFW native window handle is unavailable.");
@@ -1439,8 +1439,8 @@ namespace SFT::Platform::Windowing::GLFW {
 
     expected<void, WindowError> GLFWWindow::set_clipboard_text(std::string_view text) noexcept {
         ZoneScopedN("GLFWWindow::set_clipboard_text");
-        // glfwSetClipboardString requires a NUL-terminated C string; `text` (a view) isn't
-        // guaranteed to be one, so it's copied into an owned buffer first.
+
+
         const std::string owned(text);
         glfwSetClipboardString(window_, owned.c_str());
         return {};

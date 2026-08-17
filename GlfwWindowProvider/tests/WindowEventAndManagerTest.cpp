@@ -37,7 +37,7 @@ namespace {
 
         [[nodiscard]] static expected<unique_ptr<AffinityWindow>, WindowError> construct(
             ConstructorKey key,
-            const WindowConfig & /*config*/) noexcept {
+            const WindowConfig &           ) noexcept {
             auto *window = new (std::nothrow) AffinityWindow(key);
             if (window == nullptr) {
                 return unexpected(WindowError{WindowErrorCode::OutOfMemory, "test window allocation failed"});
@@ -89,49 +89,49 @@ namespace {
         expected<void, WindowError> maximize() noexcept override { return {}; }
         expected<void, WindowError> minimize() noexcept override { return {}; }
         expected<void, WindowError> restore() noexcept override { return {}; }
-        expected<void, WindowError> set_title(const char * /*title*/) noexcept override { return {}; }
+        expected<void, WindowError> set_title(const char *          ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override { return WindowPosition{}; }
-        expected<void, WindowError> set_position(WindowPosition /*position*/) noexcept override { return {}; }
+        expected<void, WindowError> set_position(WindowPosition             ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override { return WindowPosition{}; }
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override { return WindowExtent{640, 480}; }
-        expected<void, WindowError> set_size(WindowExtent /*extent*/) noexcept override { return {}; }
+        expected<void, WindowError> set_size(WindowExtent           ) noexcept override { return {}; }
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override {
             thread_trace.sampled = std::this_thread::get_id();
             return WindowExtent{640, 480};
         }
-        expected<void, WindowError> set_minimum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_maximum_size(WindowExtent /*extent*/) noexcept override { return {}; }
-        expected<void, WindowError> set_resizable(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_decorated(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_fullscreen(WindowMode /*mode*/) noexcept override { return {}; }
-        expected<void, WindowError> set_opacity(f32 /*opacity*/) noexcept override { return {}; }
+        expected<void, WindowError> set_minimum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_maximum_size(WindowExtent           ) noexcept override { return {}; }
+        expected<void, WindowError> set_resizable(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_decorated(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_fullscreen(WindowMode         ) noexcept override { return {}; }
+        expected<void, WindowError> set_opacity(f32            ) noexcept override { return {}; }
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override { return 1.0F; }
-        expected<void, WindowError> set_cursor_icon(CursorIcon /*icon*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_visible(bool /*visible*/) noexcept override { return {}; }
-        expected<void, WindowError> set_cursor_grabbed(bool /*grabbed*/) noexcept override { return {}; }
-        expected<void, WindowError> set_relative_mouse_mode(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_icon(CursorIcon         ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_visible(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_cursor_grabbed(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_relative_mouse_mode(bool            ) noexcept override { return {}; }
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override {
             mouse_locked_ = locked;
             return {};
         }
         [[nodiscard]] bool mouse_locked() const noexcept override { return mouse_locked_; }
-        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect /*effect*/) noexcept override {
+        [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect           ) noexcept override {
             return WindowEffectResult::success();
         }
-        expected<void, WindowError> set_effect(WindowEffect /*effect*/) noexcept override { return {}; }
-        expected<void, WindowError> set_blur_enabled(bool /*enabled*/) noexcept override { return {}; }
-        expected<void, WindowError> set_transparent(bool /*enabled*/) noexcept override { return {}; }
+        expected<void, WindowError> set_effect(WindowEffect           ) noexcept override { return {}; }
+        expected<void, WindowError> set_blur_enabled(bool            ) noexcept override { return {}; }
+        expected<void, WindowError> set_transparent(bool            ) noexcept override { return {}; }
         [[nodiscard]] expected<vector<const char *>, WindowError> required_vulkan_instance_extensions() const noexcept override {
             return vector<const char *>{};
         }
         expected<void, WindowError> create_vulkan_surface(
-            void * /*instance*/,
-            const void * /*allocation_callbacks*/,
-            void * /*surface_out*/) const noexcept override {
+            void *             ,
+            const void *                         ,
+            void *                ) const noexcept override {
             return {};
         }
         [[nodiscard]] std::string clipboard_text() const noexcept override { return {}; }
-        expected<void, WindowError> set_clipboard_text(std::string_view /*text*/) noexcept override { return {}; }
+        expected<void, WindowError> set_clipboard_text(std::string_view         ) noexcept override { return {}; }
 
       private:
         explicit AffinityWindow(ConstructorKey key) noexcept : Window(key) {
@@ -184,13 +184,13 @@ namespace {
             return false;
         }
 
-        // In DedicatedEventThread mode pump() is now non-blocking: it just swaps out whatever the
-        // background poll_loop() has accumulated so far, which may still be nothing on the very first
-        // call (spawn_window()'s own dispatch() only waits for the window to be registered, not for a
-        // subsequent poll pass to have run against it yet — real callers must not assume synchronous
-        // ordering between spawning a window and its first events showing up). Retry pump() for a
-        // short bounded window rather than asserting on a single call; CallerThread mode's pump() is
-        // still fully synchronous and satisfies this on the very first iteration.
+
+
+
+
+
+
+
         vector<ManagedWindowEvents> packets;
         bool observed_event = false;
         for (int attempt = 0; attempt < 200 && !observed_event; ++attempt) {

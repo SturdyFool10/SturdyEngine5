@@ -148,8 +148,8 @@ float2 receiverPlaneDepthGradient(float2 localUv, float receiverDepth,
     }
     float3 ndcDx = clipDx.xyz / clipDx.w;
     float3 ndcDy = clipDy.xyz / clipDy.w;
-    float2 uvDx = ndcDx.xy * 0.5 + 0.5 - localUv;
-    float2 uvDy = ndcDy.xy * 0.5 + 0.5 - localUv;
+    float2 uvDx = ndcToUv(ndcDx.xy) - localUv;
+    float2 uvDy = ndcToUv(ndcDy.xy) - localUv;
     float depthDx = ndcDx.z - receiverDepth;
     float depthDy = ndcDy.z - receiverDepth;
     float determinant = uvDx.x * uvDy.y - uvDx.y * uvDy.x;
@@ -182,7 +182,7 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
         return 1.0;
     }
     float3 unbiasedNdc = unbiasedClip.xyz / unbiasedClip.w;
-    float2 unbiasedLocalUv = unbiasedNdc.xy * 0.5 + 0.5;
+    float2 unbiasedLocalUv = ndcToUv(unbiasedNdc.xy);
     if (unbiasedNdc.z <= 0.0 || unbiasedNdc.z >= 1.0 ||
         any(unbiasedLocalUv <= 0.0) || any(unbiasedLocalUv >= 1.0)) {
         return 1.0;
@@ -202,7 +202,7 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
         return 1.0;
     }
     float3 ndc = clip.xyz / clip.w;
-    float2 localUv = ndc.xy * 0.5 + 0.5;
+    float2 localUv = ndcToUv(ndc.xy);
     if (ndc.z <= 0.0 || ndc.z >= 1.0 || any(localUv <= 0.0) || any(localUv >= 1.0)) {
         return 1.0;
     }
@@ -303,7 +303,7 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 sunVector) {
         float4 candidateClip = mul(float4(candidate, 1.0), lightingData.viewProjection);
         if (candidateClip.w <= SFT_EPSILON) return 1.0;
         float3 candidateNdc = candidateClip.xyz / candidateClip.w;
-        float2 candidateUv = candidateNdc.xy * 0.5 + 0.5;
+        float2 candidateUv = ndcToUv(candidateNdc.xy);
         if (candidateNdc.z <= 0.0 || candidateNdc.z >= 1.0 ||
             any(candidateUv <= 0.0) || any(candidateUv >= 1.0)) {
             return 1.0;
@@ -311,7 +311,7 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 sunVector) {
 
         float sceneDepth = gbufferDepth.SampleLevel(gbufferSampler, candidateUv, 0.0);
         if (sceneDepth >= 0.999999) continue;
-        float4 sceneWorldH = mul(float4(candidateUv * 2.0 - 1.0, sceneDepth, 1.0),
+        float4 sceneWorldH = mul(float4(uvToNdc(candidateUv), sceneDepth, 1.0),
                                  lightingData.inverseViewProjection);
         if (abs(sceneWorldH.w) <= SFT_EPSILON) continue;
         float3 sceneWorld = sceneWorldH.xyz / sceneWorldH.w;
@@ -401,7 +401,7 @@ float punctualAttenuation(float distanceToLight, float range) {
 }
 
 float3 reconstructViewPosition(float2 uv, float depth) {
-    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    float4 clip = float4(uvToNdc(uv), depth, 1.0);
     float4 worldH = mul(clip, lightingData.inverseViewProjection);
     float3 world = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
     return mul(float4(world, 1.0), lightingData.view).xyz;
@@ -410,7 +410,7 @@ float3 reconstructViewPosition(float2 uv, float depth) {
 // World-space view ray direction for a background pixel (nothing in the gbuffer to derive it from —
 // unproject the far clip plane instead and point away from the camera through it).
 float3 reconstructWorldRayDirection(float2 uv) {
-    float4 clip = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    float4 clip = float4(uvToNdc(uv), 1.0, 1.0);
     float4 worldH = mul(clip, lightingData.inverseViewProjection);
     float3 worldFar = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
     return safeNormalizeOr(worldFar - lightingData.cameraPositionNear.xyz, float3(0.0, 1.0, 0.0));
@@ -558,7 +558,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         return float4(sky, 1.0);
     }
 
-    float4 clip = float4(input.uv * 2.0 - 1.0, depth, 1.0);
+    float4 clip = float4(uvToNdc(input.uv), depth, 1.0);
     float4 worldH = mul(clip, lightingData.inverseViewProjection);
     float3 worldPosition = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
     float4 albedoSample = gbufferAlbedo.SampleLevel(gbufferSampler, input.uv, 0.0);

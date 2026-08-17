@@ -20,16 +20,16 @@ namespace SFT::Platform::Windowing {
         BorderColor,
         CaptionColor,
         TextColor,
-        // Live per-pixel window transparency toggle on an already-open window (no recreate). Only
-        // meaningfully changes what's on screen once the swapchain also uses a non-opaque
-        // RHI::CompositeAlphaMode and the app's render output carries real alpha — this effect only
-        // controls whether the OS-level window itself is capable of showing through.
+        /// Live per-pixel window transparency toggle on an already-open window (no recreate). Only
+        /// meaningfully changes what's on screen once the swapchain also uses a non-opaque
+        /// RHI::CompositeAlphaMode and the app's render output carries real alpha — this effect only
+        /// controls whether the OS-level window itself is capable of showing through.
         Transparent,
     };
 
-    // Human-readable names for logs/diagnostics/UI (e.g. a runtime-filtered "blur type" picker built
-    // from operating_system_may_support_window_effect() — WindowEffects.hpp) — one spelling per kind,
-    // matching this codebase's other `*_name()` helpers (e.g. RHI::present_mode_name).
+    /// Human-readable names for logs/diagnostics/UI (e.g. a runtime-filtered "blur type" picker built
+    /// from operating_system_may_support_window_effect() — WindowEffects.hpp) — one spelling per kind,
+    /// matching this codebase's other `*_name()` helpers (e.g. RHI::present_mode_name).
     [[nodiscard]] constexpr string_view window_effect_kind_name(WindowEffectKind kind) noexcept {
         switch (kind) {
             case WindowEffectKind::Blur: return "Blur";

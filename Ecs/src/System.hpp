@@ -23,11 +23,11 @@
 
 namespace SFT::Ecs {
 
-    // Derived from a safe per-entity system's component-reference parameters. Stable keys make the
-    // declaration independent of one World's dense registry IDs. event_reads/event_writes are a
-    // subset of resource_reads/resource_writes (populated only for Events<T> resources) that
-    // Schedule uses solely for the producer-before-consumer ordering check below — they play no part
-    // in system_access_conflicts, which already treats an event buffer as an ordinary resource.
+    /// Derived from a safe per-entity system's component-reference parameters. Stable keys make the
+    /// declaration independent of one World's dense registry IDs. event_reads/event_writes are a
+    /// subset of resource_reads/resource_writes (populated only for Events<T> resources) that
+    /// Schedule uses solely for the producer-before-consumer ordering check below — they play no part
+    /// in system_access_conflicts, which already treats an event buffer as an ordinary resource.
     struct SystemAccess {
         std::vector<ComponentKey> reads;
         std::vector<ComponentKey> writes;
@@ -37,8 +37,8 @@ namespace SFT::Ecs {
         std::vector<ResourceKey> event_writes;
     };
 
-    // Two systems conflict whenever either writes a component touched by the other. Read/read and
-    // access to entirely different component columns are safe to execute concurrently.
+    /// Two systems conflict whenever either writes a component touched by the other. Read/read and
+    /// access to entirely different component columns are safe to execute concurrently.
     template <class Key>
     [[nodiscard]] inline bool access_sets_conflict(const std::vector<Key> &a_reads,
                                                    const std::vector<Key> &a_writes,
@@ -67,28 +67,24 @@ namespace SFT::Ecs {
         return false;
     }
 
-    [[nodiscard]] inline bool system_access_conflicts(const SystemAccess &a, const SystemAccess &b) noexcept {
-        ZoneScopedN("system_access_conflicts");
-        return access_sets_conflict(a.reads, a.writes, b.reads, b.writes) ||
-               access_sets_conflict(a.resource_reads, a.resource_writes, b.resource_reads, b.resource_writes);
-    }
+    [[nodiscard]] bool system_access_conflicts(const SystemAccess &a, const SystemAccess &b) noexcept;
 
-    // Selects how a Schedule executes chunk-level system work. Async is the default full-throughput
-    // path and lazily starts the process-global Async::Scheduler worker pool on first use. Synchronous
-    // never touches Async::Scheduler at all — no initialize(), no worker threads, no global state —
-    // so a headless/deterministic/test caller that never asked for a worker pool never pays for one.
+    /// Selects how a Schedule executes chunk-level system work. Async is the default full-throughput
+    /// path and lazily starts the process-global Async::Scheduler worker pool on first use. Synchronous
+    /// never touches Async::Scheduler at all — no initialize(), no worker threads, no global state —
+    /// so a headless/deterministic/test caller that never asked for a worker pool never pays for one.
     enum class ExecutorPolicy {
         Async,
         Synchronous,
     };
 
     struct ScheduleConfig {
-        // Small queries remain one task. Larger archetypes are divided toward
-        // worker_count * tasks_per_worker without creating tiny scheduling-granularity tasks.
+        /// Small queries remain one task. Larger archetypes are divided toward
+        /// worker_count * tasks_per_worker without creating tiny scheduling-granularity tasks.
         usize minimum_rows_per_task = 128;
         usize tasks_per_worker = 2;
-        // Tick/update schedules normally clear Events<T> before producers run. Secondary schedules in
-        // the same frame can preserve those events so extraction/tooling systems observe the same tick.
+        /// Tick/update schedules normally clear Events<T> before producers run. Secondary schedules in
+        /// the same frame can preserve those events so extraction/tooling systems observe the same tick.
         bool clear_events_on_run = true;
         ExecutorPolicy executor = ExecutorPolicy::Async;
     };
@@ -177,9 +173,9 @@ namespace SFT::Ecs {
             }
         };
 
-        // Resolves one resource-view argument (ReadResource/WriteResource/EventReader/EventWriter)
-        // through its ResourceArgumentTraits::construct() seam — the one place that needs to know
-        // about a new resource-view kind is that trait specialization, not here.
+        /// Resolves one resource-view argument (ReadResource/WriteResource/EventReader/EventWriter)
+        /// through its ResourceArgumentTraits::construct() seam — the one place that needs to know
+        /// about a new resource-view kind is that trait specialization, not here.
         template <class Argument>
         [[nodiscard]] Argument resolve_resource_argument(World &world) noexcept {
             using Traits = ResourceArgumentTraits<Argument>;
@@ -197,8 +193,8 @@ namespace SFT::Ecs {
 
         template <class ArgsTuple, usize... Is>
         struct QueryFromSystemArguments<ArgsTuple, std::index_sequence<Is...>> {
-            // Argument zero is Entity. The component parameters follow and are lvalue references;
-            // removing only the reference preserves const as the read/write declaration.
+            /// Argument zero is Entity. The component parameters follow and are lvalue references;
+            /// removing only the reference preserves const as the read/write declaration.
             using Type = Query<std::remove_reference_t<std::tuple_element_t<Is + 1, ArgsTuple>>...>;
         };
 
@@ -210,13 +206,13 @@ namespace SFT::Ecs {
             using Type = std::tuple<std::tuple_element_t<Offset + Is, ArgsTuple>...>;
         };
 
-        // Distinguishes the two system shapes add_system() accepts: an entity-and-component system
-        // always starts with Entity by value; a resource-only ("global") system never does, since it
-        // has no query to iterate. Checked on the raw (possibly empty) ArgsTuple so it's safe to use
-        // before EntitySystemTraits's own ArgumentCount>=2 assertion would apply. Written with
-        // if constexpr rather than a plain && — tuple_element_t<0, ArgsTuple> is ill-formed for an
-        // empty ArgsTuple, and unlike runtime short-circuiting, a bare && still requires both operand
-        // types to be valid.
+        /// Distinguishes the two system shapes add_system() accepts: an entity-and-component system
+        /// always starts with Entity by value; a resource-only ("global") system never does, since it
+        /// has no query to iterate. Checked on the raw (possibly empty) ArgsTuple so it's safe to use
+        /// before EntitySystemTraits's own ArgumentCount>=2 assertion would apply. Written with
+        /// if constexpr rather than a plain && — tuple_element_t<0, ArgsTuple> is ill-formed for an
+        /// empty ArgsTuple, and unlike runtime short-circuiting, a bare && still requires both operand
+        /// types to be valid.
         template <class ArgsTuple>
         [[nodiscard]] consteval bool compute_args_begin_with_entity() {
             if constexpr (std::tuple_size_v<ArgsTuple> == 0) {
@@ -293,10 +289,10 @@ namespace SFT::Ecs {
         using SystemDispatch =
             std::function<void(World &, usize, usize, ExecutorPolicy, AsyncTaskList &, CommandBufferList &)>;
 
-        // The one place a chunk task is either run inline or handed to Async::Scheduler. Synchronous
-        // must never call Async::Scheduler::spawn() — doing so would enqueue work that nothing ever
-        // executes unless the scheduler happens to be running for an unrelated reason, since Schedule::run()
-        // deliberately skips Async::Scheduler::initialize() under this policy.
+        /// The one place a chunk task is either run inline or handed to Async::Scheduler. Synchronous
+        /// must never call Async::Scheduler::spawn() — doing so would enqueue work that nothing ever
+        /// executes unless the scheduler happens to be running for an unrelated reason, since Schedule::run()
+        /// deliberately skips Async::Scheduler::initialize() under this policy.
         template <class F>
         void dispatch_task(ExecutorPolicy policy, AsyncTaskList &tasks, F &&fn) {
             ZoneScopedN("dispatch_task");
@@ -367,9 +363,9 @@ namespace SFT::Ecs {
                     auto chunks = query.chunks(minimum_rows_per_task, target_parallelism);
                     auto resources = resolve_resource_arguments<ResourceArgs...>(world);
 
-                    // A mutable singleton is one memory location, so a system writing any resource
-                    // processes all its chunks in one Async task. This preserves automatic safety;
-                    // sharded/deferred resources can add an explicitly parallel reduction path later.
+
+
+
                     if constexpr (ResourceAccessOf<std::tuple<ResourceArgs...>>::has_writes()) {
                         if (chunks.empty()) {
                             return;
@@ -435,9 +431,9 @@ namespace SFT::Ecs {
             }
         };
 
-        // A "global" system: resource/event access only, no Entity, no component query — the shape
-        // an event-producing system like a hotkey mapper needs (it has no entities to iterate). Mirrors
-        // EntitySystemTraits minus everything query-related.
+        /// A "global" system: resource/event access only, no Entity, no component query — the shape
+        /// an event-producing system like a hotkey mapper needs (it has no entities to iterate). Mirrors
+        /// EntitySystemTraits minus everything query-related.
         template <class ArgsTuple>
         struct GlobalSystemTraits {
             static constexpr usize ArgumentCount = std::tuple_size_v<ArgsTuple>;
@@ -500,8 +496,8 @@ namespace SFT::Ecs {
             template <class F>
             [[nodiscard]] static SystemDispatch make_dispatch(F fn) {
                 return [fn = std::move(fn)](World &world,
-                                            usize /*minimum_rows_per_task*/,
-                                            usize /*target_parallelism*/,
+                                            usize                          ,
+                                            usize                       ,
                                             ExecutorPolicy policy,
                                             AsyncTaskList &tasks,
                                             CommandBufferList &command_buffers) mutable {
@@ -541,26 +537,26 @@ namespace SFT::Ecs {
 
     } // namespace Detail
 
-    // Safe systems are per-entity noexcept callables:
-    //   [](Entity, Position&, const Velocity&) noexcept { ... }
-    //   [](Entity, const Mesh&, WriteResource<RenderRequests>) noexcept { ... }
-    //   [](Entity, const Health&, Commands&) noexcept { commands.destroy(entity); }
-    //
-    // Component reference constness is the access declaration. Schedule derives conflicts, splits
-    // matching archetypes into disjoint chunks, dispatches every chunk through Async, waits at the
-    // dependency-stage boundary, then applies deferred Commands. ReadResource/WriteResource parameters
-    // declare singleton access; mutable resources serialize that system's chunks automatically. No
-    // mutable World reference enters worker code. A callable is copied once per chunk; captures shared
-    // by reference remain the consumer's synchronization responsibility.
+    /// Safe systems are per-entity noexcept callables:
+    ///   [](Entity, Position&, const Velocity&) noexcept { ... }
+    ///   [](Entity, const Mesh&, WriteResource<RenderRequests>) noexcept { ... }
+    ///   [](Entity, const Health&, Commands&) noexcept { commands.destroy(entity); }
+    ///
+    /// Component reference constness is the access declaration. Schedule derives conflicts, splits
+    /// matching archetypes into disjoint chunks, dispatches every chunk through Async, waits at the
+    /// dependency-stage boundary, then applies deferred Commands. ReadResource/WriteResource parameters
+    /// declare singleton access; mutable resources serialize that system's chunks automatically. No
+    /// mutable World reference enters worker code. A callable is copied once per chunk; captures shared
+    /// by reference remain the consumer's synchronization responsibility.
     class Schedule {
       public:
-        explicit Schedule(ScheduleConfig config = {}) noexcept : config_(config) {}
+        explicit Schedule(ScheduleConfig config = {}) noexcept;
 
-        // Accepts either system shape: (Entity, Components&..., [ResourceArgs...], [Commands&]) for
-        // per-entity work, or (ResourceArgs..., [Commands&]) for resource/event-only ("global") work
-        // such as an event-producing hotkey mapper. The two are told apart purely from the callable's
-        // own first parameter — Entity or not — matching this codebase's "derive it, don't hand-specify
-        // it" rule elsewhere (query const-ness, resource access).
+        /// Accepts either system shape: (Entity, Components&..., [ResourceArgs...], [Commands&]) for
+        /// per-entity work, or (ResourceArgs..., [Commands&]) for resource/event-only ("global") work
+        /// such as an event-producing hotkey mapper. The two are told apart purely from the callable's
+        /// own first parameter — Entity or not — matching this codebase's "derive it, don't hand-specify
+        /// it" rule elsewhere (query const-ness, resource access).
         template <class F>
         void add_system(F fn) {
             ZoneScopedN("Schedule::add_system");

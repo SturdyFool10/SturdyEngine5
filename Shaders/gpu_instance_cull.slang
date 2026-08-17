@@ -115,7 +115,7 @@ void cullMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
             uint mip = uint(clamp(ceil(log2(max(footprintTexelsMax, 1.0))), 0.0, float(cull.hiZMipCount - 1)));
             uint2 mipExtent = max(cull.hiZExtent >> mip, uint2(1, 1));
 
-            float2 uv = clamp(centerNdc * 0.5 + 0.5, float2(0.0, 0.0), float2(0.9999, 0.9999));
+            float2 uv = clamp(ndcToUv(centerNdc), float2(0.0, 0.0), float2(0.9999, 0.9999));
             int2 texel = int2(uv * float2(mipExtent));
             float farthestOccluderDepth = hiZPyramid.Load(int3(texel, int(mip)));
 

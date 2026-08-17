@@ -1,19 +1,19 @@
-// Vulkan-side composition-present interop — see VulkanRhiBridgeComposition.hpp for the seam this
-// implements and why, and graphicsPlatform's CompositionPresent.hpp for the presenter this imports
-// from. Same two-file, internally-guarded split as graphicsPlatform's own
-// CompositionPresent.cpp / CompositionPresentUnsupported.cpp, so call sites never need their own
-// `#if defined(_WIN32)`.
+
+
+
+
+
 
 #pragma region Imports
 #if defined(_WIN32)
-// VulkanRhiBridgeComposition.hpp pulls in "volk.h" itself (needed on every platform for the plain
-// portable declarations it exposes) — that first inclusion is what decides, for this whole
-// translation unit, whether vulkan_win32.h's Win32-specific structs/functions get declared, so the
-// platform setup has to land before that header's own #include, not after. vulkan_win32.h uses
-// HANDLE/DWORD/etc. directly without including windows.h itself, hence windows.h has to come first
-// here too. NOMINMAX keeps windows.h's min/max macros from shadowing std::min/std::max used below.
-// This define is local to this TU (volk.h's include guard means no other file including volk.h is
-// affected), so it can't leak platform-specific declarations into the portable header's other users.
+
+
+
+
+
+
+
+
 #if !defined(NOMINMAX)
 #define NOMINMAX
 #endif
@@ -41,16 +41,16 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
-        // Maps to the DXGI_FORMAT the composition presenter's shared texture is actually allocated
-        // as. sRGB variants intentionally collapse onto their UNORM counterpart rather than failing:
-        // DXGI flip-model (and composition) swap chains reject an _SRGB BackBufferFormat outright
-        // (DXGI_ERROR_INVALID_CALL) — the standard D3D pattern is a UNORM back buffer with an _SRGB
-        // render-target *view* over it for the gamma-correct write, and the bit layout between a
-        // format and its _SRGB sibling is identical (same texel size and byte layout; _SRGB only
-        // changes how reads/writes are converted, not what's stored) — so importing the UNORM D3D
-        // allocation and creating the Vulkan-side VkImage with the caller's true requested format
-        // (done below, via `vk_format`, not this function's return value) reproduces the same
-        // gamma-correct write behavior the native swapchain path would have given it.
+
+
+
+
+
+
+
+
+
+
         [[nodiscard]] std::optional<GraphicsPlatform::CompositionFormat> vk_format_to_composition_format(
             VkFormat format) noexcept {
             switch (format) {
@@ -59,11 +59,11 @@ namespace SFT::Core::Vulkan {
                 case VK_FORMAT_R8G8B8A8_UNORM:
                 case VK_FORMAT_R8G8B8A8_SRGB: return GraphicsPlatform::CompositionFormat::Rgba8Unorm;
                 case VK_FORMAT_R16G16B16A16_SFLOAT: return GraphicsPlatform::CompositionFormat::Rgba16Float;
-                // DXGI's R10G10B10A2_UNORM is 2-bit-alpha-first, matching Vulkan's packed
-                // A2B10G10R10 component order (not A2R10G10B10 — the swizzle, not just the bit
-                // widths, has to match for a shared-memory import to read as the same pixels on both
-                // sides). No _SRGB sibling exists for 10-bit formats in DXGI, so there's nothing to
-                // collapse here.
+
+
+
+
+
                 case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return GraphicsPlatform::CompositionFormat::Rgb10a2Unorm;
                 default: return std::nullopt;
             }
@@ -84,16 +84,16 @@ namespace SFT::Core::Vulkan {
             return std::nullopt;
         }
 
-        // Handles crossing the Vulkan/D3D boundary are documented (VK_KHR_external_memory_win32 /
-        // VK_KHR_external_semaphore_win32) as staying owned by the application — Vulkan duplicates
-        // what it needs internally at import time rather than taking ownership of the handle passed
-        // in. The presenter (graphicsPlatform) already owns render_complete_nt_handle,
-        // present_complete_nt_handle, and every CompositionSharedImage::nt_handle for its own
-        // lifetime and will CloseHandle them on teardown — so importing the presenter's exact handle
-        // value here and later closing it ourselves would race the presenter's own close against
-        // ours. Duplicating first sidesteps the ambiguity entirely: Vulkan gets a handle nobody but
-        // this function ever owns, safe to close the instant the import call returns, and the
-        // presenter's original is never touched.
+
+
+
+
+
+
+
+
+
+
         [[nodiscard]] HANDLE duplicate_handle_for_import(HANDLE source) noexcept {
             HANDLE duplicated = nullptr;
             const HANDLE process = GetCurrentProcess();
@@ -103,10 +103,10 @@ namespace SFT::Core::Vulkan {
             return duplicated;
         }
 
-        // Imports the two shared fences from an already-created presenter. Split out so
-        // resize_composition_swapchain_resources() can skip this entirely and just move the previous
-        // call's semaphores over instead — resize() is documented to leave the underlying D3D fences
-        // untouched, so re-importing them would only reproduce the same two semaphores at extra cost.
+
+
+
+
         [[nodiscard]] RendererResult import_composition_fences(VkDevice device, CompositionSwapchainResources &resources) {
             if (vkImportSemaphoreWin32HandleKHR == nullptr) {
                 return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
@@ -128,17 +128,17 @@ namespace SFT::Core::Vulkan {
                     .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR,
                     .pNext = nullptr,
                     .semaphore = semaphore->vk_handle(),
-                    // No TEMPORARY bit: this semaphore's entire purpose for the swapchain's whole
-                    // lifetime is to mirror this one D3D fence, not to borrow its payload once.
+
+
                     .flags = 0,
                     .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D11_FENCE_BIT,
                     .handle = duplicated,
                     .name = nullptr,
                 };
                 const VkResult result = vkImportSemaphoreWin32HandleKHR(device, &import_info);
-                // Per VK_KHR_external_semaphore_win32: ownership of an NT handle passed for import is
-                // not transferred to Vulkan, which duplicates what it needs during this call — safe
-                // (and, per that same contract, this side's responsibility) to close immediately after.
+
+
+
                 CloseHandle(duplicated);
                 if (result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -161,13 +161,13 @@ namespace SFT::Core::Vulkan {
             return {};
         }
 
-        // Imports every shared image the presenter currently exposes, appending to `resources.images`/
-        // `.views` — safe to call with either empty (fresh create) or already-populated (never actually
-        // the case in practice, since every caller either starts fresh or has just cleared them via
-        // CompositionPresenter::resize) vectors. Shared between create_composition_swapchain_resources()
-        // and resize_composition_swapchain_resources() since the per-image import dance itself (create,
-        // find a memory type, duplicate-import the handle, allocate, bind, view) doesn't depend on
-        // whether the presenter backing it is brand new or being reused after a resize.
+
+
+
+
+
+
+
         [[nodiscard]] RendererResult import_composition_images(
             VkDevice device, VkPhysicalDevice physical_device, VkFormat vk_format, VkImageUsageFlags usage,
             u32 width, u32 height, CompositionSwapchainResources &resources) {
@@ -180,10 +180,10 @@ namespace SFT::Core::Vulkan {
             const VkExternalMemoryImageCreateInfo external_info{
                 .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
                 .pNext = nullptr,
-                // The NT-handle D3D11 texture type — matches how the presenter created its shared
-                // handles (IDXGIResource1::CreateSharedHandle, not the legacy GDI-style KMT global
-                // share handle, which would need VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT
-                // instead and a different, ownerless import contract).
+
+
+
+
                 .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT,
             };
             const VkImageCreateInfo image_info{
@@ -196,9 +196,9 @@ namespace SFT::Core::Vulkan {
                 .mipLevels = 1,
                 .arrayLayers = 1,
                 .samples = VK_SAMPLE_COUNT_1_BIT,
-                // D3D11_USAGE_DEFAULT with no CPU access (how the presenter created these) surfaces
-                // to Vulkan as optimal (driver-private) tiling, the same as every other render target
-                // this bridge creates.
+
+
+
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
                 .usage = usage,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -233,21 +233,21 @@ namespace SFT::Core::Vulkan {
                 .handle = duplicated,
                 .name = nullptr,
             };
-            // Dedicated allocation is required (not just recommended) by the spec whenever the
-            // imported payload is itself a dedicated D3D11 resource, which every shared texture the
-            // presenter creates is — vkAllocateMemory returns VK_ERROR_OUT_OF_DEVICE_MEMORY or worse
-            // without this.
+
+
+
+
             const VkMemoryDedicatedAllocateInfo dedicated_info{
                 .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
                 .pNext = &import_memory_info,
                 .image = image->vk_handle(),
                 .buffer = VK_NULL_HANDLE,
             };
-            // allocationSize comes from this bridge's own vkGetImageMemoryRequirements on the image
-            // it just created (requirements.size above) — never from
-            // CompositionSharedImage::allocation_size_bytes, which that field's own doc comment
-            // (CompositionPresent.hpp) documents as a best-effort estimate, not the authoritative
-            // size an import is required to state.
+
+
+
+
+
             const VkMemoryAllocateInfo allocate_info{
                 .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                 .pNext = &dedicated_info,
@@ -256,9 +256,9 @@ namespace SFT::Core::Vulkan {
             };
             VkDeviceMemory memory = VK_NULL_HANDLE;
             const VkResult allocate_result = vkAllocateMemory(device, &allocate_info, nullptr, &memory);
-            // Same ownership contract as the semaphore import above: Vulkan does not take ownership
-            // of this NT handle, so it is this side's responsibility (and safe) to close its
-            // duplicate immediately once the call has returned, success or not.
+
+
+
             CloseHandle(duplicated);
             if (allocate_result != VK_SUCCESS) {
                 destroy_composition_swapchain_resources(device, resources);
@@ -275,9 +275,9 @@ namespace SFT::Core::Vulkan {
 
             auto view = image->create_view(VK_IMAGE_ASPECT_COLOR_BIT);
             if (!view) {
-                // Same order as destroy_composition_swapchain_resources' steady-state teardown below
-                // (image before the memory bound to it), spelled out explicitly here rather than
-                // relying on `image`'s destructor running after this function returns.
+
+
+
                 image->destroy();
                 vkFreeMemory(device, memory, nullptr);
                 destroy_composition_swapchain_resources(device, resources);
@@ -316,8 +316,8 @@ namespace SFT::Core::Vulkan {
                                                 .pNext = &id_properties};
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
 
-        // deviceLUID is exactly 8 bytes (VK_LUID_SIZE) per spec, the same width as a Windows LUID and
-        // as adapter_luid_bits below — a plain memcpy is an exact, lossless reinterpretation.
+
+
         u64 adapter_luid_bits = 0;
         std::memcpy(&adapter_luid_bits, id_properties.deviceLUID, sizeof(id_properties.deviceLUID));
 
@@ -341,8 +341,8 @@ namespace SFT::Core::Vulkan {
         CompositionSwapchainResources resources{};
         resources.presenter = std::move(presenter_result.value);
 
-        // Fences first: failing fast here (before allocating any image) keeps the error path from
-        // having to unwind partially-imported images.
+
+
         if (auto imported = import_composition_fences(device, resources); !imported) {
             destroy_composition_swapchain_resources(device, resources);
             return std::unexpected(imported.error());
@@ -368,30 +368,30 @@ namespace SFT::Core::Vulkan {
                                           "resize_composition_swapchain_resources: `previous` has no presenter "
                                           "to reuse.");
         }
-        // Attach the visible surface to the new client extent *first*, before any of the work below.
-        // Everything after this point — the fence wait, ResizeBuffers, and the per-image re-import —
-        // takes long enough that a window being dragged has already moved its border several times by
-        // the time it finishes. A composition visual does not track its window's client size on its
-        // own (unlike a native HWND swapchain, which the desktop compositor stretches for free), so
-        // without this the old surface simply sits at its old size while the border moves, which is
-        // what makes an interactive resize of a transparent or blurred window look like it is lagging
-        // behind the frame. Scaling is compositor-only and costs no GPU work, so it lands immediately.
-        //
-        // The scaled content is soft and still laid out for the previous size; that is the point of
-        // the rebuild below, which replaces it with a crisp, correctly laid out surface and resets the
-        // scale. Failure is not fatal — it only costs this cosmetic bridging, so the real resize
-        // still proceeds.
+
+
+
+
+
+
+
+
+
+
+
+
+
         (void)previous.presenter->set_live_scale(width, height);
 
-        // The D3D presenter may still be waiting for Vulkan writes to its shared images. Wait for the
-        // last composition handoff instead of idling the entire device: render_complete_value is
-        // signaled only after the frame's final release barrier, so reaching it proves every Vulkan
-        // submission that can access any of this presenter's images has completed. The presenter's
-        // resize() below separately waits for its D3D copy/present work before releasing those images.
-        //
-        // A device-wide idle here made an interactive resize wait on unrelated work (including other
-        // windows), causing the UI to visibly lag behind a contracting window even when this surface's
-        // own present work had already finished.
+
+
+
+
+
+
+
+
+
         if (previous.render_complete_value != 0) {
             if (RendererResult waited = previous.render_complete_semaphore.wait(previous.render_complete_value);
                 !waited) {
@@ -404,15 +404,15 @@ namespace SFT::Core::Vulkan {
         }
 
         CompositionSwapchainResources resources{};
-        // Reusing the presenter in place — not creating a new one — is the entire point: it keeps the
-        // same D3D device, DXGI factory, and already-attached DirectComposition target/visual alive
-        // across the resize, instead of paying full device creation plus a target detach/reattach
-        // (visibly disruptive — that reattach is what caused flicker during live window resizing)
-        // every single time the window changes size.
+
+
+
+
+
         resources.presenter = std::move(previous.presenter);
-        // resize() leaves the underlying D3D fences untouched, so the semaphores already imported from
-        // them remain valid. Their render-complete value has to travel with the semaphore: a Vulkan
-        // timeline semaphore may only be signaled with a strictly greater value than its current one.
+
+
+
         resources.render_complete_semaphore = std::move(previous.render_complete_semaphore);
         resources.present_complete_semaphore = std::move(previous.present_complete_semaphore);
         resources.render_complete_value = previous.render_complete_value;
@@ -430,12 +430,12 @@ namespace SFT::Core::Vulkan {
     }
 
     void destroy_composition_swapchain_resources(VkDevice device, CompositionSwapchainResources &resources) noexcept {
-        // Views before images (a view referencing a destroyed image is invalid to hold even
-        // momentarily), images before their bound memory (freeing memory a live VkImage is still
-        // bound to is a validation error even if nothing accesses it again), semaphores are
-        // independent of both and can go in any order relative to them, and the presenter — which
-        // owns the D3D-side originals every one of these was imported from — last, so its own
-        // teardown never has to reason about what Vulkan has or hasn't released yet.
+
+
+
+
+
+
         resources.views.clear();
         for (CompositionSwapchainImage &image : resources.images) {
             image.image.destroy();
@@ -450,24 +450,24 @@ namespace SFT::Core::Vulkan {
         resources.presenter.reset();
     }
 
-#else // !defined(_WIN32)
+#else
 
     RendererExpected<CompositionSwapchainResources> create_composition_swapchain_resources(
-        VkDevice /*device*/,
-        VkPhysicalDevice /*physical_device*/,
-        const GraphicsPlatform::NativeSurfaceHandle & /*surface*/,
-        VkFormat /*vk_format*/,
-        VkImageUsageFlags /*usage*/,
-        u32 /*width*/,
-        u32 /*height*/,
-        u32 /*image_count*/,
-        GraphicsPlatform::CompositionAlphaMode /*alpha_mode*/) {
+        VkDevice           ,
+        VkPhysicalDevice                    ,
+        const GraphicsPlatform::NativeSurfaceHandle &            ,
+        VkFormat              ,
+        VkImageUsageFlags          ,
+        u32          ,
+        u32           ,
+        u32                ,
+        GraphicsPlatform::CompositionAlphaMode               ) {
         return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
                                       "Composition present is implemented only on Windows.");
     }
 
-    void destroy_composition_swapchain_resources(VkDevice /*device*/,
-                                                 CompositionSwapchainResources & /*resources*/) noexcept {
+    void destroy_composition_swapchain_resources(VkDevice           ,
+                                                 CompositionSwapchainResources &              ) noexcept {
     }
 
 #endif // defined(_WIN32)

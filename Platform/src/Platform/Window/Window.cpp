@@ -1,3 +1,4 @@
+#include <Platform/src/Platform/Window/Window.hpp>
 #include "Window.hpp"
 
 #include <tracy/Tracy.hpp>
@@ -29,6 +30,28 @@ expected<void, WindowError> Window::unlock_mouse() noexcept {
             return set_mouse_locked(false);
         }
 
-void Window::set_live_resize_callback(std::function<void(WindowExtent)> /*callback*/) noexcept {}
+void Window::set_live_resize_callback(std::function<void(WindowExtent)>             ) noexcept {}
 
 } // namespace SFT::Platform::Windowing
+
+namespace SFT::Platform::Windowing {
+
+    optional<WindowHdrProperties> Window::hdr_properties() const noexcept {
+        return std::nullopt;
+    }
+
+    expected<WindowPosition, WindowError> Window::global_cursor_position() const noexcept {
+        return unexpected(WindowError{
+            WindowErrorCode::Unsupported,
+            "Global cursor position is unavailable for this window provider.",
+        });
+    }
+
+    expected<void, WindowError> Window::start_text_input() noexcept { return {}; }
+
+    expected<void, WindowError> Window::stop_text_input() noexcept { return {}; }
+
+    expected<void, WindowError> Window::set_text_input_area(TextInputArea         ) noexcept { return {}; }
+
+} // namespace SFT::Platform::Windowing
+

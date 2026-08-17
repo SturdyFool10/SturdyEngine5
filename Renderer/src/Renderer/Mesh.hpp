@@ -20,21 +20,21 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    // Extrusion/revolution/normal axis for primitives that aren't rotationally symmetric about every
-    // axis (cylinder, cone, plane). Follows the SolidWorks convention the caller asked for: Y means
-    // "a profile in the XZ plane, extruded/revolved along Y" — i.e. the shape's natural axis when
-    // authored is Y, and X/Z just remap that same shape onto a different axis.
+    /// Extrusion/revolution/normal axis for primitives that aren't rotationally symmetric about every
+    /// axis (cylinder, cone, plane). Follows the SolidWorks convention the caller asked for: Y means
+    /// "a profile in the XZ plane, extruded/revolved along Y" — i.e. the shape's natural axis when
+    /// authored is Y, and X/Z just remap that same shape onto a different axis.
     enum class Axis : u8 { X, Y, Z };
 
     struct UvSphereParams {
         f32 radius = 0.5f;
-        u32 rings = 16;    // latitude segments (pole to pole)
-        u32 segments = 32; // longitude segments (around the equator)
+        u32 rings = 16;
+        u32 segments = 32;
     };
 
     struct IcoSphereParams {
         f32 radius = 0.5f;
-        u32 subdivisions = 2; // 0 = base icosahedron (20 faces)
+        u32 subdivisions = 2;
     };
 
     struct CylinderParams {
@@ -54,51 +54,51 @@ namespace SFT::Renderer {
     };
 
     struct CubeParams {
-        f32 size = 1.0f; // edge length
+        f32 size = 1.0f;
     };
 
     struct RectangularPrismParams {
-        glm::vec3 extents{1.0f, 1.0f, 1.0f}; // full width (X), height (Y), depth (Z)
+        glm::vec3 extents{1.0f, 1.0f, 1.0f};
     };
 
     struct TetrahedronParams {
-        f32 size = 1.0f; // edge length of the regular tetrahedron
+        f32 size = 1.0f;
     };
 
     struct PlaneParams {
-        f32 width = 1.0f;  // extent along the tangential X-like axis
-        f32 depth = 1.0f;  // extent along the tangential Z-like axis
+        f32 width = 1.0f;
+        f32 depth = 1.0f;
         u32 width_segments = 1;
         u32 depth_segments = 1;
-        Axis axis = Axis::Y; // direction the plane's normal faces
+        Axis axis = Axis::Y;
     };
 
     struct TorusParams {
-        f32 major_radius = 0.5f; // distance from the center to the tube's centerline
-        f32 minor_radius = 0.2f; // tube thickness
-        u32 major_segments = 32; // segments around the ring
-        u32 minor_segments = 16; // segments around the tube
+        f32 major_radius = 0.5f;
+        f32 minor_radius = 0.2f;
+        u32 major_segments = 32;
+        u32 minor_segments = 16;
     };
 
-    // CPU-side mesh data: points + indices, plain value type (copying deep-copies the geometry, same
-    // as copying a vector). A Mesh is CPU-resident from construction; it only becomes GPU-resident
-    // once handed to Renderer::upload(), which stamps a handle back onto it. Copies of an uploaded
-    // Mesh keep pointing at the same GPU resource (they share the handle), so passing meshes around
-    // by value never implicitly re-uploads or duplicates GPU memory.
+    /// CPU-side mesh data: points + indices, plain value type (copying deep-copies the geometry, same
+    /// as copying a vector). A Mesh is CPU-resident from construction; it only becomes GPU-resident
+    /// once handed to Renderer::upload(), which stamps a handle back onto it. Copies of an uploaded
+    /// Mesh keep pointing at the same GPU resource (they share the handle), so passing meshes around
+    /// by value never implicitly re-uploads or duplicates GPU memory.
     class Mesh {
       public:
         Mesh() = default;
 
         [[nodiscard]] static Mesh create(const char *label = nullptr);
 
-        // Builds a mesh from raw triangles in model space (origin at Vec3(0), Y+ up). Each triangle
-        // gets its own three vertices with a flat face normal — geometry from disparate triangles
-        // isn't assumed to share a smooth surface.
+        /// Builds a mesh from raw triangles in model space (origin at Vec3(0), Y+ up). Each triangle
+        /// gets its own three vertices with a flat face normal — geometry from disparate triangles
+        /// isn't assumed to share a smooth surface.
         [[nodiscard]] static Mesh from_triangles(span<const Core::Triangle> triangles, const char *label = nullptr);
 
-        // Builds a mesh from already-indexed vertex data (e.g. a glTF primitive's
-        // position/normal/uv/color accessors) — unlike from_triangles(), vertices are shared across
-        // triangles via `indices` rather than tripled per-face with a synthesized flat normal.
+        /// Builds a mesh from already-indexed vertex data (e.g. a glTF primitive's
+        /// position/normal/uv/color accessors) — unlike from_triangles(), vertices are shared across
+        /// triangles via `indices` rather than tripled per-face with a synthesized flat normal.
         [[nodiscard]] static Mesh from_vertices(span<const GeometryVertex> vertices, span<const u32> indices,
                                                  const char *label = nullptr);
 
@@ -119,21 +119,21 @@ namespace SFT::Renderer {
         void set_label(UString label) noexcept;
         void set_vertex_color(const glm::vec4 &color) noexcept;
 
-        // Triangle count this mesh draws as (every Mesh factory function populates indices_, even
-        // from_triangles' otherwise-unindexed input, so index_count/3 is always the right count —
-        // vertex_count/3 is only a fallback for a hand-built Mesh that never set indices). Cheap,
-        // pure-CPU — safe to call anytime, GPU-resident or not.
+        /// Triangle count this mesh draws as (every Mesh factory function populates indices_, even
+        /// from_triangles' otherwise-unindexed input, so index_count/3 is always the right count —
+        /// vertex_count/3 is only a fallback for a hand-built Mesh that never set indices). Cheap,
+        /// pure-CPU — safe to call anytime, GPU-resident or not.
         [[nodiscard]] usize triangle_count() const noexcept;
-        // Rough GPU footprint estimate: vertex buffer bytes + index buffer bytes, matching
-        // AssetManager::create_model's identical formula for ModelAssetInfo/AssetInfo::memory_bytes
-        // (see Engine/AssetManager.cpp) — kept here too so a Mesh built without ever becoming an
-        // AssetManager Model asset (e.g. procedural geometry a game uploads directly) still has a
-        // queryable estimate.
+        /// Rough GPU footprint estimate: vertex buffer bytes + index buffer bytes, matching
+        /// AssetManager::create_model's identical formula for ModelAssetInfo/AssetInfo::memory_bytes
+        /// (see Engine/AssetManager.cpp) — kept here too so a Mesh built without ever becoming an
+        /// AssetManager Model asset (e.g. procedural geometry a game uploads directly) still has a
+        /// queryable estimate.
         [[nodiscard]] u64 estimated_gpu_bytes() const noexcept;
 
-        // False until this exact Mesh (or a copy sharing its handle) has been uploaded via
-        // Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading
-        // does not move the data off the CPU, it just also puts a copy on the GPU.
+        /// False until this exact Mesh (or a copy sharing its handle) has been uploaded via
+        /// Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading
+        /// does not move the data off the CPU, it just also puts a copy on the GPU.
         [[nodiscard]] bool is_gpu_resident() const noexcept;
         [[nodiscard]] MeshHandle gpu_handle() const noexcept;
 

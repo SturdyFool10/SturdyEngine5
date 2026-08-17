@@ -25,9 +25,9 @@ namespace SFT::Foundation::Cpu {
             read_leaf(0, 0, eax, ebx, ecx, edx);
             const unsigned int max_leaf = eax;
 
-            // Prefer the newer, wider topology leaf; fall back for CPUs that don't implement it (leaf
-            // 0x1F is an Intel V2-topology addition -- plenty of real-world AMD/older Intel parts only
-            // go as far as leaf 0xB, and pre-x2APIC CPUs only have the legacy 8-bit ID in leaf 1).
+
+
+
             if (max_leaf >= 0x1f) {
                 read_leaf(0x1f, 0, eax, ebx, ecx, edx);
                 return edx;
@@ -37,19 +37,19 @@ namespace SFT::Foundation::Cpu {
                 return edx;
             }
             read_leaf(1, 0, eax, ebx, ecx, edx);
-            return ebx >> 24; // legacy 8-bit initial APIC ID
+            return ebx >> 24;
         }
 
         [[nodiscard]] CoreType read_core_type() noexcept {
             const CpuFeatures &f = features();
             if (!f.hybrid) {
-                return CoreType::Unknown; // uniform package: nothing to distinguish
+                return CoreType::Unknown;
             }
-            // Leaf 0x1A ("Hybrid Information") is a GenuineIntel-defined leaf. AMD's hybrid designs
-            // (Zen 5 P/C-core mixes) preserve full ISA parity across core types, so there's no
-            // correctness reason to decode their (unverified here) core-type encoding -- report
-            // Unknown rather than guess at a bit layout this hasn't been checked against real hybrid
-            // AMD silicon.
+
+
+
+
+
             if (std::strcmp(f.vendor, "GenuineIntel") != 0) {
                 return CoreType::Unknown;
             }
@@ -57,10 +57,10 @@ namespace SFT::Foundation::Cpu {
             read_leaf(0x1a, 0, eax, ebx, ecx, edx);
             const unsigned int core_type = eax >> 24;
             if (core_type == 0x20) {
-                return CoreType::Efficiency; // Intel Atom-derived core
+                return CoreType::Efficiency;
             }
             if (core_type == 0x40) {
-                return CoreType::Performance; // Intel Core-derived core
+                return CoreType::Performance;
             }
             return CoreType::Unknown;
         }
@@ -74,7 +74,7 @@ namespace SFT::Foundation::Cpu {
         };
     }
 
-#else // !STURDY_CPU_X86
+#else
 
     CurrentCore current_core() noexcept { return CurrentCore{}; }
 

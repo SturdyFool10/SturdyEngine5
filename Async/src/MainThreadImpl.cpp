@@ -14,10 +14,10 @@ namespace SFT::Async {
 
         Mutex<deque<function<void()>>> &main_thread_queue() noexcept {
             static Mutex<deque<function<void()>>> queue;
-            // Mutex<T> is non-copyable/non-movable (it guards its value in place), so it can't be
-            // built-then-named via a static initializer lambda the usual way -- this runs
-            // set_debug_name() exactly once, piggybacking on the same thread-safe "init on first
-            // call" guarantee `queue` itself already gets as a function-local static.
+
+
+
+
             static const bool named = (queue.set_debug_name("Async Main Thread Queue"), true);
             (void)named;
             return queue;
@@ -31,9 +31,9 @@ namespace SFT::Async {
     }
 
     void pump_main_thread() noexcept {
-        // Swap the pending jobs out under the lock, then run them outside it — so a job that itself
-        // calls run_on_main_thread() (queuing for the *next* pump) can't deadlock against this one,
-        // and one pump can't be held up by producers still pushing more work.
+
+
+
         deque<function<void()>> jobs;
         {
             auto guard = main_thread_queue().lock();

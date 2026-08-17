@@ -32,10 +32,10 @@ using std::unique_ptr;
 
 namespace SFT::RHI {
 
-    // Which concrete graphics API a device is driving. Reported by the device; also the switch a
-    // higher layer reads to pick a backend factory. Every value exists in the enum regardless of which
-    // backends are compiled in — availability is a runtime question answered by the backend registry
-    // (see :Backend), not by the presence of the enumerator.
+    /// Which concrete graphics API a device is driving. Reported by the device; also the switch a
+    /// higher layer reads to pick a backend factory. Every value exists in the enum regardless of which
+    /// backends are compiled in — availability is a runtime question answered by the backend registry
+    /// (see :Backend), not by the presence of the enumerator.
     enum class BackendType : u32 {
         Vulkan,
         D3D12,
@@ -57,15 +57,15 @@ namespace SFT::RHI {
         return "<unknown>";
     }
 
-    // The broad category of an adapter, mirroring VkPhysicalDeviceType / DXGI adapter flags. `Cpu` is
-    // a pure software rasterizer (lavapipe, SwiftShader, WARP) — the kind a selector usually excludes
-    // by default. Selection filters and power-preference scoring key off this (see :Selection).
+    /// The broad category of an adapter, mirroring VkPhysicalDeviceType / DXGI adapter flags. `Cpu` is
+    /// a pure software rasterizer (lavapipe, SwiftShader, WARP) — the kind a selector usually excludes
+    /// by default. Selection filters and power-preference scoring key off this (see :Selection).
     enum class DeviceType : u32 {
-        Other,         // present but uncategorized
-        IntegratedGpu, // shares system memory with the CPU (laptops, APUs) — the low-power choice
-        DiscreteGpu,   // dedicated GPU with its own VRAM — the high-performance choice
-        VirtualGpu,    // a virtualized/paravirtual adapter (VMs, cloud)
-        Cpu,           // software rasterizer, no real GPU
+        Other,
+        IntegratedGpu,
+        DiscreteGpu,
+        VirtualGpu,
+        Cpu,
     };
 
     [[nodiscard]] constexpr const char *device_type_name(DeviceType type) noexcept {
@@ -84,9 +84,9 @@ namespace SFT::RHI {
         return "<unknown>";
     }
 
-    // Backend-agnostic description of the adapter/GPU — plain strings/ints, no API types, so any
-    // layer can log or display it. Same shape and intent as Core::GpuInfo, redeclared here to keep
-    // the RHI self-contained.
+    /// Backend-agnostic description of the adapter/GPU — plain strings/ints, no API types, so any
+    /// layer can log or display it. Same shape and intent as Core::GpuInfo, redeclared here to keep
+    /// the RHI self-contained.
     struct AdapterInfo {
         string name;
         string vendor;
@@ -96,17 +96,17 @@ namespace SFT::RHI {
         DeviceType device_type = DeviceType::Other;
         u32 vendor_id = 0;
         u32 device_id = 0;
-        // Stable opaque key used only to merge the same physical GPU across API enumerations. Backends
-        // populate it when their platform exposes a cross-API identity (Windows adapter LUID, Metal
-        // registry ID, etc.); an empty value deliberately prevents merging rather than guessing from
-        // marketing names or PCI IDs, which are not unique for multi-GPU systems.
+        /// Stable opaque key used only to merge the same physical GPU across API enumerations. Backends
+        /// populate it when their platform exposes a cross-API identity (Windows adapter LUID, Metal
+        /// registry ID, etc.); an empty value deliberately prevents merging rather than guessing from
+        /// marketing names or PCI IDs, which are not unique for multi-GPU systems.
         string physical_device_id;
-        // Retained convenience mirror of `device_type == DeviceType::DiscreteGpu`; the backend sets both.
+        /// Retained convenience mirror of `device_type == DeviceType::DiscreteGpu`; the backend sets both.
         bool is_discrete = false;
     };
 
-    // Hard numeric limits the caller must respect. Populated by the backend from the device; the
-    // fields most descriptors actually bump against.
+    /// Hard numeric limits the caller must respect. Populated by the backend from the device; the
+    /// fields most descriptors actually bump against.
     struct DeviceLimits {
         u32 max_texture_dimension_2d = 0;
         u32 max_texture_array_layers = 0;
@@ -116,39 +116,39 @@ namespace SFT::RHI {
         u32 max_vertex_attributes = 0;
         u32 max_color_attachments = 0;
         u32 max_framebuffer_sample_count = 1;
-        // Bit N is set when N samples are supported (Vulkan's native bit layout is 1/2/4/...).
+        /// Bit N is set when N samples are supported (Vulkan's native bit layout is 1/2/4/...).
         u32 framebuffer_sample_counts = 1;
         bool supports_minimum_depth_resolve = false;
-        // True when the device can sample BC1-7 block-compressed textures (core Vulkan
-        // textureCompressionBC, not a vendor extension — near-universal on desktop GPUs). Callers
-        // uploading Format::BC7Unorm/etc. (e.g. Engine::AssetManager::create_texture) must check
-        // this and fall back to an uncompressed format when false.
+        /// True when the device can sample BC1-7 block-compressed textures (core Vulkan
+        /// textureCompressionBC, not a vendor extension — near-universal on desktop GPUs). Callers
+        /// uploading Format::BC7Unorm/etc. (e.g. Engine::AssetManager::create_texture) must check
+        /// this and fall back to an uncompressed format when false.
         bool supports_bc_texture_compression = false;
         u32 max_compute_workgroup_size_x = 0;
         u32 max_compute_workgroup_size_y = 0;
         u32 max_compute_workgroup_size_z = 0;
         u64 min_uniform_buffer_offset_alignment = 0;
         u64 min_storage_buffer_offset_alignment = 0;
-        // Nanoseconds a single timestamp-query tick represents — multiply an (end − start) tick delta
-        // by this to get a pass's GPU time. 0 means the device can't timestamp. `timestamp_valid_bits`
-        // is how many low bits of a written timestamp are meaningful (mask before subtracting).
+        /// Nanoseconds a single timestamp-query tick represents — multiply an (end − start) tick delta
+        /// by this to get a pass's GPU time. 0 means the device can't timestamp. `timestamp_valid_bits`
+        /// is how many low bits of a written timestamp are meaningful (mask before subtracting).
         f32 timestamp_period_ns = 0.0f;
         u32 timestamp_valid_bits = 0;
     };
 
-    // The heart of the RHI: the API-agnostic device. A concrete backend (Core's Vulkan backend
-    // today; Metal/D3D12/WebGPU later) implements every method; higher layers describe all GPU work
-    // in terms of the descriptors/handles/encoders above and never touch a graphics-API symbol.
-    //
-    // Ownership model: every `create_*` mints a handle the device owns; the matching `destroy_*`
-    // releases it. Handles are plain values (see :Handles), so the caller tracks lifetimes itself —
-    // the device does not reference-count them. Destroying a resource still referenced by in-flight
-    // GPU work is a caller error; sequence teardown after wait_idle() (or the appropriate
-    // frame-fence) just as the raw API would demand.
-    //
-    // The RHI intentionally provides no factory here — constructing a device is inherently
-    // API-specific (instance/adapter/surface plumbing), so each backend exposes its own
-    // `create_*_device(...)` entry point that returns a `unique_ptr<RhiDevice>`.
+    /// The heart of the RHI: the API-agnostic device. A concrete backend (Core's Vulkan backend
+    /// today; Metal/D3D12/WebGPU later) implements every method; higher layers describe all GPU work
+    /// in terms of the descriptors/handles/encoders above and never touch a graphics-API symbol.
+    ///
+    /// Ownership model: every `create_*` mints a handle the device owns; the matching `destroy_*`
+    /// releases it. Handles are plain values (see :Handles), so the caller tracks lifetimes itself —
+    /// the device does not reference-count them. Destroying a resource still referenced by in-flight
+    /// GPU work is a caller error; sequence teardown after wait_idle() (or the appropriate
+    /// frame-fence) just as the raw API would demand.
+    ///
+    /// The RHI intentionally provides no factory here — constructing a device is inherently
+    /// API-specific (instance/adapter/surface plumbing), so each backend exposes its own
+    /// `create_*_device(...)` entry point that returns a `unique_ptr<RhiDevice>`.
     class RhiDevice {
       public:
         virtual ~RhiDevice() = default;
@@ -158,44 +158,44 @@ namespace SFT::RHI {
         RhiDevice(RhiDevice &&) = delete;
         RhiDevice &operator=(RhiDevice &&) = delete;
 
-        // ── Introspection ──
+        /// ── Introspection ──
         [[nodiscard]] virtual BackendType backend_type() const noexcept = 0;
         [[nodiscard]] virtual const AdapterInfo &adapter_info() const noexcept = 0;
         [[nodiscard]] virtual const DeviceLimits &limits() const noexcept = 0;
 
-        // Full request/support/enablement report from device creation. This records required features
-        // that were satisfied, optional features that were partially enabled, and exact missing sets.
+        /// Full request/support/enablement report from device creation. This records required features
+        /// that were satisfied, optional features that were partially enabled, and exact missing sets.
         [[nodiscard]] virtual const FeatureNegotiationReport &feature_negotiation_report() const noexcept = 0;
 
-        // The optional features this device actually turned on — the requested required+optional set
-        // intersected with what the adapter supported (see :Adapter's DeviceRequest). An app reads
-        // this to branch its render path on what it got, and guards any command/pipeline that needs
-        // an optional feature behind `is_enabled(...)` before recording it.
+        /// The optional features this device actually turned on — the requested required+optional set
+        /// intersected with what the adapter supported (see :Adapter's DeviceRequest). An app reads
+        /// this to branch its render path on what it got, and guards any command/pipeline that needs
+        /// an optional feature behind `is_enabled(...)` before recording it.
         [[nodiscard]] virtual const FeatureSet &enabled_features() const noexcept = 0;
 
-        // Graded values (max ray recursion depth, VRS tile size, ...) for the enabled features.
+        /// Graded values (max ray recursion depth, VRS tile size, ...) for the enabled features.
         [[nodiscard]] virtual const FeatureProperties &feature_properties() const noexcept = 0;
 
-        // Queue classes/lanes this device exposes after aliasing unsupported classes onto the nearest
-        // native queue. Higher-level schedulers use this to decide how much CPU/GPU fan-out to attempt.
+        /// Queue classes/lanes this device exposes after aliasing unsupported classes onto the nearest
+        /// native queue. Higher-level schedulers use this to decide how much CPU/GPU fan-out to attempt.
         [[nodiscard]] virtual span<const QueueInfo> queue_infos() const noexcept = 0;
 
-        // API/vendor-specific extensions enabled on this device. Use this for capabilities that do not
-        // deserve a core `Feature` yet, or that are intentionally backend-specific.
+        /// API/vendor-specific extensions enabled on this device. Use this for capabilities that do not
+        /// deserve a core `Feature` yet, or that are intentionally backend-specific.
         [[nodiscard]] virtual span<const ExtensionId> enabled_extensions() const noexcept = 0;
 
-        // Convenience over `enabled_features().has(feature)` — the guard at the point of use, e.g.
-        // `if (device.is_enabled(Feature::RayTracingPipeline)) { ...trace... } else { ...raster... }`.
+        /// Convenience over `enabled_features().has(feature)` — the guard at the point of use, e.g.
+        /// `if (device.is_enabled(Feature::RayTracingPipeline)) { ...trace... } else { ...raster... }`.
         [[nodiscard]] bool is_enabled(Feature feature) const noexcept;
 
         [[nodiscard]] bool is_extension_enabled(ExtensionId extension) const noexcept;
 
-        // Returns an extension-specific typed interface when `extension` is enabled, otherwise nullptr.
-        // This is the RHI-level escape hatch for API/vendor features that are intentionally outside the
-        // core feature enum, without requiring high layers to include Vulkan/D3D12/Metal headers.
+        /// Returns an extension-specific typed interface when `extension` is enabled, otherwise nullptr.
+        /// This is the RHI-level escape hatch for API/vendor features that are intentionally outside the
+        /// core feature enum, without requiring high layers to include Vulkan/D3D12/Metal headers.
         [[nodiscard]] virtual RhiDeviceExtension *extension_interface(ExtensionId extension) noexcept = 0;
 
-        // ── Resource creation / destruction ──
+        /// ── Resource creation / destruction ──
         [[nodiscard]] virtual RhiExpected<BufferHandle> create_buffer(const BufferDesc &desc) = 0;
         virtual void destroy_buffer(BufferHandle handle) noexcept = 0;
 
@@ -241,36 +241,36 @@ namespace SFT::RHI {
             const AccelerationStructureDesc &desc) = 0;
         virtual void destroy_acceleration_structure(AccelerationStructureHandle handle) noexcept = 0;
 
-        // ── GPU virtual addresses ──
-        // The device address of `buffer` (requires Feature::BufferDeviceAddress). The buffer must have
-        // been created with BufferUsage carrying the address intent. Needed to feed pointers to shaders
-        // (bindless-by-pointer) and to reference geometry/scratch by address in AS builds.
+        /// ── GPU virtual addresses ──
+        /// The device address of `buffer` (requires Feature::BufferDeviceAddress). The buffer must have
+        /// been created with BufferUsage carrying the address intent. Needed to feed pointers to shaders
+        /// (bindless-by-pointer) and to reference geometry/scratch by address in AS builds.
         [[nodiscard]] virtual RhiExpected<u64> buffer_device_address(BufferHandle buffer) const = 0;
-        // The device address of an acceleration structure (requires Feature::AccelerationStructures) —
-        // what a TLAS instance record stores to reference its BLAS.
+        /// The device address of an acceleration structure (requires Feature::AccelerationStructures) —
+        /// what a TLAS instance record stores to reference its BLAS.
         [[nodiscard]] virtual RhiExpected<u64> acceleration_structure_device_address(
             AccelerationStructureHandle handle) const = 0;
 
-        // ── Data upload ──
-        // Writes `data` into `buffer` at `offset`. For a HostUpload buffer this is a direct mapped
-        // write; for a DeviceLocal buffer the backend stages and copies internally. Convenience for
-        // the common "get bytes into a buffer" case without the caller hand-rolling staging.
+        /// ── Data upload ──
+        /// Writes `data` into `buffer` at `offset`. For a HostUpload buffer this is a direct mapped
+        /// write; for a DeviceLocal buffer the backend stages and copies internally. Convenience for
+        /// the common "get bytes into a buffer" case without the caller hand-rolling staging.
         [[nodiscard]] virtual RhiResult write_buffer(BufferHandle buffer, u64 offset, span<const std::byte> data) = 0;
 
-        // Maps a host-visible buffer (HostUpload / HostReadback memory) for direct CPU access, yielding
-        // a writable byte span over the whole buffer; `unmap_buffer` releases it. This is the readback
-        // path a DeviceLocal buffer has no equivalent for — copy GPU results into a HostReadback buffer,
-        // then map it to read them (screenshots, query/statistics readback, GPU→CPU feedback). Mapping a
-        // DeviceLocal buffer fails with InvalidArgument. Persistent mapping is allowed; the caller must
-        // not read/write ranges racing with in-flight GPU work.
+        /// Maps a host-visible buffer (HostUpload / HostReadback memory) for direct CPU access, yielding
+        /// a writable byte span over the whole buffer; `unmap_buffer` releases it. This is the readback
+        /// path a DeviceLocal buffer has no equivalent for — copy GPU results into a HostReadback buffer,
+        /// then map it to read them (screenshots, query/statistics readback, GPU→CPU feedback). Mapping a
+        /// DeviceLocal buffer fails with InvalidArgument. Persistent mapping is allowed; the caller must
+        /// not read/write ranges racing with in-flight GPU work.
         [[nodiscard]] virtual RhiExpected<span<std::byte>> map_buffer(BufferHandle buffer) = 0;
         virtual void unmap_buffer(BufferHandle buffer) noexcept = 0;
 
-        // ── Command recording / submission ──
-        // Safe CPU parallelism rule: the device may be called concurrently to create independent
-        // encoders/bundles; each returned encoder is single-threaded. Finished command buffers are
-        // immutable handles and may be submitted from any thread, with per-queue serialization handled
-        // by the backend.
+        /// ── Command recording / submission ──
+        /// Safe CPU parallelism rule: the device may be called concurrently to create independent
+        /// encoders/bundles; each returned encoder is single-threaded. Finished command buffers are
+        /// immutable handles and may be submitted from any thread, with per-queue serialization handled
+        /// by the backend.
         [[nodiscard]] RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder();
         [[nodiscard]] virtual RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder(
             const CommandEncoderDesc &desc) = 0;
@@ -283,63 +283,63 @@ namespace SFT::RHI {
         [[nodiscard]] RhiResult submit(span<const CommandBufferHandle> command_buffers);
         [[nodiscard]] virtual RhiResult submit(const SubmitDesc &desc) = 0;
 
-        // ── Presentation ──
+        /// ── Presentation ──
         [[nodiscard]] virtual RhiExpected<SurfaceHandle> create_surface(const SurfaceDesc &desc) = 0;
         virtual void destroy_surface(SurfaceHandle handle) noexcept = 0;
 
         [[nodiscard]] virtual RhiExpected<SwapchainHandle> create_swapchain(const SwapchainDesc &desc) = 0;
         virtual void destroy_swapchain(SwapchainHandle handle) noexcept = 0;
 
-        // Requested-vs-effective presentation state for `handle`, set the last time it was (re)built
-        // by create_swapchain() — see PresentationResolution's own doc comment (Swapchain.hpp) for
-        // why this exists (diagnostics: never let a debug overlay/support report silently repeat the
-        // requested strategy when the surface actually forced a fallback). Returns a default-
-        // constructed PresentationResolution for an unknown/already-destroyed handle.
+        /// Requested-vs-effective presentation state for `handle`, set the last time it was (re)built
+        /// by create_swapchain() — see PresentationResolution's own doc comment (Swapchain.hpp) for
+        /// why this exists (diagnostics: never let a debug overlay/support report silently repeat the
+        /// requested strategy when the surface actually forced a fallback). Returns a default-
+        /// constructed PresentationResolution for an unknown/already-destroyed handle.
         [[nodiscard]] virtual PresentationResolution presentation_resolution(SwapchainHandle handle) const noexcept = 0;
 
-        // Queries the real HDR capability of the display `handle`'s surface currently sits on —
-        // peak/min luminance, supported transfer functions (PQ/HLG/scRGB), gamut, and OS-reported
-        // metadata (EDID or platform-equivalent) when available. Meant to be called before requesting
-        // an HDR/wide-gamut SwapchainDesc::color_space, so a caller/UI can decide whether to offer HDR
-        // at all and what nits to target — never assume a display can do HDR just because the GPU/API
-        // can. Returns a query whose `message.status` explains *why* when the platform can't answer
-        // (Unsupported: no platform HDR-capability backend for this OS; NotAvailable: supported in
-        // principle but nothing could be determined for this specific surface/display right now).
+        /// Queries the real HDR capability of the display `handle`'s surface currently sits on —
+        /// peak/min luminance, supported transfer functions (PQ/HLG/scRGB), gamut, and OS-reported
+        /// metadata (EDID or platform-equivalent) when available. Meant to be called before requesting
+        /// an HDR/wide-gamut SwapchainDesc::color_space, so a caller/UI can decide whether to offer HDR
+        /// at all and what nits to target — never assume a display can do HDR just because the GPU/API
+        /// can. Returns a query whose `message.status` explains *why* when the platform can't answer
+        /// (Unsupported: no platform HDR-capability backend for this OS; NotAvailable: supported in
+        /// principle but nothing could be determined for this specific surface/display right now).
         [[nodiscard]] virtual RhiExpected<SurfaceHdrCapabilityQuery> query_hdr_capabilities(
             SurfaceHandle handle) const = 0;
 
-        // Re-sends HDR mastering metadata to an already-live Hdr10St2084 swapchain with updated
-        // per-scene content-light-level numbers — see HdrContentLightLevelUpdate's own doc comment
-        // (HdrDisplay.hpp) for exactly what this is (and is not: not real HDR10+/ST 2094-40). No
-        // swapchain recreation needed. Returns Unsupported for a swapchain that wasn't created with
-        // Hdr10St2084 (nothing to update — HLG/scRGB carry no such metadata, DolbyVision's real
-        // dynamic metadata is a different, unproducible format).
+        /// Re-sends HDR mastering metadata to an already-live Hdr10St2084 swapchain with updated
+        /// per-scene content-light-level numbers — see HdrContentLightLevelUpdate's own doc comment
+        /// (HdrDisplay.hpp) for exactly what this is (and is not: not real HDR10+/ST 2094-40). No
+        /// swapchain recreation needed. Returns Unsupported for a swapchain that wasn't created with
+        /// Hdr10St2084 (nothing to update — HLG/scRGB carry no such metadata, DolbyVision's real
+        /// dynamic metadata is a different, unproducible format).
         [[nodiscard]] virtual RhiResult update_hdr_content_light_level(
             SwapchainHandle handle,
             const HdrContentLightLevelUpdate &update) = 0;
 
-        // Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
-        // caller to recreate the swapchain.
-        //
-        // `frame_slot_index` identifies which of the caller's own CPU-side frame-in-flight slots this
-        // acquisition belongs to (e.g. `frame_index % resolved_frames_in_flight`) — it selects which
-        // internal acquisition semaphore to signal, sized to match SwapchainDesc::frames_in_flight.
-        // The caller must only pass a slot index whose previous use has already been proven complete
-        // (that slot's own submission fence signaled) before calling this — reusing a slot's
-        // acquisition semaphore before its prior GPU work has finished is undefined. A NotReady/
-        // SurfaceLost/error result never consumes or advances any acquisition-semaphore state, so
-        // retrying with the same frame_slot_index after a timeout is always safe.
+        /// Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
+        /// caller to recreate the swapchain.
+        ///
+        /// `frame_slot_index` identifies which of the caller's own CPU-side frame-in-flight slots this
+        /// acquisition belongs to (e.g. `frame_index % resolved_frames_in_flight`) — it selects which
+        /// internal acquisition semaphore to signal, sized to match SwapchainDesc::frames_in_flight.
+        /// The caller must only pass a slot index whose previous use has already been proven complete
+        /// (that slot's own submission fence signaled) before calling this — reusing a slot's
+        /// acquisition semaphore before its prior GPU work has finished is undefined. A NotReady/
+        /// SurfaceLost/error result never consumes or advances any acquisition-semaphore state, so
+        /// retrying with the same frame_slot_index after a timeout is always safe.
         [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain, u32 frame_slot_index) = 0;
-        // Presents a previously acquired image. `suboptimal` in the result mirrors acquire — present
-        // succeeded but the swapchain should be rebuilt soon.
-        //
-        // `queue_lock_wait_ms`, when non-null, is set to how long this call spent waiting on the
-        // backend's internal presentation-queue lock before the native present call itself could
-        // start — lets a caller profiling this stage separate backend-internal contention from time
-        // genuinely spent blocked in the driver/platform presentation engine.
+        /// Presents a previously acquired image. `suboptimal` in the result mirrors acquire — present
+        /// succeeded but the swapchain should be rebuilt soon.
+        ///
+        /// `queue_lock_wait_ms`, when non-null, is set to how long this call spent waiting on the
+        /// backend's internal presentation-queue lock before the native present call itself could
+        /// start — lets a caller profiling this stage separate backend-internal contention from time
+        /// genuinely spent blocked in the driver/platform presentation engine.
         [[nodiscard]] virtual RhiExpected<PresentOutcome> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
 
-        // ── Synchronization ──
+        /// ── Synchronization ──
         [[nodiscard]] virtual RhiExpected<SemaphoreHandle> create_semaphore(const SemaphoreDesc &desc) = 0;
         virtual void destroy_semaphore(SemaphoreHandle handle) noexcept = 0;
         [[nodiscard]] virtual RhiExpected<u64> semaphore_value(SemaphoreHandle handle) const = 0;
@@ -350,35 +350,35 @@ namespace SFT::RHI {
 
         [[nodiscard]] virtual RhiExpected<FenceHandle> create_fence(const FenceDesc &desc) = 0;
         virtual void destroy_fence(FenceHandle handle) noexcept = 0;
-        // The returned bool distinguishes a confirmed-signaled fence (true) from a real timeout
-        // (false, `vkWaitForFences` returning VK_TIMEOUT) -- a timeout is NOT an error, but it is
-        // also NOT permission to reclaim/reset/reuse anything the fence protects. Every caller must
-        // gate resource reclamation on `true`, never merely on the absence of an error. Every
-        // current call site uses the default `wait_forever` timeout, under which `false` should not
-        // occur outside a device hang; the distinction still has to exist so a future finite-timeout
-        // caller (e.g. a hang watchdog) can't accidentally reclaim fence-protected resources early.
+        /// The returned bool distinguishes a confirmed-signaled fence (true) from a real timeout
+        /// (false, `vkWaitForFences` returning VK_TIMEOUT) -- a timeout is NOT an error, but it is
+        /// also NOT permission to reclaim/reset/reuse anything the fence protects. Every caller must
+        /// gate resource reclamation on `true`, never merely on the absence of an error. Every
+        /// current call site uses the default `wait_forever` timeout, under which `false` should not
+        /// occur outside a device hang; the distinction still has to exist so a future finite-timeout
+        /// caller (e.g. a hang watchdog) can't accidentally reclaim fence-protected resources early.
         [[nodiscard]] virtual RhiExpected<bool> wait_fences(span<const FenceHandle> fences,
                                                             bool wait_all = true,
                                                             u64 timeout_ns = wait_forever) = 0;
         [[nodiscard]] virtual RhiResult reset_fences(span<const FenceHandle> fences) = 0;
 
-        // ── Queries ──
-        // A pool of query slots the GPU writes results into (see :Queries). Recorded against by the
-        // command encoder (reset/write_timestamp/begin/end/resolve); results are fetched either on the
-        // GPU via CommandEncoder::resolve_query_set or on the host via get_query_set_results below.
+        /// ── Queries ──
+        /// A pool of query slots the GPU writes results into (see :Queries). Recorded against by the
+        /// command encoder (reset/write_timestamp/begin/end/resolve); results are fetched either on the
+        /// GPU via CommandEncoder::resolve_query_set or on the host via get_query_set_results below.
         [[nodiscard]] virtual RhiExpected<QuerySetHandle> create_query_set(const QuerySetDesc &desc) = 0;
         virtual void destroy_query_set(QuerySetHandle handle) noexcept = 0;
-        // Reads results for slots `[first, first+count)` into `dst`, `stride` bytes apart. With
-        // QueryResultFlags::Wait it blocks until they're available; without it, InvalidArgument-free
-        // partial reads follow the Partial/WithAvailability flags. The host counterpart of
-        // resolve_query_set for when results are consumed CPU-side (per-pass GPU timing, occlusion).
+        /// Reads results for slots `[first, first+count)` into `dst`, `stride` bytes apart. With
+        /// QueryResultFlags::Wait it blocks until they're available; without it, InvalidArgument-free
+        /// partial reads follow the Partial/WithAvailability flags. The host counterpart of
+        /// resolve_query_set for when results are consumed CPU-side (per-pass GPU timing, occlusion).
         [[nodiscard]] virtual RhiResult get_query_set_results(QuerySetHandle query_set, u32 first, u32 count, span<std::byte> dst, u64 stride, QueryResultFlags flags = QueryResultFlags::Result64Bit) = 0;
 
-        // Reset a query set's slots on the host without a command buffer (requires Feature::HostQueryReset).
+        /// Reset a query set's slots on the host without a command buffer (requires Feature::HostQueryReset).
         virtual void reset_query_set(QuerySetHandle query_set, u32 first, u32 count) noexcept = 0;
 
-        // Blocks until the device is idle. The heavy hammer — use before teardown or a resource
-        // reload, not per frame.
+        /// Blocks until the device is idle. The heavy hammer — use before teardown or a resource
+        /// reload, not per frame.
         virtual void wait_idle() noexcept = 0;
 
       protected:

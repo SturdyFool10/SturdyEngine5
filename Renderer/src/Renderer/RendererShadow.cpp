@@ -49,10 +49,10 @@ namespace SFT::Renderer {
 
         constexpr u32 kAtlasGridSize = 8;
         constexpr f32 kMinimumLightRange = 0.05f;
-        // Point faces overlap their neighbours so dominant-axis face selection cannot turn an
-        // exactly-90-degree cubemap seam into an unshadowed crack. Keep this modest: it only needs
-        // to cover filtering around an edge, not meaningfully duplicate the six face renders.
-        constexpr f32 kPointShadowFaceFovRadians = 1.6057029f; // 92 degrees.
+
+
+
+        constexpr f32 kPointShadowFaceFovRadians = 1.6057029f;
 
         [[nodiscard]] Core::GraphicsBackendError shadow_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
@@ -148,8 +148,8 @@ namespace SFT::Renderer {
         [[nodiscard]] glm::mat4 stabilize_directional_projection(glm::mat4 projection,
                                                                  const glm::mat4 &view,
                                                                  u32 resolution) noexcept {
-            // Michal Valient's stable-CSM snap: anchor the light projection to integer shadow texels
-            // so camera translation cannot make an otherwise-static edge swim through the atlas.
+
+
             glm::vec4 origin = projection * view * glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
             origin *= static_cast<f32>(resolution) * 0.5f;
             const glm::vec4 rounded = glm::round(origin);
@@ -363,9 +363,9 @@ namespace SFT::Renderer {
             return static_cast<i32>(index);
         };
 
-        // Directional CSM: practical logarithmic/uniform split blend, bounding-sphere fits, radius
-        // quantization, and projection texel snapping. The two detail cascades receive 3x3 cells;
-        // the distant pair receive 2x2, leaving enough atlas space for every configured local map.
+
+
+
         if (shadows_enabled && sun.casts_shadows && luminance(sun.radiance) > 0.0f) {
             const u32 cascade_count = std::clamp(submission.render_graph.shadow_cascade_count,
                                                  1u,
@@ -436,9 +436,9 @@ namespace SFT::Renderer {
                 }
                 radius = std::ceil(std::max(radius, 0.25f) * 16.0f) / 16.0f;
 
-                // Fit the light-space depth range to all casters that overlap this cascade in XY.
-                // A fixed padding misses tall/off-camera casters in some sun directions and wastes
-                // most of D32's precision in others. Bounding spheres keep the test conservative.
+
+
+
                 const glm::mat4 orientation_view =
                     glm::lookAtRH(center - sun_direction, center, light_up(sun_direction));
                 f32 minimum_along_light = -radius;
@@ -594,8 +594,8 @@ namespace SFT::Renderer {
                 continue;
             }
 
-            // A point light is atomic in the budget: reserve all six cells first. If the atlas cannot
-            // fit every face, none are emitted, so the shader never indexes a partial cubemap.
+
+
             AtlasAllocator candidate_allocator = allocator;
             array<AtlasTile, 6> tiles{};
             bool allocated = true;
@@ -918,8 +918,8 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create deferred shadow lighting bind group"));
         }
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
-        // run concurrently with another pass's push_back into the same shared vector.
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         pass.set_pipeline(*pipeline);
         pass.set_bind_group(set, *bind_group);

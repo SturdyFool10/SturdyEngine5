@@ -22,9 +22,9 @@ using std::span;
 
 namespace SFT::Core::Vulkan {
 
-    // Wraps a VkQueue with a per-queue mutex. All Vulkan queue commands require external
-    // synchronization on the queue handle; this type provides it automatically.
-    // Move-only (the mutex is not transferred on move — a fresh one is created in the destination).
+    /// Wraps a VkQueue with a per-queue mutex. All Vulkan queue commands require external
+    /// synchronization on the queue handle; this type provides it automatically.
+    /// Move-only (the mutex is not transferred on move — a fresh one is created in the destination).
     class VulkanQueue {
       public:
         VulkanQueue() = default;
@@ -45,24 +45,24 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult submit(span<const VkSubmitInfo2> submits,
                                             VkFence fence = VK_NULL_HANDLE) noexcept;
 
-        // Convenience for the common one-command-buffer submission.
+        /// Convenience for the common one-command-buffer submission.
         [[nodiscard]] RendererResult submit(
             const VkCommandBufferSubmitInfo &command_buffer,
             span<const VkSemaphoreSubmitInfo> waits,
             span<const VkSemaphoreSubmitInfo> signals,
             VkFence fence = VK_NULL_HANDLE) noexcept;
 
-        // Distinguishes Success from Suboptimal (still usable, rebuild soon) from OutOfDate (stop
-        // presenting to this swapchain until rebuilt) -- see PresentOutcome's own doc comment.
-        // VK_ERROR_SURFACE_LOST_KHR and VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT are reported as
-        // their own distinct GraphicsBackendErrorCode (not folded into the generic OperationFailed
-        // bucket) so callers can recover appropriately instead of hard-failing.
-        //
-        // `lock_wait_ms`, when non-null, is set to how long this call spent waiting on
-        // `submission_lock_` before it could even start `vkQueuePresentKHR` — separating "blocked on
-        // our own queue mutex" from "blocked inside the driver/Windows presentation engine" for
-        // callers profiling present-stage latency (see RendererLifecycle.cpp's "present RHI frame"
-        // stage timer).
+        /// Distinguishes Success from Suboptimal (still usable, rebuild soon) from OutOfDate (stop
+        /// presenting to this swapchain until rebuilt) -- see PresentOutcome's own doc comment.
+        /// VK_ERROR_SURFACE_LOST_KHR and VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT are reported as
+        /// their own distinct GraphicsBackendErrorCode (not folded into the generic OperationFailed
+        /// bucket) so callers can recover appropriately instead of hard-failing.
+        ///
+        /// `lock_wait_ms`, when non-null, is set to how long this call spent waiting on
+        /// `submission_lock_` before it could even start `vkQueuePresentKHR` — separating "blocked on
+        /// our own queue mutex" from "blocked inside the driver/Windows presentation engine" for
+        /// callers profiling present-stage latency (see RendererLifecycle.cpp's "present RHI frame"
+        /// stage timer).
         [[nodiscard]] RendererExpected<PresentOutcome> present(const VkPresentInfoKHR &info, f64 *lock_wait_ms = nullptr) noexcept;
 
         [[nodiscard]] RendererResult wait_idle() noexcept;
@@ -73,12 +73,12 @@ namespace SFT::Core::Vulkan {
       private:
         VkQueue handle_ = VK_NULL_HANDLE;
         u32 family_index_ = 0;
-        // Pure external-synchronization lock for the four Vulkan queue calls below — handle_ itself
-        // is never concurrently mutated (moves happen during single-threaded setup), so there's
-        // nothing to guard; Async::Mutex<T> still needs some T, so this holds an empty marker purely
-        // for its lock()/MutexGuard semantics. Not moved on VulkanQueue's own move (Async::Mutex is
-        // itself non-movable, so — like the std::mutex this replaces — a fresh one is implicitly
-        // default-constructed in the destination; see the move constructor's doc comment above).
+        /// Pure external-synchronization lock for the four Vulkan queue calls below — handle_ itself
+        /// is never concurrently mutated (moves happen during single-threaded setup), so there's
+        /// nothing to guard; Async::Mutex<T> still needs some T, so this holds an empty marker purely
+        /// for its lock()/MutexGuard semantics. Not moved on VulkanQueue's own move (Async::Mutex is
+        /// itself non-movable, so — like the std::mutex this replaces — a fresh one is implicitly
+        /// default-constructed in the destination; see the move constructor's doc comment above).
         mutable Async::Mutex<std::monostate> submission_lock_;
     };
 

@@ -108,8 +108,8 @@ namespace {
         color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
 
-        // Declaration order no longer has to end at Present. This remains a dead branch because no
-        // observable graph output consumes it; current Renderer lowering follows presentation ancestry.
+
+
         diagnostic_branch = graph.add_fullscreen_effect(
             diagnostic_branch,
             FullscreenEffectDescription{

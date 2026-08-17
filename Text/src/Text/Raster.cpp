@@ -55,8 +55,8 @@ msdfgen::Shape to_msdfgen_shape(const GlyphOutline &outline) {
                                 msdfgen::Point2(segment.control2.x, segment.control2.y), to));
                             break;
                         case OutlineSegmentKind::MoveTo:
-                            // Only meaningful as a contour's first segment (handled above); a
-                            // stray one mid-contour would indicate a malformed outline, ignore it.
+
+
                             break;
                     }
                     current = to;
@@ -94,26 +94,26 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         result.channel_count = format == RasterFormat::MSDF ? 3 : 1;
 
         if (outline.contours.empty()) {
-            // A blank glyph (space, control characters, ...) — no ink, so every pixel encodes
-            // "far outside" (0), which the text shader's coverage AA renders as fully transparent.
+
+
             result.pixels.assign(static_cast<usize>(params.width) * params.height * result.channel_count, 0);
             return result;
         }
 
         msdfgen::Shape shape = Detail::to_msdfgen_shape(outline);
-        // Outline extraction goes through HarfBuzz's hb-draw (Outline.cpp) rather than FreeType, so
-        // it preserves whichever winding convention the source font's own outline table used
-        // instead of normalizing it — TrueType/glyf and CFF/CFF2 fonts disagree on which direction
-        // means "exterior" (confirmed empirically: MapleMono, TrueType, consistently comes out with
-        // exterior=CW/holes=CCW; Noto Sans Mono CJK, CFF, consistently comes out the opposite).
-        // msdfgen's SDF/MSDF sign and edge-coloring both depend on a *consistent* polarity, so a
-        // shape with the "wrong" absolute orientation renders inverted (background fills solid,
-        // glyph ink becomes a transparent hole) or with garbled MSDF corner coloring — exactly what
-        // every CJK glyph looked like before this call was added. orientContours() fixes this
-        // properly (not just for CFF): it derives the correct non-zero-winding orientation purely
-        // from each contour's actual scanline nesting depth, so it's a geometry-based correction
-        // that works for every source format uniformly, not a per-format special case, and is a
-        // no-op (up to floating-point noise) on a shape whose contours were already correct.
+
+
+
+
+
+
+
+
+
+
+
+
+
         shape.orientContours();
         shape.normalize();
         if (format == RasterFormat::MSDF) {
@@ -129,14 +129,14 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
                                        ? static_cast<double>(params.translation->y)
                                        : static_cast<double>(params.padding_px) / scale - bounds.b;
 
-        // Where this specific raster sits relative to the pen (baseline origin) — see
-        // RasterizedGlyph's doc comment. Derived directly from the same translate_x/translate_y
-        // this glyph's own ink was anchored by: bounds.l maps to pixel column padding_px (by
-        // construction of translate_x above), so pixel column of the pen (shape x=0) is
-        // `translate_x * scale` from the raster's left edge, i.e. `padding_px - bounds.l * scale`
-        // — bearing_x below is that quantity's sign flipped to an additive pen-relative offset.
-        // Symmetric for Y, then re-based from msdfgen's bottom-up bitmap row convention (row 0 =
-        // bottom) to this function's top-to-bottom output (row 0 = top) by subtracting from height.
+
+
+
+
+
+
+
+
         result.bearing_x = static_cast<f32>(-translate_x * scale);
         result.bearing_top = static_cast<f32>(static_cast<double>(params.height) - translate_y * scale);
 
@@ -152,8 +152,8 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
             msdfgen::generateSDF(bitmap, shape, transformation);
             result.pixels.resize(static_cast<usize>(params.width) * params.height);
             for (int y = 0; y < height; ++y) {
-                // msdfgen's bitmap is bottom-left origin (row 0 = bottom scanline); the atlas
-                // image is top-left origin, so the row order must be flipped on the way out.
+
+
                 const int src_y = height - 1 - y;
                 for (int x = 0; x < width; ++x) {
                     result.pixels[static_cast<usize>(y) * params.width + x] =

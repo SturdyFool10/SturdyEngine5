@@ -29,8 +29,8 @@ namespace SFT::Renderer {
 
     namespace {
 
-        // Byte size of one tightly packed mip level for the formats accepted by this upload path.
-        // Returns 0 for unsupported formats or dimensions whose packed size would overflow u64.
+
+
         [[nodiscard]] u64 texture_data_bytes(RHI::Format format, u32 width, u32 height) noexcept {
             if (width == 0 || height == 0) {
                 return 0;
@@ -349,10 +349,10 @@ namespace SFT::Renderer {
                                                           "Texture upload description does not match the destination resource."});
         }
 
-        // Records the barrier/copy/barrier sequence that copies `staging`'s already-written bytes into
-        // the device-local texture through a one-shot command buffer (Undefined→TransferDst→
-        // ShaderReadOnly), and submits it on `queue` -- WITHOUT waiting. Same shape as the mesh staging
-        // path.
+
+
+
+
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "renderer texture upload"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create texture upload encoder"));
@@ -501,9 +501,9 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(waited.error(), "wait texture upload fence"));
         }
         if (!*waited) {
-            // Real timeout (wait_forever is used here, so unreachable outside a device hang) -- the
-            // fence is not confirmed signaled, so destroying anything it protects here would be a
-            // real still-in-use hazard. Leave everything alone; a hung device makes the leak moot.
+
+
+
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "wait texture upload fence: vkWaitForFences timed out.");
         }

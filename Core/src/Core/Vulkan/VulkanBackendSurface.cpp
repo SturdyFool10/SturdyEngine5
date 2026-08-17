@@ -1,5 +1,5 @@
-// VulkanBackend surface management: window → VkSurfaceKHR creation (SDL3/GLFW providers),
-// per-window surface slots, resize notifications, and surface teardown.
+
+
 #pragma region Imports
 #include <glm/ext/vector_float2.hpp>
 #if defined(__clang__)
@@ -38,10 +38,10 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
-        // Core::SurfaceSystem has no separate Xlib/Xcb entry (Platform::Windowing::NativeWindowSystem
-        // doesn't distinguish them either — see WindowConfig.hpp) — SDL3/GLFW's X11 native handles are
-        // Xlib's (Display*, Window), matching what VulkanRhiDeviceBridge::create_surface's own Xlib
-        // branch expects, so X11 maps to RHI::WindowSystem::Xlib here, not Xcb.
+
+
+
+
         [[nodiscard]] RHI::WindowSystem to_rhi_window_system(SurfaceSystem system) noexcept {
             switch (system) {
                 case SurfaceSystem::Win32: return RHI::WindowSystem::Win32;
@@ -110,8 +110,8 @@ namespace SFT::Core::Vulkan {
             return;
         s->mark_dirty();
         s->set_extent(extent);
-        // Swapchain rebuild is deferred to the next render_frame call.
-        // Resize-to-zero (minimized) is valid — render_frame will skip presentation.
+
+
     }
 
     RendererExpected<VulkanBackend::SurfaceCreateInfo>
@@ -165,9 +165,9 @@ namespace SFT::Core::Vulkan {
             surfaces_.reserve(1);
         }
 
-        // Surface creation belongs to the concrete window provider. This virtual call keeps Core
-        // independent of SDL/GLFW helper symbols while preserving each provider's cross-platform WSI
-        // behavior (including Cocoa/Metal-layer setup that cannot be reconstructed from an NSWindow).
+
+
+
         VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
         auto created = init.window->create_vulkan_surface(
             static_cast<void *>(vulkan_instance),
@@ -180,9 +180,9 @@ namespace SFT::Core::Vulkan {
             });
         }
 
-        // VulkanSurface's move constructor is noexcept, so a bad_alloc here can only come from the
-        // map's own node allocation, before vulkan_surface is moved from — it still owns vk_surface
-        // when the catch block runs, so tearing it down through the wrapper is safe.
+
+
+
         VulkanSurface vulkan_surface(vk_surface, init.descriptor, init.window, init.framebuffer_extent, sanitize_frames_in_flight(init.desired_frames_in_flight));
         try {
             surfaces_.emplace(window_id, std::move(vulkan_surface));

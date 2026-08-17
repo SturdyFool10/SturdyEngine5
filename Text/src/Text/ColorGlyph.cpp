@@ -21,9 +21,9 @@ ColorGlyphFormat detect_color_format(const Font &font, u32 glyph_id) {
         }
 
         if (hb_ot_color_has_png(face)) {
-            // PNG presence is per-glyph (each glyph either has a strike or doesn't), so the only
-            // reliable check is trying to reference it — hb_ot_color_has_png() only says the table
-            // exists at all.
+
+
+
             hb_blob_t *blob = hb_ot_color_glyph_reference_png(font.handle(), static_cast<hb_codepoint_t>(glyph_id));
             const bool has_png = blob != nullptr && blob != hb_blob_get_empty();
             if (blob != nullptr) {
@@ -44,8 +44,8 @@ namespace SFT::Text::Detail {
 TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph_id,
                                                                                    const ColorRasterParams &params) {
             const auto ppem = static_cast<unsigned int>(params.pixel_size + 0.5f);
-            // Atlas misses are rasterized in parallel. Never mutate the shared Font's ppem while
-            // selecting a bitmap strike; a HarfBuzz sub-font gives this job private mutable state.
+
+
             hb_font_t *raster_font = hb_font_create_sub_font(font.handle());
             if (raster_font == nullptr || raster_font == hb_font_get_empty()) {
                 if (raster_font != nullptr) {
@@ -90,8 +90,8 @@ TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph
             const u32 target_width = std::max(1u, params.width - 2u * padding);
             const u32 target_height = std::max(1u, params.height - 2u * padding);
 
-            // Bilinear resampling in premultiplied-alpha space avoids both the jagged nearest-
-            // neighbor result and dark RGB fringes around translucent strike pixels.
+
+
             for (u32 y = 0; y < target_height; ++y) {
                 const f32 source_y = (static_cast<f32>(y) + 0.5f) * static_cast<f32>(decoded_height) /
                                          static_cast<f32>(target_height) -
@@ -244,13 +244,13 @@ TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyp
                 },
             };
 
-            // hb_ot_color_glyph_get_layers already returns layers back-to-front (paint order), so
-            // a plain forward "source over destination" composite reproduces the glyph correctly.
+
+
             bool have_bearing = false;
             for (const ResolvedLayer &layer : resolved_layers) {
-                // A color index of 0xFFFF means the caller's foreground color. The reusable color
-                // atlas has no per-instance foreground channel, so its neutral cached value is
-                // white; fully colored emoji layers retain their palette values unchanged.
+
+
+
                 auto mask = rasterize_glyph(layer.outline, RasterFormat::SDF, layer_raster_params);
                 if (!mask) {
                     continue;
@@ -262,9 +262,9 @@ TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyp
                 }
 
                 for (usize i = 0; i < mask->pixels.size(); ++i) {
-                    // The SDF byte is already ~0.5-centered on the true edge (see Raster.cppm), so
-                    // using it directly as a soft coverage value gives this layer antialiased edges
-                    // for free instead of a hard-thresholded fill.
+
+
+
                     const f32 coverage = static_cast<f32>(mask->pixels[i]) / 255.0f;
                     const f32 layer_alpha = coverage * (static_cast<f32>(layer.a) / 255.0f);
                     if (layer_alpha <= 0.0f) {
@@ -305,8 +305,8 @@ TextExpected<RasterizedGlyph> rasterize_color_glyph(const Font &font, u32 glyph_
             return text_error(TextErrorCode::InvalidArgument, "Cannot rasterize a color glyph into a zero-sized raster.");
         }
 
-        // Prefer scalable COLR layers. If none exist, the bitmap path selects the closest strike
-        // on a private sub-font at the requested ppem (and reports a useful error if absent).
+
+
         if (detect_color_format(font, glyph_id) == ColorGlyphFormat::Layered) {
             return Detail::rasterize_layered_glyph(font, glyph_id, params);
         }

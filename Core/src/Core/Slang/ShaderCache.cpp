@@ -20,21 +20,21 @@ namespace SFT::Core::Slang {
 
     namespace {
 
-        // Bumped whenever the on-disk layout below changes — a mismatch is just treated as a miss
-        // (see load_shader_cache_entry()), so old entries are silently ignored rather than crashing.
-        // Reset to 2 after purging every on-disk cache directory in the repo: this engine has one
-        // user, so there is no fleet of stale caches to stay compatible with — just bump this past
-        // whatever was last shipped whenever the on-disk layout changes.
+
+
+
+
+
         constexpr u32 shader_cache_format_version = 2;
-        constexpr u32 shader_cache_magic = 0x53484341u; // "SHCA"
+        constexpr u32 shader_cache_magic = 0x53484341u;
 
-        // Separate magic/version/file-suffix from the compiled-bytecode cache above -- see
-        // load/store_shader_reflection_cache_entry()'s doc comment (ShaderCache.hpp) for why.
+
+
         constexpr u32 shader_reflection_cache_format_version = 3;
-        constexpr u32 shader_reflection_cache_magic = 0x53484352u; // "SHCR"
+        constexpr u32 shader_reflection_cache_magic = 0x53484352u;
 
-        // Both cache formats are opportunistic local artifacts. Bound their resource use so a
-        // damaged or externally modified cache remains a cache miss rather than an engine failure.
+
+
         constexpr usize max_shader_cache_file_bytes = 128ull * 1024ull * 1024ull;
         constexpr u32 max_shader_cache_collection_items = 65'536;
         constexpr usize max_shader_reflection_nesting_depth = 64;
@@ -154,10 +154,10 @@ namespace SFT::Core::Slang {
             bool failed_ = false;
         };
 
-        // --- ShaderReflection struct-tree (de)serialization — mirrors ShaderReflection.hpp's shape
-        // exactly. ShaderTypeReflection's shared_ptr fields form a tree in practice (shader type
-        // graphs don't recurse), so this duplicates any incidentally-shared subtree rather than
-        // building a dedup/back-reference table — simpler, and correct as long as that holds. ---
+
+
+
+
 
         void write_type_reflection(ByteWriter &w, const ShaderTypeReflection &type);
         [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r, usize depth = 0);
@@ -512,9 +512,9 @@ namespace SFT::Core::Slang {
         mix_text(module_name);
         mix_text(source_text);
         mix_text(variant_canonical);
-        // Targets intentionally do not participate: one v3 entry aggregates independent artifacts
-        // for every output format requested for this source/variant. Target/profile identity lives
-        // on each artifact and is verified by ShaderVariantCache before it is used.
+
+
+
         mix_u32(static_cast<u32>(options.optimization));
         mix_byte(static_cast<u8>(options.allow_glsl_syntax ? 1 : 0));
         mix_byte(static_cast<u8>(options.skip_spirv_validation ? 1 : 0));
@@ -589,8 +589,8 @@ namespace SFT::Core::Slang {
                 return false;
             }
 
-            // Write to a temp file then rename, so a crash/power-loss mid-write never leaves a truncated
-            // .sc file that load_shader_cache_entry() could mistake for a valid (if corrupt) entry.
+
+
             const path final_path = cache_file_path(directory, key);
             const path temp_path = final_path.string() + ".tmp";
             {

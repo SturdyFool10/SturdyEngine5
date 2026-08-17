@@ -17,8 +17,8 @@ namespace {
         return std::fabs(a - b) <= tolerance * std::max(T(1), std::fabs(a));
     }
 
-    // Reference implementations the dispatched `Cpu::*` functions must agree with, regardless of
-    // which SIMD tier actually ran.
+
+
     template <class T>
     void add_reference(T *dst, const T *a, const T *b, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i)
@@ -47,8 +47,8 @@ namespace {
             dst[i] = std::sqrt(a[i]);
     }
 
-    // Exercises add/mul/fma/dot/sqrt for one scalar type T (float or double) at array length n,
-    // deliberately including non-vector-aligned sizes to hit every tier's scalar tail path.
+
+
     template <class T>
     bool test_simd_ops(std::size_t n, T tolerance) {
         std::vector<T> a(n), b(n), c(n);
@@ -57,7 +57,7 @@ namespace {
         for (std::size_t i = 0; i < n; ++i) {
             a[i] = dist(rng);
             b[i] = dist(rng);
-            c[i] = std::abs(dist(rng)) + T(0.001); // sqrt operand: keep non-negative
+            c[i] = std::abs(dist(rng)) + T(0.001);
         }
 
         std::vector<T> dst(n), expected(n);
@@ -108,7 +108,7 @@ namespace {
         return true;
     }
 
-    // array_add/array_mul (Math.hpp) must exactly match looping the wide type's own scalar operators.
+
     template <class T>
     bool test_wide_array_ops(std::size_t n) {
         std::vector<T> a(n), b(n), dst(n), expected(n);
@@ -145,9 +145,9 @@ namespace {
 int main() {
     using namespace SFT::Foundation::Cpu;
 
-    // features() must be internally consistent regardless of what this CPU actually has: SSE2 is part
-    // of the x86-64 baseline ABI, so any x86-64 build must report it. best_simd_level() must never
-    // claim a tier the feature bits (and OS XSAVE check) don't back up.
+
+
+
     const CpuFeatures &f = features();
 #if defined(__x86_64__) || defined(_M_X64)
     if (!f.sse2) {
@@ -176,7 +176,7 @@ int main() {
     const CurrentCore core = current_core();
     std::cout << "current_core x2apic_id=" << core.x2apic_id << " type=" << static_cast<int>(core.type) << "\n";
 
-    // Odd, non-vector-aligned sizes deliberately exercise every tier's scalar tail path.
+
     for (const std::size_t n : {0uz, 1uz, 3uz, 7uz, 8uz, 15uz, 16uz, 17uz, 63uz, 257uz, 4096uz}) {
         if (!test_simd_ops<float>(n, 1e-4f))
             return 1;

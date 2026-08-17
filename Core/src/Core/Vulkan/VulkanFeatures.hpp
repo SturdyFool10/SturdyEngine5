@@ -1,26 +1,26 @@
-// GENERATED — the vendor-agnostic Vulkan extension catalog (features) plus composed graphics
-// techniques (superfeatures). Features map fine-grained application capabilities onto the
-// extensions that back them; each extension entry carries its init stage (instance vs device),
-// how badly the feature wants it (MustHave vs NiceToHave), and its core-promotion version.
-//
-// Scope & curation (Vulkan 1.4.350 registry, VK_HEADER_VERSION 350):
-//   * Only VK_KHR_* / VK_EXT_* (vendor-agnostic); single-vendor extensions excluded.
-//   * Extensions wholly superseded (registry promotedto=<extension>/deprecatedby/obsoletedby) are
-//     dropped in favor of their successor.
-//   * Basic surface-creation extensions (VK_KHR_surface and the per-window-system VK_*_surface
-//     extensions) are NOT listed: the windowing library reports the exact set to enable via its
-//     required-instance-extensions query, so they are enabled from there, not selected here.
-//   * Capabilities are fine-grained (e.g. ShaderAtomics, YcbcrMultiplanar, PresentTiming) so an app
-//     enables exactly what it uses — surplus extensions can cost performance.
-//
-// Superfeatures (VulkanTechnique) bundle several features into a graphics technique (e.g.
-// RayTracedRendering, GpuDrivenRendering), each member tagged MustHave/NiceToHave for that technique.
-//
-// Base capabilities (base == true) — engine will not initialize without them: CoreRendering
-// (dynamic rendering + synchronization2, core in 1.3), GpuTiming (calibrated timestamps), plus
-// Presentation (swapchain; the surface itself comes from the windowing library).
-//
-// Do not hand-edit the tables below; regenerate from the matching registry vk.xml.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #pragma once
 
 #include "volk.h"
@@ -48,9 +48,9 @@ namespace SFT::Core::Vulkan {
     };
 
     enum class VulkanAppFeature : u8 {
-        CoreRendering, // base
-        GpuTiming, // base
-        Presentation, // base
+        CoreRendering,
+        GpuTiming,
+        Presentation,
         DirectDisplay,
         PresentTiming,
         SwapchainCapabilities,
@@ -110,7 +110,7 @@ namespace SFT::Core::Vulkan {
         Portability,
     };
 
-    // A composed graphics technique (superfeature) — a bundle of VulkanAppFeatures.
+    /// A composed graphics technique (superfeature) — a bundle of VulkanAppFeatures.
     enum class VulkanTechnique : u8 {
         RayTracedRendering,
         GpuDrivenRendering,
@@ -127,22 +127,22 @@ namespace SFT::Core::Vulkan {
         GpuParticleSimulation,
     };
 
-    // One extension a feature depends on, tagged with where and how badly it is wanted.
+    /// One extension a feature depends on, tagged with where and how badly it is wanted.
     struct VulkanExtensionRequirement {
-        const char *name;                    // canonical registry name (feeds ppEnabledExtensionNames)
+        const char *name;
         VulkanInitStage stage;
         VulkanExtensionNecessity necessity;
-        u32 promoted_to_core;                // API version this became core (0 = never)
+        u32 promoted_to_core;
         string_view purpose;
 
-        // Whether this name still has to be requested at the negotiated API version: once promoted to
-        // core the name is redundant (and some drivers stop advertising it), so it must not be pushed.
+        /// Whether this name still has to be requested at the negotiated API version: once promoted to
+        /// core the name is redundant (and some drivers stop advertising it), so it must not be pushed.
         [[nodiscard]] constexpr bool needs_request(u32 api_version) const noexcept {
             return promoted_to_core == 0 || api_version < promoted_to_core;
         }
     };
 
-    // The extensions backing a single capability; stage/necessity segmentation lives per entry.
+    /// The extensions backing a single capability; stage/necessity segmentation lives per entry.
     struct FeatureVulkanExtensionList {
         VulkanAppFeature feature;
         string_view display_name;
@@ -164,13 +164,13 @@ namespace SFT::Core::Vulkan {
         }
     };
 
-    // One feature within a technique, tagged with how badly the technique wants it.
+    /// One feature within a technique, tagged with how badly the technique wants it.
     struct TechniqueFeature {
         VulkanAppFeature feature;
         VulkanExtensionNecessity necessity;
     };
 
-    // A technique (superfeature) and the features it comprises.
+    /// A technique (superfeature) and the features it comprises.
     struct VulkanTechniqueGroup {
         VulkanTechnique technique;
         string_view display_name;
@@ -394,9 +394,9 @@ namespace SFT::Core::Vulkan {
         VulkanExtensionRequirement{"VK_KHR_pipeline_executable_properties", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "pipeline executable properties"},
         };
 
-        // Vulkan's maintenance extensions are backend revision bundles, not renderer-facing RHI
-        // capabilities. Keep their registry names here for Vulkan device-extension selection, and only
-        // promote individual behavior into RHI::Feature once the RHI exposes vocabulary that uses it.
+        /// Vulkan's maintenance extensions are backend revision bundles, not renderer-facing RHI
+        /// capabilities. Keep their registry names here for Vulkan device-extension selection, and only
+        /// promote individual behavior into RHI::Feature once the RHI exposes vocabulary that uses it.
         inline constexpr array device_maintenance_exts{
         VulkanExtensionRequirement{"VK_KHR_maintenance1", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance1 bundle"},
         VulkanExtensionRequirement{"VK_KHR_maintenance2", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance2 bundle"},
@@ -814,12 +814,12 @@ namespace SFT::Core::Vulkan {
         return Detail::feature_catalog.front();
     }
 
-    // Techniques the engine knows how to compose from features.
+    /// Techniques the engine knows how to compose from features.
     [[nodiscard]] constexpr span<const VulkanTechniqueGroup> technique_catalog() noexcept {
         return Detail::technique_catalog;
     }
 
-    // The feature bundle for a technique. Never null: every VulkanTechnique has a catalog entry.
+    /// The feature bundle for a technique. Never null: every VulkanTechnique has a catalog entry.
     [[nodiscard]] constexpr const VulkanTechniqueGroup &technique_group_for(VulkanTechnique technique) noexcept {
         for (const auto &entry : Detail::technique_catalog) {
             if (entry.technique == technique) { return entry; }

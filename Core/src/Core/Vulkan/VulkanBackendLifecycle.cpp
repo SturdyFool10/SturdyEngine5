@@ -1,6 +1,6 @@
-// VulkanBackend lifecycle: construction, capability/GPU queries, the initialize()/initVulkan()
-// bring-up sequence, and ordered teardown. Sibling VulkanBackend*.cpp files implement the
-// subsystem steps this file orchestrates.
+
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -49,12 +49,12 @@ namespace SFT::Core::Vulkan {
         ZoneScopedN("VulkanBackend::render_threading_capabilities");
         return RHI::RenderThreadingCapabilities{
             .backend_allows_dedicated_render_thread = true,
-            // Vulkan supports multithreaded command recording when each recording thread owns its command
-            // pool/command buffers and externally-synchronized objects are not concurrently touched. True
-            // since create_command_encoder() already mints an independent VulkanCommandPool per call and
-            // every RHI resource pool is Async::Mutex-guarded — RenderGraph::execute_parallel() (Stage 4 of
-            // the render-parallelization roadmap) relies on exactly this to record independent render-graph
-            // passes concurrently, one command buffer per pass, joined before a single submit().
+
+
+
+
+
+
             .backend_allows_parallel_command_recording = true,
             .platform_allows_threads = RHI::compile_time_rhi_multithreading_allowed,
             .requires_graphics_calls_on_owner_thread = true,
@@ -69,14 +69,14 @@ namespace SFT::Core::Vulkan {
 
     optional<GpuInfo> VulkanBackend::gpu_info() const {
         ZoneScopedN("VulkanBackend::gpu_info");
-        // Translate the cached VkPhysicalDeviceProperties into the API-agnostic GpuInfo. Everything
-        // here is already decoded to strings/ints by VulkanPhysicalDevice, so no Vulkan types leak.
+
+
         if (!physicalDevice.is_valid()) {
-            return nullopt; // No device selected yet (before a successful initialize()).
+            return nullopt;
         }
         GpuInfo info{};
-        // GpuInfo stays std::string (the API-agnostic boundary type), so each UString/ustr is lowered with
-        // .cpp_string(). The cpp_ prefix flags the crossing back into standard types at the call site.
+
+
         info.name = physicalDevice.name().cpp_string();
         info.vendor = physicalDevice.vendor_name();
         info.driver_version = physicalDevice.driver_version_string().cpp_string();
@@ -112,11 +112,11 @@ namespace SFT::Core::Vulkan {
 
     VulkanBackend::~VulkanBackend() {
         ZoneScopedN("VulkanBackend::~VulkanBackend");
-        // RAII teardown: drain all in-flight work first, then release GPU objects in
-        // reverse creation order (surfaces → shaders/pipelines/layouts → allocator → device → instance). This must happen
-        // explicitly and in this order, since automatic member destruction would otherwise run
-        // *after* this body (i.e. after vkDestroyInstance below) and tear the allocator/device
-        // down against an already-destroyed instance.
+
+
+
+
+
         destroyVulkanResources();
     }
 
@@ -179,8 +179,8 @@ namespace SFT::Core::Vulkan {
                                             "Vulkan backend requires a window to create its primary surface."});
         }
 
-        // Mark initialized before initVulkan so it can create the backend-owned primary surface
-        // during bring-up (the surface is needed to query present support). Reset on failure.
+
+
         initialized_ = true;
 
         auto primary_surface = this->initVulkan(init);

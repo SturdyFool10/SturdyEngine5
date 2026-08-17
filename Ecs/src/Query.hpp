@@ -19,13 +19,13 @@
 
 namespace SFT::Ecs {
 
-    // A typed view over every entity whose archetype has (at least) every component in `Ts...`.
-    // Built by World::query<Ts...>() — never constructed directly (it only takes a raw archetype
-    // vector + match list, both World-owned). Each `Ts` in the pack is either `Component` (write
-    // access) or `const Component` (read access); that const-qualification *is* the access
-    // declaration Ecs/System.hpp's Schedule derives conflict detection from, so a system's data
-    // dependencies never need declaring twice. Deliberately depends only on Archetype.hpp, not
-    // World.hpp — World.hpp includes this header, not the other way around.
+    /// A typed view over every entity whose archetype has (at least) every component in `Ts...`.
+    /// Built by World::query<Ts...>() — never constructed directly (it only takes a raw archetype
+    /// vector + match list, both World-owned). Each `Ts` in the pack is either `Component` (write
+    /// access) or `const Component` (read access); that const-qualification *is* the access
+    /// declaration Ecs/System.hpp's Schedule derives conflict detection from, so a system's data
+    /// dependencies never need declaring twice. Deliberately depends only on Archetype.hpp, not
+    /// World.hpp — World.hpp includes this header, not the other way around.
     template <class... Ts>
     class Query {
       private:
@@ -55,9 +55,9 @@ namespace SFT::Ecs {
         Query(Query &&) noexcept = default;
         Query &operator=(Query &&) noexcept = default;
 
-        // A stable row range within one matching archetype. Direct chunks share their Query's World
-        // borrow token; Schedule chunks rely on Schedule's exclusive World borrow. A chunk is
-        // move-only so one mutable row range cannot accidentally be dispatched more than once.
+        /// A stable row range within one matching archetype. Direct chunks share their Query's World
+        /// borrow token; Schedule chunks rely on Schedule's exclusive World borrow. A chunk is
+        /// move-only so one mutable row range cannot accidentally be dispatched more than once.
         class Chunk {
           public:
             Chunk(const Chunk &) = delete;
@@ -216,10 +216,10 @@ namespace SFT::Ecs {
                 }
             }
 
-            // Skips archetypes with no rows left, resetting row_ to 0 each time archetype_position_
-            // advances, until either a non-empty archetype is found or every matching archetype is
-            // exhausted. The exhausted state (archetype_position_ == archetype_indices_->size(),
-            // row_ == 0) is exactly what end() constructs by hand, so the two compare equal.
+            /// Skips archetypes with no rows left, resetting row_ to 0 each time archetype_position_
+            /// advances, until either a non-empty archetype is found or every matching archetype is
+            /// exhausted. The exhausted state (archetype_position_ == archetype_indices_->size(),
+            /// row_ == 0) is exactly what end() constructs by hand, so the two compare equal.
             void advance_to_valid() noexcept {
                 while (archetype_position_ < archetype_indices_->size() &&
                        row_ >= (*archetypes_)[(*archetype_indices_)[archetype_position_]].size()) {
@@ -260,8 +260,8 @@ namespace SFT::Ecs {
         std::vector<Archetype> *archetypes_;
         std::vector<u32> archetype_indices_;
         std::array<ComponentId, ComponentCount> ids_;
-        // Direct queries and chunks share a World borrow. Scheduled queries leave this empty because
-        // Schedule already owns the World's exclusive execution borrow.
+        /// Direct queries and chunks share a World borrow. Scheduled queries leave this empty because
+        /// Schedule already owns the World's exclusive execution borrow.
         std::shared_ptr<DirectAccessToken> direct_access_token_;
     };
 

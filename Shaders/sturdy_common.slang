@@ -8,53 +8,6 @@
 // engine-specific bindings so API users can import it safely.
 
 // -------------------------------------------------------------------------------------------------
-// Clip-space ABI
-// -------------------------------------------------------------------------------------------------
-//
-// Sturdy's canonical clip space is Vulkan's: NDC +Y points DOWN, so y = -1 is the top of the
-// viewport, and NDC Z is [0, 1]. Author every shader against that convention.
-//
-// D3D12's native NDC +Y points up. There is no legal API-level way to invert it (D3D12 documents
-// D3D12_VIEWPORT::Height as non-negative), and Slang's -fvk-invert-y only rewrites `gl_Position`, so
-// it does nothing for HLSL/DXIL output. The reconciliation used to happen exclusively here, via
-// sturdy_clip_position() below, which every vertex-stage entry point had to remember to call.
-//
-// LEGACY, pending removal: the main render path (gbuffer/forward geometry, UI) no longer uses this
-// macro/wrapper mechanism. It now bakes the same Y reconciliation into C++-side data instead —
-// RHI::gpu_clip_flip() folds it into already-combined view/view-projection matrices (see
-// Renderer::render_frame and Renderer::prepare_scene_gpu_data), and RHI::gpu_clip_y_sign() supplies
-// a plain per-vertex multiply for screen-space UI shaders that build clip position from scratch
-// (Shaders/sturdy_common.slang's own uiQuadClipPosition(), Shaders/ui_quad.slang,
-// Shaders/text_sdf.slang). Either way, the shader-visible mechanism is now "read C++-supplied data
-// and do a plain multiply", never a macro/branch.
-//
-// STURDY_CLIP_Y_SIGN and sturdy_clip_position() below stay in place only because the shadow-pass and
-// spectral-path-tracer shaders still depend on them — those need different, inverse-matrix treatment
-// and are a separate follow-up (out of scope for the main-path migration above). Once that follow-up
-// lands, this whole macro/wrapper mechanism can be deleted.
-//
-// STURDY_CLIP_Y_SIGN is supplied by the shader-compilation policy from the active RHI backend's
-// declared convention (+1 for Vulkan, -1 for D3D12). It defaults to +1 so that a shader compiled
-// without the define keeps Vulkan behaviour rather than silently flipping.
-#ifndef STURDY_CLIP_Y_SIGN
-#define STURDY_CLIP_Y_SIGN 1
-#endif
-
-// Deliberately a preprocessor branch rather than a multiply by the sign: on Vulkan this is an exact
-// identity that inlines away, leaving the emitted SPIR-V byte-for-byte what it was before the ABI
-// existed. Multiplying by +1.0 would instead leave a real instruction in every vertex shader.
-//
-// LEGACY — see this section's header comment. Only shadow-pass/spectral-path-tracer shaders call
-// this now; every main-path shader was migrated off it to a C++-supplied matrix or clipYSign scalar.
-float4 sturdy_clip_position(float4 clip) {
-#if STURDY_CLIP_Y_SIGN < 0
-    return float4(clip.x, -clip.y, clip.z, clip.w);
-#else
-    return clip;
-#endif
-}
-
-// -------------------------------------------------------------------------------------------------
 // Constants
 // -------------------------------------------------------------------------------------------------
 
@@ -154,6 +107,24 @@ float min3(float3 v) { return min(min(v.x, v.y), v.z); }
 float median3(float3 v) { return max(min(v.x, v.y), min(max(v.x, v.y), v.z)); }
 
 // -------------------------------------------------------------------------------------------------
+// NDC <-> texture/screen UV
+// -------------------------------------------------------------------------------------------------
+//
+// Every manual conversion between clip-space NDC.xy and a top-left-origin, Y-down UV/pixel space
+// (fullscreen-triangle vertex shaders, pixel-space UI, Hi-Z occlusion, shadow-atlas sampling, ray
+// reconstruction from a screen UV) MUST go through these two functions rather than reimplementing
+// `* 0.5 + 0.5` / `* 2.0 - 1.0` inline — clip space is Y up (RHI::Viewport's own doc comment) while
+// every UV/pixel space in this engine is Y down, so the Y term needs a sign flip nothing else in the
+// mapping needs, and an inline reimplementation is exactly how that flip gets silently dropped.
+float2 ndcToUv(float2 ndc) {
+    return float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+}
+
+float2 uvToNdc(float2 uv) {
+    return float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+}
+
+// -------------------------------------------------------------------------------------------------
 // Fullscreen triangle helpers
 // -------------------------------------------------------------------------------------------------
 
@@ -161,18 +132,10 @@ float2 fullscreenTriangleUv(uint vertexId) {
     return float2((vertexId << 1) & 2, vertexId & 2);
 }
 
-// Returns clip space already conformed to the engine ABI (see sturdy_clip_position), so callers
-// assign the result straight to SV_Position.
-//
-// Deliberately still on the legacy sturdy_clip_position()/STURDY_CLIP_Y_SIGN mechanism rather than a
-// C++-supplied clipYSign (unlike uiQuadClipPosition below): this helper takes no other input, and
-// Shaders/spectral_depth_commit.slang — an out-of-scope path-tracer shader for this migration — calls
-// it too, so its signature can't grow a new required parameter without also touching that file. Every
-// *main-path* caller of this helper (bloom, tonemap, hi-Z, AA, deferred shadow lighting, MSAA
-// reconstruction) is therefore still relying on STURDY_CLIP_Y_SIGN for now; folding it onto the same
-// C++-matrix mechanism as the rest of the main path is follow-up work, not done here.
+// Classic attribute-less fullscreen triangle: uv sweeps (0,0),(2,0),(0,2) so the primitive covers the
+// whole [-1,1] clip rect with the screen inside its first quadrant.
 float4 fullscreenTrianglePosition(float2 uv) {
-    return sturdy_clip_position(float4(uv * 2.0 - 1.0, 0.0, 1.0));
+    return float4(uvToNdc(uv), 0.0, 1.0);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -195,15 +158,10 @@ float2 uiQuadCorner(uint vertexId) {
 // Shaders/ui_quad.slang's own vertexMain uses. A custom UI element shader
 // (UI::Context::custom_element()) calls this from its own vertexMain, given the UiElementConstants
 // prefix every such shader's push-constant struct is required to start with.
-//
-// `clipYSign` is +1 on Vulkan, -1 on D3D12/Metal/WebGpu (UiElementConstants::clip_y_sign /
-// RHI::gpu_clip_y_sign, set by whichever C++ pipeline fills this call's push constants) — a plain
-// multiply against C++-supplied data, replacing the legacy sturdy_clip_position()/STURDY_CLIP_Y_SIGN
-// macro mechanism for every main-path UI caller of this helper.
-float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, float2 viewportSize, float clipYSign) {
+float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, float2 viewportSize) {
     float2 localPixelPos = uiQuadCorner(vertexId) * pixelSize;
-    float2 ndc = ((pixelPos + localPixelPos) * safeRcp(viewportSize)) * 2.0 - 1.0;
-    return float4(ndc.x, ndc.y * clipYSign, 0.0, 1.0);
+    float2 pixelUv = (pixelPos + localPixelPos) * safeRcp(viewportSize);
+    return float4(uvToNdc(pixelUv), 0.0, 1.0);
 }
 
 // Signed distance to a per-corner rounded box, `centerPos` relative to the box center (Y down,

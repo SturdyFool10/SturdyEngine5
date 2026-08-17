@@ -22,30 +22,30 @@ namespace fs = std::filesystem;
 
 namespace SFT::Core::Slang {
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────────
-    //  Shader hot-reload: detect edited `.slang` files so a running engine can recompile them.
-    //
-    //  A dev-time convenience — mtime polling, not inotify/kqueue. The engine calls `poll()` once per
-    //  frame (cheap: a recursive directory stat) and gets back the list of `.slang` files whose
-    //  modification time changed since the previous poll, or that appeared since. The actual recompile +
-    //  reflection-compatibility check + safe resource swap live above this, in the renderer — this class
-    //  only answers "what changed on disk." See plans/shader-variants-and-hot-reload.md.
-    // ─────────────────────────────────────────────────────────────────────────────────────────────
 
-    // One reported change: which `.slang` file, and whether it is newly seen (`added`) or a
-    // modification of a file we were already tracking.
+
+
+
+
+
+
+
+
+
+    /// One reported change: which `.slang` file, and whether it is newly seen (`added`) or a
+    /// modification of a file we were already tracking.
     struct ShaderChange {
-        string path;      // filesystem path to the changed `.slang` file
-        bool added = false; // true if first time seen this poll cycle, false if an mtime change
+        string path;
+        bool added = false;
     };
 
-    // Recursively watches a directory tree for edited `.slang` files by polling modification times.
-    //
-    // Construct it over the same `Shaders/` tree `discover_shaders()` scans. By default it *primes*
-    // itself (records every file's current mtime) so the first `poll()` reports nothing but genuine
-    // edits made after construction. Pass `prime = false` to have the first `poll()` report every file
-    // as `added` — handy if the caller wants a single code path that compiles everything on the first
-    // tick and reloads on later ones.
+    /// Recursively watches a directory tree for edited `.slang` files by polling modification times.
+    ///
+    /// Construct it over the same `Shaders/` tree `discover_shaders()` scans. By default it *primes*
+    /// itself (records every file's current mtime) so the first `poll()` reports nothing but genuine
+    /// edits made after construction. Pass `prime = false` to have the first `poll()` report every file
+    /// as `added` — handy if the caller wants a single code path that compiles everything on the first
+    /// tick and reloads on later ones.
     class ShaderWatcher {
       public:
         explicit ShaderWatcher(fs::path directory, bool prime = true);
@@ -53,16 +53,16 @@ namespace SFT::Core::Slang {
         [[nodiscard]] const fs::path &directory() const noexcept;
         [[nodiscard]] usize tracked_count() const noexcept;
 
-        // Re-stat the tree and return everything whose mtime changed or that appeared since the last
-        // poll. Deleted files are dropped from tracking silently (a shader that no longer exists can't be
-        // reloaded). A missing/unreadable directory yields an empty result rather than erroring — this is
-        // a best-effort dev feature, never a hard failure in the frame loop.
+        /// Re-stat the tree and return everything whose mtime changed or that appeared since the last
+        /// poll. Deleted files are dropped from tracking silently (a shader that no longer exists can't be
+        /// reloaded). A missing/unreadable directory yields an empty result rather than erroring — this is
+        /// a best-effort dev feature, never a hard failure in the frame loop.
         [[nodiscard]] vector<ShaderChange> poll();
 
       private:
-        // Visit every regular `.slang` file under `root` (recursively), calling `visit(path, mtime)`.
-        // Swallows filesystem errors per the best-effort contract; a permission-denied subtree is skipped
-        // rather than aborting the walk.
+        /// Visit every regular `.slang` file under `root` (recursively), calling `visit(path, mtime)`.
+        /// Swallows filesystem errors per the best-effort contract; a permission-denied subtree is skipped
+        /// rather than aborting the walk.
         template <typename Visit>
         static void scan(const fs::path &root, Visit &&visit) {
             error_code ec;
@@ -85,8 +85,8 @@ namespace SFT::Core::Slang {
             }
         }
 
-        // Kept local (rather than importing :ShaderDiscovery) so the watcher depends only on std +
-        // :ShaderTypes; it is the same `.slang` extension `discover_shaders()` uses.
+        /// Kept local (rather than importing :ShaderDiscovery) so the watcher depends only on std +
+        /// :ShaderTypes; it is the same `.slang` extension `discover_shaders()` uses.
         static constexpr std::string_view shader_file_extension_ = ".slang";
 
         fs::path directory_;

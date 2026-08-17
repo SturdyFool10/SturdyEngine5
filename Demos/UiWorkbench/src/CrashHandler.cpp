@@ -36,9 +36,9 @@ namespace SFT::UiWorkbench {
             return std::filesystem::path("Logs") / file_name;
         }
 
-        // Writes a minidump alongside the log file. std::stacktrace's symbol names are enough to spot
-        // an obviously-engine-side bug, but a crash inside a GPU driver module (e.g. nvoglv64.dll,
-        // nvwgf2umx.dll) needs a real dump loaded against the driver's own PDBs to say anything useful.
+
+
+
         void write_minidump(EXCEPTION_POINTERS *exception_pointers) {
             const auto path = crash_dump_path();
             std::error_code ec;
@@ -123,8 +123,8 @@ namespace SFT::UiWorkbench {
 
     namespace {
 
-        // A fixed size rather than SIGSTKSZ: glibc >= 2.34 defines SIGSTKSZ via sysconf() and it is no
-        // longer a compile-time constant there, so it can't size a static array on every target libc.
+
+
         constexpr std::size_t kSignalStackSize = 131072;
         alignas(16) std::byte g_signal_stack[kSignalStackSize];
 
@@ -139,10 +139,10 @@ namespace SFT::UiWorkbench {
             }
         }
 
-        // backtrace()/backtrace_symbols() aren't guaranteed async-signal-safe by POSIX, same as calling
-        // the logger itself here — accepted deliberately, same tradeoff the Windows exception filter
-        // makes by logging from inside the fault handler. The process is already on its way down either
-        // way; best-effort diagnostics beat none.
+
+
+
+
         void log_backtrace() {
             void *frames[64];
             const int frame_count = ::backtrace(frames, 64);
@@ -151,11 +151,11 @@ namespace SFT::UiWorkbench {
             for (int i = 0; i < frame_count; ++i) {
                 Foundation::log_error("  {}", symbols != nullptr ? symbols[i] : "<unresolved>");
             }
-            // Deliberately not freeing `symbols`: the allocator may itself be the thing that faulted,
-            // and the process terminates right after this regardless.
+
+
         }
 
-        void on_fatal_signal(int signal_number, siginfo_t *info, void * /*context*/) {
+        void on_fatal_signal(int signal_number, siginfo_t *info, void *            ) {
             if (info != nullptr && (signal_number == SIGSEGV || signal_number == SIGBUS)) {
                 Foundation::log_error(
                     "crash: unhandled {} at address {}", signal_name(signal_number), info->si_addr);
@@ -164,9 +164,9 @@ namespace SFT::UiWorkbench {
             }
             log_backtrace();
             Foundation::flush_logs();
-            // SA_RESETHAND (below) already reset this signal's disposition to default before this
-            // handler ran, so simply returning re-raises it against that default — producing the
-            // platform's normal core dump / crash report instead of looping back into this handler.
+
+
+
         }
 
     } // namespace
@@ -197,9 +197,9 @@ namespace SFT::UiWorkbench {
 
 #else
 
-// Web (and any future platform without a native crash surface): intentional no-op, the same fallback
-// convention Platform/src/Platform/Web/WindowEffectsImpl.cpp uses for OS chrome effects that don't
-// exist in a browser sandbox.
+
+
+
 namespace SFT::UiWorkbench {
 
     void install_crash_handler() {}

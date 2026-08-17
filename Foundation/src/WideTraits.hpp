@@ -1,9 +1,9 @@
 #pragma once
 
-// _SILENCE_CXX23_DENORM_DEPRECATION_WARNING (for the numeric_limits::has_denorm(_loss) use below) is
-// defined project-wide in the root CMakeLists.txt, not here: the deprecation attribute is baked into
-// <limits>'s declaration the first time any translation unit includes it, so defining the macro in a
-// leaf header is too late whenever something upstream of this file has already pulled <limits> in.
+
+
+
+
 
 #include <Foundation/src/Wide.hpp>
 
@@ -27,43 +27,18 @@ using std::to_string;
 
 namespace SFT::Foundation {
 
-    // Standard-library-adjacent support for the wide numeric types: decimal rendering, streams,
-    // `numeric_limits`, hashing, and `std::format`. Kept separate from `Wide.cppm` so the core arithmetic
-    // types do not need to include heavier formatting/streaming headers.
 
-    // --- Decimal conversion -----------------------------------------------------------------
-    [[nodiscard]] inline string to_string(u128 v) {
-        if (v == 0)
-            return "0";
 
-        string digits;
-        while (v != 0) {
-            digits.push_back(static_cast<char>('0' + static_cast<int>(v % 10)));
-            v /= 10;
-        }
-        return string(digits.rbegin(), digits.rend());
-    }
-    [[nodiscard]] inline string to_string(i128 v) {
-        const u128 mag = v < 0 ? (~static_cast<u128>(v) + 1) : static_cast<u128>(v); // handles INT128_MIN
-        return v < 0 ? "-" + to_string(mag) : to_string(mag);
-    }
-    [[nodiscard]] inline string to_string(u256 v) {
-        if (!static_cast<bool>(v))
-            return "0";
-        string s;
-        while (static_cast<bool>(v)) {
-            const auto [q, r] = u256::divmod(v, u256{10}); // fast 64-bit-divisor path
-            s.push_back(static_cast<char>('0' + static_cast<int>(static_cast<u64>(r))));
-            v = q;
-        }
-        return string(s.rbegin(), s.rend());
-    }
-    [[nodiscard]] inline string to_string(i256 v) {
-        return v.is_negative() ? "-" + to_string((-v).bits) : to_string(v.bits);
-    }
+
+
+    /// --- Decimal conversion -----------------------------------------------------------------
+    [[nodiscard]] string to_string(u128 v);
+    [[nodiscard]] string to_string(i128 v);
+    [[nodiscard]] string to_string(u256 v);
+    [[nodiscard]] string to_string(i256 v);
 
     namespace Detail {
-        // 10^|e| in the wide-float type T (exact base, products rounded to T's precision).
+        /// 10^|e| in the wide-float type T (exact base, products rounded to T's precision).
         template <class T>
         [[nodiscard]] constexpr T wide_pow10(int e) noexcept {
             int n = e < 0 ? -e : e;
@@ -76,8 +51,8 @@ namespace SFT::Foundation {
             }
             return e < 0 ? T(1.0) / r : r;
         }
-        // Best-effort decimal (scientific) rendering of a wide float, good to `precision` digits.
-        // Intended for logging/debugging — not guaranteed correctly-rounded or shortest round-trip.
+        /// Best-effort decimal (scientific) rendering of a wide float, good to `precision` digits.
+        /// Intended for logging/debugging — not guaranteed correctly-rounded or shortest round-trip.
         template <class T>
         [[nodiscard]] string wide_float_to_string(T v, int precision) {
             const f64 lead = static_cast<f64>(v);
@@ -104,7 +79,7 @@ namespace SFT::Foundation {
             }
             string digits;
             for (int i = 0; i <= precision; ++i) {
-                int d = static_cast<int>(static_cast<f64>(x)); // x in [0,10)
+                int d = static_cast<int>(static_cast<f64>(x));
                 d = d < 0 ? 0 : (d > 9 ? 9 : d);
                 digits.push_back(static_cast<char>('0' + d));
                 x = (x - T(static_cast<f64>(d))) * T(10.0);
@@ -118,27 +93,27 @@ namespace SFT::Foundation {
         }
     } // namespace Detail
 
-    [[nodiscard]] inline string to_string(f128 v) { return Detail::wide_float_to_string(v, 31); }
-    [[nodiscard]] inline string to_string(const f256 &v) { return Detail::wide_float_to_string(v, 62); }
+    [[nodiscard]] string to_string(f128 v);
+    [[nodiscard]] string to_string(const f256 &v);
 
-    // --- Stream insertion (ADL-found for the program-defined wide types) --------------------
-    // These overloads intentionally render through the same `to_string()` helpers used by formatting, so
-    // logging, streams, and diagnostics show one consistent decimal representation.
-    inline ostream &operator<<(ostream &os, const u256 &v) { return os << to_string(v); }
-    inline ostream &operator<<(ostream &os, const i256 &v) { return os << to_string(v); }
-    inline ostream &operator<<(ostream &os, f128 v) { return os << to_string(v); }
-    inline ostream &operator<<(ostream &os, const f256 &v) { return os << to_string(v); }
+    /// --- Stream insertion (ADL-found for the program-defined wide types) --------------------
+    /// These overloads intentionally render through the same `to_string()` helpers used by formatting, so
+    /// logging, streams, and diagnostics show one consistent decimal representation.
+    ostream &operator<<(ostream &os, const u256 &v);
+    ostream &operator<<(ostream &os, const i256 &v);
+    ostream &operator<<(ostream &os, f128 v);
+    ostream &operator<<(ostream &os, const f256 &v);
 
 } // namespace SFT::Foundation
 
-// ostream has no unambiguous overload for __int128; supply one so i128/u128 stream too.
-inline ostream &operator<<(ostream &os, __int128 v) { return os << SFT::Foundation::to_string(v); }
-inline ostream &operator<<(ostream &os, unsigned __int128 v) { return os << SFT::Foundation::to_string(v); }
+/// ostream has no unambiguous overload for __int128; supply one so i128/u128 stream too.
+ostream &operator<<(ostream &os, __int128 v);
+ostream &operator<<(ostream &os, unsigned __int128 v);
 
-// --- numeric_limits ------------------------------------------------------------------------
-// Specializations make the wide numeric types usable in generic code that queries range, precision, and
-// IEEE-like traits. `f128`/`f256` advertise their expansion precision and range, but `is_iec559` remains
-// false because they are composed of multiple `f64` limbs rather than single hardware formats.
+/// --- numeric_limits ------------------------------------------------------------------------
+/// Specializations make the wide numeric types usable in generic code that queries range, precision, and
+/// IEEE-like traits. `f128`/`f256` advertise their expansion precision and range, but `is_iec559` remains
+/// false because they are composed of multiple `f64` limbs rather than single hardware formats.
 namespace std {
 
     template <>
@@ -229,7 +204,7 @@ namespace std {
         static constexpr bool is_exact = false;
         static constexpr bool is_bounded = true;
         static constexpr bool is_modulo = false;
-        static constexpr bool is_iec559 = false; // composite of two f64s, not a single IEEE format
+        static constexpr bool is_iec559 = false;
         static constexpr bool has_infinity = true;
         static constexpr bool has_quiet_NaN = true;
         static constexpr bool has_signaling_NaN = true;
@@ -239,7 +214,7 @@ namespace std {
         static constexpr bool tinyness_before = false;
         static constexpr float_round_style round_style = round_to_nearest;
         static constexpr int radix = 2;
-        static constexpr int digits = 106; // 2 x 53
+        static constexpr int digits = 106;
         static constexpr int digits10 = 31;
         static constexpr int max_digits10 = 33;
         static constexpr int min_exponent = -968;
@@ -277,7 +252,7 @@ namespace std {
         static constexpr bool tinyness_before = false;
         static constexpr float_round_style round_style = round_to_nearest;
         static constexpr int radix = 2;
-        static constexpr int digits = 212; // 4 x 53
+        static constexpr int digits = 212;
         static constexpr int digits10 = 63;
         static constexpr int max_digits10 = 66;
         static constexpr int min_exponent = -862;
@@ -299,56 +274,36 @@ namespace std {
 
 } // namespace std
 
-// --- hash -----------------------------------------------------------------------------
-// Hashes mix all storage limbs and normalize signed zero for wide floats so values that compare equal also
-// hash equal. This satisfies the standard unordered-container requirement for the supported equality model.
+/// --- hash -----------------------------------------------------------------------------
+/// Hashes mix all storage limbs and normalize signed zero for wide floats so values that compare equal also
+/// hash equal. This satisfies the standard unordered-container requirement for the supported equality model.
 namespace SFT::Foundation::Detail {
-    [[nodiscard]] inline usize hash_mix(usize seed, usize value) noexcept {
-        return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
-    }
-    [[nodiscard]] inline usize hash_u128(u128 v) noexcept {
-        const hash<u64> h;
-        return hash_mix(h(static_cast<u64>(v)), h(static_cast<u64>(v >> 64)));
-    }
+    [[nodiscard]] usize hash_mix(usize seed, usize value) noexcept;
+    [[nodiscard]] usize hash_u128(u128 v) noexcept;
 } // namespace SFT::Foundation::Detail
 
 namespace std {
 
     template <>
     struct hash<SFT::Foundation::u256> {
-        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::u256 &v) const noexcept {
-            return SFT::Foundation::Detail::hash_mix(SFT::Foundation::Detail::hash_u128(v.lo),
-                                                     SFT::Foundation::Detail::hash_u128(v.hi));
-        }
+        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::u256 &v) const noexcept;
     };
     template <>
     struct hash<SFT::Foundation::i256> {
-        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::i256 &v) const noexcept {
-            return hash<SFT::Foundation::u256>{}(v.bits);
-        }
+        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::i256 &v) const noexcept;
     };
     template <>
     struct hash<SFT::Foundation::f128> {
-        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::f128 &v) const noexcept {
-            const hash<SFT::f64> h;
-            // normalize -0.0 so +0.0 and -0.0 (which compare equal) hash equally
-            return SFT::Foundation::Detail::hash_mix(h(v.hi == 0.0 ? 0.0 : v.hi), h(v.lo == 0.0 ? 0.0 : v.lo));
-        }
+        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::f128 &v) const noexcept;
     };
     template <>
     struct hash<SFT::Foundation::f256> {
-        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::f256 &v) const noexcept {
-            const hash<SFT::f64> h;
-            SFT::usize seed = h(v.x[0] == 0.0 ? 0.0 : v.x[0]);
-            for (int i = 1; i < 4; ++i)
-                seed = SFT::Foundation::Detail::hash_mix(seed, h(v.x[i] == 0.0 ? 0.0 : v.x[i]));
-            return seed;
-        }
+        [[nodiscard]] SFT::usize operator()(const SFT::Foundation::f256 &v) const noexcept;
     };
 
-    // --- formatter (inherits string formatter -> supports fill/align/width) ---------------
-    // Formatters delegate to the decimal string conversion and then reuse `std::formatter<string>`, giving
-    // wide values normal fill/alignment/width behavior without duplicating formatting machinery.
+    /// --- formatter (inherits string formatter -> supports fill/align/width) ---------------
+    /// Formatters delegate to the decimal string conversion and then reuse `std::formatter<string>`, giving
+    /// wide values normal fill/alignment/width behavior without duplicating formatting machinery.
     template <>
     struct formatter<SFT::Foundation::u256> : formatter<string> {
         auto format(const SFT::Foundation::u256 &v, auto &ctx) const {

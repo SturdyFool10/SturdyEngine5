@@ -46,7 +46,7 @@ int main() {
                    << " l2=" << representative.l2_bytes << " l3=" << representative.l3_bytes << "\n";
     }
 
-    // Every core index must round-trip through type_index_of_core()/core_indices_of_type() consistently.
+
     for (SFT::Foundation::usize i = 0; i < map.core_count(); ++i) {
         const SFT::Foundation::usize type_index = map.type_index_of_core(i);
         const auto &members = map.core_indices_of_type(type_index);

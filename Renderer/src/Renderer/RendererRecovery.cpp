@@ -47,9 +47,9 @@ namespace SFT::Renderer {
         }
 
         recovering_from_device_loss_ = true;
-        // Drain queued presentation before invalidating the device pointer it references. The backend
-        // operation guard above also excludes every window's frame recording/submission for the complete
-        // rebuild, so no new submit or present can race wait_idle() and old-device destruction below.
+
+
+
         {
             auto guard = window_surfaces_.lock();
             for (auto &record_ptr : *guard) {
@@ -57,10 +57,10 @@ namespace SFT::Renderer {
             }
         }
         wait_idle();
-        // DXGI permits only one flip-model swapchain per HWND. The generic invalidation path below
-        // intentionally clears old handles without destroying them (normally appropriate for a lost
-        // device), but an intentional backend/API reconstruction still has a live old device and must
-        // release its native swapchains before a D3D12 replacement attempts CreateSwapChainForHwnd.
+
+
+
+
         if (RHI::RhiDevice *old_device = rhi_device()) {
             auto guard = window_surfaces_.lock();
             for (const auto &record : *guard) {
@@ -137,9 +137,9 @@ namespace SFT::Renderer {
 
     void Renderer::invalidate_gpu_resource_handles_no_destroy() noexcept {
         ZoneScopedN("Renderer::invalidate_gpu_resource_handles_no_destroy");
-        // The old device (and every buffer it owned, including the shared vertex/index arenas) is
-        // gone — reset the arenas to empty so restore_gpu_resources_after_recovery()'s per-mesh
-        // try_upload_mesh() replay rebuilds them from scratch via the ordinary growth path.
+
+
+
         vertex_arena_ = GeometryArena{.usage = vertex_arena_.usage};
         index_arena_ = GeometryArena{.usage = index_arena_.usage};
         for (MeshResource &mesh : meshes_) {
@@ -154,8 +154,8 @@ namespace SFT::Renderer {
             texture.view = {};
             texture.sampler = {};
         }
-        // Preserve public target identities/descriptions and their borrowed TextureHandle slots, but
-        // never let old-device RHI handles survive into the replacement backend.
+
+
         invalidate_offscreen_render_targets_after_device_loss();
 
         for (MaterialTemplateResource &material_template : material_templates_) {
@@ -168,10 +168,10 @@ namespace SFT::Renderer {
             material_template.bind_group_layout_sets.clear();
             material_template.pipeline_layout = {};
         }
-        // Every template's cached pipeline handles above are invalid now the device is gone — see
-        // material_pipeline_variants_'s doc comment (RendererModule.hpp) for why this lives as one
-        // shared map instead of per-template storage; clearing it wholesale here is the equivalent of
-        // the per-template pipeline_variants.clear() this loop used to do.
+
+
+
+
         material_pipeline_variants_.lock()->clear();
         depth_only_pipeline_variants_.lock()->clear();
         for (MaterialInstanceResource &material_instance : material_instances_) {
@@ -183,8 +183,8 @@ namespace SFT::Renderer {
             }
         }
 
-        // The old device is gone — drop every in-flight frame slot's handles (command buffers, fences,
-        // deferred transients) and scene GPU buffers without destroying them; the fresh device starts over.
+
+
         {
             auto guard = window_surfaces_.lock();
             for (auto &record : *guard) {
@@ -195,9 +195,9 @@ namespace SFT::Renderer {
             }
         }
 
-        // Every handle cached below belonged to the destroyed device. Reset without calling ordinary
-        // destroy functions: replacement-device pools restart their numeric IDs, so destroying an old
-        // handle against the new device could accidentally destroy an unrelated colliding resource.
+
+
+
         *bloom_.lock() = {};
         *bloom_composite_.lock() = {};
         *shadow_lighting_.lock() = {};
@@ -229,9 +229,9 @@ namespace SFT::Renderer {
             }
         }
 
-        // Recreate ordinary renderer-owned textures under their stable public handles before any
-        // material bind groups are rebuilt. Adopted/borrowed wrappers are restored by their owner (the
-        // offscreen-target path immediately below) or by the external caller that owns the raw RHI state.
+
+
+
         for (TextureResource &texture : textures_) {
             if (!texture.alive || !texture.owns_gpu_resources) {
                 continue;
@@ -241,15 +241,15 @@ namespace SFT::Renderer {
             }
         }
 
-        // Recreate target backing in place before material bind groups are rebuilt below. Both the
-        // OffscreenRenderTargetHandle and its borrowed TextureHandle remain stable across recovery.
+
+
         if (Core::RendererResult targets = restore_offscreen_render_targets_after_recovery();
             !targets.has_value()) {
             return targets;
         }
 
-        // Already-cleared in invalidate_gpu_resource_handles_no_destroy() (see its doc comment), but
-        // cheap and correct to ensure again here in case this is ever called without that first.
+
+
         material_pipeline_variants_.lock()->clear();
         for (MaterialTemplateResource &material_template : material_templates_) {
             if (!material_template.alive) {

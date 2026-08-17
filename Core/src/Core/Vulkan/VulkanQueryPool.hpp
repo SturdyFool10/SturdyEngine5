@@ -38,7 +38,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkQueryType query_type() const noexcept;
         [[nodiscard]] u32 query_count() const noexcept;
 
-        // VK_NOT_READY is not treated as an error — use VK_QUERY_RESULT_WAIT_BIT to block.
+        /// VK_NOT_READY is not treated as an error — use VK_QUERY_RESULT_WAIT_BIT to block.
         [[nodiscard]] RendererResult get_results(
             u32 first_query,
             u32 count,
@@ -46,7 +46,7 @@ namespace SFT::Core::Vulkan {
             VkDeviceSize stride,
             VkQueryResultFlags flags) noexcept;
 
-        // Host-side reset (Vulkan 1.2+). GPU-side reset uses vkCmdResetQueryPool in a command buffer.
+        /// Host-side reset (Vulkan 1.2+). GPU-side reset uses vkCmdResetQueryPool in a command buffer.
         void reset(u32 first_query = 0, u32 count = 0) noexcept;
 
         void destroy() noexcept;

@@ -1,4 +1,4 @@
-// Engine::UiTextInputState's non-trivial bodies — see EcsUi.hpp for the class's own doc comment.
+
 #include "EcsUi.hpp"
 
 #include <algorithm>
@@ -7,8 +7,8 @@ namespace SFT::Engine {
 
     void UiTextInputState::apply(const TextInputEvent &event) noexcept {
         typed_text_ += event.text.utf8;
-        // A commit always ends whatever composition preceded it — same rule
-        // Engine::InputState::apply(const TextInputEvent&) follows.
+
+
         composing_ = false;
         composition_text_.clear();
     }
@@ -19,7 +19,7 @@ namespace SFT::Engine {
     }
 
     void UiTextInputState::apply_key(const KeyboardEvent &event) noexcept {
-        // Held-state modifiers need both press AND release, unlike everything below.
+
         if (event.key_code == KeyboardKey::LeftShift || event.key_code == KeyboardKey::RightShift) {
             shift_down_ = event.pressed();
             return;
@@ -87,9 +87,9 @@ namespace SFT::Engine {
             Platform::Windowing::TextInputArea{
                 .x = field.position.x,
                 .y = field.position.y,
-                // A zero (or negative, if layout ever settles that way) width/height rect would
-                // give the IME nothing to avoid covering — floor both at 1px so it always gets a
-                // real area to anchor against.
+
+
+
                 .width = std::max(field.size.x, 1.0f),
                 .height = std::max(field.size.y, 1.0f),
                 .cursor_offset_x = std::max(caret.position.x - field.position.x, 0.0f),

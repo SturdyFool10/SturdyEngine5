@@ -19,10 +19,10 @@ namespace SFT::D3D12 {
             return mip + layer * texture.mip_levels;
         }
 
-        // D3D12 requires that a barrier naming no sync scope also name no access, and vice versa —
-        // the two are validated against each other rather than being independent. An access mask
-        // paired with SYNC_NONE is the common way to get this wrong, so it is normalized here once
-        // instead of at each of the three barrier kinds.
+
+
+
+
         void normalize_sync_access(D3D12_BARRIER_SYNC &sync, D3D12_BARRIER_ACCESS &access) noexcept {
             if (sync == D3D12_BARRIER_SYNC_NONE) {
                 access = D3D12_BARRIER_ACCESS_NO_ACCESS;
@@ -44,9 +44,9 @@ namespace SFT::D3D12 {
                 .FirstArraySlice = range.base_array_layer,
                 .NumArraySlices = std::max(1u, layer_count),
                 .FirstPlane = 0,
-                // Depth-stencil resources have two planes; naming only plane 0 would leave the stencil
-                // aspect untransitioned, which the RHI's single-layout model gives no way to express
-                // separately.
+
+
+
                 .NumPlanes = rhi::format_has_stencil(texture.format) ? 2u : 1u,
             };
         }
@@ -63,7 +63,7 @@ namespace SFT::D3D12 {
         layout_dirty = false;
     }
 
-    // ─── D3D12CommandEncoder ─────────────────────────────────────────────────────
+
 
     D3D12CommandEncoder::D3D12CommandEncoder(D3D12Device &device, CommandBufferRecord &&record)
         : device_(&device), record_(std::move(record)), list_(record_.list.Get()) {
@@ -77,9 +77,9 @@ namespace SFT::D3D12 {
 
     D3D12CommandEncoder::~D3D12CommandEncoder() {
         if (!finished_ && record_.list != nullptr) {
-            // An abandoned encoder still owns a live, open command list and allocator. Closing it makes
-            // the pair recyclable again; leaking them would slowly starve the free list of a
-            // long-running process that hits error paths.
+
+
+
             (void)record_.list->Close();
             device_->return_command_buffer(std::move(record_));
         }
@@ -149,8 +149,8 @@ namespace SFT::D3D12 {
             } else {
                 list_->SetComputeRootSignature(layout->root_signature.Get());
             }
-            // A root signature change discards every root argument, so everything must be re-applied —
-            // this is why binds are retained rather than consumed (see D3D12CommandEncoder.hpp).
+
+
             for (PendingBindGroup &group : state.groups) {
                 if (group.handle.is_valid()) {
                     group.dirty = true;
@@ -160,8 +160,8 @@ namespace SFT::D3D12 {
             state.layout_dirty = false;
         }
 
-        // Two attempts at most: the second follows a shader-visible heap swap, which cannot itself fail
-        // for capacity reasons because a fresh heap is empty.
+
+
         for (u32 attempt = 0; attempt < 2; ++attempt) {
             bool exhausted = false;
 
@@ -264,9 +264,9 @@ namespace SFT::D3D12 {
                 return false;
             }
 
-            // Retire the exhausted heaps rather than freeing them: commands already recorded into this
-            // list still reference descriptors inside them, so they must stay alive until the whole
-            // record is recycled.
+
+
+
             if (auto resource_heap = device_->create_shader_visible_heap(
                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
                     default_shader_visible_resource_descriptors)) {
@@ -286,8 +286,8 @@ namespace SFT::D3D12 {
                 return false;
             }
             bind_descriptor_heaps();
-            // SetDescriptorHeaps invalidates descriptor-table root arguments for both graphics and
-            // compute/ray bindings, not only whichever family triggered the replacement.
+
+
             for (BindingState *tracked : {&graphics_bindings_, &compute_bindings_}) {
                 for (PendingBindGroup &group : tracked->groups) {
                     if (group.handle.is_valid()) {
@@ -358,7 +358,7 @@ namespace SFT::D3D12 {
         return upload;
     }
 
-    // ─── Barriers ────────────────────────────────────────────────────────────────
+
 
     void D3D12CommandEncoder::legacy_transition(TextureRecord &texture, u32 subresource, D3D12_RESOURCE_STATES after) {
         if (subresource >= texture.legacy_states.size()) {
@@ -425,9 +425,9 @@ namespace SFT::D3D12 {
                 D3D12_BARRIER_ACCESS access_after = to_d3d12_access(source.dst_access);
                 normalize_sync_access(sync_before, access_before);
                 normalize_sync_access(sync_after, access_after);
-                // `ownership` is dropped: D3D12 has no queue-family ownership to transfer (a resource is
-                // visible to every queue on the device), which is exactly the case
-                // QueueOwnershipTransfer documents as "backends without ownership transfers ignore it".
+
+
+
                 buffers.push_back(D3D12_BUFFER_BARRIER{
                     sync_before,
                     sync_after,
@@ -435,8 +435,8 @@ namespace SFT::D3D12 {
                     access_after,
                     buffer->resource.Get(),
                     source.offset,
-                    // A whole-buffer barrier must be spelled as size UINT64_MAX rather than the real
-                    // size; D3D12 rejects a range that is merely equal to the resource size.
+
+
                     source.size == 0 ? UINT64_MAX : source.size});
             }
 
@@ -455,8 +455,8 @@ namespace SFT::D3D12 {
 
                 const bool discarding = source.old_layout == rhi::TextureLayout::Undefined;
                 if (discarding) {
-                    // Coming from UNDEFINED means the prior contents are being thrown away, and D3D12
-                    // requires the source access to say so explicitly.
+
+
                     sync_before = D3D12_BARRIER_SYNC_NONE;
                     access_before = D3D12_BARRIER_ACCESS_NO_ACCESS;
                 }
@@ -488,16 +488,16 @@ namespace SFT::D3D12 {
             return;
         }
 
-        // ── Legacy fallback ──
-        // A single ResourceBarrier batch, with the (stage, access, layout) triple collapsed onto one
-        // D3D12_RESOURCE_STATES value per resource. The information loss is real and unavoidable; it is
-        // also why Feature::Synchronization2 is not reported on devices that land here.
+
+
+
+
         std::vector<D3D12_RESOURCE_BARRIER> barriers;
 
         for (const rhi::GlobalBarrier &source : global_barriers) {
-            // The only legacy equivalent of a global memory dependency is a UAV barrier with a null
-            // resource ("all UAV writes before this must complete"), which covers the shader-write case
-            // global barriers are overwhelmingly used for.
+
+
+
             if (rhi::has_any(source.src_access, rhi::AccessFlags::ShaderWrite | rhi::AccessFlags::MemoryWrite)) {
                 D3D12_RESOURCE_BARRIER barrier{};
                 barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -512,8 +512,8 @@ namespace SFT::D3D12 {
                 fail("A buffer barrier names an unknown buffer handle.");
                 return;
             }
-            // Host-visible buffers are permanently pinned in GENERIC_READ/COPY_DEST and cannot be
-            // transitioned at all, so a barrier on one is correctly a no-op rather than an error.
+
+
             if (buffer->memory != rhi::MemoryLocation::DeviceLocal) {
                 continue;
             }
@@ -562,7 +562,7 @@ namespace SFT::D3D12 {
         }
     }
 
-    // ─── Copies and clears ───────────────────────────────────────────────────────
+
 
     void D3D12CommandEncoder::copy_buffer_to_buffer(rhi::BufferHandle src, rhi::BufferHandle dst, const rhi::BufferCopy &region) {
         if (!can_record_outside_pass("copy_buffer_to_buffer")) {
@@ -590,11 +590,11 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // A buffer<->texture copy footprint. D3D12 describes the buffer side as a placed footprint whose
-        // RowPitch must be a multiple of D3D12_TEXTURE_DATA_PITCH_ALIGNMENT (256) — a hard hardware
-        // requirement with no equivalent in Vulkan's bufferRowLength, and the single most common source
-        // of silently-wrong texture uploads when ported naively. It is validated rather than rounded:
-        // rounding would change which bytes the copy reads, producing a skewed image instead of an error.
+
+
+
+
+
         [[nodiscard]] bool build_texture_footprint(const TextureRecord &texture, const rhi::BufferTextureCopy &region, D3D12_PLACED_SUBRESOURCE_FOOTPRINT &footprint, u64 &row_pitch) {
             const u32 block = format_block_extent(texture.format);
             const u32 element_bytes = format_element_bytes(texture.format);
@@ -708,13 +708,13 @@ namespace SFT::D3D12 {
         if (!can_record_outside_pass("blit_texture")) {
             return;
         }
-        // D3D12 has no scaled, filtered texture blit. vkCmdBlitImage's closest relatives are
-        // CopyTextureRegion (same size, no filtering) and ResolveSubresource (MSAA only, no scaling) —
-        // neither of which can do what this asks. A real implementation is a full-screen draw through
-        // a sampler, which means a pipeline, a root signature, and a shader the RHI has no way to
-        // supply from inside a backend. Reported rather than silently doing an unscaled copy, which
-        // would produce a wrong image with no diagnostic at all: the mip-generation and bloom paths
-        // this exists for must use a compute or raster downsample pass on D3D12.
+
+
+
+
+
+
+
         fail("blit_texture: D3D12 has no scaled/filtered image blit. Use a compute or raster downsample pass "
              "instead (this is why the operation is reported here rather than approximated).");
     }
@@ -1011,7 +1011,7 @@ namespace SFT::D3D12 {
             return;
         }
         // D3D12's resolve stride is fixed by the query type and cannot be overridden; a caller asking
-        // for a different one would silently get tightly-packed results instead.
+
         const u64 natural_stride = query_result_bytes(record->type);
         if (stride != 0 && stride != natural_stride) {
             fail("resolve_query_set: D3D12 writes resolved results tightly packed at " +
@@ -1030,8 +1030,8 @@ namespace SFT::D3D12 {
 
     void D3D12CommandEncoder::push_debug_group(const char *label) {
         if (label != nullptr) {
-            // PIX consumes this directly; RenderDoc and the debug layer both surface it too. The 0 is
-            // PIX's "the data is a plain string" metadata code.
+
+
             list_->BeginEvent(0, label, static_cast<UINT>(std::char_traits<char>::length(label) + 1));
         }
     }
@@ -1278,10 +1278,10 @@ namespace SFT::D3D12 {
             parent_->fail("set_viewport: ended pass.");
             return;
         }
-        // Passed through as-is. The RHI's Vulkan-style clip space (see RHI::Viewport) is reconciled
-        // with D3D12's opposite NDC Y in the shader, via the clip-space ABI in sturdy_common.slang —
-        // not here. A negative-height viewport would also work on the hardware, but D3D12 documents
-        // D3D12_VIEWPORT::Height as non-negative, so the RHI does not rely on that.
+
+
+
+
         const D3D12_VIEWPORT v{value.x, value.y, value.width, value.height, value.min_depth, value.max_depth};
         parent_->list_->RSSetViewports(1, &v);
     }
@@ -1290,8 +1290,8 @@ namespace SFT::D3D12 {
             parent_->fail("set_scissor: ended pass.");
             return;
         }
-        // Scissor rects are framebuffer pixels with a top-left origin in both APIs, so they need no
-        // translation — only clip space differs between Vulkan and D3D12, not pixel space.
+
+
         const D3D12_RECT r{value.x, value.y, value.x + static_cast<LONG>(value.width), value.y + static_cast<LONG>(value.height)};
         parent_->list_->RSSetScissorRects(1, &r);
     }

@@ -31,9 +31,9 @@ namespace SFT::Async {
             cores[i] = static_cast<u32>(i);
         }
 
-        // Higher rank sorts first. CoreType is the primary key (Performance > Unknown > Efficiency);
-        // L3/L2 size are the tiebreaker that carries the whole signal on cache-only-hybrid designs
-        // (AMD X3D) where CoreType stays Unknown on every core.
+
+
+
         const auto rank_of_type = [](Foundation::Cpu::CoreType type) noexcept -> int {
             switch (type) {
                 case Foundation::Cpu::CoreType::Performance: return 2;
@@ -64,11 +64,11 @@ namespace SFT::Async {
         const Foundation::Cpu::CoreMap &map = Foundation::Cpu::CoreMap::instance();
         const std::vector<u32> ranked_logical = ranked_logical_cores();
 
-        // ranked_logical_cores() is already best-first over every logical core; SMT siblings share
-        // identical CoreCapabilities (same type/cache sizes), so they land as adjacent ties. Walking it
-        // once and keeping only the first logical index seen per physical core yields one
-        // representative per physical core, in the same best-first order, with no separate ranking
-        // pass needed.
+
+
+
+
+
         std::vector<u32> physical;
         physical.reserve(map.physical_core_count());
         std::vector<bool> seen(map.physical_core_count(), false);
@@ -85,7 +85,7 @@ namespace SFT::Async {
 
 #if defined(STURDY_PLATFORM_WEB)
 
-    bool pin_thread_to_core(std::thread & /*thread*/, u32 /*core_index*/) noexcept { return false; }
+    bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
 
 #elif defined(_WIN32)
 
@@ -99,9 +99,9 @@ namespace SFT::Async {
 
 #elif defined(__APPLE__)
 
-    // Mach's thread-affinity-tag API is a *scheduling hint* for cache/locality grouping, not a hard
-    // core pin -- macOS offers no equivalent of Linux/Windows' exact affinity masks (same caveat
-    // documented in Foundation's CoreMap.cpp for the same underlying API).
+
+
+
     bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
         if (!thread.joinable()) {
             return false;
@@ -128,10 +128,10 @@ namespace SFT::Async {
 
 #else
 
-    // FreeBSD (and anything else): not implemented yet, same stance as Foundation's CoreMap.cpp and
-    // the pre-existing DedicatedThread::pin_to_core -- FreeBSD's cpuset_t API differs enough from
-    // Linux's to need its own verified implementation.
-    bool pin_thread_to_core(std::thread & /*thread*/, u32 /*core_index*/) noexcept { return false; }
+
+
+
+    bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
 
 #endif
 

@@ -74,9 +74,6 @@ VertexOutput vertexMainInstanced(VertexInput input, uint instanceId : SV_Instanc
 
     VertexOutput output;
     float4 worldPosition = mul(float4(input.position, 1.0), model);
-    // instancedDraw.viewProjection already has the D3D12 clip-space Y flip baked in on the C++ side
-    // (RHI::gpu_clip_flip, Renderer::render_frame — same submission.view_projection value this push
-    // constant is filled from) — a plain mul(), no sturdy_clip_position() wrapper needed here.
     output.position = mul(worldPosition, instancedDraw.viewProjection);
     output.worldNormal = normalize(mul(input.normal, (float3x3)model));
     output.uv = input.uv;

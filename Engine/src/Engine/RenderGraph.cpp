@@ -68,7 +68,7 @@ namespace SFT::Engine {
         }
         for (usize index = 0; index < passes_.size(); ++index) {
             RenderGraphPassDescription &pass = passes_[index];
-            // pass.target is a stable Renderer-owned identity, not a graph-local handle; do not rebase it.
+
             pass.handle = RenderGraphPassHandle{
                 .index = static_cast<u32>(index),
                 .generation = generation_,
@@ -476,9 +476,9 @@ namespace SFT::Engine {
         usize present_count = 0;
         RenderGraphTextureHandle present_input{};
 
-        // Structural validation is graph-wide: every edge must reference a texture produced by an
-        // earlier node, every output has one producer, and every pass/texture handle belongs to this
-        // graph generation. Branches are legal and do not need to contribute to presentation.
+
+
+
         for (usize index = 0; index < passes_.size(); ++index) {
             const RenderGraphPassDescription &pass = passes_[index];
             if (!pass.handle || pass.handle.generation != generation_ || pass.handle.index != index) {
@@ -583,9 +583,9 @@ namespace SFT::Engine {
             });
         }
 
-        // Built-ins currently define one presentation spine. Custom HDR raster/compute/copy nodes may
-        // branch from that spine and become live through mark_output(); other built-in branches are
-        // rejected below until their renderer modules support independently instantiated outputs.
+
+
+
         const std::vector<RenderGraphPassHandle> path = presentation_path();
         if (path.empty()) {
             return std::unexpected(RenderGraphError{

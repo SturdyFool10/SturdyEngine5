@@ -20,8 +20,8 @@ namespace SFT::Platform::Windowing {
     [[nodiscard]] OperatingSystem current_operating_system() noexcept;
     [[nodiscard]] bool operating_system_may_support_window_effect(WindowEffectKind effect) noexcept;
     [[nodiscard]] WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept;
-    // Releases protocol objects associated with `handle` before the native window disappears. When
-    // `release_display` is true, also tears down display-scoped effect discovery state.
+    /// Releases protocol objects associated with `handle` before the native window disappears. When
+    /// `release_display` is true, also tears down display-scoped effect discovery state.
     void release_native_window_effects(NativeWindowHandle handle, bool release_display = false) noexcept;
 
     [[nodiscard]] expected<void, WindowError> window_result_from_effect_result(WindowEffectResult result) noexcept;

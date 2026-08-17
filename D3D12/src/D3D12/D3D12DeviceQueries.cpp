@@ -1,9 +1,9 @@
-// Query sets.
-//
-// The structural difference from Vulkan: D3D12 query results can *only* be written into a GPU buffer
-// (ResolveQueryData). There is no host-side "read the query pool" call, so get_query_set_results()
-// is necessarily a record-resolve-submit-wait-map sequence rather than a direct read. The readback
-// buffer that lands in is owned by the query set and reused, so repeated calls allocate nothing.
+
+
+
+
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -54,10 +54,10 @@ namespace SFT::D3D12 {
     void D3D12Device::destroy_query_set(rhi::QuerySetHandle handle) noexcept { query_sets_.erase(handle); }
 
     void D3D12Device::reset_query_set(rhi::QuerySetHandle, u32, u32) noexcept {
-        // Intentionally empty. A D3D12 query slot has no "unwritten" state to return to — EndQuery
-        // overwrites it outright — so there is nothing a reset could do. This is why the backend
-        // reports Feature::HostQueryReset supported: the operation the feature names is available and
-        // free, rather than unavailable.
+
+
+
+
     }
 
     rhi::RhiResult D3D12Device::get_query_set_results(rhi::QuerySetHandle query_set, u32 first, u32 count, span<std::byte> dst, u64 stride, rhi::QueryResultFlags flags) {
@@ -73,16 +73,16 @@ namespace SFT::D3D12 {
             return invalid_argument("get_query_set_results: the requested slot range exceeds the query set's size.");
         }
         if (!rhi::has_any(flags, rhi::QueryResultFlags::Result64Bit)) {
-            // D3D12 resolves occlusion and timestamp results as UINT64 and pipeline statistics as a
-            // fixed 64-bit-per-counter struct; there is no 32-bit resolve at all. Reported rather than
-            // silently narrowed, because a caller that sized its buffer for 32-bit results would
-            // otherwise be handed a buffer overrun.
+
+
+
+
             return unsupported("get_query_set_results: D3D12 resolves query results as 64-bit values; "
                                "QueryResultFlags::Result64Bit is required.");
         }
         if (rhi::has_any(flags, rhi::QueryResultFlags::WithAvailability | rhi::QueryResultFlags::Partial)) {
-            // D3D12 has no availability word and no partial-result concept: a resolve either happens
-            // after the queries completed or reads undefined data. Refusing is the only honest answer.
+
+
             return unsupported("get_query_set_results: D3D12 supports neither an availability integer nor "
                                "partial query results.");
         }
@@ -94,8 +94,8 @@ namespace SFT::D3D12 {
                                     "slot count and stride.");
         }
 
-        // The resolve runs on the graphics queue: a copy queue cannot resolve query data, and the
-        // timestamps in a timestamp set were written by graphics-queue commands anyway.
+
+
         auto command = acquire_command_buffer(rhi::QueueLane{rhi::QueueClass::Graphics, 0});
         if (!command) {
             return std::unexpected(command.error());
@@ -112,10 +112,10 @@ namespace SFT::D3D12 {
             return hresult_error(hr, "get_query_set_results (Close)");
         }
 
-        // QueryResultFlags::Wait is implicit here rather than optional: the resolve has to complete
-        // before the readback buffer holds anything, so this path always blocks. That is stricter than
-        // the caller asked for when Wait is unset, but never wrong — the alternative is returning
-        // uninitialized memory.
+
+
+
+
         const rhi::RhiResult executed = execute_and_wait(command->list.Get(), rhi::QueueClass::Graphics);
         return_command_buffer(std::move(*command));
         if (!executed) {

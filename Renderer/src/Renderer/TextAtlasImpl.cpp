@@ -78,9 +78,9 @@ namespace SFT::Renderer {
             return "text atlas image view";
         }
 
-        // Pick an actual rasterization size from this glyph's own ink bounds. The requested ppem is
-        // preserved unless an unusually large glyph cannot fit even an entire atlas tile, in which
-        // case distance fields let us down-rasterize it and scale it back up without clipping.
+
+
+
         [[nodiscard]] RasterPlan raster_plan_for(const GlyphRequest &request, f32 distance_padding_px,
                                                  u32 max_raster_extent) noexcept {
             const f32 padding = request.format == Text::RasterFormat::Color ? color_padding_px : distance_padding_px;
@@ -136,10 +136,10 @@ namespace SFT::Renderer {
             };
         }
 
-        // The RHI only has raw texture-upload support for R8Unorm and RGBA8Unorm today (see
-        // Renderer/RendererTextures.cpp) — msdfgen's MSDF output is 3-channel, so it's expanded
-        // into RGBA here with a constant alpha (unused by the text shader, which reads MSDF
-        // distances from RGB and takes their median).
+
+
+
+
         void expand_rgb_to_rgba(span<const u8> rgb, vector<std::byte> &out, usize write_offset) {
             const usize pixel_count = rgb.size() / 3;
             for (usize i = 0; i < pixel_count; ++i) {
@@ -171,8 +171,8 @@ namespace SFT::Renderer {
         const f32 tile_size = rect.tile_index < atlas.tiles.size()
                                   ? static_cast<f32>(atlas.tiles[rect.tile_index].size)
                                   : static_cast<f32>(max_tile_size_);
-        // Rectangles are packed edge-to-edge. The raster's own padding is its filtering guard, and
-        // a half-texel UV inset ensures bilinear filtering never crosses into its neighbor.
+
+
         const f32 half_texel = 0.5f / tile_size;
         const f32 u0 = static_cast<f32>(rect.x) / tile_size + half_texel;
         const f32 v0 = static_cast<f32>(rect.y) / tile_size + half_texel;
@@ -224,8 +224,8 @@ namespace SFT::Renderer {
             .extent = RHI::Extent3D{.width = size, .height = size, .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
-            // TransferSrc is required when a populated image later becomes the source of a
-            // grow-only replacement copy. Every atlas image may eventually occupy that role.
+
+
             .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::TransferSrc | RHI::TextureUsage::TransferDst,
             .label = atlas_texture_label(format),
         });
@@ -283,8 +283,8 @@ namespace SFT::Renderer {
         Tile replacement = std::move(*replacement_result);
         Tile previous = std::move(atlas.tiles.front());
 
-        // Preserve the old allocator partition in the top-left square and add the newly exposed
-        // area as two disjoint strips. Existing glyph coordinates therefore remain unchanged.
+
+
         replacement.free_rects = previous.free_rects;
         const u32 added = new_size - previous.size;
         replacement.free_rects.push_back(AtlasRect{
@@ -393,9 +393,9 @@ namespace SFT::Renderer {
                         tile.free_rects.push_back(rect);
                     }
                 };
-                // Split along the axis with more room left. The two resulting free rectangles are
-                // disjoint, and sorting batch misses by size makes this behave like dense shelves
-                // without losing the ability to reuse irregular holes after eviction.
+
+
+
                 if (remaining_width > remaining_height) {
                     keep(AtlasRect{.x = free.x + width, .y = free.y,
                                    .width = remaining_width, .height = free.height});
@@ -470,8 +470,8 @@ namespace SFT::Renderer {
             .height = rect.raster_height,
         });
 
-        // Undo compatible guillotine splits. Repeat because one merge can make a larger neighbor
-        // eligible on the next pass; releasing every glyph therefore restores one full-tile rect.
+
+
         bool merged = true;
         while (merged) {
             merged = false;
@@ -518,8 +518,8 @@ namespace SFT::Renderer {
         vector<GlyphKey> request_keys(requests.size());
         vector<PendingUpload> misses;
 
-        // Validate the whole batch before mutating residency, so one malformed request cannot
-        // leave earlier requests from the same call occupying half-initialized cache rectangles.
+
+
         for (const GlyphRequest &request : requests) {
             if (!std::isfinite(request.pixel_size) || !(request.pixel_size > 0.0f) || request.units_per_em == 0) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -536,19 +536,19 @@ namespace SFT::Renderer {
             }
         }
 
-        // Pass 1 (read-only against resident_/format_lru): resolve each request using just its
-        // requested ppem — this matches the glyph's eventual atlas key in every case except an
-        // unusually large glyph that must be down-rasterized to fit a tile (the reference_ppem
-        // shrink raster_plan_for() below computes), so the overwhelming common case — a glyph
-        // already resident from an earlier frame — resolves as a plain hash lookup. raster_plan_for()
-        // is only called for requests that actually miss here: for outline-format (SDF/MSDF) glyphs
-        // it reconstructs a full msdfgen::Shape from the glyph's outline just to measure its ink
-        // bounds, which used to happen for every glyph on every frame regardless of residency — by
-        // far the single largest cost in the whole engine (see the FPS investigation this session).
-        //
-        // Deliberately does not mutate resident_/format_lru yet, so the aggregate-new-area capacity
-        // check below still runs before any mutation, matching this function's original
-        // zero-partial-mutation-on-error contract.
+
+
+
+
+
+
+
+
+
+
+
+
+
         struct Resolved {
             GlyphKey key{};
             bool hit = false;
@@ -556,13 +556,13 @@ namespace SFT::Renderer {
             RasterPlan raster_plan{};
         };
         vector<Resolved> resolved(requests.size());
-        // All unique keys this batch touches (hits and misses alike) — passed to allocate_rect as
-        // eviction-protection pins below, same guarantee the original single-pass version made:
-        // allocation can never evict a slot this same call's imminent draw still references.
+
+
+
         array<vector<GlyphKey>, 3> unique_batch_keys;
-        // New allocation area only (misses) — unlike unique_batch_keys above, an already-resident
-        // hit contributes no new area, so this is a tighter (and still safe) capacity check than
-        // summing every unique key's area regardless of residency.
+
+
+
         array<u64, 3> unique_miss_area{};
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
@@ -630,7 +630,7 @@ namespace SFT::Renderer {
             }
         };
 
-        // Pass 2 (mutation): apply hits (LRU touch + output) and gather unique misses.
+
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
             const Resolved &r = resolved[i];
@@ -659,8 +659,8 @@ namespace SFT::Renderer {
             return {};
         }
 
-        // Largest-first placement keeps the guillotine allocator's residual strips useful and
-        // avoids small punctuation carving awkward holes before tall or wide glyphs arrive.
+
+
         std::ranges::sort(misses, [](const PendingUpload &a, const PendingUpload &b) {
             if (a.rect.raster_height != b.rect.raster_height) {
                 return a.rect.raster_height > b.rect.raster_height;
@@ -695,9 +695,9 @@ namespace SFT::Renderer {
             return uploaded;
         }
 
-        // A request repeated in the same batch sees the provisional resident_ entry created by
-        // its first occurrence. Resolve every output again after upload so duplicates receive the
-        // final bearing instead of the provisional zero-bearing slot.
+
+
+
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
             const GlyphKey &key = request_keys[i];
@@ -716,8 +716,8 @@ namespace SFT::Renderer {
                                                   span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
                                                   vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers) {
         ZoneScopedN("TextAtlas::upload_misses");
-        // Rasterize every miss off the calling thread in parallel — this is the engine's job
-        // system's (Async::Scheduler) first real consumer in the renderer.
+
+
         vector<Text::TextExpected<Text::RasterizedGlyph>> rasterized(misses.size());
         Async::par_iter(std::views::iota(usize{0}, misses.size())).for_each([&](usize i) {
             const GlyphRequest &request = requests[misses[i].request_index];
@@ -750,8 +750,8 @@ namespace SFT::Renderer {
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "Text atlas glyph rasterization failed: " + rasterized[i].error().message.cpp_string());
             }
-            // Bearing is only known now that rasterization has actually run. Fold it into both the
-            // resident_ entry (so a future cache hit sees it too) and this miss's own slot.
+
+
             RectLocation rect = misses[i].rect;
             rect.bearing_x = rasterized[i]->bearing_x;
             rect.bearing_top = rasterized[i]->bearing_top;
@@ -759,8 +759,8 @@ namespace SFT::Renderer {
             out_slots[misses[i].request_index] = slot_from_rect(requests[misses[i].request_index].format, rect);
         }
 
-        // Batch every miss's pixels into one staging buffer, then one command buffer + submit +
-        // wait — the throughput win the plan calls for over one round trip per glyph.
+
+
         usize total_bytes = 0;
         vector<usize> byte_offsets(misses.size());
         vector<usize> row_pitches(misses.size());
@@ -768,9 +768,9 @@ namespace SFT::Renderer {
             const Text::RasterFormat format = requests[misses[i].request_index].format;
             const usize texel_bytes = bytes_per_texel(texture_format(format));
             const usize row_bytes = static_cast<usize>(misses[i].rect.raster_width) * texel_bytes;
-            // D3D12 placed texture footprints require 512-byte offsets and 256-byte row pitches.
-            // Vulkan accepts the same explicit buffer_row_length, so using the strictest portable
-            // packing here avoids a backend branch and keeps one upload representation.
+
+
+
             total_bytes = (total_bytes + 511u) & ~usize{511u};
             byte_offsets[i] = total_bytes;
             row_pitches[i] = (row_bytes + 255u) & ~usize{255u};
@@ -814,8 +814,8 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(written.error(), "write text atlas staging buffer"));
         }
 
-        // Transition every touched tile to TransferDst exactly once, even if it receives several
-        // glyphs in this batch.
+
+
         vector<std::pair<Text::RasterFormat, u32>> touched_tiles;
         auto mark_touched = [&](Text::RasterFormat format, u32 tile_index) {
             for (const auto &[existing_format, existing_index] : touched_tiles) {
@@ -883,11 +883,11 @@ namespace SFT::Renderer {
             tile.current_layout = RHI::TextureLayout::ShaderReadOnly;
         }
 
-        // No submit/wait here: `encoder` is the caller's shared per-frame encoder, already
-        // recording the rest of the frame's work — this upload rides along in that one queue
-        // submission. The staging buffer must outlive the GPU copy above, which hasn't necessarily
-        // run yet, so it's handed to the caller for frame-fence-gated cleanup instead of being
-        // destroyed here.
+
+
+
+
+
         out_transient_buffers.push_back(*staging);
         return {};
     }

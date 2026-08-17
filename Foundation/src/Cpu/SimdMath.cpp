@@ -23,7 +23,7 @@ namespace SFT::Foundation::Cpu {
 
     namespace {
 
-        // --- scalar (always available, every architecture) -------------------------------------
+
 
         void add_scalar(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
@@ -72,7 +72,7 @@ namespace SFT::Foundation::Cpu {
 
 #if defined(STURDY_CPU_X86)
 
-        // --- AVX (256-bit, no guaranteed hardware FMA -- mul+add stays two instructions) -------
+
 
         [[gnu::target("avx")]] void add_avx(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
@@ -160,9 +160,9 @@ namespace SFT::Foundation::Cpu {
                 dst[i] = std::sqrt(a[i]);
         }
 
-        // --- AVX2 + FMA3 (256-bit, hardware fused multiply-add) --------------------------------
-        // add/mul/sqrt gain nothing from AVX2 over AVX (no new float instructions for them), so those
-        // tiers just reuse the AVX bodies; only fma/dot benefit from the hardware FMA instruction.
+
+
+
 
         [[gnu::target("avx2,fma")]] void add_avx2(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept { add_avx(dst, a, b, n); }
         [[gnu::target("avx2,fma")]] void add_avx2(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept { add_avx(dst, a, b, n); }
@@ -211,7 +211,7 @@ namespace SFT::Foundation::Cpu {
             return sum;
         }
 
-        // --- AVX-512F (512-bit, hardware fused multiply-add, no separate FMA bit needed) -------
+
 
         [[gnu::target("avx512f")]] void add_avx512(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
@@ -292,7 +292,7 @@ namespace SFT::Foundation::Cpu {
 
 #elif defined(STURDY_CPU_ARM64)
 
-        // --- NEON (128-bit, mandatory AArch64 baseline -- no detection, always safe to call) ----
+
 
         void add_neon(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
@@ -373,9 +373,9 @@ namespace SFT::Foundation::Cpu {
 
 #elif defined(STURDY_CPU_RISCV64)
 
-        // --- RVV (scalable vector length, gated on Cpu::features().rvv -- see CpuId.cpp) --------
-        // Unverified in this environment: no riscv64 sysroot/hardware was available to build or run
-        // this against (see the header/detection comment in CpuId.cpp for the same caveat).
+
+
+
 
         void add_rvv(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n;) {

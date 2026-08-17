@@ -33,16 +33,16 @@ namespace SFT::Renderer {
                 .window = &window,
                 .surface = *surface,
                 .desired_frames_in_flight = desired_frames_in_flight,
-                // Inherit the app's configured default (recovery_create_info_.features.presentation,
-                // stashed at Renderer::initialize() time from the primary window's own RendererCreateInfo)
-                // rather than a fresh Core::PresentationSettings{} default — otherwise every runtime-
-                // added window (docking tear-off, editor windows) silently ignores whatever vsync/
-                // latency/preference the app actually asked for and gets plain VSyncMode::On (Fifo)
-                // regardless, while the primary window alone honors it. Real bug: this is exactly what
-                // made a torn-off window resolve to plain Fifo on Windows while the primary resolved to
-                // FifoRelaxed from the same AdaptiveTearing request — see memory
-                // project_adaptive_present_pacing. A caller can still override per-window afterward via
-                // set_presentation_settings().
+
+
+
+
+
+
+
+
+
+
                 .presentation = recovery_create_info_.features.presentation,
                 .primary = false,
                 .frames_in_flight = {},
@@ -63,10 +63,10 @@ namespace SFT::Renderer {
 
     void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
         ZoneScopedN("Renderer::destroy_window_surface");
-        // Move the record out of window_surfaces_ (and off the vector) under the lock, then do the
-        // actual GPU teardown unlocked — this window's teardown is real driver work (swapchain/depth/
-        // scene-buffer/Hi-Z destruction), and holding the lock across it would block every other
-        // window's per-frame window_surface() lookup for as long as this one takes to close.
+
+
+
+
         unique_ptr<WindowSurfaceRecord> record;
         {
             auto guard = window_surfaces_.lock();
@@ -82,13 +82,13 @@ namespace SFT::Renderer {
             return;
         }
         destroy_rhi_presentation_resources(*record);
-        // WindowSurfaceRecord::scene_frame_resources holds raw RHI::BufferHandle values, not
-        // RAII-owning ones — letting `record` go out of scope without this would leak its view/object
-        // (and instanced-batch) GPU buffers, same reasoning as destroy_rhi_presentation_resources
-        // just above for the swapchain/depth resources.
+
+
+
+
         destroy_scene_gpu_resources(record->scene_frame_resources);
-        // Same reasoning as scene_frame_resources just above: WindowSurfaceRecord::hiz_pyramid also
-        // holds raw texture/view handles, not RAII-owning ones.
+
+
         destroy_hiz_pyramid(record->hiz_pyramid);
         if (graphics_backend_) {
             graphics_backend_->destroy_window_surface(surface);
@@ -116,6 +116,12 @@ namespace SFT::Renderer {
         record->presentation = settings;
         record->rhi_swapchain_dirty = true;
         return {};
+    }
+
+    Core::PresentationSettings Renderer::presentation_settings(Core::RenderSurfaceHandle surface) const noexcept {
+        ZoneScopedN("Renderer::presentation_settings");
+        const WindowSurfaceRecord *record = window_surface(surface);
+        return record != nullptr ? record->presentation : Core::PresentationSettings{};
     }
 
     RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Renderer::query_hdr_capabilities(
@@ -158,9 +164,9 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::presentation_resolution");
         const WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr || !record->rhi_swapchain) {
-            // No swapchain yet (first frame not rendered) - default (Fifo/TearFreeOrdered) is the
-            // conservative choice for a caller pacing off this: treat an unknown window as vsync-paced
-            // rather than assuming it's safe to render uncapped.
+
+
+
             return RHI::PresentationResolution{};
         }
         const RHI::RhiDevice *device = rhi_device();

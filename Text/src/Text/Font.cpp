@@ -110,9 +110,9 @@ Font &Font::operator=(Font &&other) noexcept {
                 return text_error(TextErrorCode::LoadFailed, "Failed to set the hinted font's pixel size.");
             }
 
-            // _referenced: takes its own FT_Reference_Face on `face` and arranges to FT_Done_Face it
-            // when this hb_font_t is destroyed — independent of the reference `face` above already
-            // holds, which this Font still owns and releases itself in reset().
+
+
+
             hb_font_t *font = hb_ft_font_create_referenced(face);
             if (font == nullptr || font == hb_font_get_empty()) {
                 if (font != nullptr) {
@@ -122,19 +122,19 @@ Font &Font::operator=(Font &&other) noexcept {
                 FT_Done_FreeType(library);
                 return text_error(TextErrorCode::LoadFailed, "Failed to create a HarfBuzz font from the hinted FreeType face.");
             }
-            // Bakes in hinting at the exact ppem FT_Set_Pixel_Sizes was just called with (hinting is
-            // a geometric change to FT_Outline point positions, decided once at FT_Load_Glyph time —
-            // it survives whatever coordinate space the outline is later reported in).
+
+
+
             hb_ft_font_set_load_flags(font, FT_LOAD_TARGET_NORMAL);
-            // hb-ft's default font scale is the active ppem in 26.6 fixed point (pixel space) —
-            // override it to units_per_em so a hinted Font's Text::glyph_outline output lands in
-            // the same font-design-unit coordinate space load()'s does, matching this package's
-            // documented contract (Font::units_per_em()'s doc comment) regardless of loader.
+
+
+
+
             const unsigned int upem = hb_face_get_upem(hb_font_get_face(font));
             hb_font_set_scale(font, static_cast<int>(upem), static_cast<int>(upem));
 
             result.font_ = font;
-            result.face_ = hb_font_get_face(font); // borrowed — owned by `font`, see owns_face_ below
+            result.face_ = hb_font_get_face(font);
             result.owns_face_ = false;
             result.ft_library_ = library;
             result.ft_face_ = face;

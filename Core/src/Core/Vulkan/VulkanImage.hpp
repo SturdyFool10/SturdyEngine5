@@ -30,7 +30,7 @@ using SFT::Core::RendererResult;
 
 namespace SFT::Core::Vulkan {
 
-    // ─── VulkanImageView ─────────────────────────────────────────────────────────
+
 
     class VulkanImageView {
       public:
@@ -61,9 +61,9 @@ namespace SFT::Core::Vulkan {
         VkImageViewType view_type_ = VK_IMAGE_VIEW_TYPE_2D;
     };
 
-    // ─── VulkanImage ─────────────────────────────────────────────────────────────
 
-    // Owns a VkImage. When created through VMA, the matching VmaAllocation is owned here too.
+
+    /// Owns a VkImage. When created through VMA, the matching VmaAllocation is owned here too.
     class VulkanImage {
       public:
         VulkanImage() = default;
@@ -116,7 +116,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkSubresourceLayout subresource_layout(
             const VkImageSubresource &subresource) const noexcept;
 
-        // Convenience: create a view for this image with common defaults.
+        /// Convenience: create a view for this image with common defaults.
         [[nodiscard]] RendererExpected<VulkanImageView> create_view(
             VkImageAspectFlags aspect,
             VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,

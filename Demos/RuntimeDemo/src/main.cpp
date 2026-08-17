@@ -41,8 +41,8 @@ namespace {
 
 } // namespace
 
-// Each delivered product owns its actual OS entrypoint. Runtime is only the reusable host library;
-// this demo executable chooses its GameLogic factory and startup policy explicitly above.
+
+
 #if defined(STURDY_PLATFORM_WINDOWS) && (defined(DIST) || defined(SFT_USE_WINMAIN))
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -50,7 +50,7 @@ namespace {
 #endif
 #include <windows.h>
 
-i32 WINAPI WinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/, LPSTR /*cmd_line*/, int /*show_cmd*/) {
+i32 WINAPI WinMain(HINSTANCE             , HINSTANCE                  , LPSTR             , int             ) {
     return sturdy_run(SFT::Foundation::args_from_windows_command_line());
 }
 

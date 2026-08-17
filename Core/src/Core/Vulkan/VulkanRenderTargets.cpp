@@ -1,3 +1,4 @@
+#include <Core/src/Core/Vulkan/VulkanRenderTargets.hpp>
 #include "VulkanRenderTargets.hpp"
 
 #include <tracy/Tracy.hpp>
@@ -190,3 +191,24 @@ VulkanRenderTarget &VulkanRenderTarget::set_depth_stencil(const VulkanAttachment
 [[nodiscard]] bool VulkanRenderTarget::empty() const noexcept { return color_.empty() && !has_depth_stencil_; }
 
 } // namespace SFT::Core::Vulkan
+
+namespace SFT::Core::Vulkan {
+
+    RendererExpected<VulkanAttachmentImage> VulkanAttachmentImage::create_depth(
+        VkDevice device,
+        VmaAllocator allocator,
+        VkFormat format,
+        VkExtent2D extent,
+        VkImageUsageFlags extra_usage,
+        VkSampleCountFlagBits samples) noexcept {
+        return create(device, allocator, VulkanAttachmentImageDesc{
+            .format = format,
+            .extent = {.width = extent.width, .height = extent.height, .depth = 1},
+            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | extra_usage,
+            .aspects = default_aspect_for_format(format),
+            .samples = samples,
+        });
+    }
+
+} // namespace SFT::Core::Vulkan
+

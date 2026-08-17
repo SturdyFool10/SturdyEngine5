@@ -35,10 +35,10 @@ namespace SFT::Async {
 #if defined(_WIN32)
     namespace {
 
-        // Windows needs one process-wide WSAStartup()/WSACleanup() pair; a function-local static
-        // gives us the "call it exactly once, lazily, thread-safely" behavior for free. There is no
-        // matching WSACleanup() call — the OS reclaims it at process exit, same tradeoff the rest
-        // of the engine already makes for mimalloc/spdlog global state.
+
+
+
+
         bool ensure_winsock_initialized() noexcept {
             static const bool initialized = [] {
                 WSADATA data;
@@ -64,10 +64,10 @@ namespace SFT::Async {
 
         namespace {
 
-            // Both a POSIX fd (int, invalid == -1) and a Windows SOCKET (an unsigned, pointer-width
-            // handle, invalid == all-bits-set) round-trip through i64 correctly: SOCKET's
-            // INVALID_SOCKET (~0) reinterpreted as signed 64-bit is exactly -1, the same sentinel
-            // POSIX already uses, so one `handle < 0` check covers "closed" on both platforms.
+
+
+
+
             void close_native(i64 handle) noexcept {
 #if defined(_WIN32)
                 closesocket(static_cast<SOCKET>(handle));
@@ -76,9 +76,9 @@ namespace SFT::Async {
 #endif
             }
 
-            // shutdown() is safe while a send/receive is in progress and wakes a blocked receive,
-            // unlike close(), which would allow the OS to reuse the descriptor before that operation
-            // returns. The final close is deferred until the last operation releases its lease.
+
+
+
             void shutdown_native(i64 handle) noexcept {
 #if defined(_WIN32)
                 ::shutdown(static_cast<SOCKET>(handle), SD_BOTH);

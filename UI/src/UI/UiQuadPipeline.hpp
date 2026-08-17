@@ -18,22 +18,22 @@ using std::vector;
 
 namespace SFT::UI {
 
-    // One draw call's worth of contiguous same-(texture, scissor) UiQuadInstances — mirrors
-    // Renderer::TextDrawBatch's shape (one draw call per (format, atlas tile) run) exactly, batching
-    // by (texture, active clip rect) instead of (atlas format, tile). Folding the scissor rect into
-    // the batch key (rather than tracking it as a separate interleaved op) is what lets Clay's
-    // SCISSOR_START/END commands turn into "just another thing a batch break happens on".
+    /// One draw call's worth of contiguous same-(texture, scissor) UiQuadInstances — mirrors
+    /// Renderer::TextDrawBatch's shape (one draw call per (format, atlas tile) run) exactly, batching
+    /// by (texture, active clip rect) instead of (atlas format, tile). Folding the scissor rect into
+    /// the batch key (rather than tracking it as a separate interleaved op) is what lets Clay's
+    /// SCISSOR_START/END commands turn into "just another thing a batch break happens on".
     struct UiQuadDrawBatch {
         RHI::TextureViewHandle texture_view{};
         RHI::Rect2D scissor{};
         RHI::BufferHandle instance_buffer{};
         u32 first_instance = 0;
         u32 instance_count = 0;
-        // Which UiRenderer-level paint-order group (see PaintKey, Style.hpp) this batch's instances
-        // belong to — every instance in a batch shares one group by construction (it's part of the
-        // merge key, see prepare()'s own doc comment), so UiRenderer::draw() can interleave this
-        // batch with Renderer::TextDrawBatch/CustomDraw batches from *other* groups in the right
-        // relative order without needing to inspect individual instances.
+        /// Which UiRenderer-level paint-order group (see PaintKey, Style.hpp) this batch's instances
+        /// belong to — every instance in a batch shares one group by construction (it's part of the
+        /// merge key, see prepare()'s own doc comment), so UiRenderer::draw() can interleave this
+        /// batch with Renderer::TextDrawBatch/CustomDraw batches from *other* groups in the right
+        /// relative order without needing to inspect individual instances.
         u32 paint_group = 0;
         struct BoundGroup {
             u32 set = 0;
@@ -42,13 +42,13 @@ namespace SFT::UI {
         vector<BoundGroup> bind_groups;
     };
 
-    // Persistent GPU state for one independently fenced UI draw workload — same N-buffered
-    // grow-only-buffer shape as Renderer::TextFrameResources, for the same reason
-    // (plans/async-submission-model.md: no CPU stall to hide a write-while-in-flight race behind).
+    /// Persistent GPU state for one independently fenced UI draw workload — same N-buffered
+    /// grow-only-buffer shape as Renderer::TextFrameResources, for the same reason
+    /// (plans/async-submission-model.md: no CPU stall to hide a write-while-in-flight race behind).
     struct UiQuadFrameResources {
         struct BindingCacheEntry {
-            // Bind groups depend only on the texture (the buffer/sampler are the same every batch),
-            // so the cache key is texture-only even though a draw batch's key also includes scissor.
+            /// Bind groups depend only on the texture (the buffer/sampler are the same every batch),
+            /// so the cache key is texture-only even though a draw batch's key also includes scissor.
             RHI::TextureViewHandle texture_view{};
             vector<UiQuadDrawBatch::BoundGroup> bind_groups;
         };
@@ -61,9 +61,9 @@ namespace SFT::UI {
 
     void destroy_ui_quad_frame_resources(RHI::RhiDevice &device, UiQuadFrameResources &resources) noexcept;
 
-    // The instanced quad GPU pipeline (Shaders/ui_quad.slang): one render pipeline, alpha blended,
-    // no depth test, driving vertex-pulled instanced draws — one per contiguous same-texture run of
-    // rect/border/image render commands.
+    /// The instanced quad GPU pipeline (Shaders/ui_quad.slang): one render pipeline, alpha blended,
+    /// no depth test, driving vertex-pulled instanced draws — one per contiguous same-texture run of
+    /// rect/border/image render commands.
     class UiQuadPipeline {
       public:
         UiQuadPipeline() noexcept = default;
@@ -71,29 +71,29 @@ namespace SFT::UI {
         [[nodiscard]] static Core::RendererExpected<UiQuadPipeline> create(
             RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
 
-        // `instance_texture_views[i]` is the texture UiInstances[i] samples — UiRenderer supplies
-        // Renderer's shared default-white-texture view (Renderer::ensure_default_white_texture())
-        // for plain rects/borders, so the shader always samples a texture rather than branching on
-        // "is this a rect or an image", which is what keeps rects and images on one shader/pipeline.
-        // `instance_scissors[i]` is the active clip rect UiInstances[i] was declared under.
-        // `instance_paint_groups[i]` is UiRenderer's own paint-order group id for instance i (see
-        // UiQuadDrawBatch::paint_group's own doc comment) — required to match too, alongside
-        // texture and scissor, before two instances merge into one batch: without it, two same-
-        // texture/scissor quads that UiRenderer separated in the global paint order (because a
-        // different-kind draw item — text, typically — belongs *between* them) would wrongly merge
-        // back into one contiguous draw call, silently undoing that ordering. Forms consecutive
-        // same-(texture, scissor, paint_group) batches without reordering painter order, mirroring
-        // Renderer::TextPipeline::prepare()'s (format, tile, paint_group) batching.
+        /// `instance_texture_views[i]` is the texture UiInstances[i] samples — UiRenderer supplies
+        /// Renderer's shared default-white-texture view (Renderer::ensure_default_white_texture())
+        /// for plain rects/borders, so the shader always samples a texture rather than branching on
+        /// "is this a rect or an image", which is what keeps rects and images on one shader/pipeline.
+        /// `instance_scissors[i]` is the active clip rect UiInstances[i] was declared under.
+        /// `instance_paint_groups[i]` is UiRenderer's own paint-order group id for instance i (see
+        /// UiQuadDrawBatch::paint_group's own doc comment) — required to match too, alongside
+        /// texture and scissor, before two instances merge into one batch: without it, two same-
+        /// texture/scissor quads that UiRenderer separated in the global paint order (because a
+        /// different-kind draw item — text, typically — belongs *between* them) would wrongly merge
+        /// back into one contiguous draw call, silently undoing that ordering. Forms consecutive
+        /// same-(texture, scissor, paint_group) batches without reordering painter order, mirroring
+        /// Renderer::TextPipeline::prepare()'s (format, tile, paint_group) batching.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                     span<const RHI::TextureViewHandle> instance_texture_views,
                                                     span<const RHI::Rect2D> instance_scissors,
                                                     span<const u32> instance_paint_groups,
                                                     UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches);
 
-        // Sets each batch's scissor rect before drawing it — a caller does not need to (and should
-        // not) call pass.set_scissor() itself around draw().
+        /// Sets each batch's scissor rect before drawing it — a caller does not need to (and should
+        /// not) call pass.set_scissor() itself around draw().
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,
-                                                 glm::vec2 viewport_size, RHI::BackendType backend);
+                                                 glm::vec2 viewport_size);
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

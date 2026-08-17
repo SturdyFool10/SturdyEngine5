@@ -35,19 +35,19 @@ namespace SFT::Renderer {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
-        // Below this many instances, N individual CPU-recorded draws (already frustum-culled and
-        // state-deduplicated by record_render_items_culled) beat the fixed overhead of a compute
-        // dispatch + indirect draw for one batch — a compute shader launch, a buffer barrier, and an
-        // indirect draw's extra GPU-side argument fetch are all real costs a handful of draws
-        // doesn't recoup. Chosen well above that break-even point rather than tuned precisely; revisit
-        // with real profiling once this path has production mileage.
+
+
+
+
+
+
         constexpr u32 kInstancedBatchMinSize = 32;
 
         constexpr u32 kInstanceCullWorkgroupSize = 64;
 
-        // Same GeometryVertex input layout as RendererMaterial.cpp's (internal-linkage, TU-local)
-        // geometry_vertex_attributes() — duplicated rather than shared since it's a fixed 5-attribute
-        // layout unlikely to drift, and not worth promoting to a header for one extra call site.
+
+
+
         constexpr array<RHI::VertexAttribute, 5> instanced_geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -98,7 +98,7 @@ namespace SFT::Renderer {
         const auto shader_target = shader_target_for_device(*device);
         if (!shader_target) return unexpected(shader_target.error());
 
-        // ── Compute cull shader ──
+
         {
             const slang::ShaderCompileOptions options{
                 .targets = shader_compile_targets_for_device(device),
@@ -170,9 +170,9 @@ namespace SFT::Renderer {
             guard->cull_pipeline = *pipeline;
         }
 
-        // ── Instanced vertex stage (Shaders/gbuffer_geometry_instanced.slang) ──
-        // Compiled as its own module specifically so its reflection never touches a material
-        // template's own bind-group layout — see gbuffer_geometry_instanced.slang's header comment.
+
+
+
         {
             const slang::ShaderCompileOptions options{
                 .targets = shader_compile_targets_for_device(device),
@@ -294,10 +294,10 @@ namespace SFT::Renderer {
         for (RHI::Format color_format : color_formats) {
             color_targets.push_back(RHI::ColorTargetState{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All});
         }
-        // Standard (not Equal-against-a-prior-Z-prepass) depth test/write: instanced batches don't
-        // run through the z-prepass (they're a separate draw stream, not in submission.draws by the
-        // time the prepass records — see record_instanced_batches's doc comment), so they must
-        // establish their own depth like a Z-prepass-less forward draw would.
+
+
+
+
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = RHI::DepthStencilState{
@@ -364,9 +364,9 @@ namespace SFT::Renderer {
             resources.indirect_commands_buffer = *buffer;
         }
 
-        // Each batch's compacted-indices region must start at a device-aligned offset (it's bound
-        // with a dynamic offset — see record_instanced_batches), so regions are padded up to
-        // min_storage_buffer_offset_alignment rather than packed back-to-back.
+
+
+
         const u64 alignment = std::max<u64>(device->limits().min_storage_buffer_offset_alignment, sizeof(u32));
         vector<u64> compacted_indices_byte_offsets(batches.size(), 0);
         u64 required_bytes = 0;
@@ -457,10 +457,10 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create instance cull bind group"));
         }
-        // Transient: destroyed by the caller's frame-in-flight retirement path, like every other
-        // per-frame transient bind group — see FrameSubmission::transient_bind_groups's doc comment.
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
-        // run concurrently with another pass's push_back into the same shared vector.
+
+
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(cull_pipeline);
@@ -476,8 +476,8 @@ namespace SFT::Renderer {
             struct InstanceCullConstants {
                 glm::mat4 view_projection;
                 glm::vec4 bounds_center_radius;
-                // xyz = camera world position, w = 1.0/0.0 — mirrors Shaders/gpu_instance_cull.slang's
-                // InstanceCullConstants::cameraPositionHiZValid exactly (field-for-field, same order).
+
+
                 glm::vec4 camera_position_hiz_valid;
                 u32 first_object_index;
                 u32 instance_count;
@@ -542,8 +542,8 @@ namespace SFT::Renderer {
         if (!instance_bind_group) {
             return unexpected(graphics_error_from_rhi(instance_bind_group.error(), "create instance data bind group"));
         }
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
-        // run concurrently with another pass's push_back into the same shared vector.
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*instance_bind_group); }
 
         pass.set_vertex_buffer(0, vertex_arena_.buffer);

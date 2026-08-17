@@ -1,4 +1,4 @@
-// RhiDevice ray tracing pipeline creation/destruction + shader-group-handle readback.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

@@ -4,7 +4,7 @@ namespace SFT::D3D12 {
 
     using rhi::has_any;
 
-    // ─── Formats ─────────────────────────────────────────────────────────────────
+
 
     DXGI_FORMAT to_dxgi_view_format(rhi::Format format) noexcept {
         switch (format) {
@@ -145,9 +145,9 @@ namespace SFT::D3D12 {
     }
 
     DXGI_FORMAT to_dxgi_resource_format(rhi::Format format, rhi::TextureUsage usage) noexcept {
-        // A depth texture that is *also* read in a shader cannot be created as DXGI_FORMAT_D32_FLOAT:
-        // a D* format admits only a DSV, never an SRV. Creating it typeless is the only arrangement
-        // that supports both views, and is why this takes the usage rather than the format alone.
+
+
+
         if (rhi::format_is_depth_stencil(format) &&
             has_any(usage, rhi::TextureUsage::Sampled | rhi::TextureUsage::Storage)) {
             const DXGI_FORMAT typeless = to_dxgi_typeless_format(format);
@@ -209,7 +209,7 @@ namespace SFT::D3D12 {
             case rhi::Format::RGBA32Float:
                 return 16;
 
-            // Block-compressed: bytes per 4x4 block, not per texel.
+
             case rhi::Format::BC1Unorm:
             case rhi::Format::BC1UnormSrgb:
             case rhi::Format::BC4Unorm:
@@ -288,17 +288,17 @@ namespace SFT::D3D12 {
             case rhi::ColorSpace::ScrgbLinear:
                 out = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
                 return true;
-            // DXGI exposes HLG only for YCbCr video surfaces, not RGB swapchains. It also has no
-            // RGB linear-BT.2020 or Display-P3 color-space tag; presenting one as a nearby DXGI
-            // space would misidentify the content's transfer function or primaries.
+
+
+
             case rhi::ColorSpace::Hdr10Hlg:
             case rhi::ColorSpace::DisplayP3Nonlinear:
             case rhi::ColorSpace::Bt2020Linear:
                 return false;
-            // DolbyVision has no DXGI swapchain color space at all (it is delivered through a
-            // certified driver/OS path this engine has no access to — see ColorSpace::DolbyVision's
-            // own doc comment), and DXGI names no linear/nonlinear AdobeRGB or linear Display-P3
-            // space. Reported as "no equivalent" rather than silently mistagged.
+
+
+
+
             case rhi::ColorSpace::DolbyVision:
             case rhi::ColorSpace::AdobeRgbLinear:
             case rhi::ColorSpace::AdobeRgbNonlinear:
@@ -308,14 +308,14 @@ namespace SFT::D3D12 {
         return false;
     }
 
-    // ─── Resources ───────────────────────────────────────────────────────────────
+
 
     D3D12_RESOURCE_FLAGS to_d3d12_resource_flags(rhi::BufferUsage usage) noexcept {
         D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
-        // Only Storage (UAV) and acceleration-structure scratch actually need a resource flag; D3D12
-        // buffers carry no vertex/index/uniform/indirect creation bits the way Vulkan's usage mask
-        // does — those are expressed by the view/binding at use time, which is why this mapping looks
-        // so much thinner than its Vulkan counterpart.
+
+
+
+
         if (has_any(usage, rhi::BufferUsage::Storage | rhi::BufferUsage::AccelerationStructureScratch)) {
             flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         }
@@ -330,8 +330,8 @@ namespace SFT::D3D12 {
         if (has_any(usage, rhi::TextureUsage::DepthStencilAttachment) ||
             (rhi::format_is_depth_stencil(format) && has_any(usage, rhi::TextureUsage::TransientAttachment))) {
             flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-            // A depth resource that is never sampled should also deny shader resource views, which
-            // lets the driver keep it in its most compressed layout.
+
+
             if (!has_any(usage, rhi::TextureUsage::Sampled)) {
                 flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
             }
@@ -366,7 +366,7 @@ namespace SFT::D3D12 {
         return D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     }
 
-    // ─── Samplers / comparison ───────────────────────────────────────────────────
+
 
     D3D12_COMPARISON_FUNC to_d3d12(rhi::CompareOp op) noexcept {
         switch (op) {
@@ -405,8 +405,8 @@ namespace SFT::D3D12 {
     }
 
     D3D12_FILTER to_d3d12_filter(const rhi::SamplerDesc &desc) noexcept {
-        // Anisotropy subsumes the min/mag/mip selection entirely in D3D12 — there is one ANISOTROPIC
-        // filter value (plus its comparison variant), not a per-axis combination.
+
+
         const D3D12_FILTER_REDUCTION_TYPE reduction =
             desc.compare_enable ? D3D12_FILTER_REDUCTION_TYPE_COMPARISON : D3D12_FILTER_REDUCTION_TYPE_STANDARD;
         if (desc.max_anisotropy > 1.0f) {
@@ -437,13 +437,13 @@ namespace SFT::D3D12 {
         out[0] = out[1] = out[2] = out[3] = 0.0f;
     }
 
-    // ─── Pipeline state ──────────────────────────────────────────────────────────
+
 
     D3D12_FILL_MODE to_d3d12(rhi::PolygonMode mode) noexcept {
-        // D3D12's rasterizer has no point fill mode; PolygonMode::Point is gated behind
-        // Feature::PointPolygonMode, which this backend never reports supported, so reaching it here
-        // means a caller ignored the guard. Wireframe is the least-wrong answer (it at least still
-        // renders something identifiable) and the pipeline is still valid.
+
+
+
+
         return mode == rhi::PolygonMode::Fill ? D3D12_FILL_MODE_SOLID : D3D12_FILL_MODE_WIREFRAME;
     }
 
@@ -482,8 +482,8 @@ namespace SFT::D3D12 {
     }
 
     D3D12_BLEND to_d3d12_blend(rhi::BlendFactor factor, bool is_alpha) noexcept {
-        // See this file's header comment: a color-channel factor used in the alpha equation is a
-        // debug-layer error in D3D12, so each one folds onto its alpha spelling when `is_alpha`.
+
+
         switch (factor) {
             case rhi::BlendFactor::Zero:
                 return D3D12_BLEND_ZERO;
@@ -578,7 +578,7 @@ namespace SFT::D3D12 {
         return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     }
 
-    // ─── Queues / queries ────────────────────────────────────────────────────────
+
 
     D3D12_COMMAND_LIST_TYPE to_d3d12(rhi::QueueClass queue) noexcept {
         switch (queue) {
@@ -592,9 +592,9 @@ namespace SFT::D3D12 {
                 return D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE;
             case rhi::QueueClass::VideoEncode:
                 return D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE;
-            // D3D12 has no sparse/tiled-binding queue: UpdateTileMappings is a method on a normal
-            // command queue rather than work submitted to a dedicated engine. Aliasing onto DIRECT is
-            // therefore the accurate mapping, not a fallback.
+
+
+
             case rhi::QueueClass::Sparse:
                 return D3D12_COMMAND_LIST_TYPE_DIRECT;
         }
@@ -636,7 +636,7 @@ namespace SFT::D3D12 {
         return sizeof(u64);
     }
 
-    // ─── Enhanced barriers ───────────────────────────────────────────────────────
+
 
     D3D12_BARRIER_SYNC to_d3d12_sync(rhi::PipelineStage stages) noexcept {
         if (stages == rhi::PipelineStage::None) {
@@ -654,8 +654,8 @@ namespace SFT::D3D12 {
         };
 
         add(rhi::PipelineStage::DrawIndirect, D3D12_BARRIER_SYNC_EXECUTE_INDIRECT);
-        // The RHI combines index and vertex fetch in one stage, while D3D12 splits index input from
-        // the vertex-shading scope that consumes vertex-buffer data.
+
+
         add(rhi::PipelineStage::VertexInput,
             D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::VertexShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
@@ -665,31 +665,31 @@ namespace SFT::D3D12 {
         add(rhi::PipelineStage::TaskShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::MeshShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
         add(rhi::PipelineStage::FragmentShader, D3D12_BARRIER_SYNC_PIXEL_SHADING);
-        // Depth/stencil testing is one sync scope in D3D12; both early and late fragment tests map to
-        // it (there is no early/late split to preserve).
+
+
         add(rhi::PipelineStage::EarlyFragmentTests, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
         add(rhi::PipelineStage::LateFragmentTests, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
         add(rhi::PipelineStage::ColorAttachmentOutput, D3D12_BARRIER_SYNC_RENDER_TARGET);
         add(rhi::PipelineStage::ComputeShader, D3D12_BARRIER_SYNC_COMPUTE_SHADING);
-        // The RHI Transfer stage normally accompanies TransferRead/TransferWrite, which map to
-        // COPY_SOURCE/COPY_DEST. D3D12 resolve uses distinct, mutually constrained sync/access/layout
-        // values, so resolve transitions are emitted explicitly by the render-pass resolve path.
+
+
+
         add(rhi::PipelineStage::Transfer, D3D12_BARRIER_SYNC_COPY);
         add(rhi::PipelineStage::RayTracingShader, D3D12_BARRIER_SYNC_RAYTRACING);
         add(rhi::PipelineStage::AccelerationStructureBuild,
             D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE);
 
-        // PipelineStage::Host has no D3D12 sync scope: CPU visibility of mapped memory is governed by
-        // the heap type and fence completion, not by a barrier. A host-only stage mask therefore
-        // legitimately produces SYNC_NONE.
+
+
+
         return sync;
     }
 
     D3D12_BARRIER_ACCESS to_d3d12_access(rhi::AccessFlags access) noexcept {
         if (access == rhi::AccessFlags::None) {
-            // COMMON (== 0) means "compatible with everything", which is the right reading of an
-            // unspecified access mask. NO_ACCESS is a different, stricter statement and is applied by
-            // the barrier encoder only where D3D12 actually requires it (see D3D12Barriers.cpp).
+
+
+
             return D3D12_BARRIER_ACCESS_COMMON;
         }
 
@@ -715,14 +715,14 @@ namespace SFT::D3D12 {
         add(rhi::AccessFlags::AccelerationStructureRead, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ);
         add(rhi::AccessFlags::AccelerationStructureWrite, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE);
 
-        // MemoryRead/MemoryWrite are the RHI's deliberate "any access" catch-alls, and D3D12's
-        // equivalent of "any access" is COMMON — a zero mask, not a union of every bit (a union would
-        // be rejected, since several ACCESS bits are mutually exclusive with each other).
+
+
+
         if (has_any(access, rhi::AccessFlags::MemoryRead | rhi::AccessFlags::MemoryWrite)) {
             return D3D12_BARRIER_ACCESS_COMMON;
         }
-        // HostRead/HostWrite likewise have no D3D12 barrier access bit; they contribute nothing and a
-        // host-only mask correctly lands on COMMON.
+
+
         return result;
     }
 
@@ -744,14 +744,14 @@ namespace SFT::D3D12 {
                 return D3D12_BARRIER_LAYOUT_COPY_SOURCE;
             case rhi::TextureLayout::TransferDst:
                 return D3D12_BARRIER_LAYOUT_COPY_DEST;
-            // A DXGI back buffer must be in PRESENT (== COMMON) when Present() is called.
+
             case rhi::TextureLayout::Present:
                 return D3D12_BARRIER_LAYOUT_PRESENT;
         }
         return D3D12_BARRIER_LAYOUT_COMMON;
     }
 
-    // ─── Legacy resource states ──────────────────────────────────────────────────
+
 
     D3D12_RESOURCE_STATES to_legacy_texture_state(rhi::TextureLayout layout) noexcept {
         switch (layout) {
@@ -766,9 +766,9 @@ namespace SFT::D3D12 {
             case rhi::TextureLayout::DepthStencilReadOnly:
                 return D3D12_RESOURCE_STATE_DEPTH_READ;
             case rhi::TextureLayout::ShaderReadOnly:
-                // Both shader-resource states, because the RHI's layout does not distinguish which
-                // stage reads it and a legacy barrier has to name every state the resource may be
-                // read from next.
+
+
+
                 return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             case rhi::TextureLayout::TransferSrc:
@@ -782,9 +782,9 @@ namespace SFT::D3D12 {
     }
 
     D3D12_RESOURCE_STATES to_legacy_buffer_state(rhi::AccessFlags access) noexcept {
-        // Ordered most-specific first: a legacy state is a single value, so where an access mask names
-        // several uses the write states have to win (a resource left in a read state while being
-        // written is the corruption case; the reverse merely costs a redundant transition).
+
+
+
         if (has_any(access, rhi::AccessFlags::ShaderWrite)) {
             return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
@@ -813,7 +813,7 @@ namespace SFT::D3D12 {
         return D3D12_RESOURCE_STATE_COMMON;
     }
 
-    // ─── Ray tracing ─────────────────────────────────────────────────────────────
+
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS to_d3d12(
         rhi::AccelerationStructureBuildFlags flags) noexcept {
@@ -848,7 +848,7 @@ namespace SFT::D3D12 {
         return result;
     }
 
-    // ─── Shader stage visibility ─────────────────────────────────────────────────
+
 
     D3D12_SHADER_VISIBILITY to_d3d12_visibility(rhi::ShaderStage stages) noexcept {
         switch (stages) {
@@ -869,9 +869,9 @@ namespace SFT::D3D12 {
             default:
                 break;
         }
-        // Compute and ray tracing have no visibility enumerant of their own — a compute or DXR root
-        // signature's parameters are always ALL — and any multi-stage mask widens to ALL per this
-        // function's header comment.
+
+
+
         return D3D12_SHADER_VISIBILITY_ALL;
     }
 

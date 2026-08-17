@@ -10,6 +10,15 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
+struct BloomConstants {
+    float2 sourceTexelSize;
+    float threshold;
+    float softKnee;
+    float2 filterScale;
+};
+
+[[push_constant]] ConstantBuffer<BloomConstants> bloom;
+
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
@@ -20,15 +29,6 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 
 Texture2D<float4> sourceTexture;
 SamplerState sourceSampler;
-
-struct BloomConstants {
-    float2 sourceTexelSize;
-    float threshold;
-    float softKnee;
-    float2 filterScale;
-};
-
-[[push_constant]] ConstantBuffer<BloomConstants> bloom;
 
 float3 sampleSource(float2 uv, float2 texelOffset) {
     return sourceTexture.SampleLevel(

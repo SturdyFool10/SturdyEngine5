@@ -398,8 +398,8 @@ void DescriptorSetWriter::update(VkDevice device) const {
             vector<VkWriteDescriptorSet> writes;
             writes.reserve(buffer_writes_.size() + image_writes_.size() + texel_writes_.size() +
                            accel_writes_.size());
-            // Stable backing storage for the acceleration-structure pNext structs — pointers into this
-            // vector must stay valid until vkUpdateDescriptorSets returns, so it lives out here.
+
+
             vector<VkWriteDescriptorSetAccelerationStructureKHR> accel_infos;
             accel_infos.reserve(accel_writes_.size());
 

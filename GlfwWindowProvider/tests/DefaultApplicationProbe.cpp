@@ -35,7 +35,7 @@ namespace {
 int main(int argc, char **) {
     ProbeClient client;
     SFT::Engine::Application application{client};
-    // Keep initialize() and its default SDL composition path live in the binary without opening a
-    // real window during the test. No ordinary test invocation has 42 arguments.
+
+
     return argc == 42 ? (application.initialize() ? 0 : 1) : 0;
 }

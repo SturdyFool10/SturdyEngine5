@@ -13,12 +13,12 @@
     #include <immintrin.h>
     #include <cstring>
 #elif defined(STURDY_CPU_RISCV64) && defined(__linux__)
-    // getauxval(AT_HWCAP) is the standard, kernel-documented way to read the per-letter base extension
-    // bits (including 'V') on Linux/RISC-V — this is genuinely OS-mediated, unlike the x86 path above,
-    // because RISC-V has no user-mode ISA-discovery instruction at all (`misa` is M-mode-only). This
-    // header/API pair could not be compile-checked in this environment (no riscv64-linux sysroot was
-    // available to verify against — see the project conversation this was written in); it follows the
-    // documented Linux RISC-V hwcap ABI but has not been built or run on real hardware.
+
+
+
+
+
+
     #include <sys/auxv.h>
     #ifndef AT_HWCAP
         #define AT_HWCAP 16
@@ -42,7 +42,7 @@ namespace SFT::Foundation::Cpu {
             read_leaf(0, 0, eax, ebx, ecx, edx);
             const unsigned int max_leaf = eax;
 
-            // Vendor string is EBX:EDX:ECX (in that order) of leaf 0, not alphabetical.
+
             std::memcpy(result.vendor + 0, &ebx, 4);
             std::memcpy(result.vendor + 4, &edx, 4);
             std::memcpy(result.vendor + 8, &ecx, 4);
@@ -64,9 +64,9 @@ namespace SFT::Foundation::Cpu {
                 const bool osxsave = (ecx >> 27) & 1;
                 if (osxsave) {
                     const unsigned long long xcr0 = _xgetbv(0);
-                    // XCR0 bit 1 = SSE state, bit 2 = AVX (upper YMM) state.
+
                     result.os_supports_avx = (xcr0 & 0x6ULL) == 0x6ULL;
-                    // Bits 5,6,7 = AVX-512 opmask, ZMM_Hi256, Hi16_ZMM state.
+
                     result.os_supports_avx512 = result.os_supports_avx && (xcr0 & 0xE0ULL) == 0xE0ULL;
                 }
             }
@@ -122,8 +122,8 @@ namespace SFT::Foundation::Cpu {
 #elif defined(STURDY_CPU_ARM64)
 
     const CpuFeatures &features() noexcept {
-        // Advanced SIMD (NEON) is mandatory baseline on every AArch64 core ever shipped -- true
-        // unconditionally, no detection instruction exists or is needed.
+
+
         static const CpuFeatures instance = [] {
             CpuFeatures f{};
             f.neon = true;
@@ -142,8 +142,8 @@ namespace SFT::Foundation::Cpu {
             CpuFeatures result{};
 #if defined(__linux__)
             const unsigned long hwcap = getauxval(AT_HWCAP);
-            // Linux/RISC-V populates HWCAP with one bit per base-extension letter, bit = letter - 'A'
-            // (documented in the kernel's Documentation/arch/riscv/hwprobe.rst / uapi headers).
+
+
             result.rvv = ((hwcap >> (static_cast<unsigned>('V') - static_cast<unsigned>('A'))) & 1UL) != 0UL;
 #endif
             return result;
@@ -158,7 +158,7 @@ namespace SFT::Foundation::Cpu {
 
     SimdLevel best_simd_level() noexcept { return features().rvv ? SimdLevel::RVV : SimdLevel::Scalar; }
 
-#else // unknown architecture (Arm32, wasm, ...): always scalar
+#else
 
     const CpuFeatures &features() noexcept {
         static const CpuFeatures instance{};
@@ -170,3 +170,12 @@ namespace SFT::Foundation::Cpu {
 #endif
 
 } // namespace SFT::Foundation::Cpu
+
+namespace SFT::Foundation::Cpu {
+
+    std::string_view CpuFeatures::vendor_view() const noexcept { return vendor; }
+
+    std::string_view CpuFeatures::brand_view() const noexcept { return brand; }
+
+} // namespace SFT::Foundation::Cpu
+

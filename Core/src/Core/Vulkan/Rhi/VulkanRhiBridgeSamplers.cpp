@@ -1,4 +1,4 @@
-// RhiDevice sampler resource creation/destruction.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -29,10 +29,10 @@ namespace SFT::Core::Vulkan {
             return device_not_ready<rhi::SamplerHandle>("create_sampler");
         }
 
-        // Anisotropy is a Vulkan device feature: enabling it on a sampler is only valid when the
-        // feature was turned on at device creation (VulkanBackend enables it whenever supported).
-        // The RHI documents max_anisotropy as ">1 requests that ratio, clamped to the device limit",
-        // so honor that clamp here rather than passing an over-range value straight to a validation error.
+
+
+
+
         const bool anisotropy_available = physical_device_ != nullptr &&
                                           physical_device_->features().samplerAnisotropy == VK_TRUE;
         const bool use_anisotropy = anisotropy_available && desc.max_anisotropy > 1.0f;

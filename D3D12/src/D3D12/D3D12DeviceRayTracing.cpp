@@ -1,21 +1,21 @@
-// DXR: ray tracing state objects, shader-identifier export, and acceleration structures.
-//
-// The RHI's ray-tracing vocabulary is Vulkan-shaped (a pipeline built from shader *groups*, whose
-// opaque handles are copied into a shader binding table). DXR's is a state object built from
-// *subobjects*, whose per-export shader identifiers are fetched by name. The two map cleanly, and
-// this file is where the translation lives:
-//
-//   RayTracingShaderGroupDesc  ->  a DXIL library subobject per stage plus, for hit groups, a
-//                                  D3D12_HIT_GROUP_DESC naming the closest-hit/any-hit/intersection
-//                                  exports.
-//   shader group handle        ->  ID3D12StateObjectProperties::GetShaderIdentifier(export name).
-//                                  Both are 32 bytes (D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES equals
-//                                  the shaderGroupHandleSize this backend reports), so a caller's SBT
-//                                  packing code is identical on either backend.
-//
-// Each group gets a generated, guaranteed-unique export name (`sturdy_group_<n>`), because DXIL
-// libraries frequently share entry-point names across modules and DXR requires every export in a
-// state object to be uniquely named.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -103,9 +103,9 @@ namespace SFT::D3D12 {
             return element_count - 1 <= (remaining - element_size) / stride;
         }
 
-        // Vertex position format for a BLAS triangle geometry. DXR accepts only a small set here, so an
-        // unsupported one is reported rather than silently reinterpreted. The byte metadata is also
-        // used to validate the address, stride, and source-buffer range before passing them to DXR.
+
+
+
         [[nodiscard]] bool to_dxr_vertex_format(rhi::VertexFormat format, DXGI_FORMAT &out, u32 &size, u32 &alignment) noexcept {
             switch (format) {
                 case rhi::VertexFormat::Float32x3:
@@ -163,20 +163,20 @@ namespace SFT::D3D12 {
 
         RayTracingPipelineRecord record{};
         record.layout = desc.layout;
-        // Hit-group subobjects retain pointers to these strings until CreateStateObject. Reserving the
-        // final size prevents vector growth from invalidating an earlier group's export pointer.
+
+
         record.group_exports.reserve(desc.groups.size());
 
         CD3DX12_STATE_OBJECT_DESC state_object(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
-        // Every subobject the helper hands out points into storage owned by `state_object`, so all of
-        // these stay alive until CreateStateObject is called below; the export-name strings, however,
-        // are ours and must outlive the call too — hence the retained vector rather than temporaries.
+
+
+
         vector<std::wstring> stage_exports;
         vector<std::wstring> source_exports;
         stage_exports.reserve(desc.groups.size() * 3);
         source_exports.reserve(desc.groups.size() * 3);
 
-        // Adds one DXIL library exporting `entry`'s actual entry point under a fresh unique name.
+
         const auto add_stage = [&](const rhi::ShaderEntry &entry, rhi::ShaderStage implied_stage, const char *prefix, usize index) -> rhi::RhiExpected<const std::wstring *> {
             if (!entry.module.is_valid()) {
                 return static_cast<const std::wstring *>(nullptr);
@@ -208,8 +208,8 @@ namespace SFT::D3D12 {
             auto *library = state_object.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
             const D3D12_SHADER_BYTECODE bytecode{module->bytecode.data(), module->bytecode.size()};
             library->SetDXILLibrary(&bytecode);
-            // DXR's two-name export form renames the library's UTF-16 source symbol to the generated
-            // state-object-wide unique name. Both strings remain alive through CreateStateObject.
+
+
             library->DefineExport(name.c_str(), source_exports.back().c_str(), D3D12_EXPORT_FLAG_NONE);
             return &name;
         };
@@ -241,8 +241,8 @@ namespace SFT::D3D12 {
                 if (!general) {
                     return std::unexpected(general.error());
                 }
-                // A general group *is* its export — raygen/miss/callable are addressed by the entry
-                // point's own identifier, with no hit-group wrapper.
+
+
                 record.group_exports.push_back(**general);
                 continue;
             }
@@ -295,18 +295,18 @@ namespace SFT::D3D12 {
         }
 
         auto *shader_config = state_object.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-        // The RHI carries no payload/attribute size fields, and DXR requires both up front. The maxima
-        // are used rather than a guess: over-declaring costs some per-ray scratch space, whereas
-        // under-declaring is undefined behaviour the caller has no way to detect or correct.
+
+
+
         shader_config->Config(D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES * 4,
                               D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES);
 
         auto *pipeline_config = state_object.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
         pipeline_config->Config(std::max(1u, desc.max_ray_recursion_depth));
 
-        // The global root signature: DXR's equivalent of the pipeline layout every other pipeline type
-        // takes directly. Local root signatures (per-SBT-record arguments) are not expressible in the
-        // RHI's vocabulary and so are deliberately not created.
+
+
+
         auto *global_root_signature = state_object.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
         global_root_signature->SetRootSignature(layout->root_signature.Get());
 
@@ -355,7 +355,7 @@ namespace SFT::D3D12 {
         return {};
     }
 
-    // ─── Acceleration structures ─────────────────────────────────────────────────
+
 
     rhi::RhiResult build_acceleration_structure_inputs(
         const D3D12Device &device, const rhi::AccelerationStructureBuildDesc &desc,
@@ -401,11 +401,11 @@ namespace SFT::D3D12 {
                     "build_acceleration_structures: a top-level build requires exactly one build range.");
             }
 
-            // A TLAS takes instance records by GPU address rather than a geometry array. The RHI's
-            // AccelerationStructureInstance is a 64-byte record laid out to match
-            // D3D12_RAYTRACING_INSTANCE_DESC bit-for-bit (row-major 3x4 transform, packed 24-bit index
-            // + 8-bit mask, packed 24-bit SBT offset + 8-bit flags, then the BLAS address), which is
-            // why the buffer is handed straight to D3D12 with no repacking.
+
+
+
+
+
             static_assert(sizeof(rhi::AccelerationStructureInstance) == sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
             const rhi::AccelerationStructureInstancesDesc &instances = desc.geometries.front().instances;
             const rhi::AccelerationStructureBuildRangeInfo &range = desc.ranges.front();
@@ -681,9 +681,9 @@ namespace SFT::D3D12 {
             return invalid_argument("create_acceleration_structure: size must be non-zero.");
         }
 
-        // An acceleration structure is an ordinary buffer that must permit UAV access and must be
-        // created directly in the RAYTRACING_ACCELERATION_STRUCTURE state — it can never be
-        // transitioned into that state afterwards, which is the one non-obvious rule here.
+
+
+
         const CD3DX12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE_DEFAULT);
         const CD3DX12_RESOURCE_DESC resource_desc =
             CD3DX12_RESOURCE_DESC::Buffer(desc.size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);

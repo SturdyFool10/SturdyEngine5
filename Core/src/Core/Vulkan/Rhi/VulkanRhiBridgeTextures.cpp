@@ -1,4 +1,4 @@
-// RhiDevice texture + texture-view resource creation/destruction.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -50,15 +50,15 @@ namespace SFT::Core::Vulkan {
             array_layers = desc.extent.depth_or_layers;
         }
 
-        // The RHI carries no explicit "cube" or "3D-sliceable" bit on TextureDesc, so infer the
-        // image-creation flags that let create_texture_view later expose the view types the RHI
-        // advertises (ViewCube/ViewCubeArray, and 2D/2DArray slices of a 3D texture). Both flags are
-        // strictly capability-additive — a flagged image still supports every view a plain one does —
-        // and each inference exactly matches its Vulkan validity rule, so setting it is never wrong:
-        //   • CUBE_COMPATIBLE requires a 2D, square image with a multiple-of-6 (>= 6) layer count.
-        //   • 2D_ARRAY_COMPATIBLE requires a 3D image.
-        // Without this, creating a cubemap (shadow cubes, IBL/environment maps) or rendering into an
-        // individual slice of a volume texture was impossible through the RHI.
+
+
+
+
+
+
+
+
+
         VkImageCreateFlags create_flags = 0;
         if (desc.dimension == rhi::TextureDimension::Dim2D && array_layers >= 6 && array_layers % 6 == 0 &&
             extent.width == extent.height) {
@@ -68,10 +68,10 @@ namespace SFT::Core::Vulkan {
             create_flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
         }
 
-        // Resolve requested queue classes to real family indices, deduplicated -- classes that alias
-        // onto the same family (or that this backend has no dedicated family for, collapsing onto
-        // whichever family queue_family_for_lane falls back to) collapse harmlessly to EXCLUSIVE.
-        // See TextureDesc::concurrent_queue_classes's own doc comment for the tradeoff this encodes.
+
+
+
+
         vector<u32> concurrent_families;
         for (const rhi::QueueClass queue_class : desc.concurrent_queue_classes) {
             const u32 family = queue_family_for_lane(rhi::QueueLane{queue_class, 0});
@@ -103,8 +103,8 @@ namespace SFT::Core::Vulkan {
         const bool transient_attachment = rhi::has_any(desc.usage, rhi::TextureUsage::TransientAttachment);
         const VmaAllocationCreateInfo alloc_info{
             .usage = transient_attachment ? VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE : VMA_MEMORY_USAGE_AUTO,
-            // Lazily allocated heaps are common on tile-based GPUs but optional on desktop. Prefer
-            // rather than require one so VMA transparently falls back to ordinary device-local memory.
+
+
             .preferredFlags = transient_attachment ? VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT : 0u,
         };
 

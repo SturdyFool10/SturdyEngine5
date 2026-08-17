@@ -23,10 +23,10 @@ using std::same_as;
 
 namespace SFT::Foundation {
 
-    // Numeric helpers and elementary math for both built-in scalars and Foundation wide types. Built-in
-    // floating-point overloads delegate to the C math library; `f128`/`f256` overloads stay `constexpr`
-    // where practical and use the constants/wide arithmetic from this module. Integer overloads exist for
-    // classification and sign-style helpers so generic numeric code can call one Foundation function set.
+
+
+
+
 
     namespace Detail {
 
@@ -164,7 +164,7 @@ namespace SFT::Foundation {
 
             const bool negative = x < 0.0;
             const F64Parts parts = decompose_positive_f64(negative ? -x : x);
-            int quotient = parts.exponent / 3; // floor-divide the exponent so the remainder stays in [0,3)
+            int quotient = parts.exponent / 3;
             if (parts.exponent % 3 < 0)
                 --quotient;
             const int remainder = parts.exponent - quotient * 3;
@@ -188,7 +188,7 @@ namespace SFT::Foundation {
                 return infinity_f64();
 
             F64Parts parts = decompose_positive_f64(x);
-            if (parts.significand > 0x1.6a09e667f3bcdp+0) { // sqrt(2)
+            if (parts.significand > 0x1.6a09e667f3bcdp+0) {
                 parts.significand *= 0.5;
                 ++parts.exponent;
             }
@@ -230,7 +230,7 @@ namespace SFT::Foundation {
             f64 result = 0.0;
             if (x > 1.0) {
                 result = 0x1.921fb54442d18p+0 - atan_f64(1.0 / x);
-            } else if (x > 0x1.a827999fcef32p-2) { // sqrt(2) - 1
+            } else if (x > 0x1.a827999fcef32p-2) {
                 result = 0x1.921fb54442d18p-1 + atan_series_f64((x - 1.0) / (x + 1.0));
             } else {
                 result = atan_series_f64(x);
@@ -279,10 +279,10 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // --- classification -----------------------------------------------------------------------
-    // Mirrors the familiar floating-point classification API while making integers trivially finite and
-    // non-NaN/non-infinite. Wide floats inspect their `f64` limbs, so a NaN or infinity anywhere in the
-    // expansion is reported consistently to generic callers.
+    /// --- classification -----------------------------------------------------------------------
+    /// Mirrors the familiar floating-point classification API while making integers trivially finite and
+    /// non-NaN/non-infinite. Wide floats inspect their `f64` limbs, so a NaN or infinity anywhere in the
+    /// expansion is reported consistently to generic callers.
     template <integral T>
     [[nodiscard]] constexpr bool isnan(T) noexcept {
         return false;
@@ -358,9 +358,9 @@ namespace SFT::Foundation {
         return isfinite(x);
     }
 
-    // --- abs / sign / copy sign ---------------------------------------------------------------
-    // Sign helpers are overloaded for built-in integers/floats and all wide types. `sign()` returns -1,
-    // 0, or 1 in the input type where that makes sense; unsigned inputs can only return 0 or 1.
+    /// --- abs / sign / copy sign ---------------------------------------------------------------
+    /// Sign helpers are overloaded for built-in integers/floats and all wide types. `sign()` returns -1,
+    /// 0, or 1 in the input type where that makes sense; unsigned inputs can only return 0 or 1.
     template <floating_point T>
     [[nodiscard]] inline T abs(T x) noexcept {
         return ::fabs(x);
@@ -400,9 +400,9 @@ namespace SFT::Foundation {
         return signbit(sign_source) ? -abs(magnitude) : abs(magnitude);
     }
 
-    // --- scaling ------------------------------------------------------------------------------
-    // Power-of-two scaling. Built-in floats use the platform `ldexp`; wide floats scale every limb by the
-    // same exponent to preserve the expansion structure.
+    /// --- scaling ------------------------------------------------------------------------------
+    /// Power-of-two scaling. Built-in floats use the platform `ldexp`; wide floats scale every limb by the
+    /// same exponent to preserve the expansion structure.
     template <floating_point T>
     [[nodiscard]] inline T ldexp(T x, int exp) noexcept {
         return ::ldexp(x, exp);
@@ -416,10 +416,10 @@ namespace SFT::Foundation {
         return ldexp(x, exp);
     }
 
-    // --- sqrt / cbrt --------------------------------------------------------------------------
-    // Roots for wide floats start from an `f64` seed and refine with Newton-style iterations until the
-    // target expansion precision is reached. Domain behavior follows the standard math functions: negative
-    // square roots produce NaN and infinities propagate.
+    /// --- sqrt / cbrt --------------------------------------------------------------------------
+    /// Roots for wide floats start from an `f64` seed and refine with Newton-style iterations until the
+    /// target expansion precision is reached. Domain behavior follows the standard math functions: negative
+    /// square roots produce NaN and infinities propagate.
     template <floating_point T>
     [[nodiscard]] inline T sqrt(T x) noexcept {
         return ::sqrt(x);
@@ -433,7 +433,7 @@ namespace SFT::Foundation {
             return Detail::infinity<f128>();
         if (a.hi == 0.0 && a.lo == 0.0)
             return f128(0.0);
-        // One Newton refinement of a double seed: 53 -> ~106 bits.
+
         const f64 x = 1.0 / Detail::sqrt_f64(a.hi);
         const f64 ax = a.hi * x;
         const Detail::TwoF64 ax2 = Detail::two_prod(ax, ax);
@@ -450,8 +450,8 @@ namespace SFT::Foundation {
             return Detail::infinity<f256>();
         if (a.x[0] == 0.0)
             return f256(0.0);
-        // Newton on the reciprocal square root (no division): each step doubles the digits,
-        // so a double seed needs three steps to reach quad-double, then sqrt(a) = a * rsqrt(a).
+
+
         const f256 half = f256(0.5);
         const f256 h = a * half;
         f256 y = f256(1.0 / Detail::sqrt_f64(a.x[0]));
@@ -482,9 +482,9 @@ namespace SFT::Foundation {
         return y;
     }
 
-    // --- fma (full-precision a*b + c) ---------------------------------------------------------
-    // Wide `fma` is implemented as `a * b + c` using the wide arithmetic path. That gives expanded
-    // precision for the operation, but it is not a hardware fused instruction with single final rounding.
+    /// --- fma (full-precision a*b + c) ---------------------------------------------------------
+    /// Wide `fma` is implemented as `a * b + c` using the wide arithmetic path. That gives expanded
+    /// precision for the operation, but it is not a hardware fused instruction with single final rounding.
     template <floating_point T>
     [[nodiscard]] inline T fma(T a, T b, T c) noexcept {
         return ::fma(a, b, c);
@@ -492,9 +492,9 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f128 fma(f128 a, f128 b, f128 c) noexcept { return a * b + c; }
     [[nodiscard]] constexpr f256 fma(const f256 &a, const f256 &b, const f256 &c) noexcept { return a * b + c; }
 
-    // --- floor / ceil / trunc / round ---------------------------------------------------------
-    // Rounding helpers follow the standard function semantics. Wide `floor()` descends through lower limbs
-    // only while higher limbs are already integer-exact, then renormalizes the expansion.
+    /// --- floor / ceil / trunc / round ---------------------------------------------------------
+    /// Rounding helpers follow the standard function semantics. Wide `floor()` descends through lower limbs
+    /// only while higher limbs are already integer-exact, then renormalizes the expansion.
     template <floating_point T>
     [[nodiscard]] inline T floor(T x) noexcept {
         return ::floor(x);
@@ -515,14 +515,14 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f128 floor(f128 a) noexcept {
         const f64 hi = Detail::floor_f64(a.hi);
         if (hi != a.hi)
-            return f128(hi, 0.0); // fraction lives in the high word
+            return f128(hi, 0.0);
         const Detail::TwoF64 s = Detail::quick_two_sum(hi, Detail::floor_f64(a.lo));
         return f128(s.hi, s.lo);
     }
     [[nodiscard]] constexpr f256 floor(const f256 &a) noexcept {
         f64 x0 = Detail::floor_f64(a.x[0]);
         f64 x1 = 0.0, x2 = 0.0, x3 = 0.0;
-        if (x0 == a.x[0]) { // descend into lower words only while higher ones are integer-exact
+        if (x0 == a.x[0]) {
             x1 = Detail::floor_f64(a.x[1]);
             if (x1 == a.x[1]) {
                 x2 = Detail::floor_f64(a.x[2]);
@@ -538,7 +538,7 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f256 ceil(const f256 &a) noexcept { return -floor(-a); }
     [[nodiscard]] constexpr f128 trunc(f128 a) noexcept { return a.hi < 0.0 ? ceil(a) : floor(a); }
     [[nodiscard]] constexpr f256 trunc(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a) : floor(a); }
-    // round half away from zero, matching ::round.
+    /// round half away from zero, matching ::round.
     [[nodiscard]] constexpr f128 round(f128 a) noexcept { return a.hi < 0.0 ? ceil(a - f128(0.5)) : floor(a + f128(0.5)); }
     [[nodiscard]] constexpr f256 round(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a - f256(0.5)) : floor(a + f256(0.5)); }
 
@@ -644,9 +644,9 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // --- trigonometry -------------------------------------------------------------------------
-    // Wide sine/cosine reduce by multiples of π/2 using the high-precision constants, then evaluate a
-    // Taylor kernel in the reduced range. Non-finite inputs return NaN.
+    /// --- trigonometry -------------------------------------------------------------------------
+    /// Wide sine/cosine reduce by multiples of π/2 using the high-precision constants, then evaluate a
+    /// Taylor kernel in the reduced range. Non-finite inputs return NaN.
     template <floating_point T>
     [[nodiscard]] inline T sin(T x) noexcept {
         return ::sin(x);
@@ -728,10 +728,10 @@ namespace SFT::Foundation {
     }
     [[nodiscard]] constexpr f256 tan(const f256 &x) noexcept { return sin(x) / cos(x); }
 
-    // --- exponentials and logarithms ----------------------------------------------------------
-    // Wide `exp()` reduces by powers of two and evaluates a series near zero; wide `log()` starts from an
-    // `f64` approximation and refines with a symmetric Newton correction. `pow()` uses fast integer-power
-    // exponentiation when the exponent is exactly representable as an `i64`.
+    /// --- exponentials and logarithms ----------------------------------------------------------
+    /// Wide `exp()` reduces by powers of two and evaluates a series near zero; wide `log()` starts from an
+    /// `f64` approximation and refines with a symmetric Newton correction. `pow()` uses fast integer-power
+    /// exponentiation when the exponent is exactly representable as an `i64`.
     template <floating_point T>
     [[nodiscard]] inline T exp(T x) noexcept {
         return ::exp(x);
@@ -843,9 +843,9 @@ namespace SFT::Foundation {
         return exp(exponent * log(base));
     }
 
-    // --- inverse trigonometry -----------------------------------------------------------------
-    // Inverse trig functions use an `f64` seed followed by Newton refinement in wide precision. Domain
-    // errors produce NaN instead of throwing.
+    /// --- inverse trigonometry -----------------------------------------------------------------
+    /// Inverse trig functions use an `f64` seed followed by Newton refinement in wide precision. Domain
+    /// errors produce NaN instead of throwing.
     template <floating_point T>
     [[nodiscard]] inline T asin(T x) noexcept {
         return ::asin(x);
@@ -943,8 +943,8 @@ namespace SFT::Foundation {
         return f256(0.0);
     }
 
-    // --- hyperbolic ---------------------------------------------------------------------------
-    // Hyperbolic wide overloads are expressed in terms of the wide exponential functions.
+    /// --- hyperbolic ---------------------------------------------------------------------------
+    /// Hyperbolic wide overloads are expressed in terms of the wide exponential functions.
     template <floating_point T>
     [[nodiscard]] inline T sinh(T x) noexcept {
         return ::sinh(x);
@@ -986,9 +986,9 @@ namespace SFT::Foundation {
         return (ex2 - f256(1.0)) / (ex2 + f256(1.0));
     }
 
-    // --- common numeric helpers ---------------------------------------------------------------
-    // Miscellaneous helpers shared by math-heavy engine code. These keep shader-style utilities such as
-    // `fract()` and `saturate()` available on the same overload set as the standard math wrappers.
+    /// --- common numeric helpers ---------------------------------------------------------------
+    /// Miscellaneous helpers shared by math-heavy engine code. These keep shader-style utilities such as
+    /// `fract()` and `saturate()` available on the same overload set as the standard math wrappers.
     template <floating_point T>
     [[nodiscard]] inline T fmod(T x, T y) noexcept {
         return ::fmod(x, y);
@@ -1047,17 +1047,17 @@ namespace SFT::Foundation {
     [[nodiscard]] constexpr f128 saturate(f128 x) noexcept { return x < f128(0.0) ? f128(0.0) : (x > f128(1.0) ? f128(1.0) : x); }
     [[nodiscard]] constexpr f256 saturate(const f256 &x) noexcept { return x < f256(0.0) ? f256(0.0) : (x > f256(1.0) ? f256(1.0) : x); }
 
-    // --- bulk array helpers --------------------------------------------------------------------
-    // Elementwise array operations for callers processing many wide-precision values at once (e.g. an
-    // array of f128 accumulators). These loop the same per-element `operator+`/`operator*` already
-    // defined and verified above, rather than hand-rolled SIMD: correctly vectorizing double-double/
-    // quad-double error-compensated arithmetic across SIMD lanes is real, well-trodden numerical work
-    // (see the QD library's two-sum/two-prod-based algorithms), but re-deriving and verifying it here
-    // without an extensive numerical regression suite would risk silently wrong low-order bits — exactly
-    // the class of bug these wide types exist to avoid. If this loop becomes a measured hot path, that
-    // is the place to invest in a verified SIMD-lane two-sum implementation, not here; see
-    // `Cpu::SimdMath` (Foundation/src/Cpu/SimdMath.hpp) for what that already looks like for plain
-    // `f32`/`f64`, where no such per-element error-compensation exists to get wrong.
+    /// --- bulk array helpers --------------------------------------------------------------------
+    /// Elementwise array operations for callers processing many wide-precision values at once (e.g. an
+    /// array of f128 accumulators). These loop the same per-element `operator+`/`operator*` already
+    /// defined and verified above, rather than hand-rolled SIMD: correctly vectorizing double-double/
+    /// quad-double error-compensated arithmetic across SIMD lanes is real, well-trodden numerical work
+    /// (see the QD library's two-sum/two-prod-based algorithms), but re-deriving and verifying it here
+    /// without an extensive numerical regression suite would risk silently wrong low-order bits — exactly
+    /// the class of bug these wide types exist to avoid. If this loop becomes a measured hot path, that
+    /// is the place to invest in a verified SIMD-lane two-sum implementation, not here; see
+    /// `Cpu::SimdMath` (Foundation/src/Cpu/SimdMath.hpp) for what that already looks like for plain
+    /// `f32`/`f64`, where no such per-element error-compensation exists to get wrong.
     template <Detail::WideNumber T>
     void array_add(T *dst, const T *a, const T *b, usize n) noexcept {
         for (usize i = 0; i < n; ++i)

@@ -42,14 +42,14 @@ namespace SFT::Engine::Detail {
             return fnv1a_append(std::as_bytes(std::span{&value, 1}), hash);
         }
 
-        // ─── BC1/3/4/5/7 block-compressed cache ─────────────────────────────────────────────────
-        //
-        // One cache shape shared by every compress_bc*() encoder below (BC7 included). Deliberately
-        // not a portable/versioned-forever format -- this is a purely local, regenerate-on-miss
-        // cache, not shipped data. `channel0`/`channel1` are only meaningful for BC4 (channel0) and
-        // BC5 (channel0/channel1); BC1/BC3/BC7 always write/expect 0/0 there, which also makes them
-        // part of the cache key so two different channel selections of the same source pixels never
-        // collide.
+
+
+
+
+
+
+
+
 
         struct BcCacheHeader {
             std::array<char, 4> magic{};
@@ -121,8 +121,8 @@ namespace SFT::Engine::Detail {
             return blocks;
         }
 
-        // Atomic (temp-file + rename) best-effort write -- a failure here just means the next load
-        // re-encodes instead of hitting the cache, never a hard error for the caller.
+
+
         void write_bc_cache(const std::filesystem::path &path, std::array<char, 4> magic, u32 width, u32 height,
                             bool srgb, u8 channel0, u8 channel1, std::span<const std::byte> blocks) noexcept {
             std::error_code ec;
@@ -157,9 +157,9 @@ namespace SFT::Engine::Detail {
             }
         }
 
-        // Extracts the 4x4 RGBA8 texel block at (bx, by) into a tightly packed 64-byte buffer,
-        // replicating edge texels for blocks that overhang the source (valid for any dimension,
-        // including mip levels smaller than 4x4).
+
+
+
         [[nodiscard]] std::array<std::byte, 16 * 4> extract_rgba8_block(
             std::span<const std::byte> rgba8, u32 width, u32 height, u32 bx, u32 by) noexcept {
             std::array<std::byte, 16 * 4> block_pixels{};
@@ -175,10 +175,10 @@ namespace SFT::Engine::Detail {
             return block_pixels;
         }
 
-        // Shared driver for every compress_bc*() encoder: validates dimensions, checks the disk
-        // cache, walks blocks calling `encode_block(dst, 64-byte RGBA8 block)` for each one on a
-        // cache miss, and writes the result back to the cache. `channel0`/`channel1` are baked into
-        // the cache key (see BcCacheHeader's own comment) but otherwise opaque to this driver.
+
+
+
+
         template <typename EncodeBlockFn>
         [[nodiscard]] std::optional<std::vector<std::byte>> encode_bc_blocks(
             std::span<const std::byte> rgba8, u32 width, u32 height, bool srgb, u8 channel0, u8 channel1,
@@ -218,8 +218,8 @@ namespace SFT::Engine::Detail {
             return blocks;
         }
 
-        // Shared driver for every compress_bc*_mip_chain(): slices the tightly packed mip chain
-        // level-by-level and delegates each level's encode to `compress_level`.
+
+
         template <typename CompressLevelFn>
         [[nodiscard]] std::optional<std::vector<std::byte>> compress_mip_chain(
             std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels,
@@ -270,20 +270,20 @@ namespace SFT::Engine::Detail {
             std::call_once(once, [] { bc7enc_compress_block_init(); });
         }
 
-        // Vendor-neutral default (cBC1Ideal) -- same reasoning as this engine's Vulkan-extension
-        // policy (plans/vendor-agnostic-vulkan, project_vendor_agnostic_vulkan): a BC1/BC3 texture
-        // encoded for one GPU vendor's approximation of the format looks measurably worse on
-        // another vendor's hardware, so this never opts into a vendor-specific encode mode.
+
+
+
+
         void ensure_rgbcx_initialized() noexcept {
             static std::once_flag once;
             std::call_once(once, [] { rgbcx::init(); });
         }
 
-        // Same "deliberately not a portable/versioned-forever format" caveat as BcCacheHeader above --
-        // a local regenerate-on-miss cache, not shipped data. `decompressed_size` (the original
-        // bc7_blocks size) is stored here because GDeflate's own container doesn't self-describe it
-        // (see Core::decompress_gdeflate's doc comment) -- without it, reading this cache back would
-        // have nothing to pass as decompress_gdeflate's required exact-size argument.
+
+
+
+
+
         struct GDeflateCacheHeader {
             std::array<char, 4> magic{'S', 'G', 'D', 'F'};
             u32 version = 1;
@@ -390,7 +390,7 @@ namespace SFT::Engine::Detail {
         return encode_bc_blocks(rgba8, width, height, srgb, 0, 0, 8, {'S', 'B', 'C', '1'}, "sbc1",
             [](void *dst, const std::byte *pixels) {
                 rgbcx::encode_bc1(rgbcx::MAX_LEVEL, dst, reinterpret_cast<const uint8_t *>(pixels),
-                    /*allow_3color=*/true, /*use_transparent_texels_for_black=*/false);
+                                     true,                                      false);
             });
     }
 
@@ -508,8 +508,8 @@ namespace SFT::Engine::Detail {
         std::vector<std::byte> repacked(bytes);
         for (usize texel = 0; texel < static_cast<usize>(texels); ++texel) {
             const usize offset = texel * 4;
-            repacked[offset + 0] = metallic_roughness_rgba8[offset + 1]; // R = roughness (orig G)
-            repacked[offset + 1] = metallic_roughness_rgba8[offset + 2]; // G = metallic (orig B)
+            repacked[offset + 0] = metallic_roughness_rgba8[offset + 1];
+            repacked[offset + 1] = metallic_roughness_rgba8[offset + 2];
             repacked[offset + 2] = std::byte{0};
             repacked[offset + 3] = std::byte{255};
         }
@@ -538,9 +538,9 @@ namespace SFT::Engine::Detail {
         std::vector<std::byte> packed(bytes);
         for (usize texel = 0; texel < static_cast<usize>(texels); ++texel) {
             const usize offset = texel * 4;
-            packed[offset + 0] = occlusion_rgba8[offset + 0];         // R = occlusion
-            packed[offset + 1] = metallic_roughness_rgba8[offset + 1]; // G = roughness
-            packed[offset + 2] = metallic_roughness_rgba8[offset + 2]; // B = metallic
+            packed[offset + 0] = occlusion_rgba8[offset + 0];
+            packed[offset + 1] = metallic_roughness_rgba8[offset + 1];
+            packed[offset + 2] = metallic_roughness_rgba8[offset + 2];
             packed[offset + 3] = std::byte{255};
         }
         return packed;

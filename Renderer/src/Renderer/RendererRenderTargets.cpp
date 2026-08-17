@@ -145,9 +145,9 @@ namespace SFT::Renderer {
         if (!handle) {
             return;
         }
-        // A target may be referenced by any in-flight surface submission or material bind group. Until
-        // resource-use tracking grows per-target reader fences, the conservative destruction boundary is
-        // the same explicit idle point used by shader reload and backend reconfiguration.
+
+
+
         wait_idle();
 
         auto targets = offscreen_render_targets_.lock();

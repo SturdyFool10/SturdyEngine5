@@ -17,28 +17,28 @@
 #include <utility>
 #pragma endregion
 
-// IID_PPV_ARGS expands to __uuidof, which clang correctly reports as a Microsoft language extension.
-// It is also the only way to obtain an interface's IID from the Windows SDK headers, so every COM
-// call below would otherwise carry the same warning. Suppressed once for the file rather than a
-// dozen times at the call sites; __uuidof is the sole extension token this translation unit uses, so
-// the broad scope costs no real coverage. Guarded because the engine also builds under GCC, which
-// would warn on the unknown pragma itself.
+
+
+
+
+
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #endif
 
-// Windows composition present path — see CompositionPresent.hpp for why this exists, why it needs
-// DirectComposition and DXGI together rather than one or the other, and what it deliberately does
-// not take ownership of.
+
+
+
 
 namespace SFT::GraphicsPlatform {
 
     namespace {
 
-        // Minimal intrusive-refcount pointer. Deliberately not WRL's ComPtr: this file needs about
-        // four operations from it, and a local 40-line version keeps the Windows SDK's C++/WinRT-
-        // adjacent headers out of a package that otherwise compiles as plain portable C++.
+
+
+
         template <typename T>
         class ComPtr {
           public:
@@ -81,8 +81,8 @@ namespace SFT::GraphicsPlatform {
             T *operator->() const noexcept { return ptr_; }
             explicit operator bool() const noexcept { return ptr_ != nullptr; }
 
-            // For the ubiquitous `HRESULT f(..., void **out)` / `IID_PPV_ARGS` shape. Releases any
-            // existing pointee first so a retry into the same ComPtr cannot leak.
+
+
             T **put() noexcept {
                 reset();
                 return &ptr_;
@@ -124,12 +124,12 @@ namespace SFT::GraphicsPlatform {
             return 4;
         }
 
-        // DXGI composition swapchains accept PREMULTIPLIED, IGNORE and UNSPECIFIED. Straight alpha is
-        // not among them — DXGI has no straight-alpha composition mode at all — so rather than
-        // silently presenting a caller's straight-alpha content as if it were premultiplied (which
-        // produces wrong-but-plausible dark fringing that is genuinely hard to trace back to here),
-        // create() rejects it with an explanation. The enumerator stays in the portable header
-        // because it is a real distinction other compositors can honor.
+
+
+
+
+
+
         [[nodiscard]] DXGI_ALPHA_MODE to_dxgi_alpha_mode(CompositionAlphaMode mode) noexcept {
             switch (mode) {
                 case CompositionAlphaMode::Premultiplied: return DXGI_ALPHA_MODE_PREMULTIPLIED;
@@ -139,7 +139,7 @@ namespace SFT::GraphicsPlatform {
             return DXGI_ALPHA_MODE_PREMULTIPLIED;
         }
 
-        // DXGI's own limits for a flip-model composition swapchain.
+
         constexpr std::uint32_t min_buffer_count = 2;
         constexpr std::uint32_t max_buffer_count = 16;
 
@@ -148,9 +148,9 @@ namespace SFT::GraphicsPlatform {
             WindowsCompositionPresenter() = default;
 
             ~WindowsCompositionPresenter() override {
-                // The GPU may still be reading the shared textures via a queued Present. Releasing
-                // them out from under it would be a use-after-free in the compositor's copy, so drain
-                // first, then tear the visual tree down before the swapchain it points at.
+
+
+
                 wait_for_gpu_idle();
                 release_shared_images();
                 if (composition_target_) {
@@ -210,8 +210,8 @@ namespace SFT::GraphicsPlatform {
                 return QueryResult<CompositionAcquisition>{
                     CompositionAcquisition{
                         .image_index = index,
-                        // Zero until this slot has been presented at least once, which is exactly the
-                        // "no wait needed" value the header documents.
+
+
                         .wait_fence_value = image_present_values_[index],
                     },
                     QueryMessage{},
@@ -226,8 +226,8 @@ namespace SFT::GraphicsPlatform {
                                         "Composition present: image_index is out of range."};
                 }
 
-                // GPU-side wait, not a CPU stall: the copy below is queued behind the caller's render
-                // completion rather than the CPU blocking until it happens.
+
+
                 if (render_complete_value != 0) {
                     const HRESULT hr = context_->Wait(render_complete_fence_.get(), render_complete_value);
                     if (FAILED(hr)) {
@@ -235,11 +235,11 @@ namespace SFT::GraphicsPlatform {
                     }
                 }
 
-                // For a flip-model (FLIP_DISCARD) swap chain the buffer that's actually writable
-                // rotates every frame — index 0 is only correct on the very first present. Always
-                // reading GetBuffer(0, ...) here meant every other frame wrote into the buffer DXGI
-                // was still displaying while presenting the one that was actually current, which reads
-                // on screen as last frame's content stuck showing through underneath this frame's.
+
+
+
+
+
                 ComPtr<ID3D11Texture2D> back_buffer;
                 const UINT back_buffer_index = swapchain_->GetCurrentBackBufferIndex();
                 if (const HRESULT hr = swapchain_->GetBuffer(back_buffer_index, IID_PPV_ARGS(back_buffer.put()));
@@ -247,22 +247,22 @@ namespace SFT::GraphicsPlatform {
                     return platform_error("IDXGISwapChain3::GetBuffer", hr);
                 }
 
-                // Whole-surface overwrite every frame, which is what makes FLIP_DISCARD safe here
-                // despite its undefined post-present buffer contents.
+
+
                 context_->CopyResource(back_buffer.get(), textures_[image_index].get());
 
-                // A composition swapchain is always composed by DWM, so tearing is not reachable on
-                // this path no matter the interval: sync_interval 0 means "do not wait for a vblank
-                // before queuing this frame", not "allow tearing". Callers whose present policy is
-                // built around tearing lose that specific property by using this presenter, which is
-                // the honest tradeoff for getting a transparent window at all.
+
+
+
+
+
                 if (const HRESULT hr = swapchain_->Present(sync_interval, 0); FAILED(hr)) {
                     return platform_error("IDXGISwapChain3::Present", hr);
                 }
 
-                // Keep the tracked high-water mark at a value the D3D queue has actually been asked
-                // to signal. Advancing it before Signal succeeds would make teardown wait forever for
-                // an impossible fence value after a device/queue failure.
+
+
+
                 const std::uint64_t next_present_fence_value = present_fence_value_ + 1;
                 if (const HRESULT hr = context_->Signal(present_complete_fence_.get(), next_present_fence_value);
                     FAILED(hr)) {
@@ -279,26 +279,26 @@ namespace SFT::GraphicsPlatform {
                                         "Composition presenter resize requires a non-zero extent."};
                 }
                 if (width == width_ && height == height_) {
-                    // Already the right size, so there is nothing to rebuild — but a set_live_scale()
-                    // from an earlier drag step may still be published, and leaving it on would keep
-                    // presenting a correctly-sized surface stretched to some other size. Cheap and a
-                    // no-op whenever the scale is already identity, which is the common case.
+
+
+
+
                     return apply_visual_scale(1.0f, 1.0f);
                 }
 
-                // No wait_for_gpu_idle() here, deliberately. D3D11 tracks resource lifetime against
-                // queued GPU work itself: releasing the last reference to a texture a pending
-                // CopyResource still reads defers the actual free until that command retires, rather
-                // than freeing underneath it. (This is the standing D3D11 difference from D3D12, where
-                // the application owns that lifetime and a stall here really would be required.) The
-                // one ordering this path genuinely needs is on the *importing* API's side — its own
-                // submissions must be done with these images before it destroys its views of them —
-                // and that is the caller's fence wait, not something a stall here could provide.
-                //
-                // That matters because this used to be a blocking WaitForSingleObject(INFINITE) on the
-                // present fence, on the exact path an interactive resize runs every step. It bought no
-                // safety D3D11 wasn't already providing and cost a full present round-trip per step,
-                // which is most of why resizing a composed window could not keep up with the drag.
+
+
+
+
+
+
+
+
+
+
+
+
+
                 release_shared_images();
 
                 width_ = width;
@@ -308,10 +308,10 @@ namespace SFT::GraphicsPlatform {
                     FAILED(hr)) {
                     return platform_error("IDXGISwapChain3::ResizeBuffers", hr);
                 }
-                // The back buffers now match the client area on their own, so drop any live scale a
-                // previous set_live_scale() left behind. Committing identity here (rather than at the
-                // next present) is correct because the swapchain content is resized in the same
-                // compositor batch: the visual never shows old-size content at identity.
+
+
+
+
                 if (QueryMessage scaled = apply_visual_scale(1.0f, 1.0f); !scaled) {
                     return scaled;
                 }
@@ -327,8 +327,8 @@ namespace SFT::GraphicsPlatform {
                     return QueryMessage{QueryStatus::NotAvailable,
                                         "Composition presenter has no backing surface to scale."};
                 }
-                // Always relative to the backing size, never to the previously applied scale, so a
-                // drag that issues hundreds of these does not accumulate error or drift.
+
+
                 return apply_visual_scale(static_cast<float>(width) / static_cast<float>(width_),
                                           static_cast<float>(height) / static_cast<float>(height_));
             }
@@ -342,8 +342,8 @@ namespace SFT::GraphicsPlatform {
                     return platform_error("CreateDXGIFactory2", hr);
                 }
 
-                // Cross-adapter texture sharing does not work, so the interop device must land on the
-                // caller's adapter rather than on whichever one DXGI happens to enumerate first.
+
+
                 ComPtr<IDXGIAdapter1> adapter;
                 if (desc.use_adapter_luid) {
                     LUID luid{};
@@ -354,8 +354,8 @@ namespace SFT::GraphicsPlatform {
                     }
                 }
 
-                // BGRA support is required for DirectComposition interop. Requesting a null adapter
-                // with an explicit driver type is invalid, hence the paired driver-type selection.
+
+
                 const D3D_FEATURE_LEVEL feature_levels[] = {
                     D3D_FEATURE_LEVEL_11_1,
                     D3D_FEATURE_LEVEL_11_0,
@@ -377,9 +377,9 @@ namespace SFT::GraphicsPlatform {
                     return platform_error("D3D11CreateDevice", hr);
                 }
 
-                // ID3D11Device5 / ID3D11DeviceContext4 are the D3D11.4 interfaces that carry
-                // CreateFence and the GPU-side Wait/Signal this module's whole synchronization model
-                // rests on. Absence means a pre-1703 Windows 10, where this path cannot work.
+
+
+
                 if (const HRESULT qi = device->QueryInterface(IID_PPV_ARGS(device_.put())); FAILED(qi)) {
                     return QueryMessage{QueryStatus::Unsupported,
                                         hresult_text("ID3D11Device5 query (Windows 10 1703+ required for "
@@ -402,18 +402,18 @@ namespace SFT::GraphicsPlatform {
                 description.SampleDesc.Quality = 0;
                 description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
                 description.BufferCount = buffer_count_;
-                // Composition swapchains require stretch scaling and a flip-model swap effect; DXGI
-                // rejects DXGI_SCALING_NONE and both legacy blit effects outright.
+
+
                 description.Scaling = DXGI_SCALING_STRETCH;
                 description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
                 description.AlphaMode = to_dxgi_alpha_mode(alpha_mode_);
                 description.Flags = 0;
 
-                // The one call that makes any of this possible — CreateSwapChainForHwnd would reject
-                // a non-UNSPECIFIED AlphaMode here, which is precisely the wall the native swapchain
-                // path already hit. The factory method only returns IDXGISwapChain1, so the upgrade to
-                // IDXGISwapChain3 (needed for GetCurrentBackBufferIndex — see present()'s doc comment
-                // on why that matters) happens as a separate QueryInterface right after.
+
+
+
+
+
                 ComPtr<IDXGISwapChain1> swapchain;
                 if (const HRESULT hr = factory_->CreateSwapChainForComposition(
                         device_.get(), &description, nullptr, swapchain.put());
@@ -462,10 +462,10 @@ namespace SFT::GraphicsPlatform {
                 description.Usage = D3D11_USAGE_DEFAULT;
                 description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
                 description.CPUAccessFlags = 0;
-                // SHARED_NTHANDLE must be paired with a sharing mode. Plain SHARED rather than
-                // SHARED_KEYEDMUTEX because ordering is carried by the two explicit timeline fences —
-                // a keyed mutex would impose a second, redundant synchronization protocol that the
-                // importing API would also have to acquire and release around every access.
+
+
+
+
                 description.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
 
                 textures_.reserve(shared_image_count_);
@@ -510,9 +510,9 @@ namespace SFT::GraphicsPlatform {
             }
 
             [[nodiscard]] QueryMessage bind_composition_tree() {
-                // DCompositionCreateDevice3 is the newest of the three device factories and accepts a
-                // direct request for IDCompositionDesktopDevice, which is the one that can target a
-                // plain HWND. Older factories exist but offer nothing extra here.
+
+
+
                 ComPtr<IDXGIDevice> dxgi_device;
                 if (const HRESULT hr = device_->QueryInterface(IID_PPV_ARGS(dxgi_device.put())); FAILED(hr)) {
                     return platform_error("IDXGIDevice query", hr);
@@ -522,8 +522,8 @@ namespace SFT::GraphicsPlatform {
                     FAILED(hr)) {
                     return platform_error("DCompositionCreateDevice3", hr);
                 }
-                // topmost=TRUE puts the visual above the window's own painted content, so nothing the
-                // window draws underneath shows through as an opaque backing layer.
+
+
                 if (const HRESULT hr = composition_device_->CreateTargetForHwnd(hwnd_, TRUE,
                                                                                 composition_target_.put());
                     FAILED(hr)) {
@@ -539,25 +539,25 @@ namespace SFT::GraphicsPlatform {
                 if (const HRESULT hr = composition_target_->SetRoot(composition_visual_.get()); FAILED(hr)) {
                     return platform_error("IDCompositionTarget::SetRoot", hr);
                 }
-                // Commit publishes the visual tree to the compositor. Only needed when the tree
-                // changes, not per frame — per-frame presentation goes through the swapchain, which
-                // the compositor already knows about after this point.
+
+
+
                 if (const HRESULT hr = composition_device_->Commit(); FAILED(hr)) {
                     return platform_error("IDCompositionDesktopDevice::Commit", hr);
                 }
                 return QueryMessage{};
             }
 
-            // Sets the visual's scale about its top-left origin and publishes it. Compositor-only: no
-            // GPU work is queued and nothing is reallocated, so this is orders of magnitude cheaper
-            // than resize() and safe to call at input rate.
+
+
+
             [[nodiscard]] QueryMessage apply_visual_scale(float scale_x, float scale_y) {
                 if (!composition_visual_ || !composition_device_) {
                     return QueryMessage{};
                 }
-                // A Commit is a compositor round-trip. Redundant ones are common here (a drag along one
-                // axis leaves the other unchanged, and the settle frame re-asserts identity), so skip
-                // any that would not move a pixel.
+
+
+
                 if (scale_x == applied_scale_x_ && scale_y == applied_scale_y_) {
                     return QueryMessage{};
                 }
@@ -603,12 +603,12 @@ namespace SFT::GraphicsPlatform {
                 }
             }
 
-            // Blocks until every present this presenter has queued has retired. Teardown only — see
-            // resize()'s comment for why that path does not need it and must not pay for it. Here the
-            // wait is not about the D3D textures (whose lifetime the runtime tracks) but about the
-            // visual tree and fences going away underneath queued compositor work. This is a lifetime
-            // proof, not a responsiveness budget: a timeout would merely turn a slow compositor into a
-            // use-after-free, and nothing is interactive during destruction anyway.
+
+
+
+
+
+
             void wait_for_gpu_idle() noexcept {
                 if (!present_complete_fence_ || !context_ || present_fence_value_ == 0) {
                     return;
@@ -637,15 +637,15 @@ namespace SFT::GraphicsPlatform {
             ComPtr<IDXGIFactory4> factory_;
             ComPtr<ID3D11Device5> device_;
             ComPtr<ID3D11DeviceContext4> context_;
-            // IDXGISwapChain3 (not just IDXGISwapChain1) specifically for GetCurrentBackBufferIndex()
-            // — see present()'s doc comment on the bug that omitting it causes.
+
+
             ComPtr<IDXGISwapChain3> swapchain_;
             ComPtr<IDCompositionDesktopDevice> composition_device_;
             ComPtr<IDCompositionTarget> composition_target_;
             ComPtr<IDCompositionVisual2> composition_visual_;
-            // Scale currently published on composition_visual_, so apply_visual_scale() can drop
-            // no-op commits. Identity until the first set_live_scale(), matching a freshly created
-            // visual's transform.
+
+
+
             float applied_scale_x_ = 1.0f;
             float applied_scale_y_ = 1.0f;
 
@@ -657,8 +657,8 @@ namespace SFT::GraphicsPlatform {
 
             std::vector<ComPtr<ID3D11Texture2D>> textures_;
             std::vector<CompositionSharedImage> images_;
-            // Per-slot value of present_complete_fence_ that must be reached before that slot may be
-            // written again. Parallel to images_ by index.
+
+
             std::vector<std::uint64_t> image_present_values_;
             std::uint32_t next_image_index_ = 0;
         };
@@ -670,10 +670,10 @@ namespace SFT::GraphicsPlatform {
     }
 
     QueryMessage composition_present_available() noexcept {
-        // DWM composition is unconditionally on from Windows 8 onward and cannot be turned off, so
-        // this is effectively a formality on any supported OS — but it is a cheap, real check rather
-        // than an assumption, and it is the difference between a clear message and a failed
-        // CreateTargetForHwnd if that ever stops holding.
+
+
+
+
         BOOL composition_enabled = FALSE;
         if (const HRESULT hr = DwmIsCompositionEnabled(&composition_enabled); FAILED(hr)) {
             return platform_error("DwmIsCompositionEnabled", hr);

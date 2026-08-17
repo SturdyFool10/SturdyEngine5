@@ -1,3 +1,4 @@
+#include <Engine/src/Engine/TextureStreamer.hpp>
 #include "TextureStreamer.hpp"
 #include "ImageDecode.hpp"
 #include "TextureCompression.hpp"
@@ -7,10 +8,10 @@
 #include <Async/src/Mutex.hpp>
 #include <Renderer/Renderer.hpp>
 
-// Per-platform fast-file-read backends, both optimizations over the std::ifstream fallback below
-// -- see their own doc comments for what each does and doesn't touch. Every other platform (MacOS,
-// FreeBSD, Web) has no fast-path backend at all and always takes the std::ifstream tier, which is
-// this function's general compatibility fallback, not just Windows/Linux's own error path.
+
+
+
+
 #if defined(_WIN32)
     #include <Core/src/Core/Vulkan/DirectStorage/DirectStorageBackend.hpp>
 #elif defined(__linux__)
@@ -35,19 +36,19 @@ namespace SFT::Engine {
 
     namespace {
 
-        // Deliberately duplicated (not shared) from AssetManager.cpp's own anonymous-namespace
-        // read_binary_file: both are small, self-contained, and pulling this into a shared header
-        // purely to avoid ~15 duplicated lines isn't worth the coupling right now.
+
+
+
         [[nodiscard]] AssetExpected<vector<std::byte>> read_binary_file_streamed(const std::filesystem::path &source) {
-            // Try the platform fast-read backend first -- DirectStorage on Windows, io_uring on
-            // Linux (see their own doc comments for exactly what each does and does not touch); no
-            // backend exists for any other platform. Call the read entry point directly: it performs
-            // its own one-time availability check, avoiding a redundant lock/acquire cycle for every
-            // streamed texture. Any failure -- unavailable, or a per-request error -- falls straight
-            // through to the std::ifstream tier below rather than propagating: every backend here is
-            // strictly an optimization, never the only way to read a texture, and std::ifstream is
-            // the one path guaranteed to work everywhere (including a platform/backend combination
-            // that regresses or a sandbox that blocks the fast-path syscalls/APIs outright).
+
+
+
+
+
+
+
+
+
 #if defined(_WIN32)
             if (auto bytes = Core::read_file_direct_storage(source)) {
                 return std::move(*bytes);
@@ -80,35 +81,35 @@ namespace SFT::Engine {
     } // namespace
 
     struct TextureStreamer::Impl {
-        // Fence/command-buffer ownership contract: `upload_fence`/`upload_command_buffer` below are
-        // owned exclusively by pump() (main thread) once set -- it is the only code in this class
-        // that ever destroys them, always from inside `entries`'s lock, always immediately after
-        // transitioning `state` away from Uploading. Every other reader (acquire_chunk, on the
-        // background thread) treats `state == Uploading` as "the fence handle is still live and safe
-        // to wait on" and anything else as "already retired, do not touch the handle." This single-
-        // owner rule is what a naive per-chunk fence copy (an earlier version of this file had one)
-        // got wrong -- two independent destroyers of the same handle is a use-after-free waiting to
-        // happen the moment ring rotation and pump() timing interleave badly.
+
+
+
+
+
+
+
+
+
         struct Entry {
             StreamingState state = StreamingState::Pending;
             SFT::Renderer::TextureHandle texture{};
             u32 width = 0;
             u32 height = 0;
-            u64 byte_count = 0; // for the in_flight_bytes Tracy plot -- see request_texture_load/pump
+            u64 byte_count = 0;
             vector<std::function<void(SFT::Renderer::TextureHandle)>> callbacks;
             std::optional<RHI::FenceHandle> upload_fence;
             RHI::CommandBufferHandle upload_command_buffer{};
-            // Non-null only when the upload exceeded the reusable ring-chunk size. Kept alive until
-            // pump() observes the upload fence, then destroyed alongside the command buffer.
+
+
             RHI::BufferHandle owned_staging_buffer{};
         };
 
-        // One reusable HostUpload staging buffer. `last_user_id` records which request's bytes are
-        // currently sitting in it; acquire_chunk consults `entries[last_user_id]` (not a local copy)
-        // to decide whether it's safe to overwrite -- see the Entry doc comment above for why.
+
+
+
         struct StagingChunk {
             RHI::BufferHandle buffer{};
-            u64 last_user_id = 0; // 0 == never used
+            u64 last_user_id = 0;
         };
 
         static constexpr usize kRingSize = 4;
@@ -116,12 +117,12 @@ namespace SFT::Engine {
 
         explicit Impl(SFT::Renderer::Renderer &renderer_ref) : renderer(renderer_ref), thread("TextureStreamer") {}
 
-        // Returns a chunk sized at least `bytes`, reused from the ring when `bytes <= kChunkBytes`
-        // (waiting out the chunk's previous occupant first, if it hasn't been retired by pump() yet
-        // -- backpressure by design: the background thread naturally throttles to how fast the GPU
-        // actually drains uploads and pump() actually runs). Larger textures are rejected here; the
-        // caller falls back to a dedicated one-off buffer it owns/destroys itself.
-        // Background thread only.
+
+
+
+
+
+
         [[nodiscard]] RHI::RhiExpected<StagingChunk *> acquire_chunk(u64 bytes) {
             ZoneScopedN("TextureStreamer::acquire_chunk");
             RHI::RhiDevice *device = renderer.rhi_device();
@@ -158,8 +159,8 @@ namespace SFT::Engine {
                         fence_to_wait = it->second.upload_fence;
                     }
                 }
-                // If the entry is no longer Uploading, pump() already waited on and destroyed this
-                // fence -- nothing to do, the buffer is already safe to overwrite.
+
+
                 if (fence_to_wait) {
                     auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*fence_to_wait, 1}, true);
                     if (!waited) {
@@ -174,16 +175,16 @@ namespace SFT::Engine {
         Async::DedicatedThread thread;
         Async::Mutex<std::unordered_map<u64, Entry>> entries;
         std::atomic<u64> next_id{1};
-        // IDs whose background upload has been submitted (not yet waited on) -- drained by pump().
+
         Async::Mutex<vector<u64>> submitted;
 
-        // Tracy plots (see request_texture_load/pump for the increment/decrement sites): queue_depth
-        // counts requests not yet Resident/Failed, in_flight_bytes their total pixel-data size.
+
+
         std::atomic<i64> queue_depth{0};
         std::atomic<i64> in_flight_bytes{0};
 
-        // Background thread only -- no lock needed (request handling is entirely serial on this one
-        // Async::DedicatedThread).
+
+
         array<StagingChunk, kRingSize> ring{};
         usize ring_cursor = 0;
         bool ring_initialized = false;
@@ -221,9 +222,9 @@ namespace SFT::Engine {
         const u32 mip_levels = mip_chain.mip_levels;
         span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
-        // Preserve the BC VRAM win by compressing every mip level rather than only the base image --
-        // which encoder runs is the same "Compression Manager" policy (Detail::choose_bc_format)
-        // AssetManager::create_texture uses, keyed off `kind`.
+
+
+
         vector<std::byte> compressed_storage;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (decoded->width >= 4 && decoded->height >= 4 && device != nullptr &&
@@ -240,9 +241,9 @@ namespace SFT::Engine {
                     break;
                 case TextureKind::NormalMap:
                 case TextureKind::MetallicRoughness:
-                    // Both are already R/G-laid-out by this point — see AssetManager::create_texture's
-                    // matching case for why (MetallicRoughness is pre-repacked by the caller, not
-                    // here, so the streaming path stays consistent with the synchronous one).
+
+
+
                     compressed = Detail::compress_bc5_mip_chain(upload_bytes, decoded->width, decoded->height,
                         mip_levels);
                     break;
@@ -261,10 +262,10 @@ namespace SFT::Engine {
         }
 
         const string label_c = label.empty() ? std::string{"streamed texture"} : label.cpp_string();
-        // Written by the background thread's later upload submission on the Transfer queue, sampled
-        // by Graphics -- VK_SHARING_MODE_CONCURRENT across both (see TextureDesc::
-        // concurrent_queue_classes's own doc comment for why CONCURRENT was chosen over an explicit
-        // queue-family-ownership-transfer barrier pair for this streaming path).
+
+
+
+
         static constexpr array<RHI::QueueClass, 2> streamed_queue_classes{RHI::QueueClass::Graphics, RHI::QueueClass::Transfer};
         auto texture = impl_->renderer.create_texture(decoded->width, decoded->height, format, {}, label_c.c_str(),
                                                        span<const RHI::QueueClass>{streamed_queue_classes}, mip_levels);
@@ -277,9 +278,9 @@ namespace SFT::Engine {
             impl_->renderer.destroy_texture(*texture);
             return {};
         }
-        // The allocation intentionally started empty to avoid a synchronous upload, but renderer-owned
-        // textures still need authoritative CPU data for device recovery. Publish it on this request
-        // thread before launching the worker rather than mutating Renderer::textures_ asynchronously.
+
+
+
         replay_resource->pixel_data.assign(upload_bytes.begin(), upload_bytes.end());
         if (auto cleared = impl_->renderer.clear_placeholder_texture(*texture, placeholder); !cleared.has_value()) {
             Foundation::log_error("TextureStreamer: failed to clear placeholder for '{}': {}", source.string(), cleared.error().message);
@@ -300,8 +301,8 @@ namespace SFT::Engine {
 
         const u32 width = decoded->width;
         const u32 height = decoded->height;
-        // Fire-and-forget: this request's completion is observed via `entries`/`submitted` (polled by
-        // state()/pump()), not via the TaskHandle -- discarded deliberately, not an oversight.
+
+
         (void)impl_->thread.run([this, id, width, height, format,
                             pixels = compressed_storage.empty() ? std::move(mip_chain.data) : std::move(compressed_storage)]() mutable {
             ZoneScopedN("TextureStreamer::upload_worker");
@@ -488,10 +489,10 @@ namespace SFT::Engine {
                     retired = true;
                 } else {
                     auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*entry.upload_fence, 1}, true);
-                    // Sole owner of these handles (see Entry's own doc comment) -- destroy them here,
-                    // under this same lock, in the same step that leaves `Uploading`, so any concurrent
-                    // acquire_chunk() reader on the background thread that observes state != Uploading
-                    // is guaranteed the handles are already gone and must not touch them.
+
+
+
+
                     device->destroy_fence(*entry.upload_fence);
                     if (entry.upload_command_buffer) {
                         device->destroy_command_buffer(entry.upload_command_buffer);
@@ -525,3 +526,19 @@ namespace SFT::Engine {
     }
 
 } // namespace SFT::Engine
+
+namespace SFT::Engine {
+
+    bool TextureStreamer::is_resident(StreamedTextureHandle handle) const noexcept {
+        return state(handle) == StreamingState::Resident;
+    }
+
+} // namespace SFT::Engine
+
+
+namespace SFT::Engine {
+
+    StreamedTextureHandle::operator bool() const noexcept { return id != 0; }
+
+} // namespace SFT::Engine
+

@@ -2,9 +2,9 @@
 
 #pragma region Imports
 #include <algorithm>
-// Clay is a single-header library: exactly one translation unit must define
-// CLAY_IMPLEMENTATION before including clay.h to emit the actual function bodies (every other
-// includer just gets declarations). This is that one TU.
+
+
+
 #define CLAY_IMPLEMENTATION
 #include <clay.h>
 #include <cmath>
@@ -23,10 +23,10 @@ namespace SFT::UI {
 
     namespace {
 
-        // Clay never interprets Clay_Color's numeric values itself (see Style.hpp's own doc comment
-        // on UI::Color) — it just carries them opaquely through render commands — so this packs
-        // Foundation::Color::Srgb's [0,1] channels straight in, with no *255 round-trip. The matching
-        // unpack (clay_color_to_linear() below) is where the real conversion work happens.
+
+
+
+
         [[nodiscard]] Clay_Color to_clay_color(const Color &color) noexcept {
             return Clay_Color{
                 .r = static_cast<f32>(color.r),
@@ -115,14 +115,14 @@ namespace SFT::UI {
             return CLAY_ATTACH_POINT_LEFT_TOP;
         }
 
-        // `z` is this element's *effective* depth (ElementDecl::z resolved against Context::
-        // z_stack_ — see element()'s own doc comment) — packed directly into the pointer bits of
-        // Clay_ElementDeclaration::userData (round-trips exactly, i32 always fits in intptr_t/
-        // void* on every platform this engine targets) rather than through a heap-allocated
-        // pointer, since it's the one piece of Context-owned per-element data every element needs
-        // (unlike ImageRef*/CustomShaderRef*, which already have their own dedicated
-        // Clay_ImageElementConfig::imageData/Clay_CustomElementConfig::customData slots and never
-        // touch userData at all — see image()/svg()/custom_element()'s own comments).
+
+
+
+
+
+
+
+
         [[nodiscard]] Clay_ElementDeclaration to_clay_declaration(const ElementDecl &decl, i32 z) noexcept {
             Clay_ElementDeclaration result{};
             result.layout.sizing = Clay_Sizing{
@@ -145,8 +145,8 @@ namespace SFT::UI {
             result.clip = Clay_ClipElementConfig{
                 .horizontal = decl.clip.horizontal,
                 .vertical = decl.clip.vertical,
-                // Left zeroed here; Context::element() overwrites this with Clay_GetScrollOffset()
-                // for any element with clip enabled, once it's open (see element()'s own comment).
+
+
             };
             if (decl.id.size() != 0) {
                 const string_view id_view = decl.id.cpp_string_view();
@@ -191,8 +191,8 @@ namespace SFT::UI {
             return result;
         }
 
-        // Unpacks what to_clay_declaration()/text()'s Clay_TextElementConfig::userData packed —
-        // the inverse of the reinterpret_cast<void*> above.
+
+
         [[nodiscard]] i32 unpack_z(void *user_data) noexcept {
             return static_cast<i32>(reinterpret_cast<intptr_t>(user_data));
         }
@@ -289,8 +289,8 @@ namespace SFT::UI {
           cursor_management_enabled_(other.cursor_management_enabled_),
           desired_cursor_(other.desired_cursor_),
           z_stack_(std::move(other.z_stack_)) {
-        // Clay_Initialize() stamped `&other.text_bridge_` into its measure-text userData; that
-        // address is now stale (text_bridge_ just moved to a new home), so re-install it.
+
+
         if (context_ != nullptr) {
             Clay_SetCurrentContext(context_);
             Clay_SetMeasureTextFunction(&TextBridge::measure_callback, &text_bridge_);
@@ -385,23 +385,23 @@ namespace SFT::UI {
         custom_storage_.clear();
         current_frame_ids_.clear();
         current_frame_clip_ids_.clear();
-        // Rebuilt fresh by element() below as this frame's elements get hover-tested — see
-        // desired_cursor_'s own doc comment (Context.hpp).
+
+
         desired_cursor_ = CursorIcon::Default;
-        // Every element()/custom_element() ElementScope pops what it pushed, so this is already
-        // back to {0} by the end of a well-formed frame — reset explicitly anyway so a leaked scope
-        // (e.g. a std::move()'d-away ElementScope's caller forgetting to keep it alive) can't leave
-        // a later frame permanently stuck at some stale nonzero z.
+
+
+
+
         z_stack_.assign(1, 0);
         Clay_SetLayoutDimensions(Clay_Dimensions{
             .width = static_cast<f32>(layout_extent_.x),
             .height = static_cast<f32>(layout_extent_.y),
         });
-        // Must run before Clay_BeginLayout(): it hit-tests against last frame's still-committed
-        // layout tree, which is exactly what makes hovered(id)/clicked(id) answerable before this
-        // frame has declared anything (see their doc comments in Context.hpp). Explicitly latched
-        // edges preserve a complete click between UI frames; sampled-state derivation remains as a
-        // compatibility fallback for callers that only populate PointerState::down.
+
+
+
+
+
         const bool was_down = pointer_down_;
         pointer_position_ = pointer.position;
         pointer_pressed_this_frame_ = pointer.pressed || (pointer.down && !was_down);
@@ -412,17 +412,17 @@ namespace SFT::UI {
         pointer_cancelled_this_frame_ = pointer.cancelled;
         pointer_down_ = pointer.down;
         Clay_SetPointerState(Clay_Vector2{.x = pointer.position.x, .y = pointer.position.y}, pointer.down);
-        // Also needs last frame's committed scroll-container list (same reason it runs before
-        // Clay_BeginLayout()); updates whichever container the pointer above is currently over, read
-        // back by element() below via Clay's scroll-container query APIs.
-        //
-        // Clay applies whatever delta it's given this frame immediately (clay.h: `scrollPosition +=
-        // scrollDelta * 10`) — there's no smoothing concept on its side. To ease a wheel tick across
-        // several frames instead of snapping in one, accumulate incoming deltas into
-        // pending_scroll_delta_ and only hand Clay a fraction of it each frame, keeping the remainder
-        // for subsequent frames. Disabling smooth_scrolling (or a zero/negative delta_seconds, e.g. a
-        // caller that hasn't wired up frame timing) just forwards the whole pending amount, matching
-        // the previous always-instant behavior exactly.
+
+
+
+
+
+
+
+
+
+
+
         pending_scroll_delta_ += pointer.scroll_delta * scroll_settings_.wheel_multiplier;
         glm::vec2 applied_scroll_delta = pending_scroll_delta_;
         if (scroll_settings_.smooth_scrolling && delta_seconds > 0.0f) {
@@ -445,10 +445,10 @@ namespace SFT::UI {
         if (!cursor_management_enabled_ || decl.cursor == CursorIcon::Auto || decl.id.empty()) {
             return;
         }
-        // Later declarations win over earlier ones for the same point — see desired_cursor_'s own
-        // doc comment (Context.hpp) for why that gives "more specific (a child) wins over less
-        // specific (its ancestor)" for the common nested case, without needing z/paint-order
-        // bookkeeping the way the actual visual stacking (QuadDraw::scissor, PaintKey) does.
+
+
+
+
         if (hovered(decl.id)) {
             desired_cursor_ = decl.cursor;
         }
@@ -467,19 +467,19 @@ namespace SFT::UI {
             current_frame_ids_.push_back(decl.id.cpp_string());
         }
         update_desired_cursor(decl);
-        // 0 means "inherit" (see ElementDecl::z's own doc comment, Style.hpp) — every element
-        // pushes its own *effective* z so text()/image()/svg()/nested element() calls made while
-        // this one is open (i.e. before its ElementScope is destroyed) inherit it in turn.
+
+
+
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
         z_stack_.push_back(effective_z);
         Clay__OpenElement();
         Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
         if (decl.clip.horizontal || decl.clip.vertical) {
-            // Read back last frame's committed scroll position rather than querying Clay directly
-            // here — see current_frame_clip_ids_/last_frame_scroll_offsets_'s own doc comment
-            // (Context.hpp) for why querying *this* element's own scroll state mid-open, before
-            // Clay__ConfigureOpenElement() below has (re)attached its clip config for this frame,
-            // silently comes back empty every single frame rather than merely on the first one.
+
+
+
+
+
             if (!decl.id.empty()) {
                 current_frame_clip_ids_.push_back(decl.id.cpp_string());
                 const auto cached = last_frame_scroll_offsets_.find(decl.id.cpp_string());
@@ -487,8 +487,8 @@ namespace SFT::UI {
                     declaration.clip.childOffset = Clay_Vector2{.x = cached->second.x, .y = cached->second.y};
                 }
             } else {
-                // Anonymous non-floating containers retain Clay's ordinary current-element behavior
-                // (matched by the currently-open element pointer, not by id, so no staleness here).
+
+
                 declaration.clip.childOffset = Clay_GetScrollOffset();
             }
         }
@@ -506,12 +506,12 @@ namespace SFT::UI {
             .length = static_cast<i32>(stored.size()),
             .chars = stored.data(),
         };
-        // Clay__OpenTextElement only stores the pointer it's given, not a copy — it expects
-        // whatever CLAY_TEXT_CONFIG()/Clay__StoreTextElementConfig() already copied into Clay's own
-        // arena-backed textElementConfigs array (see clay.h). A stack-local config here would leave
-        // that pointer dangling by the time Clay_EndLayout() reads it back for render commands.
-        // Text has no z of its own (TextStyle carries none) — it always inherits whichever element
-        // currently encloses it.
+
+
+
+
+
+
         Clay_TextElementConfig *config = Clay__StoreTextElementConfig(to_clay_text_config(style, z_stack_.back()));
         Clay__OpenTextElement(clay_string, config);
     }
@@ -531,10 +531,10 @@ namespace SFT::UI {
             return utf8_content.size();
         }
 
-        // One (pixel_x, byte_offset) boundary per glyph cluster, in the same pen-advance order
-        // append_glyph_placements() (above) paints glyphs in — the click just needs the nearest one,
-        // not the actual paint positions, so this skips outline lookup/GlyphPlacement construction
-        // entirely.
+
+
+
+
         struct Boundary {
             f32 x = 0.0f;
             usize byte_offset = 0;
@@ -623,20 +623,20 @@ namespace SFT::UI {
         if (!pointer_pressed_this_frame_) {
             return false;
         }
-        // hovered()'s Clay_PointerOver() is already both scissor-aware (an element whose layout box
-        // extends outside an ancestor ClipConfig's rect is excluded — clay.h's own hit-test DFS
-        // checks the clip element's boundingBox too, not just the target's own) and layer-aware
-        // (Clay hit-tests floating roots highest-z-first and stops at the first one whose
-        // FloatingConfig::capture_pointer is true, so an overlay correctly blocks clicks reaching
-        // whatever sits behind it) — see clay.h's Clay_SetPointerState. Reuse it directly whenever
-        // the press happened at the position Clay already hit-tested this frame, which is the
-        // overwhelming common case: every PointerState producer in this codebase sets press_position
-        // equal to position at the moment of the press (see PointerState::press_position's own doc
-        // comment, Context.hpp). They can only diverge for a *latched* edge — a press event and this
-        // frame's begin_layout() poll separated by pointer movement — for which Clay has no hit-test
-        // result to reuse (it only ever hit-tests the position it was last given), so this falls back
-        // to a raw bounds check that does *not* account for layers/scissors; no backend in this
-        // codebase actually produces that divergence today.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (pointer_press_position_ == pointer_position_) {
             return hovered(id);
         }
@@ -696,12 +696,12 @@ namespace SFT::UI {
     }
 
     bool Context::pointer_over_any() const noexcept {
-        // See clicked()'s own comment: raw bounding-box containment ignores both scissor clipping
-        // and layer ordering, so this used to report true for a point sitting over a *named*
-        // element's layout box even when that box was entirely clipped away by an ancestor, or
-        // hidden behind an occluding floating overlay. hovered() (Clay_PointerOver()) is already
-        // correct on both counts and is evaluated at the current pointer_position_ — exactly what
-        // this query wants (unlike clicked(), there's no separate press position involved here).
+
+
+
+
+
+
         for (const auto &[id, bounds] : last_frame_bounds_) {
             (void)bounds;
             if (hovered(UString{id})) {
@@ -739,10 +739,10 @@ namespace SFT::UI {
             return false;
         }
 
-        // Clamps `*axis` so the container's own scroll range (never positive, never further back
-        // than its content overhangs the container) is respected regardless of how far this nudge
-        // pushed it — mirrors Clay__UpdateScrollContainers' own clamping (clay.h), which a manual
-        // scrollPosition write like this one bypasses otherwise.
+
+
+
+
         const auto nudge_axis = [](f32 &position, f32 target_min, f32 target_max, f32 container_min,
                                     f32 container_max, f32 content_size, f32 container_size) noexcept {
             if (target_min < container_min) {
@@ -804,13 +804,13 @@ namespace SFT::UI {
             const f32 min_y = std::min(0.0f, scroll.scrollContainerDimensions.height - scroll.contentDimensions.height);
             scroll.scrollPosition->y = std::clamp(offset.y, min_y, 0.0f);
         }
-        // Mutating Clay's live scrollPosition alone isn't enough: element()'s clip-handling never
-        // re-reads it directly (see current_frame_clip_ids_'s own doc comment, Context.hpp, for why
-        // querying an element's own clip config mid-configure is unsafe) — it only ever reads
-        // last_frame_scroll_offsets_, populated once per frame from finish_frame(). Without this,
-        // a caller that sets the offset *between* frames (or mid-frame, before this container's own
-        // finish_frame() cache refresh runs) would see it silently reverted on the very next
-        // begin_layout(), since element() would still hand Clay back the stale cached childOffset.
+
+
+
+
+
+
+
         last_frame_scroll_offsets_.insert_or_assign(
             container_id.cpp_string(), glm::vec2{scroll.scrollPosition->x, scroll.scrollPosition->y});
         return true;
@@ -818,12 +818,12 @@ namespace SFT::UI {
 
     namespace {
 
-        // Every color reaching the GPU (quad fill/border, glyph fill) goes through here — converts
-        // the [0,1] sRGB channels to_clay_color() packed (see its own doc comment) to linear, since
-        // the swapchain target is an *Srgb format that re-encodes on write; feeding it already-sRGB
-        // numbers directly (the previous naive /255-only unpack this replaced) double-applies the
-        // gamma curve, which is why UI colors used to render visibly washed out relative to their
-        // authored values.
+
+
+
+
+
+
         [[nodiscard]] glm::vec4 clay_color_to_linear(Clay_Color color) noexcept {
             const Foundation::Color::Linear linear =
                 Foundation::Color::Srgb{color.r, color.g, color.b, color.a}.to_linear();
@@ -843,12 +843,12 @@ namespace SFT::UI {
             return RHI::Rect2D{.x = x0, .y = y0, .width = static_cast<u32>(x1 - x0), .height = static_cast<u32>(y1 - y0)};
         }
 
-        // Resolves which loaded Font a shaped glyph actually belongs to — shape_with_fallback()
-        // (Text::FontStack) may have shaped any given glyph against the primary font, the dedicated
-        // emoji font, or any registered fallback font (CJK, ...), and stamps which one onto
-        // PositionedGlyph::font_id. Outline extraction and rasterization both need the *matching*
-        // font, not always the primary one, or a fallback-font glyph's index is looked up in the
-        // wrong font's glyph table entirely (garbage/empty geometry, not just a wrong glyph).
+
+
+
+
+
+
         [[nodiscard]] const Text::Font *font_for_glyph(const Text::FontStack &fonts, u64 font_id, bool is_color) noexcept {
             if (is_color) {
                 return fonts.emoji;
@@ -861,15 +861,15 @@ namespace SFT::UI {
                     return fallback.font;
                 }
             }
-            // Every font_id a glyph carries was stamped by shape_with_fallback() from this exact
-            // FontStack, so this shouldn't happen — fall back to primary rather than risk a null
-            // Font* reaching the outline/rasterization path below.
+
+
+
             return fonts.primary;
         }
 
-        // Builds GlyphPlacements for one shaped text run at `origin` (the Clay TEXT command's
-        // bounding-box top-left) — the same pen-advance loop Renderer/RendererTextOverlay.cpp uses,
-        // adapted to read from a UI::CachedShape instead of its own line cache.
+
+
+
         void append_glyph_placements(vector<Renderer::GlyphPlacement> &out, vector<RHI::Rect2D> &out_scissors,
                                      vector<PaintKey> &out_paint, const RHI::Rect2D &scissor, const PaintKey &paint,
                                      const CachedShape &shape, u16 font_size, glm::vec4 color, glm::vec2 origin,
@@ -956,10 +956,10 @@ namespace SFT::UI {
             }
         }
 
-        // Safe now that Clay_EndLayout() has run: this frame's clip elements have their clip config
-        // fully (re)attached, so Clay_GetScrollContainerData() can actually find it — see
-        // current_frame_clip_ids_'s own doc comment (Context.hpp) for why the same query from
-        // inside element() itself, earlier in this same frame, cannot.
+
+
+
+
         unordered_map<string, glm::vec2> completed_scroll_offsets;
         completed_scroll_offsets.reserve(current_frame_clip_ids_.size());
         for (const string &id : current_frame_clip_ids_) {
@@ -987,11 +987,11 @@ namespace SFT::UI {
         for (i32 i = 0; i < commands.length; ++i) {
             const Clay_RenderCommand &command = *Clay_RenderCommandArray_Get(&commands, i);
             const RHI::Rect2D active_scissor = scissor_stack.back();
-            // `i` is this command's position in Clay's own render-command stream, which already
-            // interleaves an element's background, its children (text included), and its border in
-            // that exact order (see Style.hpp's PaintKey doc comment) — using it directly as the
-            // paint-order tiebreak is what keeps that natural ordering intact once UiRenderer
-            // re-sorts everything by z.
+
+
+
+
+
             const PaintKey paint{unpack_z(command.userData), static_cast<u32>(i)};
             switch (command.commandType) {
                 case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
@@ -1110,13 +1110,13 @@ namespace SFT::UI {
     }
 
     void Context::destroy() noexcept {
-        // Clay_Initialize() allocates its Clay_Context struct out of arena_memory_ itself, and
-        // Clay's global Clay__currentContext (Clay_GetCurrentContext()/Clay_SetCurrentContext())
-        // keeps pointing at it even after arena_memory_ below is freed — a dangling global that the
-        // *next* Context::create() on this thread would otherwise inherit and immediately
-        // dereference via Clay_SetMaxElementCount(). Only clear it if it's still pointing at this
-        // Context specifically, so destroying one Context can't stomp on a different, still-live
-        // one that happens to be current.
+
+
+
+
+
+
+
         if (context_ != nullptr && Clay_GetCurrentContext() == context_) {
             Clay_SetCurrentContext(nullptr);
         }

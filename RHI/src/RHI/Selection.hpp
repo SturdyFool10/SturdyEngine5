@@ -19,9 +19,9 @@
 #include "Flags.hpp"
 #include "Features.hpp"
 #include "Extensions.hpp"
-#include "Device.hpp"  // AdapterInfo, DeviceType, BackendType, RhiDevice
-#include "Adapter.hpp" // RhiAdapter, RhiInstance, InstanceDesc, DeviceRequest
-#include "Backend.hpp" // BackendRegistry
+#include "Device.hpp"
+#include "Adapter.hpp"
+#include "Backend.hpp"
 
 using std::optional;
 using std::span;
@@ -32,28 +32,28 @@ using std::vector;
 
 namespace SFT::RHI {
 
-    // ─── Adapter selection ───────────────────────────────────────────────────────
-    //
-    // Given the adapters an instance enumerated, this is how a renderer decides which GPU to run on.
-    // Four intents compose in one `AdapterCriteria`, each independently useful:
-    //   1. Filter by capability — `required_features` / `required_extensions` drop adapters that
-    //      can't run the renderer at all (the "needs hardware ray tracing" gate).
-    //   2. Exclude device categories — `allowed_types` is a bitmask; the default `AllHardware`
-    //      automatically excludes software (`Cpu`) adapters, and a caller can widen or narrow it.
-    //   3. Explicit by name — `name_filter` keeps only adapters whose name contains the string
-    //      (case-insensitive), for honoring a user's saved "use my RTX 4090" choice.
-    //   4. Power preference — among everything that survived the filters, `power_preference` ranks
-    //      the survivors (high-performance favors discrete, low-power favors integrated), the same
-    //      knob WebGPU's requestAdapter exposes.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     enum class PowerPreference : u32 {
-        None,            // no preference — a mild discrete-first ranking
-        LowPower,        // favor integrated GPUs (battery/thermals)
-        HighPerformance, // favor discrete GPUs (throughput)
+        None,
+        LowPower,
+        HighPerformance,
     };
 
-    // A bitmask over `DeviceType` for allow/deny filtering. `AllHardware` is every category except the
-    // software rasterizer — the sane default that keeps a renderer off lavapipe/WARP unless it opts in.
+    /// A bitmask over `DeviceType` for allow/deny filtering. `AllHardware` is every category except the
+    /// software rasterizer — the sane default that keeps a renderer off lavapipe/WARP unless it opts in.
     enum class DeviceTypeMask : u32 {
         None = 0,
         Other = 1u << 0,
@@ -67,7 +67,7 @@ namespace SFT::RHI {
     template <>
     struct enable_flag_ops<DeviceTypeMask> : std::true_type {};
 
-    // The single-category bit for a device type — used to test membership in an allow mask.
+    /// The single-category bit for a device type — used to test membership in an allow mask.
     [[nodiscard]] constexpr DeviceTypeMask device_type_bit(DeviceType type) noexcept {
         switch (type) {
             case DeviceType::Other: return DeviceTypeMask::Other;
@@ -81,24 +81,24 @@ namespace SFT::RHI {
 
     struct AdapterCriteria {
         PowerPreference power_preference = PowerPreference::HighPerformance;
-        // Hard capability gates — an adapter missing any required feature/extension is rejected.
+        /// Hard capability gates — an adapter missing any required feature/extension is rejected.
         FeatureSet required_features;
         span<const ExtensionId> required_extensions;
-        // Device categories permitted; defaults to hardware-only (software adapters excluded).
+        /// Device categories permitted; defaults to hardware-only (software adapters excluded).
         DeviceTypeMask allowed_types = DeviceTypeMask::AllHardware;
-        // Case-insensitive substring an adapter's name must contain; empty means "any name".
+        /// Case-insensitive substring an adapter's name must contain; empty means "any name".
         string_view name_filter;
     };
 
-    // Case-insensitive substring test (ASCII), used for `name_filter`.
+    /// Case-insensitive substring test (ASCII), used for `name_filter`.
     [[nodiscard]] bool name_contains_ci(string_view haystack, string_view needle) noexcept;
 
-    // Does `adapter` pass every hard filter in `criteria` (type, name, features, extensions)? This is
-    // the yes/no gate; `score_adapter` then ranks the ones that pass.
+    /// Does `adapter` pass every hard filter in `criteria` (type, name, features, extensions)? This is
+    /// the yes/no gate; `score_adapter` then ranks the ones that pass.
     [[nodiscard]] bool adapter_matches(const RhiAdapter &adapter, const AdapterCriteria &criteria);
 
-    // Ranks an adapter for a power preference; higher wins. Only meaningful among adapters that have
-    // already passed `adapter_matches`.
+    /// Ranks an adapter for a power preference; higher wins. Only meaningful among adapters that have
+    /// already passed `adapter_matches`.
     [[nodiscard]] constexpr i64 score_adapter(DeviceType type, PowerPreference preference) noexcept {
         switch (preference) {
             case PowerPreference::HighPerformance:
@@ -132,40 +132,40 @@ namespace SFT::RHI {
         return 0;
     }
 
-    // The single best adapter matching `criteria`, or nullptr if none qualifies. The returned pointer
-    // aliases into `adapters`, so keep that vector alive while using it (create the device, then the
-    // adapters may drop — an adapter need not outlive the device it creates).
+    /// The single best adapter matching `criteria`, or nullptr if none qualifies. The returned pointer
+    /// aliases into `adapters`, so keep that vector alive while using it (create the device, then the
+    /// adapters may drop — an adapter need not outlive the device it creates).
     [[nodiscard]] RhiAdapter *select_adapter(span<const unique_ptr<RhiAdapter>> adapters,
                                                     const AdapterCriteria &criteria);
 
-    // Every adapter matching `criteria`, ranked best-first — for presenting a chooser UI or falling
-    // back down the list. Pointers alias into `adapters` (same lifetime rule as select_adapter).
+    /// Every adapter matching `criteria`, ranked best-first — for presenting a chooser UI or falling
+    /// back down the list. Pointers alias into `adapters` (same lifetime rule as select_adapter).
     [[nodiscard]] vector<RhiAdapter *> filter_adapters(span<const unique_ptr<RhiAdapter>> adapters,
                                                               const AdapterCriteria &criteria);
 
-    // Explicit-by-name lookup: the first adapter whose name contains `name` (case-insensitive), or
-    // nullptr. For honoring a saved user choice without building a whole criteria struct.
+    /// Explicit-by-name lookup: the first adapter whose name contains `name` (case-insensitive), or
+    /// nullptr. For honoring a saved user choice without building a whole criteria struct.
     [[nodiscard]] RhiAdapter *find_adapter_by_name(span<const unique_ptr<RhiAdapter>> adapters,
                                                           string_view name);
 
-    // ─── One-call selection ──────────────────────────────────────────────────────
-    //
-    // Ties the whole path together: choose a backend (explicit or the registry's preferred), create
-    // its instance, enumerate adapters, pick one by criteria, and realize a device — surfacing a
-    // precise error at whichever step fails.
+
+
+
+
+
 
     struct DeviceSelection {
-        // Which graphics API to use. nullopt asks the registry for its preferred available backend —
-        // the runtime D3D12-vs-Vulkan choice lives here (set it to force one).
+        /// Which graphics API to use. nullopt asks the registry for its preferred available backend —
+        /// the runtime D3D12-vs-Vulkan choice lives here (set it to force one).
         optional<BackendType> backend;
         InstanceDesc instance;
         AdapterCriteria adapter;
         DeviceRequest device;
     };
 
-    // The realized result. `instance` is retained because a device must not outlive the instance it
-    // came from; the chosen adapter is not (it isn't needed past device creation) so only its info is
-    // kept, for logging/telemetry.
+    /// The realized result. `instance` is retained because a device must not outlive the instance it
+    /// came from; the chosen adapter is not (it isn't needed past device creation) so only its info is
+    /// kept, for logging/telemetry.
     struct SelectedDevice {
         unique_ptr<RhiInstance> instance;
         unique_ptr<RhiDevice> device;

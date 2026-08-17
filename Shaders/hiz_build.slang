@@ -15,6 +15,12 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
+struct HiZBuildConstants {
+    uint2 sourceExtent;
+};
+
+[[push_constant]] ConstantBuffer<HiZBuildConstants> hiz;
+
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
@@ -27,12 +33,6 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 // previous Hi-Z pyramid mip (building mip N>0) — both are plain Texture2D<float>, sampled with
 // point `.Load` (never filtered: averaging four depths would break the max-reduction invariant).
 Texture2D<float> source;
-
-struct HiZBuildConstants {
-    uint2 sourceExtent;
-};
-
-[[push_constant]] ConstantBuffer<HiZBuildConstants> hiz;
 
 [shader("fragment")]
 float4 reduceMain(VertexOutput input) : SV_Target {

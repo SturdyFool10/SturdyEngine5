@@ -1,4 +1,4 @@
-// RHI acceleration-structure resources and device-address queries backed by Vulkan ray tracing objects.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

@@ -12,10 +12,10 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    // ─── Attachment helpers ───────────────────────────────────────────────────────
-    //
-    // These convert to VkRenderingAttachmentInfo (Vulkan 1.3+ dynamic rendering).
-    // Pass them to RenderingInfo below rather than constructing the Vk structs by hand.
+
+
+
+
 
     struct ColorAttachment {
         VkImageView view = VK_NULL_HANDLE;
@@ -23,7 +23,7 @@ namespace SFT::Core::Vulkan {
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR;
         VkAttachmentStoreOp store_op = VK_ATTACHMENT_STORE_OP_STORE;
         VkClearColorValue clear_color = {};
-        // Optional MSAA resolve target.
+        /// Optional MSAA resolve target.
         VkResolveModeFlagBits resolve_mode = VK_RESOLVE_MODE_NONE;
         VkImageView resolve_view = VK_NULL_HANDLE;
         VkImageLayout resolve_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -72,26 +72,26 @@ namespace SFT::Core::Vulkan {
         };
     }
 
-    // ─── RenderingInfo ────────────────────────────────────────────────────────────
-    //
-    // Builder for VkRenderingInfo passed to vkCmdBeginRendering.
-    // The builder must remain alive until vkCmdBeginRendering returns — build()
-    // returns a VkRenderingInfo whose pointers are owned by this object.
-    //
-    // Typical usage:
-    //   auto ri = RenderingInfo{}
-    //       .set_render_area({{0,0}, {width, height}})
-    //       .add_color(ColorAttachment{ .view = view, .clear_color = {{0,0,0,1}} })
-    //       .set_depth(DepthAttachment{ .view = depth_view });
-    //   vkCmdBeginRendering(cmd, &ri.build());
-    //   // ... draw calls ...
-    //   vkCmdEndRendering(cmd);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     class RenderingInfo {
       public:
         RenderingInfo &set_render_area(VkRect2D area) noexcept;
         RenderingInfo &set_layer_count(u32 count) noexcept;
-        // Non-zero enables multiview; view_mask bits correspond to view indices.
+        /// Non-zero enables multiview; view_mask bits correspond to view indices.
         RenderingInfo &set_view_mask(u32 mask) noexcept;
         RenderingInfo &set_flags(VkRenderingFlags flags) noexcept;
         RenderingInfo &add_flags(VkRenderingFlags flags) noexcept;
@@ -106,8 +106,8 @@ namespace SFT::Core::Vulkan {
         RenderingInfo &set_depth(DepthAttachment att) noexcept;
         RenderingInfo &set_stencil(StencilAttachment att) noexcept;
 
-        // Returns a VkRenderingInfo backed by storage in this object.
-        // Valid until the next call to build() or destruction of this RenderingInfo.
+        /// Returns a VkRenderingInfo backed by storage in this object.
+        /// Valid until the next call to build() or destruction of this RenderingInfo.
         [[nodiscard]] VkRenderingInfo build() noexcept;
 
       private:
@@ -144,19 +144,19 @@ namespace SFT::Core::Vulkan {
         bool active_ = false;
     };
 
-    // ─── PipelineRenderingInfo ────────────────────────────────────────────────────
-    //
-    // Describes the attachment formats for a graphics pipeline that uses dynamic rendering.
-    // Place this in the pNext chain of VkGraphicsPipelineCreateInfo and set
-    // VkGraphicsPipelineCreateInfo::renderPass = VK_NULL_HANDLE.
-    //
-    // The struct must remain alive until vkCreateGraphicsPipelines returns.
-    //
-    // Example:
-    //   auto pri = PipelineRenderingInfo{}
-    //       .add_color_format(VK_FORMAT_B8G8R8A8_SRGB)
-    //       .set_depth_format(VK_FORMAT_D32_SFLOAT);
-    //   VkGraphicsPipelineCreateInfo ci{ .pNext = &pri.to_vk(), .renderPass = VK_NULL_HANDLE, ... };
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     struct DynamicRenderingSignature {
         vector<VkFormat> color_formats;
@@ -180,7 +180,7 @@ namespace SFT::Core::Vulkan {
         PipelineRenderingInfo &set_stencil_format(VkFormat fmt) noexcept;
         PipelineRenderingInfo &set_depth_stencil_format(VkFormat fmt) noexcept;
         PipelineRenderingInfo &set_next(const void *next) noexcept;
-        // Non-zero enables multiview — must match the RenderingInfo used at draw time.
+        /// Non-zero enables multiview — must match the RenderingInfo used at draw time.
         PipelineRenderingInfo &set_view_mask(u32 mask) noexcept;
 
         [[nodiscard]] DynamicRenderingSignature signature(VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) const;

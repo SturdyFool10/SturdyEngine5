@@ -21,7 +21,7 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    // ─── VulkanDescriptorSetLayout ───────────────────────────────────────────────
+
 
     class VulkanDescriptorSetLayout {
       public:
@@ -38,7 +38,7 @@ namespace SFT::Core::Vulkan {
             VkDevice device,
             const VkDescriptorSetLayoutCreateInfo &info) noexcept;
 
-        // Convenience: build from a flat list of bindings.
+        /// Convenience: build from a flat list of bindings.
         [[nodiscard]] static RendererExpected<VulkanDescriptorSetLayout> create_from_bindings(
             VkDevice device,
             span<const VkDescriptorSetLayoutBinding> bindings,
@@ -47,7 +47,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkDescriptorSetLayout vk_handle() const noexcept;
         [[nodiscard]] bool is_valid() const noexcept;
 
-        // Returns whether a descriptor set with this layout can be created on the device.
+        /// Returns whether a descriptor set with this layout can be created on the device.
         [[nodiscard]] VkDescriptorSetLayoutSupport support(const VkDescriptorSetLayoutCreateInfo &info) const noexcept;
 
         void destroy() noexcept;
@@ -80,7 +80,7 @@ namespace SFT::Core::Vulkan {
         VkDescriptorSetLayoutCreateFlags flags_ = 0;
     };
 
-    // ─── VulkanDescriptorPool ────────────────────────────────────────────────────
+
 
     class VulkanDescriptorPool {
       public:
@@ -97,7 +97,7 @@ namespace SFT::Core::Vulkan {
             VkDevice device,
             const VkDescriptorPoolCreateInfo &info) noexcept;
 
-        // Convenience: create a pool from a flat list of type/count pairs.
+        /// Convenience: create a pool from a flat list of type/count pairs.
         [[nodiscard]] static RendererExpected<VulkanDescriptorPool> create_from_sizes(
             VkDevice device,
             span<const VkDescriptorPoolSize> sizes,
@@ -119,7 +119,7 @@ namespace SFT::Core::Vulkan {
 
         [[nodiscard]] RendererResult free(span<const VkDescriptorSet> sets) noexcept;
 
-        // Recycles all descriptor sets allocated from this pool back to the pool.
+        /// Recycles all descriptor sets allocated from this pool back to the pool.
         [[nodiscard]] RendererResult reset(VkDescriptorPoolResetFlags flags = 0) noexcept;
 
         void destroy() noexcept;
@@ -190,15 +190,15 @@ namespace SFT::Core::Vulkan {
 
         DescriptorSetWriter &write_sampler(u32 binding, VkSampler sampler, u32 array_element = 0);
 
-        // A uniform/storage *texel* buffer binding, referenced through a VkBufferView (see
-        // VulkanBufferView). `type` is VK_DESCRIPTOR_TYPE_{UNIFORM,STORAGE}_TEXEL_BUFFER.
+        /// A uniform/storage *texel* buffer binding, referenced through a VkBufferView (see
+        /// VulkanBufferView). `type` is VK_DESCRIPTOR_TYPE_{UNIFORM,STORAGE}_TEXEL_BUFFER.
         DescriptorSetWriter &write_texel_buffer(u32 binding,
                                                 VkDescriptorType type,
                                                 VkBufferView view,
                                                 u32 array_element = 0);
 
-        // A top-level acceleration structure binding for ray queries / ray tracing pipelines. The AS
-        // handle is chained through a VkWriteDescriptorSetAccelerationStructureKHR in update().
+        /// A top-level acceleration structure binding for ray queries / ray tracing pipelines. The AS
+        /// handle is chained through a VkWriteDescriptorSetAccelerationStructureKHR in update().
         DescriptorSetWriter &write_acceleration_structure(u32 binding,
                                                           VkAccelerationStructureKHR acceleration_structure,
                                                           u32 array_element = 0);

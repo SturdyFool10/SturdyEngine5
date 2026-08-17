@@ -22,10 +22,10 @@ namespace SFT::Async::Detail {
 
     namespace {
 
-        // Best-effort: most standard library implementations set `errno` from the underlying
-        // POSIX/CRT call on an fstream failure, but it isn't mandated by the standard, so this is a
-        // classification hint, not a guarantee — callers that need certainty should stat the path
-        // themselves first.
+
+
+
+
         IoError io_error_from_errno(const string &path, const char *verb) noexcept {
             IoErrorCode code = IoErrorCode::Unknown;
             switch (errno) {

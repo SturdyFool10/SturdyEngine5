@@ -11,9 +11,9 @@ namespace SFT::UI {
 
     void TextBridge::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback,
                                    span<const Text::Font *const> fallbacks) {
-        // font_id's low 32 bits identify the registered slot; the high bits distinguish primary
-        // (0), emoji (1), and each general fallback (2, 3, ...) within that same slot, so every face
-        // this TextBridge ever hands out to the atlas has a globally unique key.
+
+
+
         vector<Text::FallbackFont> owned_fallbacks;
         owned_fallbacks.reserve(fallbacks.size());
         for (usize i = 0; i < fallbacks.size(); ++i) {

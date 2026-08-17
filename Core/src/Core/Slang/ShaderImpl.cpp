@@ -71,12 +71,12 @@ namespace SFT::Core::Slang {
             return "runtime_shader";
         }
 
-        // Falls back to Core::Slang::embedded_shaders() (see EmbeddedShaders.hpp's own doc comment)
-        // whenever `path` can't be opened/read from disk, so a File-kind ShaderSource -- what every
-        // hot-reloadable material template recompiles from, see Renderer::reload_material_template
-        // -- still resolves in a shipped build with no Shaders/ directory next to the executable at
-        // all. Disk always wins when the file is actually there, so live edits keep hot-reloading
-        // exactly as before; this only kicks in for a file that is genuinely missing/unreadable.
+
+
+
+
+
+
         [[nodiscard]] ShaderExpected<string> read_text_file(const string &path) {
             ifstream file(path, ios::binary);
             bool disk_ok = static_cast<bool>(file);
@@ -102,20 +102,20 @@ namespace SFT::Core::Slang {
             return shader_error(ShaderErrorCode::FileReadFailed, "Failed to open Slang shader file: " + path);
         }
 
-        // Delegates `import`/`#include` resolution to the OS file system first, falling back to
-        // Core::Slang::embedded_shaders() on any failure -- same "disk always wins when present"
-        // contract as read_text_file() above, just for the files a shader pulls in rather than its
-        // own top-level source. Without this, a shader whose top-level text is already in hand (a
-        // SourceString-kind ShaderSource, e.g. everything discover_shaders() reflects) would still
-        // fail to compile in a Shaders/-less shipped build the instant it `import`s a shared module
-        // like sturdy_common.slang, since Slang resolves those through its own file system hook
-        // (SessionDesc::fileSystem below), never through ShaderSource/read_text_file() at all.
-        //
-        // A process-wide singleton, intentionally never destroyed: it is heap-allocated once and
-        // never release()d by this code, so Slang's own addRef()/release() pairs (one per session
-        // that references it) fluctuate the refcount above zero for the process's whole lifetime --
-        // release() below deliberately never deletes `this`, unlike a normal COM object, since this
-        // is not something any code (including Slang) actually owns.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         class EmbeddedFallbackFileSystem final : public ISlangFileSystem {
           public:
             [[nodiscard]] static EmbeddedFallbackFileSystem &instance() noexcept {
@@ -177,10 +177,10 @@ namespace SFT::Core::Slang {
                 return nullptr;
             }
 
-            // A small, self-contained ISlangBlob over an owned std::string -- one per loadFile()
-            // call, refcounted and destroyed normally by Slang once it's done with the content
-            // (unlike EmbeddedFallbackFileSystem itself, these are ordinary heap objects Slang
-            // really does own).
+
+
+
+
             class OwnedTextBlob final : public ISlangBlob {
               public:
                 explicit OwnedTextBlob(string text) : text_(std::move(text)) {}
@@ -665,15 +665,15 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = normalize_slang_int(type_layout->getBindingRangeFirstDescriptorRangeIndex(range_index));
             range.descriptor_range_count = normalize_slang_int(type_layout->getBindingRangeDescriptorRangeCount(range_index));
             range.count = normalize_slang_int(type_layout->getBindingRangeBindingCount(range_index));
-            // getBindingRangeImageFormat unconditionally dereferences a "leaf variable"
-            // (`leafVar->findModifier<FormatAttribute>()` in slang-reflection-api.cpp) that Slang
-            // only synthesizes for a binding range with an explicit `[format(...)]`/similar
-            // attribute in the shader source. Restricting the call to mutable (RW) binding-range
-            // kinds isn't sufficient on its own — an unannotated mutable texture or typed-buffer
-            // binding can still have a null leaf var, so calling this accessor still segfaults.
-            // Nothing in this codebase reads range.image_format, so the safe fix is
-            // to never call this accessor at all rather than try to further characterize which mutable
-            // ranges happen to have an attribute.
+
+
+
+
+
+
+
+
+
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);
 
             if (range.descriptor_range_count > 0 && range.descriptor_range_count != numeric_limits<u32>::max() &&
@@ -717,8 +717,8 @@ namespace SFT::Core::Slang {
                 type->binding_ranges.push_back(parse_binding_range(type_layout, index));
             }
 
-            // Keep recursive reflection bounded. Deep generated/generic layouts can still be
-            // inspected via the raw JSON if needed.
+
+
             if (depth >= 16) {
                 return type;
             }
@@ -751,15 +751,15 @@ namespace SFT::Core::Slang {
                 return parameter;
             }
 
-            // `getOffset()`/`getSize()` without an explicit category default to Uniform — correct for
-            // an ordinary uniform field, but wrong for a parameter whose *own* category is something
-            // else (push constants above all: a `[[push_constant]] ConstantBuffer<T> x` is categorized
-            // PushConstantBuffer, and its Uniform-category size is 0, not sizeof(T)). Querying with
-            // this parameter's actual native category — not always Uniform — is a no-op for the common
-            // Uniform case (identical to the old default) and gives the right answer for every other
-            // category, so this is strictly a correctness fix, not a behavior change for existing
-            // Uniform-category callers (material/uniform-buffer field parsing, the overwhelming
-            // majority of parameters reflected here).
+
+
+
+
+
+
+
+
+
             const slang::ParameterCategory native_category = layout->getCategory();
 
             parameter.name = layout->getName() ? layout->getName() : "";
@@ -776,20 +776,20 @@ namespace SFT::Core::Slang {
                 has_push_constant_component |= category == slang::ParameterCategory::PushConstantBuffer;
             }
 
-            // Target layouts may report a push-constant declaration as Mixed because it occupies
-            // both its inline-constant byte range and a target-specific binding category. Preserve
-            // the semantic source declaration for API-agnostic consumers instead of exposing the
-            // incidental target layout category as an ordinary descriptor buffer.
+
+
+
+
             const slang::ParameterCategory effective_category =
                 has_push_constant_component ? slang::ParameterCategory::PushConstantBuffer : native_category;
             if (has_push_constant_component) {
                 parameter.category = ShaderParameterCategory::PushConstantBuffer;
             }
-            // getBindingIndex() is the target-emitted register/binding index. For SPIR-V this is the
-            // globally unique descriptor binding consumed by VkDescriptorSetLayout; getOffset(category)
-            // is only the offset within that category and collapses textures/samplers/buffers onto zero.
-            // DXIL deliberately retains class-local tN/sN/uN/bN indices and must pair this value with
-            // the reflected category when mapping into the RHI's flat binding namespace.
+
+
+
+
+
             parameter.binding = normalize_slang_unsigned(layout->getBindingIndex());
             parameter.binding_space = normalize_slang_unsigned(layout->getBindingSpace());
             parameter.offset = normalize_size(layout->getOffset(effective_category));
@@ -798,16 +798,16 @@ namespace SFT::Core::Slang {
 
             if (parameter.type) {
                 slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
-                // A resource-counting category (ConstantBuffer, PushConstantBuffer,
-                // DescriptorTableSlot, ...) reports `getSize()` in units of "how many of this
-                // resource" (normally 1; N for an array of N), not bytes — for
-                // `[[push_constant]] ConstantBuffer<T> x`, querying PushConstantBuffer-category size
-                // on the wrapper gives 1, always, regardless of sizeof(T). The actual byte size lives
-                // on the buffer's *element* type layout (T itself), in the ordinary Uniform category
-                // — same place an explicit `ConstantBuffer<T>` binding's field layout comes from.
-                // Verified against this engine's shaders: TextViewConstants (one float2) reports
-                // element_uniform_size=8, SceneDrawConstants (two mat4) reports 128 — both exactly
-                // right, vs. the wrapper's PushConstantBuffer-category size of 1 for both.
+
+
+
+
+
+
+
+
+
+
                 if (has_push_constant_component && type_layout != nullptr) {
                     slang::TypeLayoutReflection *element = type_layout->getElementTypeLayout();
                     parameter.size = element != nullptr ? normalize_size(element->getSize()) : parameter.type->size;
@@ -1000,10 +1000,10 @@ namespace SFT::Core::Slang {
                 return shader_error(ShaderErrorCode::InvalidArgument, "At least one Slang shader target is required.");
             }
 
-            // No per-target clip-space fixups here. The engine's clip-space ABI follows Vulkan (NDC
-            // Y increases downward) and each RHI backend translates into its own convention when it
-            // submits the viewport — see RHI::Viewport. Emitting a Y flip into DXIL as well would
-            // double-flip and cancel out, so every target gets the same bytecode semantics.
+
+
+
+
             vector<slang::TargetDesc> target_descs;
             target_descs.reserve(targets.size());
             for (const ShaderTarget &target : targets) {
@@ -1018,7 +1018,7 @@ namespace SFT::Core::Slang {
                 }
 
                 if (options.skip_spirv_validation && target.format == ShaderTargetFormat::Spirv) {
-                    // SessionDesc also carries this setting; keep the target desc simple for now.
+
                 }
 
                 target_descs.push_back(desc);
@@ -1030,9 +1030,9 @@ namespace SFT::Core::Slang {
     } // namespace
 
     struct ShaderCompilerState {
-        // Slang's global/session objects aren't safe for concurrent compile()/reflect() calls, so the
-        // whole call is serialized behind this lock (see both call sites below) — not just the lazy
-        // global-session creation.
+
+
+
         Async::Mutex<::Slang::ComPtr<slang::IGlobalSession>> global_session;
     };
 
@@ -1043,19 +1043,19 @@ namespace SFT::Core::Slang {
         ::Slang::ComPtr<slang::ISession> session;
         ::Slang::ComPtr<slang::IModule> module;
         ::Slang::ComPtr<slang::IComponentType> linked_program;
-        // Populated only for a "baked" Shader built by ShaderCompiler::from_cached_bytecode() (an
-        // on-disk shader-cache hit) — session/module/linked_program stay null in that case, and
-        // entry_point_code() serves straight out of this instead of calling into Slang at all. Empty
-        // for every normally-compiled Shader.
+
+
+
+
         vector<ShaderBytecode> baked_bytecode;
     };
 
     namespace {
 
-        // Front-end only: create a session and load the source as a Slang module. This is the work
-        // shared by compile() and reflect() — it stops before entry-point composition and linking,
-        // which are the parts that make a program able to emit target code. The caller must hold the
-        // compiler mutex and pass a live global session.
+
+
+
+
         [[nodiscard]] ShaderExpected<shared_ptr<ShaderState>> load_shader_module(
             slang::IGlobalSession *global_session,
             const ShaderSource &source,
@@ -1106,32 +1106,16 @@ namespace SFT::Core::Slang {
                 search_paths.push_back(search_path.c_str());
             }
 
-            // Clip-space ABI (normative definition: RHI::Viewport). Sturdy authors every shader in
-            // Vulkan's clip space, where NDC +Y points down. D3D12's NDC +Y points up and offers no
-            // legal API-level way to invert it, so the reconciliation is a shader-side negation
-            // applied by sturdy_clip_position() in sturdy_common.slang. Deriving the sign here, from
-            // the requested target formats, keeps it out of the ~20 call sites that build
-            // ShaderCompileOptions — none of them can forget it, and user shaders get it too.
-            //
-            // A D3D12 compile requests SPIR-V alongside DXIL purely for canonical layout reflection
-            // (see Renderer::shader_compile_targets_for_device); only the DXIL artifact is ever
-            // executed, so tying the sign to DXIL's presence is correct for the whole session.
-            const bool targets_dxil = std::ranges::any_of(options.targets, [](const ShaderTarget &target) {
-                return target.format == ShaderTargetFormat::Dxil;
-            });
-            const char *const clip_y_sign = targets_dxil ? "-1" : "1";
-
             vector<slang::PreprocessorMacroDesc> macros;
-            macros.reserve(options.macros.size() + 1);
-            macros.push_back(slang::PreprocessorMacroDesc{"STURDY_CLIP_Y_SIGN", clip_y_sign});
+            macros.reserve(options.macros.size());
             for (const ShaderMacro &macro : options.macros) {
                 if (!macro.name.empty()) {
                     macros.push_back(slang::PreprocessorMacroDesc{macro.name.c_str(), macro.value.c_str()});
                 }
             }
 
-            // Session-wide compiler options. Optimization level is applied here so it covers every
-            // target/entry point produced from this session.
+
+
             const slang::CompilerOptionEntry compiler_options[] = {
                 slang::CompilerOptionEntry{
                     slang::CompilerOptionName::Optimization,
@@ -1143,9 +1127,9 @@ namespace SFT::Core::Slang {
                         nullptr,
                     },
                 },
-                // Without this, Slang's SPIR-V backend renames every entry point to "main" (matching
-                // GLSL/HLSL convention), so a VkPipelineShaderStageCreateInfo::pName built from the
-                // reflected entry point name (e.g. "vertexMain") fails to resolve at pipeline creation.
+
+
+
                 slang::CompilerOptionEntry{
                     slang::CompilerOptionName::VulkanUseEntryPointName,
                     slang::CompilerOptionValue{
@@ -1170,9 +1154,9 @@ namespace SFT::Core::Slang {
             session_desc.allowGLSLSyntax = static_cast<bool>(options.allow_glsl_syntax);
             session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
             session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
-            // Lets `import`/`#include` resolution fall back to the embedded shader table when a
-            // pulled-in file is missing from disk -- see EmbeddedFallbackFileSystem's own doc
-            // comment above for why this is a separate hook from read_text_file()'s own fallback.
+
+
+
             session_desc.fileSystem = &EmbeddedFallbackFileSystem::instance();
 
             auto shader_state = make_shared<ShaderState>();
@@ -1251,8 +1235,8 @@ namespace SFT::Core::Slang {
             return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader target index is out of range.");
         }
 
-        // A "baked" shader (ShaderCompiler::from_cached_bytecode(), an on-disk cache hit) has no live
-        // Slang program to ask — serve directly from what was loaded from disk instead.
+
+
         if (!state_->baked_bytecode.empty()) {
             const usize baked_index = entry_point_index * state_->targets.size() + target_index;
             if (baked_index >= state_->baked_bytecode.size()) {
@@ -1383,16 +1367,16 @@ namespace SFT::Core::Slang {
                 }
             }
 
-            // Reflection only — load the module and read its layout. No entry-point composition,
-            // no link, no target codegen. This is the lightweight path used to inventory shaders.
+
+
             auto shader_state = load_shader_module(global_session->get(), source, options);
             if (!shader_state) {
                 return unexpected(shader_state.error());
             }
 
             ShaderExpected<ShaderReflection> reflection = parse_reflection((*shader_state)->module.get(), 0);
-            // debug, not info: reflect() runs once per .slang file during discover_shaders() (could be
-            // hundreds of files) -- see that function's own info-level summary log for the aggregate.
+
+
             Foundation::log_debug("Slang: reflected '{}' in {}", source.module_name, stopwatch.elapsed_human());
             return reflection;
         } catch (const bad_alloc &) {
@@ -1414,8 +1398,8 @@ namespace SFT::Core::Slang {
         shader_state->targets = std::move(targets);
         shader_state->reflection = std::move(reflection);
         shader_state->baked_bytecode = std::move(bytecode);
-        // session/module/linked_program stay null — entry_point_code() checks baked_bytecode first
-        // and never reaches the code that would dereference them.
+
+
         return Shader{std::move(shader_state)};
     }
 
@@ -1478,12 +1462,12 @@ namespace SFT::Core::Slang {
                 return unexpected(reflection.error());
             }
 
-            // DXIL assigns descriptor registers differently from SPIR-V, but lowers
-            // [[push_constant]] ConstantBuffer<T> into an ordinary HLSL cbuffer and therefore loses
-            // the portable push-constant category. When both targets were requested (the D3D12
-            // renderer path), retain DXIL's descriptor layout and graft only the canonical SPIR-V
-            // push-constant parameters onto it. That produces one RHI layout matching DXIL's t/s/u
-            // registers and D3D12's root-constant b0 declaration simultaneously.
+
+
+
+
+
+
             const auto spirv_target = std::ranges::find_if(
                 options.targets,
                 [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Spirv; });
@@ -1507,11 +1491,11 @@ namespace SFT::Core::Slang {
                         continue;
                     }
 
-                    // DXIL sees this declaration as a normal b-register CBV. Replacing only the
-                    // parameter category is insufficient: descriptor_sets would still emit that
-                    // CBV table range, overlapping the b0 root constants in the D3D12 signature.
-                    // Remove the lowered cbuffer parameter and its matching descriptor range before
-                    // restoring the portable push-constant parameter.
+
+
+
+
+
                     const u32 dxil_binding = existing->binding;
                     const u32 dxil_space = existing->binding_space;
                     dxil_reflection->global_parameters.erase(existing);

@@ -8,9 +8,9 @@
 
 namespace SFT::Ecs {
 
-    // Resources are singleton objects bound to a World. Their stable key uses a separate type and
-    // namespace from ComponentKey so the eventual C/FFI API can describe global engine services
-    // without pretending they are per-entity data.
+    /// Resources are singleton objects bound to a World. Their stable key uses a separate type and
+    /// namespace from ComponentKey so the eventual C/FFI API can describe global engine services
+    /// without pretending they are per-entity data.
     struct ResourceKey {
         u64 high = 0;
         u64 low = 0;
@@ -29,10 +29,7 @@ namespace SFT::Ecs {
     static_assert(std::is_trivially_copyable_v<ResourceKey>);
 
     struct ResourceKeyHash {
-        [[nodiscard]] usize operator()(ResourceKey key) const noexcept {
-            const u64 mixed = key.low ^ (key.high + 0x9e3779b97f4a7c15ull + (key.low << 6u) + (key.low >> 2u));
-            return static_cast<usize>(mixed);
-        }
+        [[nodiscard]] usize operator()(ResourceKey key) const noexcept;
     };
 
     template <class T>
@@ -61,10 +58,10 @@ namespace SFT::Ecs {
         return ResourceKey::from_name(Detail::resource_name<std::remove_cv_t<T>>());
     }
 
-    // Explicit system parameters make singleton access visible to the scheduler:
-    //   ReadResource<T>  -> shared, immutable access
-    //   WriteResource<T> -> exclusive access; the system's chunks execute serially
-    // Values are lightweight non-owning views and are valid only for one system invocation.
+    /// Explicit system parameters make singleton access visible to the scheduler:
+    ///   ReadResource<T>  -> shared, immutable access
+    ///   WriteResource<T> -> exclusive access; the system's chunks execute serially
+    /// Values are lightweight non-owning views and are valid only for one system invocation.
     template <class T>
     class ReadResource {
       public:
@@ -112,12 +109,12 @@ namespace SFT::Ecs {
             static constexpr bool IsResource = false;
         };
 
-        // Every resource-view argument type (ReadResource/WriteResource here, EventReader/EventWriter
-        // in Ecs/Event.hpp) implements this same trait shape: IsWrite/IsEvent declare the argument's
-        // access for Schedule's conflict analysis, Resource names the singleton it resolves against,
-        // and construct() builds the argument value from that singleton. resolve_resource() in
-        // Ecs/System.hpp calls Traits::construct() generically, so a new resource-view kind never
-        // needs a change there — only a new ResourceArgumentTraits specialization.
+        /// Every resource-view argument type (ReadResource/WriteResource here, EventReader/EventWriter
+        /// in Ecs/Event.hpp) implements this same trait shape: IsWrite/IsEvent declare the argument's
+        /// access for Schedule's conflict analysis, Resource names the singleton it resolves against,
+        /// and construct() builds the argument value from that singleton. resolve_resource() in
+        /// Ecs/System.hpp calls Traits::construct() generically, so a new resource-view kind never
+        /// needs a change there — only a new ResourceArgumentTraits specialization.
         template <class T>
         struct ResourceArgumentTraits<ReadResource<T>> {
             static constexpr bool IsResource = true;

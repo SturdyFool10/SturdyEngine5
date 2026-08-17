@@ -10,14 +10,14 @@ namespace {
     class StandaloneGameLogic final : public SFT::Engine::GameLogic {
       public:
         [[nodiscard]] SFT::Engine::GameLogicResult on_engine_initialized(
-            SFT::Engine::Engine & /*engine*/) override {
+            SFT::Engine::Engine &           ) override {
             return {};
         }
 
         [[nodiscard]] std::optional<SFT::Engine::RenderFrameParameters> request_render_frame(
-            SFT::Engine::Engine & /*engine*/,
-            SFT::Core::RenderSurfaceHandle /*surface*/,
-            const SFT::Core::FrameInput & /*frame*/) override {
+            SFT::Engine::Engine &           ,
+            SFT::Core::RenderSurfaceHandle            ,
+            const SFT::Core::FrameInput &          ) override {
             return std::nullopt;
         }
     };

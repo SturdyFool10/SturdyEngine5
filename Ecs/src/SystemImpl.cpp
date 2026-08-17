@@ -31,8 +31,8 @@ namespace SFT::Ecs {
 
     } // namespace
 
-    // Greedy, stable dependency staging. Every system placed in one stage is mutually non-conflicting;
-    // conflicting systems retain their registration order across later stage boundaries.
+
+
     void Schedule::rebuild_stages() {
         ZoneScopedN("Schedule::rebuild_stages");
         stages_.clear();
@@ -46,9 +46,9 @@ namespace SFT::Ecs {
             std::vector<usize> next_remaining;
             for (usize index : remaining) {
                 bool conflicts = false;
-                // Event consumers may not leapfrog an earlier registered producer merely because that
-                // producer was delayed by an unrelated component/resource conflict. Preserve the event
-                // pipeline's registration order across stage construction, not just within one stage.
+
+
+
                 for (ResourceKey read_event : systems_[index].access.event_reads) {
                     for (usize pending_index : remaining) {
                         if (pending_index >= index) continue;
@@ -79,12 +79,12 @@ namespace SFT::Ecs {
         validate_event_ordering();
     }
 
-    // Events<T> is cleared at the top of every run() (World::clear_event_resources), so a reader
-    // system staged at or before every writer of the same event type would see nothing that tick,
-    // forever — not stale data, silently missing data. Stage placement is a pure function of
-    // registration order (rebuild_stages() above), so this is really a registration-order contract:
-    // register every EventWriter<T> system before any EventReader<T> system for the same T. Catch a
-    // violation here, once, right after (re)building stages, instead of losing events at runtime.
+
+
+
+
+
+
     void Schedule::validate_event_ordering() const {
         ZoneScopedN("Schedule::validate_event_ordering");
         if (!config_.clear_events_on_run) return;
@@ -120,11 +120,11 @@ namespace SFT::Ecs {
 
     void Schedule::run(World &world) {
         ZoneScopedN("Schedule::run");
-        // Under ExecutorPolicy::Synchronous this function must never reference Async::Scheduler's
-        // process-global state: a headless/deterministic caller that built a synchronous Schedule
-        // pays no worker-thread, allocation, or static-initialization cost for a scheduler it never
-        // asked for. Chunking still collapses to one chunk per system (target_parallelism == 1) since
-        // splitting work only matters when something else will run the pieces concurrently.
+
+
+
+
+
         usize target_parallelism = 1;
         if (config_.executor == ExecutorPolicy::Async) {
             if (Async::Scheduler::is_worker_thread()) {

@@ -46,27 +46,27 @@ namespace SFT::Renderer {
     namespace {
 
         constexpr f64 renderer_stage_hitch_threshold_seconds = 0.050;
-        // How many superseded swapchains a window's frame-in-flight ring tolerates before
-        // maybe_flush_retired_swapchains() pays one bounded wait_idle() to clear them out — see that
-        // function's declaration comment. Small enough to bound worst-case leaked-handle count during
-        // a long continuous resize drag, large enough that it doesn't trigger on ordinary one-off
-        // resizes (which retire exactly one swapchain and get reclaimed the normal way soon after).
-        //
-        // Investigated as a possible cause of multi-second vkCreateSwapchainKHR stalls seen during
-        // Windows interactive-resize testing (see Application::render_managed_window's
-        // wait_for_completion doc) — direct instrumentation ruled it out: forcing this down to 1
-        // (flush after every single resize) did not change the stall's timing or frequency at all,
-        // and the flush's own wait_idle() consistently measured well under a millisecond. The stall
-        // is isolated entirely inside the driver's vkCreateSwapchainKHR call itself (confirmed by
-        // wrapping just that call), correlates with a preceding multi-second gap of zero swapchain
-        // activity, and fully recovers on the very next call — the signature of a GPU power-state
-        // wake-up cost, not an application-side resource backlog. Left at the original tolerance;
-        // see render_managed_window's adaptive synchronous-repaint fallback for the actual mitigation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         constexpr usize retired_swapchain_flush_threshold = 6;
 
-        // 2 begin/end timestamp pairs: pre-graph TLAS build, pre-graph photon hash-buffer clear.
-        // See FrameInFlight::pregraph_gpu_timing_query_set's doc comment for why these are recorded
-        // onto a dedicated fixed-size query set instead of riding RenderGraph::execute_parallel's own.
+
+
+
         constexpr u32 kPregraphGpuTimingQueryCount = 4u;
 
         class ScopedRendererStageTimer {
@@ -74,9 +74,9 @@ namespace SFT::Renderer {
             explicit ScopedRendererStageTimer(const char *stage) noexcept
                 : stage_(stage), start_(steady_clock::now()) {}
 
-            // `accumulate_into`: when non-null, this stage's duration is also appended (in
-            // milliseconds) so a caller can build a full per-frame CPU stage breakdown — the
-            // hitch-warning behavior above is unconditional either way, this is purely additive.
+
+
+
             ScopedRendererStageTimer(const char *stage, vector<pair<string, f64>> *accumulate_into) noexcept
                 : stage_(stage), start_(steady_clock::now()), accumulate_into_(accumulate_into) {}
 
@@ -96,9 +96,9 @@ namespace SFT::Renderer {
             vector<pair<string, f64>> *accumulate_into_ = nullptr;
         };
 
-        // Collapses a pass label's numbered-instance suffix (for example, a bloom mip level) down
-        // to its category by truncating at the first digit, so the GPU/CPU timing breakdowns sum
-        // same-kind passes into one line. Labels with no digit pass through unchanged.
+
+
+
         [[nodiscard]] UString render_graph_pass_timing_category(const ustr &label) {
             UString category{label};
             const usize digit = category.find_first_of(UString{"0123456789"_ustr});
@@ -127,21 +127,21 @@ namespace SFT::Renderer {
             return {};
         }
 
-        // The presentation format/color-space pair for `presentation` — shared by the real swapchain
-        // (recreate_rhi_swapchain below) and the offscreen presentation-target texture format used to
-        // pick the tonemap pipeline (render_frame_rhi), so both always agree on what "HDR output"
-        // means for a given window. RGB10A2Unorm pairs with Hdr10St2084 (10-bit non-linear PQ target);
-        // RGBA16Float pairs with ScrgbLinear (float target, no curve — see fullscreen_tonemap.slang).
+
+
+
+
+
         [[nodiscard]] RHI::Format hdr_presentation_format(const Core::PresentationSettings &presentation) noexcept {
             if (!static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::Format::BGRA8UnormSrgb;
             }
             switch (presentation.hdr_color_space) {
-                // scRGB is linear-with-headroom — needs a float format, not a normalized one.
+
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::Format::RGBA16Float;
-                // PQ, HLG, and (best-effort) Dolby Vision all encode to a normalized [0,1] code
-                // value in the shader (pqEncode/hlgEncode/pqEncode-as-fallback) — a 10-bit UNORM
-                // target is the conventional pairing for all three.
+
+
+
                 case Core::HdrColorSpaceMode::Hdr10St2084:
                 case Core::HdrColorSpaceMode::Hdr10Hlg:
                 case Core::HdrColorSpaceMode::DolbyVision:
@@ -260,9 +260,9 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
         ZoneScopedN("Renderer::render_frame");
-        // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
-        // templates before recording. Cheap when nothing changed (a directory stat); the reload path
-        // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
+
+
+
         poll_shader_hot_reload();
 
         FrameSubmission submission{};
@@ -275,16 +275,7 @@ namespace SFT::Renderer {
             submission.render_graph.spectral_path_tracing.mode = SpectralRenderMode::RasterDeferred;
         }
         submission.offscreen_target = desc.offscreen_target;
-        // Clip-space ABI: bake the D3D12 NDC-Y reconciliation into the combined matrix here, once,
-        // rather than relying on every vertex shader to route SV_Position through
-        // sturdy_clip_position() (see RHI::gpu_clip_flip's own doc comment). Every downstream
-        // consumer of submission.view_projection (SceneDrawConstants push constants, instanced/
-        // object-history batches, prepare_scene_gpu_data's SceneViewGpuData::view_projection) reads
-        // this already-flipped value, so none of them need their own flip.
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
-        if (RHI::RhiDevice *device = rhi_device(); device != nullptr) {
-            submission.view_projection = RHI::gpu_clip_flip(submission.view_projection, device->backend_type());
-        }
         submission.debug_label = desc.view.debug_label;
 
         {
@@ -312,7 +303,7 @@ namespace SFT::Renderer {
                 });
             }
 
-            // Gizmos are never visibility-mask-filtered (a dev aid, not gameplay-visibility-relevant).
+
             submission.gizmo_draws.reserve(desc.view.gizmo_renderables.size());
             for (const SceneRenderable &renderable : desc.view.gizmo_renderables) {
                 if (mesh(renderable.mesh) == nullptr) {
@@ -339,13 +330,13 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
         ZoneScopedN("Renderer::render_frame");
-        // Dev-time shader hot-reload: pick up any edited `.slang` file and rebuild the affected material
-        // templates before recording. Cheap when nothing changed (a directory stat); the reload path
-        // itself does the one sanctioned wait_idle (see plans/shader-variants-and-hot-reload.md).
+
+
+
         poll_shader_hot_reload();
 
-        // Legacy path for the public submit_draw() API — see frame_draws_'s doc comment on why this is
-        // the only caller left that still touches it.
+
+
         FrameSubmission submission{};
         submission.draws = std::move(frame_draws_);
         frame_draws_.clear();
@@ -363,9 +354,9 @@ namespace SFT::Renderer {
                                                 "Renderer surface is not registered.");
         }
 
-        // Group draws by (material, mesh) so every geometry pass below sees runs of consecutive
-        // items that share a pipeline/bind-group/vertex-buffer,
-        // which record_render_item's binding_state then skips rebinding for (see its doc comment).
+
+
+
         {
             ScopedRendererStageTimer timer{"sort render items",
                                            submission.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
@@ -375,11 +366,11 @@ namespace SFT::Renderer {
                 }
                 return a.mesh.value < b.mesh.value;
             });
-            // Stamped after sorting (this draw's *final* position for the frame) so it matches
-            // prepare_scene_gpu_data's object_buffer packing order exactly — see object_index's own
-            // doc comment (RendererModule.hpp). This snapshot is the only history lookup on the
-            // frame's hot path; worker packing then reads the stamped value without contending on the
-            // renderer-wide map.
+
+
+
+
+
             auto transform_history = previous_world_transforms_.lock();
             for (usize i = 0; i < submission.draws.size(); ++i) {
                 RenderItem &item = submission.draws[i];
@@ -502,18 +493,18 @@ namespace SFT::Renderer {
         if (!pipeline) {
             return unexpected(pipeline.error());
         }
-        // Redundant-state elision: submission.draws is sorted by (material, mesh) before any pass
-        // records it (see render_frame_dispatch), so consecutive RenderItems very often share a
-        // pipeline/bind-group/vertex-buffer — skip reissuing state that's already bound in this pass.
+
+
+
         if (!(binding_state.pipeline == *pipeline)) {
             pass.set_pipeline(*pipeline);
             binding_state.pipeline = *pipeline;
         }
 
         if (use_object_history) {
-            // Set 1 for every with-object-history draw regardless of material — bind once per
-            // pass/bundle (RenderItemBindingState::bound_object_history_group), same elision pattern
-            // as arena_bound below.
+
+
+
             if (!(binding_state.bound_object_history_group == object_history_group)) {
                 pass.set_bind_group(1, object_history_group);
                 binding_state.bound_object_history_group = object_history_group;
@@ -546,10 +537,10 @@ namespace SFT::Renderer {
             binding_state.material_frame_slot = frame_slot;
         }
 
-        // Every mesh lives in the same shared vertex/index arena (see try_upload_mesh), so the buffer
-        // binding itself is constant for the whole pass regardless of which mesh is being drawn —
-        // only the per-draw base_vertex/first_index offset changes. binding_state.mesh here is really
-        // "has *any* draw in this pass bound the arena yet", not a per-mesh rebind.
+
+
+
+
         if (!binding_state.arena_bound) {
             pass.set_vertex_buffer(0, vertex_arena_.buffer);
             if (index_arena_.buffer) {
@@ -573,11 +564,11 @@ namespace SFT::Renderer {
     }
 
     namespace {
-        // Below this many surviving (post-frustum-cull) items, recording directly against the
-        // primary pass wins outright — spinning up per-thread RenderBundleEncoders costs more than
-        // it saves. Chosen the same order of magnitude as prepare_scene_gpu_data's own
-        // async-packing threshold (RendererScene.cpp), which faces the same per-item-vs-per-task
-        // overhead tradeoff.
+
+
+
+
+
         constexpr usize kParallelRecordThreshold = 128;
     } // namespace
 
@@ -609,13 +600,13 @@ namespace SFT::Renderer {
         }
 
         const u32 worker_count = Async::Scheduler::worker_count();
-        // Shadow atlas views change viewport/scissor between light faces. Vulkan render bundles
-        // (secondary command buffers) do not portably inherit that dynamic state from the primary
-        // pass, so keep shadow-view recording on the primary encoder. Geometry passes use one fixed
-        // full-frame viewport and retain the parallel bundle path. `use_bundles` is trusted as-is
-        // (not re-derived from visible.size()/worker_count here) — see this function's doc comment
-        // in RendererModule.hpp for why the caller's pre-declared decision must be the sole source
-        // of truth.
+
+
+
+
+
+
+
         if (shadow_map || !use_bundles) {
             RenderItemBindingState binding_state{};
             for (const RenderItem *item : visible) {
@@ -636,10 +627,10 @@ namespace SFT::Renderer {
                                                 "Renderer RHI device is unavailable.");
         }
 
-        // Pre-warm every distinct material's bind groups on this thread first — see this function's
-        // doc comment in RendererModule.hpp for why: it turns every worker thread's later
-        // prepare_material_frame call (inside record_render_item) into a pure read of already-clean
-        // state instead of a racy rebuild.
+
+
+
+
         {
             unordered_map<u64, bool> warmed;
             for (const RenderItem *item : visible) {
@@ -675,12 +666,12 @@ namespace SFT::Renderer {
         };
         vector<ChunkResult> results(chunk_count);
 
-        // Pool/buffer *creation* happens here, serially, on this thread — not inside the spawned
-        // tasks below. Same fix as the shadow-atlas parallel path's own identical issue (see that
-        // code's comment, and memory project_render_threading): concurrent
-        // vkCreateCommandPool/vkAllocateCommandBuffers from multiple worker threads corrupts the heap
-        // on this RADV setup even though each thread creates its own independent pool/buffer. Only
-        // the actual *recording* is dispatched to worker threads below.
+
+
+
+
+
+
         for (usize chunk = 0; chunk < chunk_count; ++chunk) {
             const usize begin = chunk * chunk_size;
             const usize end = std::min(visible.size(), begin + chunk_size);
@@ -747,10 +738,10 @@ namespace SFT::Renderer {
         if (!bundles.empty()) {
             pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
         }
-        // Bundles must outlive this frame's own command buffers — execute_bundles only records a
-        // reference for the GPU to run later, it does not run or even submit anything. Destroying
-        // them here would be a use-after-free once the GPU actually executes the frame. Defer to
-        // FrameInFlight's fence-gated cleanup instead (see FrameSubmission::transient_render_bundles).
+
+
+
+
         retired_bundles.insert(retired_bundles.end(), bundles.begin(), bundles.end());
         if (has_error) {
             return first_error;
@@ -784,8 +775,8 @@ namespace SFT::Renderer {
                 }
                 if (Core::RendererResult recorded = record_render_item(
                         encoder, item, span<const RHI::Format>{}, depth_format, frame_index,
-                        view.view_projection, /*depth_only=*/true, binding_state,
-                        /*standard_depth_test=*/false, /*shadow_map=*/true, shadow_depth_bias,
+                        view.view_projection,                true, binding_state,
+                                                false,                true, shadow_depth_bias,
                         shadow_slope_bias, RHI::SampleCount::X1, false, RHI::BindGroupHandle{});
                     !recorded.has_value()) {
                     return recorded;
@@ -856,23 +847,23 @@ namespace SFT::Renderer {
             stage_timings_ms->emplace_back("present queue lock wait", record.last_present_lock_wait_ms);
         }
         if (!presented) {
-            // A failed vkQueuePresentKHR never signals a maintenance completion fence. Discard it
-            // instead of leaving an unsignaled fence attached to a future retired swapchain.
+
+
             if (completion_fence) {
                 std::erase(record.active_presentation_completion_fences, *completion_fence);
                 if (RHI::RhiDevice *device = rhi_device()) {
                     device->destroy_fence(*completion_fence);
                 }
             }
-            // SurfaceLost: the swapchain must be recreated before presenting again -- the existing
-            // dirty-flag path already does that (a true surface-loss recovery, distinct from a mere
-            // swapchain rebuild, is Phase 3 scope per the sync/presentation rework plan). Reachable
-            // now for the first time: VulkanQueue::present previously folded VK_ERROR_SURFACE_LOST_KHR
-            // into a generic OperationFailed, so this branch was dead code.
-            //
-            // FullScreenExclusiveLost: a normal, recoverable state transition (alt-tab, focus loss),
-            // not a device/surface failure -- no exclusive-fullscreen state exists in the engine yet
-            // to clear, so this becomes the same dirty-flag response until that support itself exists.
+
+
+
+
+
+
+
+
+
             if (presented.error().code == RHI::RhiErrorCode::SurfaceLost ||
                 presented.error().code == RHI::RhiErrorCode::FullScreenExclusiveLost) {
                 record.rhi_swapchain_dirty = true;
@@ -916,10 +907,10 @@ namespace SFT::Renderer {
         const RHI::SwapchainHandle old_swapchain = record.rhi_swapchain;
         const RHI::TextureHandle old_depth_texture = record.depth_texture;
         const RHI::TextureViewHandle old_depth_view = record.depth_view;
-        // Completion-fence support belongs to the retiring generation, not merely the device: a
-        // composition presenter cannot attach a native present-completion fence even when the device
-        // supports swapchain maintenance. Query before replacing record.rhi_swapchain below so its
-        // resources follow the conservative device-idle retirement path when needed.
+
+
+
+
         const RHI::PresentationResolution old_presentation =
             old_swapchain ? device->presentation_resolution(old_swapchain) : RHI::PresentationResolution{};
         const bool old_swapchain_supports_completion_fence = old_presentation.supports_completion_fence;
@@ -930,10 +921,10 @@ namespace SFT::Renderer {
             .height = extent.y,
             .format = hdr_presentation_format(record.presentation),
             .color_space = hdr_presentation_color_space(record.presentation),
-            // Core::resolve_present_strategy() is the one place vsync/variable_refresh/latency/
-            // preference get interpreted together (Core/Renderer.hpp) — the backend then resolves
-            // that strategy against this surface's real supported present modes
-            // (RHI::choose_present_mode(), RHI/Swapchain.hpp), never a raw requested PresentMode.
+
+
+
+
             .present_strategy = Core::resolve_present_strategy(record.presentation),
             .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::TransferDst,
             .composite_alpha = static_cast<bool>(record.presentation.transparent_composition)
@@ -943,17 +934,17 @@ namespace SFT::Renderer {
             .image_count = record.presentation.swapchain_image_count != 0
                                ? record.presentation.swapchain_image_count
                                : record.desired_frames_in_flight + 1,
-            // Sizes the backend's acquisition-semaphore ring, independent of image_count above — see
-            // RHI::SwapchainDesc::frames_in_flight's own doc comment. capabilities_.max_frames_in_flight
-            // is the one resolved value every frames-in-flight-derived subsystem consumes (Phase 1 of
-            // the sync/presentation rework — Core::resolve_frames_in_flight, Core/Renderer.hpp).
+
+
+
+
             .frames_in_flight = capabilities_.max_frames_in_flight,
             .old_swapchain = old_swapchain,
             .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
-            // record.window->fullscreen_mode(), not a cached/tracked-by-Renderer copy of the last
-            // WindowRequests::set_fullscreen() call — see Window::fullscreen_mode()'s own doc comment
-            // (Platform/Window/Window.hpp) for why querying the window directly is what lets this stay
-            // correct regardless of when set_fullscreen() was actually called relative to this rebuild.
+
+
+
+
             .request_full_screen_exclusive =
                 record.window != nullptr &&
                 record.window->fullscreen_mode() == Platform::Windowing::WindowMode::ExclusiveFullscreen,
@@ -969,19 +960,19 @@ namespace SFT::Renderer {
         record.depth_view = {};
         record.swapchain_extent = extent;
         record.rhi_swapchain_dirty = false;
-        // A native WSI image lives in the HWND redirection surface, whereas the composition presenter
-        // is a transparent DirectComposition visual layered over that surface. Deferred retirement
-        // would leave the native swapchain's last opaque frame visible below the first transparent
-        // composition frame, so this one cross-presenter handoff is deliberately synchronous.
+
+
+
+
         const RHI::PresentationResolution new_presentation = device->presentation_resolution(record.rhi_swapchain);
         const bool must_retire_native_before_composition = old_swapchain &&
             !old_presentation.via_composition_present && new_presentation.via_composition_present;
-        // Composition-to-composition resize has already proved both halves of the old generation are
-        // finished: VulkanRhiBridgeComposition waits for the final external render-complete value, and
-        // CompositionPresenter::resize waits for the D3D copy/present fence before invalidating its
-        // shared images. Deferring it like a native WSI swapchain would accumulate fence-less records,
-        // periodically force Renderer::drain_frames_in_flight(), and introduce a visible live-resize
-        // hitch every retired-swapchain flush interval.
+
+
+
+
+
+
         const bool can_retire_composition_immediately = old_swapchain &&
             old_presentation.via_composition_present && new_presentation.via_composition_present;
         const auto destroy_old_presentation_resources = [&]() noexcept {
@@ -1006,9 +997,9 @@ namespace SFT::Renderer {
             } else if (can_retire_composition_immediately) {
                 destroy_old_presentation_resources();
             } else if (old_swapchain_supports_completion_fence) {
-                // A present-completion fence signals after the presentation engine has finished with
-                // the image, which is the missing lifetime proof a graphics submission fence cannot
-                // provide. Move every still-live fence with this exact swapchain generation.
+
+
+
                 record.retired_presentation_resources.push_back(RetiredPresentationResources{
                     .swapchain = old_swapchain,
                     .depth_texture = old_depth_texture,
@@ -1033,7 +1024,7 @@ namespace SFT::Renderer {
                         retire_after->retired_presentation_textures.push_back(old_depth_texture);
                     }
                 } else {
-                    // No frame ring exists yet, so nothing has acquired or presented through this swapchain.
+
                     destroy_old_presentation_resources();
                 }
             }
@@ -1064,13 +1055,13 @@ namespace SFT::Renderer {
             }
         }
 
-        // N-buffered in-flight ring, keyed by frame_index so it tracks the material system's per-frame
-        // UBO slot (frame_index % N). (Re)size on the first frame or after a capability change (device-loss
-        // recovery clears the ring). Lives on the window's own record, not a Renderer-wide member, since
-        // each window has its own swapchain and therefore its own frame-in-flight lifetime.
-        // capabilities_.max_frames_in_flight is already >= 1 by construction — resolved exactly once,
-        // through Core::resolve_frames_in_flight, at backend initialization (VulkanBackendDevice.cpp)
-        // — so no local zero-guard is needed here.
+
+
+
+
+
+
+
         const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
@@ -1090,28 +1081,28 @@ namespace SFT::Renderer {
         FrameInFlight &slot = record.frames_in_flight[frame_slot_index];
         if (!slot.submitted && (!slot.transient_buffers.empty() || !slot.transient_bind_groups.empty() ||
                                 !slot.transient_acceleration_structures.empty())) {
-            // A prior recording attempt failed before submission. Those resources were never visible to
-            // the GPU and can be reclaimed immediately before this slot is reused.
+
+
             reclaim_frame_slot(slot, false);
         }
 
-        // Collects this call's own CPU stage costs (wait fence, swapchain recreate/acquire, graph
-        // execute, submit, present — whichever of those actually run this frame) so they can be
-        // stashed on `slot` for the debug overlay to display next time this ring slot comes round —
-        // see FrameCpuTimingTarget's doc comment for why "next time", not "this frame".
+
+
+
+
         vector<pair<string, f64>> current_frame_cpu_stage_timings_ms;
 
-        // Backpressure — the one sanctioned per-frame CPU wait (plans/async-submission-model.md). Waits on
-        // the *specific* frame that last used this ring slot (frame_count frames ago), never a full-device
-        // stall, capping the CPU to frame_count frames ahead of the GPU. Once its fence signals, that
-        // frame's command buffer / transient targets / bind groups are safe to reclaim and its material
-        // UBO slot is free to overwrite. NOT safe to reclaim here: any swapchain/presentation texture
-        // recreate_rhi_swapchain retired onto this slot — this fence only covers that frame's *command
-        // buffer* submission, not the separate, driver-internal completion of its vkQueuePresentKHR
-        // (validated: destroying here trips VUID-vkDestroySwapchainKHR-swapchain-01282, "swapchain
-        // currently in use by VkQueue" — presents aren't fenced the way command buffers are without
-        // VK_EXT_swapchain_maintenance1). Retired swapchains/textures accumulate on their slot until
-        // maybe_flush_retired_swapchains() below periodically clears them with a real wait_idle().
+
+
+
+
+
+
+
+
+
+
+
         if (slot.submitted) {
             {
                 ScopedRendererStageTimer timer{"wait in-flight frame fence", &current_frame_cpu_stage_timings_ms};
@@ -1120,9 +1111,9 @@ namespace SFT::Renderer {
                     return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
                 }
                 if (!*waited) {
-                    // A real timeout (this call uses wait_forever, so this should be unreachable
-                    // outside a device hang) -- not an error, but resource reclamation below must
-                    // not run: the fence is not confirmed signaled.
+
+
+
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "wait in-flight frame fence: vkWaitForFences timed out.");
                 }
@@ -1134,30 +1125,30 @@ namespace SFT::Renderer {
             slot.submitted = false;
         }
 
-        // GPU pass timing readback — the fence wait just above (when this slot had a prior submission)
-        // is the earliest point the GPU is guaranteed to have written every timestamp RenderGraph::
-        // execute() queued for it last time this ring slot was used (see FrameGpuTimingTarget's doc
-        // comment). Read once here rather than at the point the graph executes further down, since
-        // this frame's own about-to-be-recorded timestamps land in the SAME query set slots.
+
+
+
+
+
         vector<pair<UString, f64>> gpu_pass_timings_ms;
         if (slot.gpu_timing.has_pending_results) {
             const f32 period_ns = device->limits().timestamp_period_ns;
             unordered_map<UString, f64> totals_ms;
             bool any_read = false;
-            // Accumulates one query set's begin/end pairs into `totals_ms` — shared between the
-            // RenderGraph's own per-pass query set and the fixed-size pre-graph one (TLAS build,
-            // photon hash clear) recorded before the graph exists, so "GPU total" below reflects
-            // both instead of silently under-reporting the pre-graph cost.
+
+
+
+
             const auto accumulate_query_set = [&](RHI::QuerySetHandle query_set,
                                                    const vector<RenderGraph::GpuPassTiming> &timings) {
                 if (!query_set || timings.empty()) {
                     return;
                 }
-                // Only the slots actually reset+written this specific prior frame are valid to
-                // read — not the query set's full allocated capacity, which can exceed that
-                // (headroom from resize policy, or a larger pass count from an earlier frame that
-                // grew capacity but isn't this frame's). Reading an unwritten slot is a real
-                // "query not reset" validation error, not just wasted work.
+
+
+
+
+
                 u32 used_query_count = 0;
                 for (const RenderGraph::GpuPassTiming &timing : timings) {
                     used_query_count = std::max(used_query_count, timing.begin_query_index + 1);
@@ -1193,9 +1184,9 @@ namespace SFT::Renderer {
                 gpu_pass_timings_ms.assign(totals_ms.begin(), totals_ms.end());
                 std::sort(gpu_pass_timings_ms.begin(), gpu_pass_timings_ms.end(),
                          [](const auto &a, const auto &b) { return a.second > b.second; });
-                // Published independent of draw_overlay_text (Scene.hpp) — a caller building its own
-                // display via Renderer::last_frame_timings() needs this even when the on-screen text
-                // block further down is skipped.
+
+
+
                 auto published_timings = record.last_frame_timings->lock();
                 published_timings->gpu_pass_timings_ms = snapshot_timings(gpu_pass_timings_ms);
                 published_timings->has_data = true;
@@ -1203,12 +1194,12 @@ namespace SFT::Renderer {
             slot.gpu_timing.has_pending_results = false;
         }
 
-        // CPU pass/stage timing readback — no query/fence dependency (it's wall-clock CPU time,
-        // ready the instant last frame's render_frame_rhi call returned), but still read back here
-        // rather than computed fresh below: this frame's debug-overlay text is built (see further
-        // down) before this frame's own RenderGraph::execute() call has run, so "this frame's own
-        // numbers" don't exist yet either way — same one-frame-stale contract as GPU timing above,
-        // just for a different reason.
+
+
+
+
+
+
         vector<pair<UString, f64>> cpu_pass_timings_ms;
         vector<pair<string, f64>> cpu_stage_timings_ms;
         if (slot.cpu_timing.has_pending_results) {
@@ -1220,7 +1211,7 @@ namespace SFT::Renderer {
             std::sort(cpu_pass_timings_ms.begin(), cpu_pass_timings_ms.end(),
                      [](const auto &a, const auto &b) { return a.second > b.second; });
             cpu_stage_timings_ms = slot.cpu_timing.stage_timings;
-            // See the matching GPU-side comment above: published regardless of draw_overlay_text.
+
             auto published_timings = record.last_frame_timings->lock();
             published_timings->cpu_pass_timings_ms = snapshot_timings(cpu_pass_timings_ms);
             published_timings->cpu_stage_timings_ms = cpu_stage_timings_ms;
@@ -1252,16 +1243,16 @@ namespace SFT::Renderer {
                 return resources;
             }
 
-            // Must happen before rhi_swapchain_dirty (read just below) or any recreate/retire-flush of
-            // the swapchain — see drain_pending_present's and WindowSurfaceRecord::pending_present's
-            // doc comments. In steady state (GPU keeping up) the previous frame's present has already
-            // finished by the time we get here, so this is a no-op wait.
-            //
-            // During a modal live resize, however, waiting here turns an asynchronous present straight
-            // back into a render-thread stall. Keep the previous swapchain image available for the
-            // platform compositor and let Application retry this coalesced frame at its bounded cadence
-            // once the present task completes. Normal frames preserve the strict wait so a resize outside
-            // the live path still observes presentation errors before touching swapchain lifetime.
+
+
+
+
+
+
+
+
+
+
             if (frame.live_resize && record.pending_present && !record.pending_present->is_done()) {
                 return {};
             }
@@ -1271,8 +1262,8 @@ namespace SFT::Renderer {
             }
             reclaim_completed_presentation_fences(record);
 
-            // Framebuffer size comes from FrameInput (already fresh from whichever thread owns the window
-            // this tick — see Application::render_managed_window), never by re-querying the Window object.
+
+
             const Core::Extent2D surface_extent{frame.framebuffer_width, frame.framebuffer_height};
             if (Core::is_zero(surface_extent)) {
                 return {};
@@ -1312,24 +1303,24 @@ namespace SFT::Renderer {
             }
         }
 
-        // GPU-driven instanced batches: contiguous same-(mesh, material) runs of submission.draws
-        // large enough to be worth one compute-culled indirect draw instead of many individual
-        // per-item ones — see detect_instanced_batches's doc comment (RendererModule.hpp) and
-        // Shaders/gpu_instance_cull.slang's header comment for the full design. Scoped to the
-        // deferred gbuffer geometry pass only for now: batched instances still go through the
-        // ordinary z-prepass per-item path below unfiltered (their own pipeline variant uses a
-        // standard depth test/write instead of relying on a prior z-prepass write — see
-        // instanced_pipeline_for's doc comment — so skipping them there is harmless, just leaves
-        // some overdraw-elimination on the table for this specific batch).
+
+
+
+
+
+
+
+
+
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
-        // capabilities_.max_frames_in_flight is already >= 1 by construction (see the frame_count
-        // comment above) — no local zero-guard needed.
+
+
         const u32 scene_frame_count = capabilities_.max_frames_in_flight;
         SceneFrameGpuResources &instance_cull_resources = record.scene_frame_resources[frame.frame_index % scene_frame_count];
-        // One bind group for every with-object-history draw this frame (RenderItem::object_index
-        // indexes the same object_buffer/view_buffer prepare_scene_gpu_data already populated above,
-        // for both instanced and non-instanced draws) — built once here rather than per-draw.
+
+
+
         RHI::BindGroupHandle object_history_group{};
         if (submission.render_graph.render_scene && !submission.draws.empty()) {
             auto history_group = ensure_object_history_bind_group(instance_cull_resources, submission.transient_bind_groups);
@@ -1345,9 +1336,9 @@ namespace SFT::Renderer {
                 return prepared;
             }
         }
-        // The gbuffer pass draws every batched instance once via its own indirect draw (below); the
-        // per-item path must skip them so they aren't drawn twice. The z-prepass remains unaffected
-        // and consumes the full, unfiltered submission.draws — see the comment above.
+
+
+
         vector<RenderItem> gbuffer_individual_draws_storage;
         span<const RenderItem> gbuffer_draws = submission.draws;
         if (!instanced_batches.empty()) {
@@ -1384,13 +1375,13 @@ namespace SFT::Renderer {
         }
 
         u64 spectral_accumulation_signature = 1469598103934665603ull;
-        // Same FNV-1a signature as spectral_accumulation_signature, but deliberately never hashes the
-        // view-projection matrix — the caustic photon map is view-independent (depends only on
-        // geometry + sun + photon settings), so folding the camera transform in here would force a
-        // full photon re-emission (up to 262144 photons, each up to max_bounces ray-traced segments,
-        // plus a 2 MiB hash-head buffer clear) on every camera pan/rotate for no reason. Everything
-        // that genuinely invalidates the cached map (geometry, sun, photon settings) is still hashed
-        // into both signatures identically via hash_u64_both/hash_float_both/hash_matrix_both below.
+
+
+
+
+
+
+
         u64 spectral_photon_signature = 1469598103934665603ull;
         bool spectral_accumulation_reset = false;
         if (full_path_tracing) {
@@ -1424,9 +1415,9 @@ namespace SFT::Renderer {
                     }
                 }
             };
-            // Accumulation is screen-space and the shader reads/writes one history image in place, so
-            // camera motion must invalidate it. The view-independent photon signature intentionally
-            // continues to exclude the camera transform.
+
+
+
             hash_matrix(submission.view_projection);
             hash_u64_both(render_extent.x);
             hash_u64_both(render_extent.y);
@@ -1460,11 +1451,11 @@ namespace SFT::Renderer {
                 history.state_signature != spectral_accumulation_signature ||
                 history.last_frame_index + 1u != frame.frame_index;
         }
-        // Snapshotted here, before ensure_hiz_pyramid can touch has_valid_data (on first build /
-        // resize) and well before this frame's own "hiz build mip" passes overwrite the pyramid's
-        // contents later on — so this is genuinely *last* completed frame's finished pyramid, for the
-        // "gpu instance cull" pass below (which runs before this frame's own depth exists at all —
-        // see its own comment) to occlusion-test against. See HiZPyramidTargets's doc comment.
+
+
+
+
+
         HiZCullInput hiz_cull_input{};
         if (Core::RendererResult hiz_build_ready = ensure_hiz_build_resources(); !hiz_build_ready.has_value()) {
             return hiz_build_ready;
@@ -1521,8 +1512,8 @@ namespace SFT::Renderer {
                 return atmosphere_resources;
             }
         }
-        // Pre-warm fullscreen post-process shaders/pipelines before recording so render-pass callbacks only
-        // mint bind groups + draw — never compile shaders or build pipelines mid command-buffer recording.
+
+
         constexpr RHI::Format bloom_format = RHI::Format::RG11B10Float;
         const bool bloom_active = submission.render_graph.bloom && submission.render_graph.bloom_intensity > 0.0f;
         if (bloom_active) {
@@ -1583,9 +1574,9 @@ namespace SFT::Renderer {
             if (const optional<Platform::Windowing::WindowHdrProperties> properties =
                     record.window->hdr_properties();
                 properties && properties->hdr_enabled && properties->sdr_white_level > 0.0f) {
-                // SDL reports SDR white in scRGB units, where 1.0 is exactly 80 nits. Matching the
-                // compositor's per-window value keeps authored UI white identical to SDR content even
-                // when the user changes KDE/Windows HDR SDR-brightness settings or moves monitors.
+
+
+
                 ui_reference_white_nits = properties->sdr_white_level * 80.0f;
                 platform_reference_white = true;
             }
@@ -1612,14 +1603,14 @@ namespace SFT::Renderer {
             }
         }
 
-        // Ensures a successfully-acquired swapchain image is never abandoned: unless explicitly
-        // disarmed once its acquisition semaphore is safely consumed by a successful submit(), any
-        // early return below forces a full swapchain rebuild (fresh semaphores) instead of risking
-        // the next acquire on this frame slot observing a still-signaled semaphore -- Vulkan
-        // requires it unsignaled at acquire time, and there is no explicit release path
-        // (VK_EXT_swapchain_maintenance1) wired in here to un-signal it any other way. A single
-        // guard covering every exit path, rather than ad hoc handling at each one -- see "successful
-        // acquisition must always resolve" (Phase 2 of the sync/presentation rework).
+
+
+
+
+
+
+
+
         struct AcquiredImageGuard {
             WindowSurfaceRecord *record = nullptr;
             bool resolved = false;
@@ -1630,19 +1621,19 @@ namespace SFT::Renderer {
             }
         } acquired_image_guard;
 
-        // The expensive acquisition-independent TLAS preparation below runs before acquire so an image
-        // is not held through that CPU/GPU-recording work. Stateful atlas preparation deliberately does
-        // not: TextAtlas publishes new residency/layout metadata as it records uploads, so a normal
-        // NotReady acquire must be resolved before those commands are recorded or a skipped frame would
-        // leave glyphs marked resident without ever uploading them. Spectral photon preparation follows
-        // the same post-acquire rule for its optimistic `populated` bookkeeping.
+
+
+
+
+
+
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
         }
-        // Known from submission alone, so computable this early — used below to time the pre-graph
-        // TLAS build/photon hash clear (which happen before the RenderGraph is even declared, let
-        // alone compiled) and reused again once execute_parallel's own per-pass timing is wired up.
+
+
+
         const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
         if (gpu_timing_enabled) {
             if (Core::RendererResult pregraph_timing = ensure_frame_pregraph_gpu_timing_target(slot);
@@ -1672,22 +1663,22 @@ namespace SFT::Renderer {
                 });
             }
         }
-        // Whether the caustic photon map (up to 262144 photons, each up to max_bounces ray-traced
-        // segments) needs re-emitting this frame. Gated on spectral_photon_signature (geometry + sun +
-        // photon settings only, no camera transform — see its own doc comment above), NOT
-        // spectral_accumulation_reset, so a static-geometry camera pan/rotate reuses this slot's
-        // existing photon map instead of paying full re-emission every single frame. Computed here
-        // (before prepare_spectral_photon_mapping can flip `populated` to true) so every later gate in
-        // this function sees the same pre-frame state.
+
+
+
+
+
+
+
         const bool spectral_photon_mapping = full_path_tracing &&
             submission.render_graph.spectral_path_tracing.photon_count > 0u;
         const bool spectral_photon_emission_needed = spectral_photon_mapping &&
             (!slot.spectral_photon_targets.populated ||
              slot.spectral_photon_targets.state_signature != spectral_photon_signature);
 
-        // Resolve the expected short-timeout NotReady path before text/UI atlas preparation mutates
-        // residency. Once acquired, every later early return is guarded by acquired_image_guard and
-        // treated as a real frame failure rather than an intentionally skipped frame.
+
+
+
         optional<RHI::SurfaceTexture> acquired_surface;
         if (!offscreen_output) {
             auto acquired = [&]() {
@@ -1712,8 +1703,8 @@ namespace SFT::Renderer {
 
         vector<TextDrawBatch> text_overlay_batches;
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
-            // The large-text path still virtualizes, caches shaping/layout, and avoids redundant
-            // instance uploads; only the two changing counter lines need reshaping each frame.
+
+
             const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
             const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
             vector<UString> overlay_lines{
@@ -1746,9 +1737,9 @@ namespace SFT::Renderer {
                                        presentation.degraded ? " (degraded)" : "");
                 }(),
             };
-            // GPU pass timing breakdown — one frame stale (this frame's own timestamps aren't
-            // available until its fence signals; see gpu_pass_timings_ms's own comment above), same
-            // one-frame-behind tradeoff every other per-frame stat here already accepts implicitly.
+
+
+
             if (!gpu_pass_timings_ms.empty()) {
                 f64 gpu_total_ms = 0.0;
                 for (const auto &[category, ms] : gpu_pass_timings_ms) {
@@ -1759,9 +1750,9 @@ namespace SFT::Renderer {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
                 }
             }
-            // CPU stage timing breakdown — the coarse top-level stages (extraction/sort in
-            // render_frame, then render_frame_rhi's own fence-wait/graph-execute/submit/present
-            // stages). One frame stale, same reason as the GPU numbers above.
+
+
+
             if (!cpu_stage_timings_ms.empty()) {
                 f64 cpu_stage_total_ms = 0.0;
                 for (const auto &[stage, ms] : cpu_stage_timings_ms) {
@@ -1772,12 +1763,12 @@ namespace SFT::Renderer {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", stage, ms));
                 }
             }
-            // CPU pass-recording breakdown — how long the CPU spent recording each RenderGraph pass
-            // (barrier insertion + record_render_items_culled/etc.), the direct counterpart to the
-            // GPU breakdown above. This is what makes parallel-vs-serial recording wins (and, once
-            // GPU-driven culling lands, the drop from many CPU draw calls to one compute-culled
-            // indirect draw) visible per pass instead of only as one lump "execute render graph"
-            // stage total.
+
+
+
+
+
+
             if (!cpu_pass_timings_ms.empty()) {
                 f64 cpu_pass_total_ms = 0.0;
                 for (const auto &[category, ms] : cpu_pass_timings_ms) {
@@ -1788,8 +1779,8 @@ namespace SFT::Renderer {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
                 }
             }
-            // The encoder's unique_ptr cleans up the abandoned recording automatically on this early
-            // return (nothing has been submitted yet, so there's nothing else to unwind).
+
+
             if (Core::RendererResult text_prepared =
                     prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
                                          glm::vec2{10.0f, 10.0f},
@@ -1812,10 +1803,10 @@ namespace SFT::Renderer {
             }
         }
 
-        // Reused across frames (record.graph, a WindowSurfaceRecord member) rather than a fresh
-        // stack-local object. reset() retains the graph's outer resource/pass container capacities;
-        // individual pass builders still rebuild their own labels, attachment vectors, and callbacks.
-        // The adjacent semantic blackboard also retains its small entry-vector allocation.
+
+
+
+
         RenderGraph &graph = record.graph;
         graph.reset();
         RenderGraphBlackboard &graph_resources = record.graph_resources;
@@ -1828,22 +1819,22 @@ namespace SFT::Renderer {
         const RHI::TextureViewHandle output_view = offscreen_output
             ? resolved_offscreen->view
             : acquired_surface->view;
-        // A composition-present image is an imported D3D texture. Its next reader is the presenter
-        // after the external timeline-semaphore handoff, not vkQueuePresentKHR, so PRESENT_SRC_KHR is
-        // invalid here; leave it in GENERAL with an explicit read dependency for that external use.
+
+
+
         const bool output_uses_composition_present =
             !offscreen_output && acquired_surface->composition_present;
 
-        // Deliberately NOT hoisted above acquire with the TLAS work:
-        // prepare_spectral_photon_mapping marks
-        // slot.spectral_photon_targets.populated = true (and updates its state_signature) as soon as
-        // it *records* the emission dispatch, optimistically assuming the encoder recording it will
-        // actually be submitted. Recording it before acquire would mean the routine, expected-to-
-        // happen "NotReady" acquire result (a clean early return, not an error -- see below) could
-        // mark the photon map populated for a frame whose GPU work never ran, leaving a later frame
-        // that trusts `populated` reading stale/uninitialized photon data. TLAS build has no such
-        // optimistic-completion bookkeeping (it unconditionally rebuilds every call), so it stays
-        // safely hoisted above; only this call needs to wait until an image is actually in hand.
+
+
+
+
+
+
+
+
+
+
         if (spectral_photon_mapping) {
             if (gpu_timing_enabled) {
                 (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 2);
@@ -1863,11 +1854,11 @@ namespace SFT::Renderer {
             }
         }
 
-        // Not a ScopedRendererStageTimer: this stage spans the whole pass-declaration section below
-        // (every add_render_pass/add_compute_pass/set_execute call, down to just before "execute
-        // render graph" starts), which is too much code to wrap in one extra brace level without
-        // touching every line in between. Measured by hand instead — see its matching read-out
-        // right before the "execute render graph" scope.
+
+
+
+
+
         const steady_clock::time_point declare_graph_start = steady_clock::now();
         const glm::vec4 background{
             submission.render_graph.background_color.r * submission.render_graph.background_intensity,
@@ -1983,7 +1974,7 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer motion",
         });
-        // HDR scene-color target consumed by gizmos and post-processing.
+
         const RenderGraphTextureHandle scene_color = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.scene_color,
             .default_view = slot.deferred_targets.scene_color_view,
@@ -2051,11 +2042,11 @@ namespace SFT::Renderer {
                 .size = static_cast<u64>(slot.spectral_photon_targets.photon_capacity) * 48u,
                 .label = "spectral caustic photons",
             });
-            // Transfer/TransferWrite only holds when prepare_spectral_photon_mapping actually issued
-            // this frame's fill_buffer clears (spectral_photon_emission_needed) — on a skipped frame
-            // nothing touches these buffers before the graph runs, same as the photons buffer above,
-            // and the ring-buffered FrameInFlight fence wait already makes last emission's writes
-            // visible without an additional barrier here.
+
+
+
+
+
             spectral_photon_count = graph.import_buffer(RenderGraphImportedBufferDesc{
                 .buffer = slot.spectral_photon_targets.valid_count,
                 .size = sizeof(u32),
@@ -2079,13 +2070,13 @@ namespace SFT::Renderer {
         const RHI::TextureViewHandle hiz_pyramid_full_view = record.hiz_pyramid.full_view;
         const Core::Extent2D hiz_pyramid_extent = record.hiz_pyramid.extent;
         const u32 hiz_pyramid_mip_levels = record.hiz_pyramid.mip_levels;
-        // hiz_cull_input.valid (captured earlier, before this frame's own "hiz build" passes below
-        // run) is exactly "was this texture left ShaderReadOnly by last frame's build pass" —
-        // ShaderReadOnly preserves contents across the transition this import performs; Undefined is
-        // a discard, correct for a texture that has never been written (first frame / just resized —
-        // see ensure_hiz_pyramid). Left ShaderReadOnly at frame exit (not whatever the build passes'
-        // own last write would otherwise leave it) so *next* frame's "gpu instance cull" pass can
-        // read it without an extra transition of its own.
+
+
+
+
+
+
+
         const RenderGraphTextureHandle hiz_pyramid_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = hiz_pyramid_gpu_texture,
             .default_view = hiz_pyramid_full_view,
@@ -2100,11 +2091,11 @@ namespace SFT::Renderer {
             .final_access = RHI::AccessFlags::ShaderRead,
             .label = "hi-z pyramid",
         });
-        // Hi-Z is consumed by the next frame rather than the current presentation chain.
+
         graph.mark_output(hiz_pyramid_texture);
-        // SRAA keeps only visibility at the requested MSAA rate. Material attributes, motion,
-        // lighting, and every post-process remain single-sampled; the multisampled depth is consumed
-        // by a depth-guided reconstruction pass after deferred lighting.
+
+
+
         RenderGraphTextureHandle raster_depth = depth_texture;
         const bool multisampled = framebuffer_samples != RHI::SampleCount::X1;
         if (multisampled) {
@@ -2140,8 +2131,8 @@ namespace SFT::Renderer {
         graph_resources.publish_texture<RenderGraphSemantics::RasterVisibilityDepth>(raster_depth);
         graph_resources.publish_texture<RenderGraphSemantics::PresentationTarget>(final_output);
         if (submission.deferred_formats.emissive == submission.deferred_formats.scene_color) {
-            // Deferred lighting is the last consumer of emissive. SRAA can overwrite the allocation
-            // afterward instead of allocating another full-resolution HDR texture.
+
+
             graph_resources.publish_texture<RenderGraphSemantics::ReusableSceneHdrScratch>(gbuffer_emissive);
         }
 
@@ -2164,14 +2155,14 @@ namespace SFT::Renderer {
             });
         }
 
-        // Shared by "z prepass" and "deferred gbuffer geometry" below — both draw the same
-        // submission.draws against the same camera view, so items outside the camera frustum never
-        // need a draw call issued for either pass.
+
+
+
         const Frustum camera_frustum = frustum_from_view_projection(submission.view_projection);
 
-        // Sky/atmosphere LUT bakes have no dependency on culling/gbuffer state (only camera height +
-        // sun angle), so they're declared early and rebaked every frame — see
-        // Renderer::record_atmosphere_lut_bakes' own doc comment for why nothing here is cached.
+
+
+
         RenderGraphTextureHandle transmittance_lut{};
         RenderGraphTextureHandle multi_scattering_lut{};
         RenderGraphTextureHandle sky_view_lut{};
@@ -2228,14 +2219,14 @@ namespace SFT::Renderer {
 
         if (submission.render_graph.render_scene && !full_path_tracing) {
             if (shadow_frame.atlas_used) {
-                // Decided once, here, rather than inside the execute_ callback below: Vulkan's
-                // vkCmdBeginRendering must be told up front (VkRenderingInfo's
-                // VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT flag) whether this render-pass
-                // instance will use execute_bundles — that flag has to match what the callback
-                // actually does exactly, including on the "too few views to bother parallelizing"
-                // fallback (which stays fully inline, no bundles, matching allow_bundles=false there).
-                // See RenderGraphRenderPassBuilder::set_allow_bundles' own doc comment for the crash
-                // this fixes (VUID-vkCmdExecuteCommands-flags-06024, hit and root-caused this session).
+
+
+
+
+
+
+
+
                 const bool shadow_atlas_uses_bundles =
                     device->is_enabled(RHI::Feature::RenderBundles) &&
                     shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
@@ -2264,14 +2255,14 @@ namespace SFT::Renderer {
                         const RHI::Format depth_format = slot.shadow_targets.format;
                         const u32 worker_count = Async::Scheduler::worker_count();
 
-                        // Below this many views, or with no worker pool to spread them across,
-                        // per-chunk RenderBundleEncoder overhead isn't worth it — record every view
-                        // directly into the primary pass encoder, exactly like before this session's
-                        // shadow-parallelization pass (same "not worth it below N" reasoning as
-                        // record_render_items_culled's own kParallelRecordThreshold). Branches on the
-                        // exact same `shadow_atlas_uses_bundles` value the pass was declared with
-                        // (rather than recomputing an equivalent condition here) so this can never drift
-                        // out of sync with the allow_bundles flag the render pass was opened with.
+
+
+
+
+
+
+
+
                         if (!shadow_atlas_uses_bundles) {
                             return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
                                                             frame.frame_index, shadow_depth_bias, shadow_slope_bias);
@@ -2293,18 +2284,18 @@ namespace SFT::Renderer {
                         };
                         vector<ShadowChunkResult> results(chunk_count);
 
-                        // Pool/buffer *creation* happens here, serially, on this thread — not inside
-                        // the spawned tasks below. Same root cause and fix as execute_parallel's own
-                        // command-pool-creation race found earlier this session (see memory
-                        // project_render_threading): calling vkCreateCommandPool/vkAllocateCommandBuffers
-                        // concurrently from multiple worker threads reliably corrupts the heap on this
-                        // RADV setup, even though each thread creates its own independent pool/buffer —
-                        // create_render_bundle_encoder has the exact same pool+buffer creation shape
-                        // (VulkanRhiBridgeCommands.cpp) and was never covered by that earlier fix, since
-                        // nothing had called it concurrently until this shadow-parallelization pass (the
-                        // pre-existing record_render_items_culled >128-item bundle path has the same
-                        // latent bug — see that function's own fix in this same change). Only the actual
-                        // *recording* (culling + draws) is dispatched to worker threads below.
+
+
+
+
+
+
+
+
+
+
+
+
                         for (usize chunk = 0; chunk < chunk_count; ++chunk) {
                             const usize begin = chunk * chunk_size;
                             const usize end = std::min(views.size(), begin + chunk_size);
@@ -2374,9 +2365,9 @@ namespace SFT::Renderer {
                         if (!bundles.empty()) {
                             pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
                         }
-                        // Same use-after-free risk as record_render_items_culled's parallel path (see
-                        // its own comment): execute_bundles only records a reference for the GPU to run
-                        // later, so destruction must wait for this frame's fence, not happen here.
+
+
+
                         submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
                                                                     bundles.begin(), bundles.end());
                         if (has_error) {
@@ -2386,20 +2377,20 @@ namespace SFT::Renderer {
                     });
             }
 
-            // Z prepass: writes real depth for every surviving (alpha-tested-or-not) fragment before
-            // any color shading happens, so "deferred gbuffer geometry" below can require an exact
-            // depth match instead of writing depth itself — a fragment that isn't the visible surface
-            // never runs full PBR shading, eliminating occluded-fragment overdraw cost. See
-            // Renderer::depth_only_pipeline_for's doc comment.
-            //
-            // allow_bundles must be decided here, before the pass is opened, not inside the
-            // execute_ callback below — same reasoning as the raster shadow atlas pass's
-            // shadow_atlas_uses_bundles (see that pass's own comment for the crash this avoids,
-            // VUID-vkCmdExecuteCommands-flags-06024). Counts survivors against
-            // kParallelRecordThreshold up front (a cheap frustum test, not the actual recording
-            // work) rather than using submission.draws.size() outright, so a scene with many total
-            // items but heavy frustum culling (e.g. a large open world) doesn't pay bundle-encoder
-            // overhead for a handful of visible draws.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             usize zprepass_visible_count = 0;
             for (const RenderItem &item : submission.draws) {
                 if (render_item_visible(item, camera_frustum)) {
@@ -2431,14 +2422,14 @@ namespace SFT::Renderer {
                     return record_render_items_culled(pass, submission.draws, camera_frustum,
                                                        span<const RHI::Format>{}, submission.deferred_formats.depth,
                                                        frame.frame_index, submission.view_projection,
-                                                       /*depth_only=*/true, /*standard_depth_test=*/false, "z prepass",
+                                                                      true,                         false, "z prepass",
                                                        zprepass_uses_bundles, submission.transient_render_bundles,
-                                                       /*shadow_map=*/false, 0.0f, 0.0f, framebuffer_samples);
+                                                                      false, 0.0f, 0.0f, framebuffer_samples);
                 });
 
-            // Same allow_bundles-decided-before-declaration reasoning as "z prepass" above, against
-            // gbuffer_draws (the individually-drawn subset — instanced batches are recorded
-            // separately below via record_instanced_batches, not through this bundle path).
+
+
+
             usize gbuffer_visible_count = 0;
             for (const RenderItem &item : gbuffer_draws) {
                 if (render_item_visible(item, camera_frustum)) {
@@ -2481,9 +2472,9 @@ namespace SFT::Renderer {
                 })
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = depth_texture,
-                    // At 1x this is the same target populated by the Z prepass. Under SRAA the
-                    // visibility prepass is a separate MSAA image, so clear and establish 1x depth
-                    // alongside the 1x G-buffer instead of resolving multisampled depth.
+
+
+
                     .depth_load_op = multisampled ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
                     .depth_store_op = RHI::StoreOp::Store,
                     .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
@@ -2524,11 +2515,11 @@ namespace SFT::Renderer {
                     const span<const RHI::Format> gbuffer_formats_span{gbuffer_formats.data(), gbuffer_formats.size()};
                     if (Core::RendererResult recorded = record_render_items_culled(
                             pass, gbuffer_draws, camera_frustum, gbuffer_formats_span, submission.deferred_formats.depth,
-                            frame.frame_index, submission.view_projection, /*depth_only=*/false,
-                            /*standard_depth_test=*/multisampled, "deferred gbuffer geometry",
+                            frame.frame_index, submission.view_projection,                false,
+                                                    multisampled, "deferred gbuffer geometry",
                             gbuffer_uses_bundles, submission.transient_render_bundles,
-                            /*shadow_map=*/false, 0.0f, 0.0f, RHI::SampleCount::X1,
-                            /*with_object_history=*/true, object_history_group);
+                                           false, 0.0f, 0.0f, RHI::SampleCount::X1,
+                                                    true, object_history_group);
                         !recorded.has_value()) {
                         return recorded;
                     }
@@ -2544,10 +2535,10 @@ namespace SFT::Renderer {
                     return {};
                 });
 
-            // Builds *this* frame's Hi-Z pyramid from the depth the passes above just finished
-            // writing, for *next* frame's "gpu instance cull" pass to occlusion-test against — see
-            // HiZPyramidTargets's and record_hiz_build's own doc comments for why it can't be this
-            // same frame's cull pass instead.
+
+
+
+
             if (Core::RendererResult hiz_built = record_hiz_build(
                     graph, depth_texture, slot.deferred_targets.depth_view, render_extent,
                     hiz_pyramid_texture, record.hiz_pyramid, submission.transient_bind_groups);
@@ -2785,7 +2776,7 @@ namespace SFT::Renderer {
                         submission.transient_bind_groups);
                 });
         } else if (!submission.render_graph.render_scene && !direct_overlay_presentation) {
-            // Overlay-only views with post-processing still need a defined HDR source.
+
             graph.add_render_pass("scene background"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = scene_color,
@@ -2808,11 +2799,11 @@ namespace SFT::Renderer {
         const RenderGraphTextureHandle scene_before_bloom =
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
 
-        // Always-on debug markers (e.g. light-position icospheres, Shaders/geometry_color.slang).
-        // This pass writes into the semantic HDR chain before spatial AA and custom HDR transforms,
-        // so marker edges are filtered and emissive values participate in the complete bloom pyramid.
-        // When scene geometry ran, load its depth so occluded gizmos stay hidden; otherwise clear
-        // depth for a defined overlay-only pass.
+
+
+
+
+
         if (!submission.gizmo_draws.empty()) {
             const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
             graph.add_render_pass("pre-bloom light indicators"_ustr)
@@ -2843,7 +2834,7 @@ namespace SFT::Renderer {
                         if (Core::RendererResult recorded = record_render_item(
                                 pass, item, span<const RHI::Format>{gizmo_color_formats.data(), gizmo_color_formats.size()},
                                 submission.deferred_formats.depth, frame.frame_index, submission.view_projection,
-                                /*depth_only=*/false, binding_state, /*standard_depth_test=*/true);
+                                               false, binding_state,                         true);
                             !recorded.has_value()) {
                             return recorded;
                         }
@@ -2860,8 +2851,8 @@ namespace SFT::Renderer {
             submission.render_graph.custom_graph.anti_aliasing_output,
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
 
-        // Custom graph branches are lowered after scene-space gizmos and the complete AA module, so the
-        // selected presentation branch and every branch rooted at AA see the same pre-bloom HDR result.
+
+
         if (Core::RendererResult effects = build_custom_graph_stage(
                 module_context, submission, PostProcessStage::BeforeBloom, logical_graph_textures);
             !effects.has_value()) {
@@ -2883,14 +2874,14 @@ namespace SFT::Renderer {
             return effects;
         }
 
-        // Tonemap post-process: sample the final scene-linear HDR result (bloom already composited in
-        // above, if active) and resolve it to the swapchain. recreate_rhi_swapchain() above already
-        // picks a matching format/color-space for the swapchain itself once presentation.hdr_enabled
-        // is set (hdr_presentation_format/hdr_presentation_color_space) — the tonemap pipeline's own
-        // color-attachment format must match, and the shader must know which curve to apply: PQ for
-        // Hdr10St2084 (and DolbyVision, best-effort — Vulkan applies no fixed-function PQ curve),
-        // HLG for Hdr10Hlg, none at all for ScrgbLinear (the OS/compositor tone-maps a linear float
-        // target itself), sRGB's automatic OETF for SDR.
+
+
+
+
+
+
+
+
         if (!direct_overlay_presentation) {
             if (Core::RendererResult tone_mapped = build_tonemap_module(
                     module_context, submission, output_format, hdr_output, record.presentation.hdr_color_space);
@@ -2900,8 +2891,8 @@ namespace SFT::Renderer {
         }
 
         if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
-            // Shaping/residency/instance upload happened above; this pass only issues the prepared
-            // instanced draws over the tonemapped scene.
+
+
             graph.add_render_pass("debug text overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = final_output,
@@ -2921,16 +2912,16 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
-                    // draw_text_overlay re-derives the RHI device itself (it already needs to for
-                    // pipeline access), so it can compute the clip-space backend flip on its own
-                    // rather than threading it through this capture list too.
+
+
+
                     return draw_text_overlay(pass, text_overlay_batches, viewport_size);
                 });
         }
 
         if (submission.render_graph.ui_overlay) {
-            // prepare() already ran above (before this graph's first pass was declared) — this
-            // pass only issues the draw calls it prepared, over the fully composited frame.
+
+
             graph.add_render_pass("UI overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = ui_overlay_target,
@@ -2954,10 +2945,10 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
-                    // Renderer::UiOverlayDrawFn's signature is fixed (external registrants like
-                    // Engine's EcsUi.hpp implement it too), so the backend-dependent clip-space sign
-                    // isn't threaded through here — UiRenderer::draw() (the usual implementer) stashes
-                    // it from create() instead, same as draw_text_overlay() above.
+
+
+
+
                     return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
                 });
         }
@@ -3022,10 +3013,10 @@ namespace SFT::Renderer {
             current_frame_cpu_stage_timings_ms.emplace_back("declare render graph", seconds * 1000.0);
         }
         if (gpu_timing_enabled) {
-            // compile() is pure-CPU and cheap (see its own doc comment) — calling it here just to
-            // learn the pass count for query-set sizing, then letting execute() below recompile
-            // internally, is simpler than threading a precomputed CompiledPlan through execute()'s
-            // public signature for what's a debug-only feature.
+
+
+
+
             const RenderGraph::CompileResult precompiled = graph.compile();
             const u32 pass_count = precompiled.has_value() ? static_cast<u32>(precompiled->order.size()) : 0;
             if (Core::RendererResult timing_target = ensure_frame_gpu_timing_target(slot, pass_count);
@@ -3036,17 +3027,17 @@ namespace SFT::Renderer {
         vector<RHI::CommandBufferHandle> frame_command_buffers;
         {
             ScopedRendererStageTimer timer{"execute render graph", &current_frame_cpu_stage_timings_ms};
-            // CPU per-pass timing rides the same debug_overlay gate as GPU per-pass timing
-            // (gpu_timing_enabled) even though it needs no query set of its own — keeps the two
-            // breakdowns' pass lists in lockstep and avoids per-frame vector churn when the overlay
-            // (the only current consumer) is off.
-            //
-            // execute_parallel (not execute()) — takes ownership of `encoder` (already carrying the
-            // text-overlay/UI prep work recorded into it above), finishes it as the first command
-            // buffer, then records the graph's own passes into their own encoder(s), one per pass for
-            // any level with more than one independent pass (Stage 4 of the render-parallelization
-            // roadmap — see RenderGraph::execute_parallel's own doc comment). `frame_command_buffers`
-            // ends up with every resulting handle in submission order.
+
+
+
+
+
+
+
+
+
+
+
             Core::RendererResult graph_result = gpu_timing_enabled
                 ? graph.execute_parallel(*device, std::move(*encoder), RHI::QueueLane{}, frame_command_buffers,
                                          slot.gpu_timing.query_set, &slot.gpu_timing.pending,
@@ -3083,14 +3074,14 @@ namespace SFT::Renderer {
                 return unexpected(graphics_error_from_rhi(submitted.error(), "submit RHI frame"));
             }
         }
-        // The acquisition semaphore (if any) is now safely consumed -- submit_desc's presented_textures
-        // embedded it as a wait-semaphore, and that submission just succeeded. See acquired_image_guard's
-        // own doc comment: only a *successful* submit() actually resolves the acquired image.
+
+
+
         acquired_image_guard.resolved = true;
 
-        // The frame is now in flight. Hand its GPU resources to the ring slot for fence-gated cleanup —
-        // deliberately NO wait here (the whole point of the async model). They are reclaimed the next time
-        // this slot comes round, after its fence has signaled.
+
+
+
         slot.command_buffers = std::move(frame_command_buffers);
         slot.transient_textures = std::move(submission.retired_text_atlas_resources.textures);
         slot.transient_texture_views = std::move(submission.retired_text_atlas_resources.texture_views);
@@ -3117,24 +3108,24 @@ namespace SFT::Renderer {
         if (offscreen_output) {
             mark_offscreen_render_target_initialized(submission.offscreen_target);
         } else {
-            // Handed off to Renderer's shared PresentationCoordinator rather than called
-            // synchronously here: on Windows the driver commonly blocks the calling thread inside
-            // vkQueuePresentKHR until this frame's GPU work actually finishes (present-mode
-            // independent -- its pWaitSemaphores waits on the render-finished semaphore this same
-            // frame's submit() just signaled, only moments earlier). Blocking this render thread on
-            // that would waste the CPU/GPU overlap desired_frames_in_flight is meant to buy, and
-            // routing through the coordinator (rather than a per-window present thread) gives every
-            // window sharing this native queue one ordered point of issuance instead of N
-            // independently-threaded ones with no ordering guarantee relative to each other. The
-            // result (error / suboptimal-dirty flag / queue-lock-wait timing) is picked up next frame
-            // by drain_pending_present() instead of here -- see WindowSurfaceRecord::pending_present's
-            // doc comment for the ordering invariant that keeps this safe.
+
+
+
+
+
+
+
+
+
+
+
+
             ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
-            // Per-swapchain, not RhiDevice::is_enabled(SwapchainMaintenance) directly — a
-            // composition-present swapchain (RHI::PresentationResolution::composite_alpha_degraded's
-            // own doc comment) never goes through vkQueuePresentKHR, so it can't honor a completion
-            // fence even when the device-level feature is enabled. See
-            // supports_completion_fence's own doc comment (RHI/Swapchain.hpp).
+
+
+
+
+
             const RHI::PresentationResolution presentation = device->presentation_resolution(record.rhi_swapchain);
             RHI::FenceHandle completion_fence{};
             if (presentation.supports_completion_fence) {
@@ -3165,21 +3156,21 @@ namespace SFT::Renderer {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "wait explicitly requested frame completion: vkWaitForFences timed out.");
             }
-            // Explicit completion means presented too, not just GPU-rendered -- drain the present this
-            // same call just issued above rather than leaving it for next frame.
+
+
             if (Core::RendererResult drained = drain_pending_present(record, &current_frame_cpu_stage_timings_ms);
                 !drained.has_value()) {
                 return drained;
             }
         }
 
-        // Stash this call's CPU stage timings on the slot for next-frame readback (see
-        // FrameCpuTimingTarget's doc comment) — folding in whatever render_frame/render_frame_dispatch
-        // staged before this function ever started (extraction + sort), so the eventual overlay report
-        // covers the full CPU frame, not just the RHI-facing tail of it. Only bother when the pass
-        // timings above were actually collected (gpu_timing_enabled); otherwise leave the slot's
-        // previous (already-consumed) contents alone rather than overwriting them with a partial,
-        // untimed-pass picture.
+
+
+
+
+
+
+
         if (gpu_timing_enabled) {
             slot.cpu_timing.stage_timings = std::move(current_frame_cpu_stage_timings_ms);
             slot.cpu_timing.stage_timings.insert(slot.cpu_timing.stage_timings.end(),
@@ -3215,7 +3206,7 @@ namespace SFT::Renderer {
             return {};
         }
 
-        // Bloom's cached first-level descriptor references scene_color_view.
+
         destroy_frame_bloom_targets(slot);
         destroy_frame_deferred_targets(slot);
 
@@ -3341,8 +3332,8 @@ namespace SFT::Renderer {
             .depth_view = depth->second,
         };
         if (samples != RHI::SampleCount::X1) {
-            // NVIDIA SRAA stores only subpixel visibility. Unlike a transient resolve source this
-            // depth image must survive the prepass and be sampleable by the reconstruction shader.
+
+
             auto msaa_depth = create_target(
                 formats.depth,
                 RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
@@ -3411,10 +3402,10 @@ namespace SFT::Renderer {
         slot.bloom_targets.requested_levels = requested_levels;
         slot.bloom_targets.downsample_ratio = downsample_ratio;
 
-        // Hardware mips are locked to powers of two. Independent level images let us use the requested
-        // fractional ratio (golden ratio by default), so successive pixel centers do not repeatedly align
-        // on a small rational grid. Keep both axes large enough for the
-        // 3x3 reconstruction tent; tiny render targets still receive one valid first level.
+
+
+
+
         constexpr u32 minimum_stable_bloom_axis = 4u;
         Core::Extent2D source_extent = extent;
         for (u32 level = 0; level < requested_levels; ++level) {
@@ -3501,8 +3492,8 @@ namespace SFT::Renderer {
 
         slot.bloom_targets.downsample_bind_groups.resize(slot.bloom_targets.views.size());
         slot.bloom_targets.upsample_bind_groups.resize(slot.bloom_targets.views.size());
-        // Level zero samples the semantic scene source, which may be a per-frame custom-graph transient;
-        // its bind group is therefore always minted during recording instead of wasting a stale cached one.
+
+
         for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
             auto group = create_group(slot.bloom_targets.views[level - 1]);
             if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
@@ -3606,13 +3597,13 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer RHI device is unavailable.");
         }
-        // Growing loses any not-yet-read-back results from this slot's previous query set — harmless,
-        // it's a debug-only readout and the very next frame's readback attempt just finds nothing
-        // pending (has_pending_results already gets cleared below).
+
+
+
         destroy_frame_gpu_timing_target(slot);
 
-        // A little headroom over the exact requirement so a modest pass-count wobble from optional
-        // post-process stages doesn't immediately force another resize.
+
+
         const u32 capacity = required_capacity + 16;
         auto query_set = device->create_query_set(RHI::QuerySetDesc{
             .type = RHI::QueryType::Timestamp,
@@ -3690,7 +3681,7 @@ namespace SFT::Renderer {
                     device->destroy_render_bundle(bundle);
                 }
             }
-            // Views before the textures they alias.
+
             for (RHI::TextureViewHandle view : slot.transient_texture_views) {
                 if (view) {
                     device->destroy_texture_view(view);
@@ -3701,13 +3692,13 @@ namespace SFT::Renderer {
                     device->destroy_texture(texture);
                 }
             }
-            // NOT covered by the same guarantee as the transient resources above: a retired
-            // swapchain/presentation texture was used by a vkQueuePresentKHR, which isn't fenced the
-            // way a command buffer submission is, so this slot's own frame fence signaling doesn't
-            // prove the present has finished (VUID-vkDestroySwapchainKHR-swapchain-01282 will fire if
-            // you destroy on that assumption — learned the hard way). Only call this with `true` right
-            // after a real device->wait_idle() (drain_frames_in_flight / teardown / the periodic
-            // maybe_flush_retired_swapchains() bounded flush) — never off a single fence wait.
+
+
+
+
+
+
+
             if (destroy_retired_presentation) {
                 for (RHI::TextureViewHandle view : slot.retired_presentation_texture_views) {
                     if (view) {
@@ -3758,18 +3749,18 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return;
         }
-        // Sanctioned heavy wait (teardown / periodic retired-swapchain flush), never the per-frame path.
+
         device->wait_idle();
         for (FrameInFlight &slot : record.frames_in_flight) {
-            // Reclaim unconditionally (not just `if (slot.submitted)`): a slot can carry retired
-            // swapchains/presentation textures (attached by recreate_rhi_swapchain onto whichever ring
-            // index the *previous* frame used) even on a rare cycle where this exact slot itself was
-            // never submitted — e.g. very early in a window's life, before the ring has gone around
-            // once. Reclaiming an otherwise-empty slot is a no-op, so this costs nothing normally.
+
+
+
+
+
             reclaim_frame_slot(slot, true);
             slot.submitted = false;
-            // Leave the fence allocated but unsignaled so the slot is immediately reusable — wait_idle
-            // above left every submitted fence signaled, and vkQueueSubmit needs an unsignaled one.
+
+
             if (slot.fence) {
                 if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
                     Foundation::log_warn("Failed to reset drained frame fence: {}", reset.error().message);
@@ -3868,10 +3859,10 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::maybe_flush_retired_swapchains");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr && device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
-            // Native WSI generations with completion fences can retire through cheap polling. A
-            // composition-present generation has no such fence and remains on a frame slot below, where
-            // it must eventually take the conservative device-idle path instead of being destroyed as
-            // soon as an empty fence list is observed.
+
+
+
+
             reclaim_completed_retired_presentations(record);
             bool has_fence_less_retirement = false;
             for (const FrameInFlight &slot : record.frames_in_flight) {
@@ -3889,8 +3880,8 @@ namespace SFT::Renderer {
         for (const FrameInFlight &slot : record.frames_in_flight) {
             retired_count += slot.retired_swapchains.size();
         }
-        // Portable fallback: without presentation completion tracking, the only proof that an old
-        // swapchain is no longer referenced by vkQueuePresentKHR is a device-wide idle point.
+
+
         const usize threshold = opportunistic ? 1 : retired_swapchain_flush_threshold;
         if (retired_count < threshold) {
             return;
@@ -3902,21 +3893,21 @@ namespace SFT::Renderer {
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::destroy_rhi_presentation_resources");
         if (RHI::RhiDevice *device = rhi_device()) {
-            // Must happen before drain_frames_in_flight()'s wait_idle() / anything that destroys this
-            // record's swapchain -- an outstanding presentation-coordinator job that hasn't actually
-            // issued its vkQueuePresentKHR call yet is invisible to wait_idle() (it only knows about
-            // work already handed to the driver). Result/error ignored: this is best-effort teardown,
-            // and the window is going away regardless. See WindowSurfaceRecord::pending_present's doc
-            // comment.
+
+
+
+
+
+
             (void)drain_pending_present(record, nullptr);
-            // Per-window teardown is allowed to stall. The window is about to disappear, so first make
-            // every submitted frame for this surface complete and reclaim frame-owned command buffers,
-            // transient targets, and retired swapchains. Without this, Wayland WSI objects backing
-            // presented swapchain images can still be attached when SDL destroys the wl_surface, producing
-            // "mesa vk display queue ... destroyed while proxies still attached" warnings.
+
+
+
+
+
             drain_frames_in_flight(record);
-            // wait_idle() above also completes every presentation fence, so teardown can reclaim the
-            // maintenance path's old generations and any current-generation fences unconditionally.
+
+
             destroy_retired_presentations(record);
             for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
                 device->destroy_fence(fence);

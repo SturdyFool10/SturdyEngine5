@@ -9,30 +9,30 @@
 
 namespace SFT::RHI {
 
-    // ─── Optional feature vocabulary ─────────────────────────────────────────────
-    //
-    // `Feature` is intentionally a broad, behavior-oriented, first-class capability catalog. The RHI is
-    // a maximal-union API: if Vulkan/D3D12/Metal/WebGPU expose a stable, app-visible capability, prefer
-    // a named feature here over an `ExtensionId` escape hatch. `ExtensionId` remains for truly
-    // backend/vendor-specific interfaces, prototypes, or capabilities whose RHI descriptor vocabulary
-    // has not been designed yet.
-    //
-    // Feature names should describe what renderer code can do, not which backend revision exposed it:
-    // `RayTracingPipeline` is useful; `Maintenance11` is not. API version/maintenance bundles stay in
-    // backend mapping tables until their concrete behaviors become RHI-visible features.
-    //
-    // A feature is a boolean: supported, requested, enabled. Graded values and limits live in
-    // `FeatureProperties`, `DeviceLimits`, queue topology, or per-format queries. Vulkan feature bits
-    // may map one-to-one to entries below; D3D12 tiers and Metal GPU families usually map to bundles
-    // of entries.
+    /// ─── Optional feature vocabulary ─────────────────────────────────────────────
+    ///
+    /// `Feature` is intentionally a broad, behavior-oriented, first-class capability catalog. The RHI is
+    /// a maximal-union API: if Vulkan/D3D12/Metal/WebGPU expose a stable, app-visible capability, prefer
+    /// a named feature here over an `ExtensionId` escape hatch. `ExtensionId` remains for truly
+    /// backend/vendor-specific interfaces, prototypes, or capabilities whose RHI descriptor vocabulary
+    /// has not been designed yet.
+    ///
+    /// Feature names should describe what renderer code can do, not which backend revision exposed it:
+    /// `RayTracingPipeline` is useful; `Maintenance11` is not. API version/maintenance bundles stay in
+    /// backend mapping tables until their concrete behaviors become RHI-visible features.
+    ///
+    /// A feature is a boolean: supported, requested, enabled. Graded values and limits live in
+    /// `FeatureProperties`, `DeviceLimits`, queue topology, or per-format queries. Vulkan feature bits
+    /// may map one-to-one to entries below; D3D12 tiers and Metal GPU families usually map to bundles
+    /// of entries.
     enum class Feature : u32 {
-        // RHI baseline validators. The RHI is designed around these, but they are still named so a
-        // backend can report a precise unsupported requirement on APIs/devices where they are not core.
+        /// RHI baseline validators. The RHI is designed around these, but they are still named so a
+        /// backend can report a precise unsupported requirement on APIs/devices where they are not core.
         TimelineSynchronization,
         Synchronization2,
         DynamicRendering,
 
-        // Device robustness, safety, and protected execution.
+        /// Device robustness, safety, and protected execution.
         RobustBufferAccess,
         RobustBufferAccess2,
         RobustImageAccess,
@@ -41,7 +41,7 @@ namespace SFT::RHI {
         ProtectedMemory,
         PipelineProtectedAccess,
 
-        // Shader stages and programmable pipeline front-ends.
+        /// Shader stages and programmable pipeline front-ends.
         GeometryShader,
         TessellationShader,
         MeshShader,
@@ -51,7 +51,7 @@ namespace SFT::RHI {
         ShaderObject,
         ShaderDrawParameters,
 
-        // Ray tracing and acceleration structures.
+        /// Ray tracing and acceleration structures.
         AccelerationStructures,
         AccelerationStructureCaptureReplay,
         AccelerationStructureIndirectBuild,
@@ -71,8 +71,8 @@ namespace SFT::RHI {
         PipelineLibrary,
         PipelineLibraryGroupHandles,
 
-        // Descriptor/resource binding model. Keep `BindlessResources` as the high-level renderer path,
-        // but expose fine-grained indexing/update capabilities individually for precise negotiation.
+        /// Descriptor/resource binding model. Keep `BindlessResources` as the high-level renderer path,
+        /// but expose fine-grained indexing/update capabilities individually for precise negotiation.
         BindlessResources,
         DescriptorIndexing,
         RuntimeDescriptorArrays,
@@ -103,7 +103,7 @@ namespace SFT::RHI {
         InlineUniformBlockUpdateAfterBind,
         MutableDescriptorTypes,
 
-        // Shader numeric types, storage widths, atomics, and math instructions.
+        /// Shader numeric types, storage widths, atomics, and math instructions.
         ShaderInt8,
         ShaderInt16,
         ShaderInt64,
@@ -137,7 +137,7 @@ namespace SFT::RHI {
         ShaderFloatControls2,
         ShaderFma,
 
-        // Shader memory model, pointer/layout controls, and control-flow semantics.
+        /// Shader memory model, pointer/layout controls, and control-flow semantics.
         SubgroupOperations,
         SubgroupExtendedTypes,
         SubgroupSizeControl,
@@ -177,7 +177,7 @@ namespace SFT::RHI {
         VertexPipelineStoresAndAtomics,
         FragmentStoresAndAtomics,
 
-        // Rasterization and fixed-function pipeline state.
+        /// Rasterization and fixed-function pipeline state.
         DepthClamp,
         DepthClampZeroOne,
         DepthClipEnable,
@@ -219,7 +219,7 @@ namespace SFT::RHI {
         LegacyVertexAttributes,
         LegacyDithering,
 
-        // Fragment shading rate / density and tile-local attachment access.
+        /// Fragment shading rate / density and tile-local attachment access.
         VariableRateShading,
         PipelineFragmentShadingRate,
         PrimitiveFragmentShadingRate,
@@ -231,7 +231,7 @@ namespace SFT::RHI {
         FramebufferFetch,
         ShaderTileImage,
 
-        // Attachment/rendering model extras beyond the core dynamic-rendering path.
+        /// Attachment/rendering model extras beyond the core dynamic-rendering path.
         Multiview,
         MultiviewGeometryShader,
         MultiviewTessellationShader,
@@ -248,7 +248,7 @@ namespace SFT::RHI {
         CreateRenderPass2,
         SubpassMergeFeedback,
 
-        // Draw, dispatch, and command-generation features.
+        /// Draw, dispatch, and command-generation features.
         FullDrawIndexUint32,
         IndexTypeUint8,
         PrimitiveRestart,
@@ -267,7 +267,7 @@ namespace SFT::RHI {
         RenderBundles,
         InheritedQueries,
 
-        // Buffers, addresses, sparse/tiled resources, residency, and memory management.
+        /// Buffers, addresses, sparse/tiled resources, residency, and memory management.
         BufferDeviceAddress,
         BufferDeviceAddressCaptureReplay,
         BufferDeviceAddressMultiDevice,
@@ -302,8 +302,8 @@ namespace SFT::RHI {
         MetalObjects,
         Win32KeyedMutex,
 
-        // Texture/image/sampler capability bits. Per-format support should still be queried separately;
-        // these name global shader/sampler/view behaviors and compression families.
+        /// Texture/image/sampler capability bits. Per-format support should still be queried separately;
+        /// these name global shader/sampler/view behaviors and compression families.
         ImageCubeArray,
         Format4444,
         Rgba10x6Formats,
@@ -335,7 +335,7 @@ namespace SFT::RHI {
         Ycbcr2Plane444Formats,
         YcbcrImageArrays,
 
-        // Queries, timing, and diagnostics/introspection that affect renderer behavior.
+        /// Queries, timing, and diagnostics/introspection that affect renderer behavior.
         OcclusionQueries,
         PreciseOcclusionQueries,
         TimestampQueries,
@@ -358,7 +358,7 @@ namespace SFT::RHI {
         PipelineProperties,
         PipelineBinary,
 
-        // Queueing, synchronization interop, presentation, and display.
+        /// Queueing, synchronization interop, presentation, and display.
         AsyncCompute,
         AsyncTransfer,
         QueueFamilyForeign,
@@ -397,8 +397,8 @@ namespace SFT::RHI {
         HdrMetadata,
         SwapchainColorspace,
 
-        // Video encode/decode acceleration. These are RHI-visible only when media work is scheduled on
-        // graphics API queues; a separate media subsystem may also consume the same bits.
+        /// Video encode/decode acceleration. These are RHI-visible only when media work is scheduled on
+        /// graphics API queues; a separate media subsystem may also consume the same bits.
         VideoDecodeQueue,
         VideoEncodeQueue,
         VideoDecodeH264,
@@ -413,11 +413,11 @@ namespace SFT::RHI {
         VideoEncodeIntraRefresh,
         VideoEncodeQuantizationMap,
 
-        // API maintenance/version bundles are intentionally not RHI features. Split them into concrete
-        // behavior names above when renderer code can directly rely on that behavior; otherwise keep the
-        // raw backend extension/version in the backend mapping layer or an `ExtensionId`.
 
-        // Portability and device/driver introspection.
+
+
+
+        /// Portability and device/driver introspection.
         PortabilityEnumeration,
         PortabilitySubset,
         DriverProperties,
@@ -425,16 +425,16 @@ namespace SFT::RHI {
         PciBusInfo,
         PhysicalDeviceDrm,
 
-        // Keep last — the count of features, used to size FeatureSet. Never assign it a value or
-        // reorder entries above it without updating any persisted feature sets.
+        /// Keep last — the count of features, used to size FeatureSet. Never assign it a value or
+        /// reorder entries above it without updating any persisted feature sets.
         Count,
     };
 
     inline constexpr usize feature_count = static_cast<usize>(Feature::Count);
 
-    // A short human-readable name for a feature — for logs and, importantly, the "this title requires
-    // <X> and cannot run on this GPU" diagnostic an application surfaces when a required feature is
-    // missing.
+    /// A short human-readable name for a feature — for logs and, importantly, the "this title requires
+    /// <X> and cannot run on this GPU" diagnostic an application surfaces when a required feature is
+    /// missing.
     [[nodiscard]] constexpr const char *feature_name(Feature feature) noexcept {
         switch (feature) {
             case Feature::TimelineSynchronization: return "timeline synchronization";
@@ -799,12 +799,12 @@ namespace SFT::RHI {
         return "<unknown>";
     }
 
-    // ─── Feature set ─────────────────────────────────────────────────────────────
 
-    // A set of `Feature`s — used three ways with one type: what an adapter *supports* (queried before
-    // device creation), what a device request *requires* / *optionally wants*, and what a device
-    // actually *enabled*. Backed by a fixed-size bitset over the enum; storage is an implementation
-    // detail (it can widen past 64 features without touching this interface).
+
+    /// A set of `Feature`s — used three ways with one type: what an adapter *supports* (queried before
+    /// device creation), what a device request *requires* / *optionally wants*, and what a device
+    /// actually *enabled*. Backed by a fixed-size bitset over the enum; storage is an implementation
+    /// detail (it can widen past 64 features without touching this interface).
     class FeatureSet {
       public:
         constexpr FeatureSet() = default;
@@ -815,12 +815,12 @@ namespace SFT::RHI {
 
         [[nodiscard]] bool has(Feature feature) const noexcept;
 
-        // Every feature in `required` is present in this set (`required` ⊆ `*this`) — the check a
-        // backend runs on `adapter.supported_features()` against a request's required features.
+        /// Every feature in `required` is present in this set (`required` ⊆ `*this`) — the check a
+        /// backend runs on `adapter.supported_features()` against a request's required features.
         [[nodiscard]] bool contains_all(const FeatureSet &required) const noexcept;
 
-        // The features in `required` that this set is missing — for building a precise "unsupported:
-        // A, B, C" message when a required-feature check fails. Iterate it with `for_each`.
+        /// The features in `required` that this set is missing — for building a precise "unsupported:
+        /// A, B, C" message when a required-feature check fails. Iterate it with `for_each`.
         [[nodiscard]] FeatureSet missing(const FeatureSet &required) const noexcept;
 
         [[nodiscard]] FeatureSet intersection(const FeatureSet &other) const noexcept;
@@ -833,15 +833,12 @@ namespace SFT::RHI {
 
         FeatureSet &operator|=(const FeatureSet &other) noexcept;
 
-        [[nodiscard]] friend FeatureSet operator|(FeatureSet a, const FeatureSet &b) noexcept {
-            a |= b;
-            return a;
-        }
+        friend FeatureSet operator|(FeatureSet a, const FeatureSet &b) noexcept;
 
         friend bool operator==(const FeatureSet &, const FeatureSet &) noexcept = default;
 
-        // Invoke `fn(Feature)` for each feature present, in enum order — e.g. to log an enabled set or
-        // format a list of missing required features.
+        /// Invoke `fn(Feature)` for each feature present, in enum order — e.g. to log an enabled set or
+        /// format a list of missing required features.
         template <class Fn>
         void for_each(Fn &&fn) const {
             for (usize i = 0; i < feature_count; ++i) {
@@ -874,19 +871,19 @@ namespace SFT::RHI {
         const FeatureSet &required,
         const FeatureSet &optional) noexcept;
 
-    // Convenience: a `FeatureSet` containing exactly the listed features, for terse request
-    // construction — `features_of({Feature::RayTracingPipeline, Feature::RayQuery})`.
+    /// Convenience: a `FeatureSet` containing exactly the listed features, for terse request
+    /// construction — `features_of({Feature::RayTracingPipeline, Feature::RayQuery})`.
     [[nodiscard]] FeatureSet features_of(std::initializer_list<Feature> features) noexcept;
 
-    // ─── Feature-associated properties (graded values) ───────────────────────────
-    //
-    // The numeric limits/parameters that come *with* a feature when it's supported — meaningless when
-    // the feature is off, so kept out of the boolean set. Queried per-adapter alongside
-    // `supported_features()`.
+
+
+
+
+
 
     struct RayTracingProperties {
         u32 max_ray_recursion_depth = 0;
-        u32 shader_group_handle_size = 0; // SBT record handle size (Vulkan-shaped, but portable)
+        u32 shader_group_handle_size = 0;
         u32 shader_group_base_alignment = 0;
         u32 max_ray_hit_attribute_size = 0;
         u32 max_acceleration_structure_geometry_count = 0;

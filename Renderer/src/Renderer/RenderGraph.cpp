@@ -50,10 +50,10 @@ namespace SFT::Renderer {
                 }
             }
             if (pass.has_depth_stencil_attachment_) {
-                // Counted as both: a Load op reads the prior contents and either store op writes
-                // the result. Treating it as a read too only makes the derived dependency edges
-                // more conservative (an extra edge that was already going to hold in practice),
-                // never wrong.
+
+
+
+
                 usage.writes.push_back(pass.depth_stencil_attachment_.texture);
                 usage.reads.push_back(pass.depth_stencil_attachment_.texture);
                 if (pass.depth_stencil_attachment_.resolve_texture) {
@@ -106,8 +106,8 @@ namespace SFT::Renderer {
                     usage.buffer_writes.push_back(access.buffer);
                 }
             }
-            // With no declared resource write, conservatively retain the pass because its callback may
-            // perform an untracked side effect.
+
+
             usage.always_live = pass.side_effect_ ||
                                 (usage.writes.empty() && usage.buffer_writes.empty());
             return usage;
@@ -267,8 +267,8 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
 
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::create_texture(const RenderGraphTextureDesc &desc) {
             ZoneScopedN("RenderGraph::create_texture");
-            // No physical_slot yet — aliasing assigns one per compiled-graph lifetime analysis inside
-            // create_transient_resources(), which runs once execute() knows every pass in the frame.
+
+
             const RenderGraphTextureHandle handle{static_cast<u32>(textures_.size())};
             textures_.push_back(TextureRecord{
                 .transient = desc,
@@ -348,35 +348,35 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 : RenderGraphBufferAccess{};
         }
 
-// Derives execution order from resource dependencies and culls dead passes — see the header's doc
-// comment on compile() and the PassUsage helpers above for what's being derived from what.
-// Algorithm, in three passes over the (small, per-frame) `ordered_passes_` list:
-//
-// 0. Validation: every texture/buffer handle and buffer range any pass declared must resolve inside
-//    this graph, and every transient texture a pass reads must already have an earlier producer —
-//    either an earlier pass's write, or this same pass also
-//    writing it (the depth/stencil Load-op case below) — since an imported texture's entry content
-//    is always valid but an uninitialized transient read is a genuine bug in the caller's graph
-//    (MissingProducer). Both stop compilation before any GPU work happens.
-// 1. Build a `depends_on[i]` edge list: pass i depends on the most recent earlier pass that wrote
-//    a texture pass i reads (RAW), and on the most recent earlier pass that wrote a texture pass i
-//    ALSO writes (WAW — keeps two writers of the same texture in their original relative order;
-//    the topo-sort below is never free to swap them). Multiple writes to the same texture are
-//    intentional in several existing passes (presentation + overlay, bloom mip updates) and are
-//    never rejected — only an uninitialized *read* is a compile error.
-// 2. Liveness: backward-reachability flood fill starting from every pass that writes a texture the
-//    caller explicitly marked as a liveness output, or that declared a side effect (`always_live`; passes
-//    with no tracked attachment/storage output retain the conservative side-effect fallback). Importing
-//    a texture is not itself a liveness root: cached/history resources can be imported speculatively and
-//    their unused branches still culled. A pass reachable from a root through `depends_on` is live too.
-// 3. Stable Kahn's-algorithm topological sort restricted to the live set: among all passes whose
-//    dependencies are already scheduled, always schedule the smallest original insertion index
-//    next. Every existing caller in this codebase already calls add_render_pass()/add_blit_pass()
-//    in dependency order (a pass reads what an earlier add_*_pass call wrote), which is already a
-//    valid topological order — so "smallest ready index first" reproduces that exact order,
-//    verified by the scene/post-process pipeline preserving insertion order. A future caller that
-//    adds passes out of dependency order would
-//    still get correctly reordered instead of silently misrendering.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 [[nodiscard]] RenderGraph::CompileResult RenderGraph::compile() const {
             ZoneScopedN("RenderGraph::compile");
             const usize pass_count = ordered_passes_.size();
@@ -578,11 +578,11 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 }
             }
 
-            // Binary min-heap over a plain vector instead of an ordered set: same "always schedule the
-            // smallest ready original index next" semantics (push_heap/pop_heap with std::greater keep
-            // the smallest element at front), but one contiguous buffer instead of a per-element
-            // red-black-tree node allocation — cheaper and far more cache-friendly at the pass counts
-            // a real frame graph has (tens, not thousands).
+
+
+
+
+
             vector<u32> ready;
             const auto push_ready = [&ready](u32 index) {
                 ready.push_back(index);
@@ -596,10 +596,10 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 
             vector<bool> scheduled(pass_count, false);
             vector<OrderedPass> order;
-            // Parallel to `order` — the pre-cull index into ordered_passes_/usage[] each scheduled pass
-            // came from, so the level computation below can reuse the PassUsage already built above
-            // instead of a second usage_of_ordered() walk (see compute_levels_from_usage's doc comment
-            // for the algorithm itself).
+
+
+
+
             vector<u32> order_original_index;
             order.reserve(pass_count);
             order_original_index.reserve(pass_count);
@@ -616,9 +616,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     }
                 }
             }
-            // A cycle (never expected from any real graph — see the header comment) would leave
-            // some live pass permanently at in_degree > 0; append any stragglers in original order
-            // rather than silently dropping a pass that was determined to be live.
+
+
+
             for (usize i = 0; i < pass_count; ++i) {
                 if (live[i] && !scheduled[i]) {
                     order.push_back(ordered_passes_[i]);
@@ -639,9 +639,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                          vector<GpuPassTiming> *out_pass_timings,
                                                          vector<CpuPassTiming> *out_cpu_pass_timings) {
             ZoneScopedN("RenderGraph::execute");
-            // Order first: aliasing needs the culled, topo-sorted order to compute accurate lifetimes,
-            // and compile() never touches physical resource state, so this is safe to run before any
-            // GPU texture exists yet.
+
+
+
             CompileResult compiled = compile();
             if (!compiled.has_value()) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -769,21 +769,21 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return compute_levels_from_usage(usage);
         }
 
-// Unlike compile()'s depends_on edges (RAW + WAW only — sufficient for a correct topological order),
-// level assignment also treats a *shared read* as ordering-relevant: transition_texture() (called at
-// the top of every execute_*_pass) decides whether a texture needs a layout transition by checking its
-// current tracked state, and the pass that actually needs to transition it isn't knowable ahead of time
-// from usage alone — it's whichever pass's transition_texture call happens to run first. If two passes
-// sharing a texture access landed in the same level (recorded into separate command buffers,
-// concurrently), the one that "wins" the race and performs the real transition could end up in a
-// command buffer ordered *after* the one that already assumed the transition had happened — a real
-// validation failure (VUID-vkCmdDraw-None-09600), caught by running this once. So: any two passes that
-// touch the same texture at all, read or write, must land in different levels — tracked by *physical*
-// slot (physical_slot_for), not logical RenderGraphTextureHandle, so two aliased transient textures
-// (sharing one physical slot and therefore one TextureState) are treated as the same resource for this
-// purpose too. Before transient allocation (the CPU-only compile/tooling path), each unassigned
-// transient receives its own logical fallback key; execute_parallel recomputes levels after aliasing so
-// physical-slot conflicts are then included as well.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 [[nodiscard]] vector<u32> RenderGraph::compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const {
             ZoneScopedN("RenderGraph::compute_levels_from_usage");
             const usize count = usage_by_position.size();
@@ -855,11 +855,11 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                                    vector<GpuPassTiming> *out_pass_timings,
                                                                    vector<CpuPassTiming> *out_cpu_pass_timings) {
             ZoneScopedN("RenderGraph::execute_parallel");
-            // Destroys whatever command buffers this call already finished/appended before returning
-            // `result` — every error path below routes through this instead of a bare `return`, so a
-            // mid-sequence failure (e.g. a later level's encoder creation fails after an earlier level
-            // already finished and pushed its own) never orphans a live command buffer in the RHI's
-            // pool.
+
+
+
+
+
             auto fail = [&](Core::RendererResult result) {
                 for (RHI::CommandBufferHandle handle : out_command_buffers) {
                     device.destroy_command_buffer(handle);
@@ -895,20 +895,20 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 out_cpu_pass_timings->assign(execution_order.size(), CpuPassTiming{});
             }
 
-            // primary_encoder may already carry caller-recorded work (text-overlay/UI prep) that a
-            // render-graph pass below can depend on — it must be the first finished command buffer in
-            // submission order regardless of which path (serial/parallel) runs next. The timing-reset
-            // call is folded into it too when timing is enabled, for the same "must precede every
-            // per-pass timestamp write" reason execute()'s single-encoder version resets before its
-            // own loop.
+
+
+
+
+
+
             if (timing_enabled) {
                 primary_encoder->reset_query_set(timestamp_query_set, 0, static_cast<u32>(execution_order.size() * 2));
             }
 
-            // Below this many passes, or with no worker pool to spread them across, level-parallel
-            // recording's per-pass encoder/pool overhead isn't worth it (same "not worth it below N"
-            // reasoning as record_render_items_culled's kParallelRecordThreshold) — record every pass
-            // into primary_encoder itself, exactly like execute() does with its caller-provided encoder.
+
+
+
+
             if (execution_order.size() < 2 || Async::Scheduler::worker_count() <= 1) {
                 {
                     ZoneScopedN("RenderGraph::execute_serial_passes");
@@ -944,9 +944,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 out_command_buffers.push_back(*finished_primary);
             }
 
-            // compile() can only see distinct logical transient resources. Recompute after physical
-            // allocation/aliasing so otherwise-independent passes sharing one aliased image cannot race
-            // its tracked layout state while recording on different workers.
+
+
+
             const vector<u32> levels = compute_execution_levels(execution_order);
             u32 max_level = 0;
             for (u32 l : levels) {
@@ -988,20 +988,20 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     Core::RendererResult status{};
                     RHI::CommandBufferHandle command_buffer{};
                     unique_ptr<RHI::CommandEncoder> encoder;
-                    usize begin = 0; // index into `positions`, inclusive
-                    usize end = 0;   // index into `positions`, exclusive
+                    usize begin = 0;
+                    usize end = 0;
                 };
-                // Every pass in one level is mutually independent by construction (compute_levels_
-                // from_usage's own contract: two passes touching the same resource at all always land
-                // in different levels) — recording several of them sequentially into one encoder needs
-                // no barrier between them and is exactly as valid as recording each into its own
-                // encoder, since submission order within one command buffer already matches what
-                // separate command buffers submitted together would produce. Grouping into at most
-                // worker_count() encoders (rather than one per pass) avoids paying a full pool
-                // checkout + vkBeginCommandBuffer/vkEndCommandBuffer + task-spawn/collect round trip
-                // for passes too small to be worth their own encoder, while never creating fewer
-                // groups than there are workers available to record them concurrently — see
-                // RenderGraph.cpp's own module doc / spec's "adaptive pass grouping" guidance.
+
+
+
+
+
+
+
+
+
+
+
                 const usize worker_count = std::max<usize>(1, Async::Scheduler::worker_count());
                 const usize group_count = std::min(positions.size(), worker_count);
                 vector<LevelPassGroup> groups(group_count);
@@ -1017,19 +1017,19 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                     }
                 }
 
-                // Pool/buffer *creation* happens here, serially, on the calling thread — not inside
-                // the spawned tasks below. Measured on this codebase's dev hardware (RADV/RX 9070):
-                // calling vkCreateCommandPool/vkAllocateCommandBuffers concurrently from multiple
-                // worker threads reliably corrupts the heap after a few frames, even though each
-                // thread creates its own independent pool and per spec that shouldn't require any
-                // external synchronization on the shared VkDevice — reproduced both with validation
-                // layers on (corruption inside the validation layer's own tracking allocator) and in
-                // a release build with no layers at all (corruption inside RADV's internal allocator,
-                // surfacing later as a crash in an unrelated vkFree call). Only object *creation* is
-                // implicated — recording (draws/dispatches/barriers) into an already-allocated,
-                // already-owned-by-one-thread encoder is exactly the pattern the pre-existing render-
-                // bundle parallel-recording path already proves safe, so only that part stays
-                // parallel below.
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {
                     ZoneScopedN("RenderGraph::create_level_encoders");
                     for (LevelPassGroup &group : groups) {
@@ -1118,8 +1118,8 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 
 void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
             ZoneScopedN("RenderGraph::destroy_transient_resources");
-            // Iterates physical_slots_, not textures_: aliasing means several virtual transient textures
-            // can share one slot, so destroying per-virtual-texture would double-destroy.
+
+
             for (PhysicalSlot &slot : physical_slots_) {
                 if (!slot.owns_resource) {
                     continue;
@@ -1231,9 +1231,9 @@ void RenderGraph::reset() noexcept {
                     .src_access = record->access,
                     .dst_stage = access.stages,
                     .dst_access = access.access,
-                    // BufferRecord tracks one state for the whole imported allocation. Keep barriers
-                    // whole-buffer as well; declared ranges are dependency/validation metadata until
-                    // interval state tracking is introduced.
+
+
+
                     .offset = 0,
                     .size = 0,
                 };
@@ -1251,9 +1251,9 @@ void RenderGraph::reset() noexcept {
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources) {
             ZoneScopedN("RenderGraph::transition_texture");
-            // No lock needed here — see physical_slots_'s own doc comment (RenderGraph.hpp) for why
-            // two passes running concurrently under execute_parallel() can never reach this function
-            // for the same physical slot at the same time.
+
+
+
             PhysicalSlot *slot = physical_slot_for(handle);
             const TextureRecord *record = texture_record(handle);
             if (slot == nullptr || record == nullptr || !slot->texture || slot->mip_states.empty()) {
@@ -1609,18 +1609,18 @@ void RenderGraph::reset() noexcept {
             return lifetimes;
         }
 
-// Interval-graph aliasing: assigns each *virtual* transient texture (created via create_texture()) a
-// PhysicalSlot, sharing one slot — and therefore one GPU allocation — across any number of virtual
-// textures whose [first_use, last_use] ranges (in the compiled execution order) never overlap. Two
-// virtual textures can only ever share a slot if their creation desc matches exactly (format/extent/
-// mips/samples/usage) — the graph never reasons about reinterpreting a resource as a different shape.
-// Assignment is greedy, sorted by first_use ascending (linear-scan register allocation): within a
-// signature bucket, a texture reuses the first open slot whose current occupant already finished
-// (last_use < this texture's first_use), or gets a brand new slot if none is free. A slot's
-// per-mip state is only seeded from its *first* occupant's declared initial state — later occupants
-// inherit whatever state the previous occupant actually left the physical resource in,
-// which is correct (and cheaper than resetting) since it's literally the same VkImage, not a separate
-// aliased allocation requiring its own hazard tracking.
+
+
+
+
+
+
+
+
+
+
+
+
 [[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device,
                                                                       const vector<OrderedPass> &execution_order) {
             ZoneScopedN("RenderGraph::create_transient_resources");
@@ -1649,11 +1649,11 @@ void RenderGraph::reset() noexcept {
                     continue;
                 }
                 if (lifetimes[i].first_use < 0) {
-                    // create_texture() was called but no live pass ever reads or writes it (dead code,
-                    // or a texture the caller created and simply never used) — leave physical_slot at
-                    // its default ~0u and skip straight to the next texture. No physical GPU resource
-                    // is allocated for it; nothing can legitimately dereference it later since nothing
-                    // live ever declared a use.
+
+
+
+
+
                     continue;
                 }
                 bool placed = false;
@@ -1673,7 +1673,7 @@ void RenderGraph::reset() noexcept {
                 std::sort(bucket.members.begin(), bucket.members.end(), [&](u32 a, u32 b) {
                     return lifetimes[a].first_use < lifetimes[b].first_use;
                 });
-                vector<pair<u32, i32>> open_slots; // (physical_slots_ index, current occupant's last_use)
+                vector<pair<u32, i32>> open_slots;
                 for (u32 texture_index : bucket.members) {
                     const TextureLifetime &lifetime = lifetimes[texture_index];
                     i32 reused_slot = -1;
@@ -1768,8 +1768,8 @@ void RenderGraph::reset() noexcept {
                 if (record.final_layout == RHI::TextureLayout::Undefined) {
                     continue;
                 }
-                // A transient texture create_transient_resources() never allocated (dead: no live pass
-                // used it) has no physical_slot to transition — nothing to do, not an error.
+
+
                 if (record.is_transient && record.physical_slot >= physical_slots_.size()) {
                     continue;
                 }

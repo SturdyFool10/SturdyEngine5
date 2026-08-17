@@ -14,8 +14,8 @@ bool is_emoji_codepoint(char32_t codepoint) noexcept {
             char32_t first;
             char32_t last;
         };
-        // Generated from Unicode 17's Emoji_Presentation binary property. Keeping the compact
-        // ranges locally avoids a heavyweight ICU runtime dependency for one stable property.
+
+
         static constexpr std::array presentation_ranges{
             Range{0x231A, 0x231B}, Range{0x23E9, 0x23EC}, Range{0x23F0, 0x23F0},
             Range{0x23F3, 0x23F3}, Range{0x25FD, 0x25FE}, Range{0x2614, 0x2615},
@@ -79,7 +79,7 @@ DecodedCodepoint decode_utf8(const ustr &text, usize offset) noexcept {
                 length = 4;
                 value = lead & 0x07;
             } else {
-                return DecodedCodepoint{0xFFFD, 1}; // invalid lead byte
+                return DecodedCodepoint{0xFFFD, 1};
             }
             if (offset + length > bytes.size()) {
                 return DecodedCodepoint{0xFFFD, 1};
@@ -151,12 +151,12 @@ struct FontRun {
 
 [[nodiscard]] bool wants_emoji_presentation(span<const SourceCodepoint> decoded, usize index) noexcept {
     const char32_t codepoint = decoded[index].value;
-    // Explicit presentation selectors override the base codepoint's default property.
+
     if (index + 1 < decoded.size() && decoded[index + 1].value == 0xFE0E) {
         return false;
     }
-    // A text-default symbol followed by VS16, and the ASCII base of a keycap sequence, must move
-    // to the emoji font together with its extenders rather than being split into separate runs.
+
+
     if (index + 1 < decoded.size() && decoded[index + 1].value == 0xFE0F) {
         return true;
     }
@@ -193,7 +193,7 @@ struct FontRun {
     if (font_has_codepoint(emoji, codepoint)) {
         return emoji;
     }
-    // Preserve HarfBuzz's .notdef behavior in the primary font when no face covers the scalar.
+
     return primary;
 }
 
@@ -247,17 +247,17 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
     for (usize i = 0; i < decoded.size(); ++i) {
         emoji[i] = wants_emoji_presentation(decoded, i);
         if (i > 0 && is_cluster_extender(decoded[i].value)) {
-            // Selectors, joiners, modifiers, tags, and combining marks belong to their base's
-            // presentation run; their standalone property must never split the cluster.
+
+
             emoji[i] = emoji[i - 1];
         }
         scripts[i] = hb_unicode_script(hb_unicode_funcs_get_default(),
                                        static_cast<hb_codepoint_t>(decoded[i].value));
     }
 
-    // Common/Inherited characters (spaces, punctuation, combining marks) adopt a neighboring
-    // concrete script so they do not split a joining run. The reverse pass resolves leading
-    // neutrals that had no concrete script to their left.
+
+
+
     hb_script_t previous_script = HB_SCRIPT_INVALID;
     for (usize i = 0; i < scripts.size(); ++i) {
         if (is_neutral_script(scripts[i])) {
@@ -310,8 +310,8 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
             continue;
         }
 
-        // No candidate covers the whole script run. Fall back at scalar/cluster granularity while
-        // keeping every extender with its base, accepting .notdef rather than severing attachment.
+
+
         for (usize i = segment_start; i < segment_end; ++i) {
             FontChoice choice = select_font(fonts, decoded[i].value, emoji[i]);
             if (!runs.empty() && is_cluster_extender(decoded[i].value)) {

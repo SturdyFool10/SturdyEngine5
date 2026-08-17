@@ -34,13 +34,9 @@ namespace SFT::Async {
             return Scheduler::spawn(std::forward<F>(fn));
         }
 
-        static void run_on_main_thread(std::function<void()> fn) noexcept {
-            SFT::Async::run_on_main_thread(std::move(fn));
-        }
+        static void run_on_main_thread(std::function<void()> fn) noexcept;
 
-        static void pump_main_thread() noexcept {
-            SFT::Async::pump_main_thread();
-        }
+        static void pump_main_thread() noexcept;
     };
 
     class SynchronousRuntime {
@@ -60,8 +56,8 @@ namespace SFT::Async {
             return TaskHandle<R>(std::move(state));
         }
 
-        static void run_on_main_thread(std::function<void()> fn) noexcept { fn(); }
-        static void pump_main_thread() noexcept {}
+        static void run_on_main_thread(std::function<void()> fn) noexcept;
+        static void pump_main_thread() noexcept;
     };
 
 #if defined(STURDY_PLATFORM_WEB)

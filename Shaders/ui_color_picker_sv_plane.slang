@@ -20,8 +20,8 @@ struct SvPlaneConstants {
     float2 position;
     float2 size;
     float2 viewportSize;
-    float clipYSign;
-    float _pad0;
+    float _reserved0;
+    float _reserved1;
     float4 params;
     float4 cornerRadius;
 };
@@ -36,7 +36,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
-    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize, constants.clipYSign);
+    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize);
     output.localPixelPos = uiQuadCorner(vertexId) * constants.size;
     return output;
 }

@@ -94,8 +94,8 @@ namespace SFT::GraphicsPlatform {
         std::vector<HdrPresentationMode> supported_modes{};
         std::optional<HdrDisplayMetadata> display_metadata{};
 
-        // EDR-style platforms expose headroom rather than HDR10 static metadata. Keep this in the
-        // shared shape so Metal/macOS can report useful data without forcing it into HDR10 fields.
+        /// EDR-style platforms expose headroom rather than HDR10 static metadata. Keep this in the
+        /// shared shape so Metal/macOS can report useful data without forcing it into HDR10 fields.
         float sdr_white_nits = 80.0f;
         float edr_headroom = 1.0f;
         float max_edr_headroom = 1.0f;
@@ -121,7 +121,7 @@ namespace SFT::GraphicsPlatform {
         QueryStatus status = QueryStatus::Ok;
         std::string message{};
 
-        [[nodiscard]] explicit operator bool() const noexcept { return status == QueryStatus::Ok; }
+        [[nodiscard]] explicit operator bool() const noexcept;
     };
 
     template <typename T>

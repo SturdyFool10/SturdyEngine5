@@ -10,12 +10,12 @@
 
 namespace SFT::Ecs {
 
-    // A per-tick event buffer bound to the World like any other singleton resource. Registered with
-    // SFT_ECS_EVENT (below) rather than SFT_ECS_RESOURCE so its canonical name is distinct from an
-    // ordinary resource sharing the same T. World::bind_resource auto-clears every bound Events<T>
-    // once at the start of each Schedule::run() (see World.hpp) — callers never call clear()
-    // themselves, matching how RenderFrameRequests's manual begin_frame() is exactly what this design
-    // avoids repeating for every event type.
+    /// A per-tick event buffer bound to the World like any other singleton resource. Registered with
+    /// SFT_ECS_EVENT (below) rather than SFT_ECS_RESOURCE so its canonical name is distinct from an
+    /// ordinary resource sharing the same T. World::bind_resource auto-clears every bound Events<T>
+    /// once at the start of each Schedule::run() (see World.hpp) — callers never call clear()
+    /// themselves, matching how RenderFrameRequests's manual begin_frame() is exactly what this design
+    /// avoids repeating for every event type.
     template <class T>
     class Events {
       public:
@@ -45,9 +45,9 @@ namespace SFT::Ecs {
     template <class T>
     inline constexpr bool is_event_resource_v = IsEventResource<std::remove_cv_t<T>>::value;
 
-    // Ergonomic write-only view over Events<T>, resolved by Schedule exactly like WriteResource<T> —
-    // multiple systems sending the same event type in one stage serialize automatically because both
-    // participate in the same resource-write conflict analysis.
+    /// Ergonomic write-only view over Events<T>, resolved by Schedule exactly like WriteResource<T> —
+    /// multiple systems sending the same event type in one stage serialize automatically because both
+    /// participate in the same resource-write conflict analysis.
     template <class T>
     class EventWriter {
       public:
@@ -65,9 +65,9 @@ namespace SFT::Ecs {
         Events<T> *events_ = nullptr;
     };
 
-    // Ergonomic read-only view over Events<T>, resolved like ReadResource<T>. Every reader sees the
-    // full set of events sent so far this Schedule::run() — there is no per-reader cursor (see
-    // plans/ecs-events-and-modules.md's open items for why that's an acceptable v1 tradeoff).
+    /// Ergonomic read-only view over Events<T>, resolved like ReadResource<T>. Every reader sees the
+    /// full set of events sent so far this Schedule::run() — there is no per-reader cursor (see
+    /// plans/ecs-events-and-modules.md's open items for why that's an acceptable v1 tradeoff).
     template <class T>
     class EventReader {
       public:
@@ -114,8 +114,8 @@ namespace SFT::Ecs {
 
 } // namespace SFT::Ecs
 
-// Registers an event payload type. Distinct from SFT_ECS_RESOURCE so Events<T> gets its own
-// canonical name/key rather than colliding with a plain resource named after the same T.
+
+
 #define SFT_ECS_EVENT(TYPE, CANONICAL_NAME)                            \
     template <>                                                       \
     struct SFT::Ecs::ResourceTraits<SFT::Ecs::Events<TYPE>> {         \

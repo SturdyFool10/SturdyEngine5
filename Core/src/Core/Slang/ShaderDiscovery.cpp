@@ -15,16 +15,16 @@ namespace SFT::Core::Slang {
 
 namespace {
 
-    // Reflects one already-loaded `source` (disk or embedded, module name pre-set), consulting/
-    // populating the disk reflection cache exactly like the on-disk loop below, and appends the
-    // result to `shaders` on success. Shared so discover_shaders()'s embedded-fallback pass (see
-    // its own comment) doesn't duplicate the cache/reflect/diagnostic logic.
+
+
+
+
     void reflect_and_append(vector<UnCompiledShader> &shaders, ShaderSource source, ShaderCompiler &compiler,
                              const ShaderCompileOptions &options, bool enable_disk_cache,
                              const std::filesystem::path &cache_directory, const string &context,
                              usize &failed, usize &cache_hits) {
         const u64 cache_key = enable_disk_cache
-            ? compute_shader_cache_key(source.module_name, source.source, /*variant_canonical=*/"", options)
+            ? compute_shader_cache_key(source.module_name, source.source,                       "", options)
             : 0;
 
         if (enable_disk_cache) {
@@ -71,9 +71,9 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
         usize failed = 0;
         usize cache_hits = 0;
         usize embedded_fallbacks = 0;
-        // Module names already covered from disk, so the embedded-fallback pass below (which fills
-        // in every embedded shader NOT already found here) never double-adds a shader that disk
-        // already provided -- disk always wins over the embedded copy when both exist.
+
+
+
         unordered_set<string> discovered_module_names;
 
         error_code ec;
@@ -100,9 +100,9 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
 
                 ++considered;
                 const string path_string = entry.path().string();
-                // Use the file stem as the module name — the same value the backend's later
-                // compile() derives from the path, so a shader keeps one stable module name end to
-                // end, and the same value embedded_shaders() keys its own table by.
+
+
+
                 const string module_name = entry.path().stem().string();
 
                 auto text = Foundation::read_file_to_string(entry.path());
@@ -127,10 +127,10 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
             }
         }
 
-        // Fill in every embedded shader not already covered from disk -- either because the whole
-        // directory was missing/unreadable above, or because that one file specifically was (see
-        // EmbeddedShaders.hpp's own doc comment for the full list of fallback sites; this is the
-        // discovery-time one). Disk always wins when present, so this never overrides a live edit.
+
+
+
+
         for (const EmbeddedShaderSource &embedded : embedded_shaders()) {
             const string module_name{embedded.module_name};
             if (discovered_module_names.contains(module_name)) {

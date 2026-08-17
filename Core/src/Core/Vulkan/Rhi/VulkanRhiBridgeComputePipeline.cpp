@@ -1,4 +1,4 @@
-// RhiDevice compute pipeline creation/destruction.
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"

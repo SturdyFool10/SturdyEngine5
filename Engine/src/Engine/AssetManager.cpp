@@ -88,8 +88,8 @@ namespace SFT::Engine {
         }
 
         [[nodiscard]] u64 combine_stable_id(u64 object, usize primitive) noexcept {
-            // 64-bit hash-combine keeps each primitive stable without imposing an artificial eight-bit
-            // primitive limit or exposing renderer IDs to the ECS.
+
+
             const u64 value = static_cast<u64>(primitive) + 0x9e3779b97f4a7c15ULL;
             return object ^ (value + (object << 6u) + (object >> 2u));
         }
@@ -201,11 +201,11 @@ namespace SFT::Engine {
                     renderer.destroy_material_template(shader->material_template);
                 }
             }
-            // Drop the dedup entry before clearing `source` below — a stale path_cache hit after this
-            // asset is gone would hand out a destroyed Asset handle to the next load_texture/load_sound/
-            // load_file call for the same path. Erases all three possible key shapes unconditionally
-            // (plain path, and the two texture color-space-suffixed variants) rather than tracking which
-            // one this record actually used — each erase is a cheap no-op when absent.
+
+
+
+
+
             if (!record.source.empty()) {
                 const std::string source_string = record.source.string();
                 path_cache.erase(source_string);
@@ -230,16 +230,16 @@ namespace SFT::Engine {
         std::vector<Record> records;
         TextureStreamer texture_streamer;
 
-        // In-memory dedup for load_texture/load_sound/load_file: loading the same source path twice in
-        // one process previously re-did the full file read + decode both times (the BC7 compression
-        // step downstream is already content-hash disk-cached, TextureCompression.cpp, but nothing
-        // caught the redundant call before reaching it). Deliberately excludes load_shader, whose result
-        // depends on far more than the source path (entry points, defines, module name) -- path alone
-        // isn't a safe cache key there. Keyed by plain path string for load_sound/load_file; load_texture
-        // suffixes the color space ("|srgb"/"|linear") since the same file decodes differently depending
-        // on it (same reasoning GltfImport.cpp's local ImageCache already applies within one import).
-        // Not persisted across processes -- purely an in-process memoization, invalidated via the
-        // erase() above whenever the underlying asset is unloaded.
+
+
+
+
+
+
+
+
+
+
         std::unordered_map<std::string, Asset> path_cache;
     };
 
@@ -257,12 +257,12 @@ namespace SFT::Engine {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A shader asset requires a source path."));
         }
-        // A missing file on disk isn't fatal by itself -- Core::Slang::ShaderCompiler (via
-        // ShaderImpl.cpp's read_text_file()/EmbeddedFallbackFileSystem) falls back to the engine's
-        // own embedded copy of every Shaders/ file (see EmbeddedShaders.hpp's own doc comment), so
-        // only reject here if there's genuinely no source available from either place. `desc.source`
-        // is still threaded through as the File-kind ShaderSource's path below either way, so a
-        // ShaderWatcher later seeing the same file actually appear on disk still hot-reloads it.
+
+
+
+
+
+
         if (!std::filesystem::exists(desc.source) && Core::Slang::find_embedded_shader(desc.source.string()) == nullptr) {
             return std::unexpected(error(AssetErrorCode::NotFound,
                                          "Shader source does not exist on disk and has no embedded fallback: '" + desc.source.string() + "'.",
@@ -293,9 +293,9 @@ namespace SFT::Engine {
             },
         };
         if (!desc.depth_only_fragment_entry_point.empty()) {
-            // A second Fragment-stage entry point from the same module — build_material_template_gpu
-            // (RendererMaterial.cpp) picks the first reflected Fragment entry as the main fragment and
-            // this second one as the depth-only entry, by request order.
+
+
+
             options.entry_points.push_back(Core::Slang::ShaderEntryPointRequest{
                 .name = desc.depth_only_fragment_entry_point.cpp_string(),
                 .stage = Core::Slang::ShaderStage::Fragment,
@@ -373,9 +373,9 @@ namespace SFT::Engine {
         std::vector<std::byte>{}.swap(desc.rgba8);
         std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
-        // BC-compress every generated level so mipmapping preserves the VRAM win — which encoder
-        // runs is the "Compression Manager" policy (Detail::choose_bc_format), keyed off desc.kind.
-        // Any encoder failure falls back to the complete uncompressed RGBA8 chain.
+
+
+
         std::optional<std::vector<std::byte>> compressed;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (desc.allow_compression && desc.width >= 4 && desc.height >= 4 && device != nullptr &&
@@ -391,11 +391,11 @@ namespace SFT::Engine {
                     break;
                 case TextureKind::NormalMap:
                 case TextureKind::MetallicRoughness:
-                    // Both are already laid out R/G by the time they reach here — NormalMap by its
-                    // own source convention, MetallicRoughness via the caller's explicit
-                    // Detail::pack_metallic_roughness_rg() pre-repack (see TextureKind's own doc
-                    // comment for why that repack happens before create_texture rather than as a
-                    // compress_bc5 channel-selection argument here).
+
+
+
+
+
                     compressed = Detail::compress_bc5_mip_chain(
                         upload_bytes, desc.width, desc.height, mip_chain.mip_levels);
                     break;
@@ -452,10 +452,10 @@ namespace SFT::Engine {
         if (label.empty()) {
             label = UString{"orm_texture"_ustr};
         }
-        // Occlusion/roughness/metallic are packed data, not display color (same reasoning as
-        // GltfImport.cpp's own metallic_roughness_texture/occlusion_texture comments) — Linear, not
-        // Srgb. kind stays ColorAlpha/BC7: three independent, uncorrelated channels is exactly
-        // BC7's strength (BC1/BC4/BC5 each assume a different, narrower channel relationship).
+
+
+
+
         return create_texture(TextureAssetDesc{
             .width = width,
             .height = height,
@@ -1018,7 +1018,7 @@ namespace SFT::Engine {
             return;
         }
         std::unique_lock lock{impl_->mutex};
-        // Dependency order: model material instances first, then their textures and shader templates.
+
         for (Impl::Record &record : impl_->records) {
             if (record.type == AssetType::Model) {
                 impl_->destroy(record);

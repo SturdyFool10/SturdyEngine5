@@ -12,19 +12,19 @@
 
 namespace SFT::Core::Vulkan {
 
-    // Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
-    // move-only Vulkan RAII object that backs it. One instance per resource kind in
-    // VulkanRhiDeviceBridge. Handles are minted from a monotonically increasing counter and never
-    // reused; there is no generation check because the RHI documents destroying a resource still
-    // referenced by in-flight work as caller error, not something the pool needs to catch.
-    //
-    // Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
-    // concurrently (see plans/parallel-renderer-submission.md) — each call's critical section is a
-    // single map operation, never cross-pool, so one mutex per pool instance is sufficient.
-    // Async::Mutex<T> rather than a bare std::mutex + map so the map is simply unreachable without
-    // holding the lock. find()'s returned pointer is only valid while some lock on this pool is held
-    // (or trusted single-threaded use) — same contract a bare mutex + map would have given no
-    // generation check, just enforced by construction here instead of by convention.
+    /// Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
+    /// move-only Vulkan RAII object that backs it. One instance per resource kind in
+    /// VulkanRhiDeviceBridge. Handles are minted from a monotonically increasing counter and never
+    /// reused; there is no generation check because the RHI documents destroying a resource still
+    /// referenced by in-flight work as caller error, not something the pool needs to catch.
+    ///
+    /// Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
+    /// concurrently (see plans/parallel-renderer-submission.md) — each call's critical section is a
+    /// single map operation, never cross-pool, so one mutex per pool instance is sufficient.
+    /// Async::Mutex<T> rather than a bare std::mutex + map so the map is simply unreachable without
+    /// holding the lock. find()'s returned pointer is only valid while some lock on this pool is held
+    /// (or trusted single-threaded use) — same contract a bare mutex + map would have given no
+    /// generation check, just enforced by construction here instead of by convention.
     template <typename HandleT, typename Stored>
     class VulkanRhiResourcePool {
       public:
@@ -52,9 +52,9 @@ namespace SFT::Core::Vulkan {
             storage->erase(handle.value);
         }
 
-        // Applies `destroy` to every remaining object while exclusively owning the pool, then clears
-        // all handle mappings. Intended for device teardown after the caller has made the device idle;
-        // ordinary lifetime management should continue using the typed destroy_* RHI entry points.
+        /// Applies `destroy` to every remaining object while exclusively owning the pool, then clears
+        /// all handle mappings. Intended for device teardown after the caller has made the device idle;
+        /// ordinary lifetime management should continue using the typed destroy_* RHI entry points.
         template <typename Destroy>
         void drain(Destroy &&destroy) noexcept {
             auto storage = storage_.lock();

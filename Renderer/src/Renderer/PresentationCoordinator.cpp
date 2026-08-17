@@ -1,3 +1,4 @@
+#include <Renderer/src/Renderer/PresentationCoordinator.hpp>
 #include "PresentationCoordinator.hpp"
 
 #include <tracy/Tracy.hpp>
@@ -18,3 +19,12 @@ namespace SFT::Renderer {
     }
 
 } // namespace SFT::Renderer
+
+namespace SFT::Renderer {
+
+    u32 PresentationCoordinator::queue_depth() const noexcept { return queue_depth_.load(std::memory_order_acquire); }
+
+    const std::string &PresentationCoordinator::name() const noexcept { return name_; }
+
+} // namespace SFT::Renderer
+

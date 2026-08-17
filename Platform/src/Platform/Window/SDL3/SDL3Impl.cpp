@@ -8,7 +8,7 @@
 #include <windows.h>
 #endif
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h> // SDL.h does not pull this in; needed for SDL_Vulkan_GetInstanceExtensions
+#include <SDL3/SDL_vulkan.h>
 
 #include <chrono>
 #include <cmath>
@@ -99,9 +99,9 @@ namespace SFT::Platform::Windowing::SDL3 {
                                          .count());
         }
 
-        // SDL events carry their own SDL_GetTicksNS()-based timestamp (nanoseconds since SDL init),
-        // not steady_clock's epoch. `offset_ns` (computed once per pump_events() call via
-        // sdl_to_steady_offset_ns() below) converts one into the other without a syscall per event.
+
+
+
         [[nodiscard]] u64 sdl_event_timestamp_ns(Uint64 sdl_timestamp, i64 offset_ns) noexcept {
             return static_cast<u64>(static_cast<i64>(sdl_timestamp) + offset_ns);
         }
@@ -162,29 +162,29 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 #if defined(_WIN32)
-        // Whether `config` will end up on the DirectComposition path at all. Both graphics backends
-        // try DirectComposition for every swapchain generation they create on this window — not only
-        // when config.transparent is set — so this has to match that same condition (see
-        // VulkanRhiBridgeSwapchain.cpp's create_swapchain() and D3D12DeviceSwapchain.cpp's
-        // wants_transparency branch, both of which attempt CreateSwapChainForComposition
-        // unconditionally for Vulkan/Direct3D windows).
+
+
+
+
+
+
         [[nodiscard]] bool wants_composition_window_style(const WindowConfig &config) noexcept {
             return config.graphics_api == WindowGraphicsApi::Vulkan ||
                    config.graphics_api == WindowGraphicsApi::Direct3D;
         }
 
-        // DirectComposition's CreateTargetForHwnd composites its visual tree *over* the window's own
-        // DWM redirection surface, not instead of it — and that surface is opaque. Without
-        // WS_EX_NOREDIRECTIONBITMAP, a fully transparent (alpha=0) pixel in the composition visual
-        // still shows the opaque redirection surface underneath rather than the desktop, which is
-        // exactly "transparency doesn't change when the compositor alpha mode is toggled": the
-        // compositor alpha mode was never the missing piece, the redirection surface always was.
-        //
-        // This style can only take effect if it is set *before* DWM ever allocates that surface for
-        // the window, which happens the first time the window is mapped/shown — not at
-        // CreateWindowEx time. SDL3 has no public API to request WS_EX_NOREDIRECTIONBITMAP at window
-        // creation, so create() forces the window hidden, calls this immediately after
-        // SDL_CreateWindow returns, and only then shows it if the caller asked for a visible window.
+
+
+
+
+
+
+
+
+
+
+
+
         void apply_composition_window_style(SDL_Window *window) noexcept {
             const SDL_PropertiesID properties = SDL_GetWindowProperties(window);
             void *hwnd_ptr = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
@@ -202,8 +202,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         [[nodiscard]] SDL_SystemCursor to_sdl_system_cursor(CursorIcon icon) noexcept {
             switch (icon) {
                 case CursorIcon::Default: return SDL_SYSTEM_CURSOR_DEFAULT;
-                // SDL3 has no open/closed-hand system cursor — see CursorIcon's own doc comment
-                // (Window.hpp) for why both fall back to POINTER instead of doing nothing.
+
+
                 case CursorIcon::Pointer:
                 case CursorIcon::Grab:
                 case CursorIcon::Grabbing: return SDL_SYSTEM_CURSOR_POINTER;
@@ -227,13 +227,13 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(error);
         }
 
-        // Process-wide, not per-window: SDL3's own window/event APIs aren't safe to call
-        // concurrently across different SDL3Window instances (pump_events() walks the whole
-        // registry, e.g.), so one lock covers all of them. Async::Mutex<std::monostate> rather than
-        // a bare mutex for the same reason every other lock in this codebase prefers it — see
-        // Async::Mutex's own doc comment — and it's non-recursive, so callers must never lock it
-        // twice on the same thread (see enable_window_effect()'s use of native_window_handle_locked()
-        // instead of native_window_handle() for exactly that reason).
+
+
+
+
+
+
+
         Async::Mutex<std::monostate> &sdl_window_mutex() noexcept {
             static Async::Mutex<std::monostate> mutex;
             return mutex;
@@ -245,9 +245,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 #if defined(_WIN32)
-        // SDL exposes one process-wide Windows message hook. Its callback uses this directory to
-        // route WM_SIZING to the corresponding wrapper without storing native handles in Platform's
-        // public Window abstraction.
+
+
+
         unordered_map<HWND, SDL3Window *> &sdl_win32_window_registry() noexcept {
             static unordered_map<HWND, SDL3Window *> registry;
             return registry;
@@ -301,11 +301,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
-    // SDL's Windows move/resize modal loop sends an EXPOSED event from its timer even when the
-    // provider defers its normal resize event until the client extent is committed. This is the
-    // fallback for windows without the Win32 message-hook registration below; when WM_SIZING is
-    // available, it is the sole source of live extents so a proposed size cannot alternate with a
-    // separately sampled SDL pixel size. The callback publishes state only, never renders here.
+
+
+
+
+
     bool SDLCALL SDL3Window::sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept {
         ZoneScopedN("SDL3Window::sdl_live_resize_watch");
 #if defined(_WIN32)
@@ -316,9 +316,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
         auto *self = static_cast<SDL3Window *>(userdata);
-        // A watch can be invoked while an SDL operation already owns this non-recursive lock (for
-        // example, a programmatic resize). In that case the normal pump will deliver the event; do
-        // not risk self-deadlocking merely to request an optional live-resize repaint.
+
+
+
         auto lock = sdl_window_mutex().try_lock();
         if (!lock || self->window_ == nullptr ||
             SDL_GetWindowID(self->window_) != event->window.windowID ||
@@ -326,9 +326,9 @@ namespace SFT::Platform::Windowing::SDL3 {
             return true;
         }
         if (self->use_windows_sizing_hook_) {
-            // WM_SIZING already publishes one stable proposed client extent per drag step. SDL's
-            // event watch observes the same step before/after it is applied, so forwarding both
-            // sources creates a small but visible resize oscillation.
+
+
+
             return true;
         }
 
@@ -357,9 +357,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
         self->last_live_resize_extent_ = extent;
 
-        // The live-resize callback contract forbids re-entering Window or the renderer, so calling it
-        // under this lock safely serializes callback replacement/destruction without a racy copy of
-        // std::function.
+
+
+
         self->live_resize_callback_(extent);
 #else
         (void)userdata;
@@ -369,9 +369,9 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
 #if defined(_WIN32)
-    // SDL calls this on the Windows event-loop thread before it dispatches a native message. WM_SIZING
-    // carries the proposed outer rectangle even when SDL defers its own resize event until the modal
-    // loop exits, which is the missing live-resize extent for Vulkan presentation.
+
+
+
     bool SDLCALL SDL3Window::sdl_windows_message_hook(void *userdata, MSG *message) noexcept {
         ZoneScopedN("SDL3Window::sdl_windows_message_hook");
         (void)userdata;
@@ -427,8 +427,8 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     SDL3Window::~SDL3Window() noexcept {
         ZoneScopedN("SDL3Window::~SDL3Window");
-        // Unregister before releasing the object. A callback already in progress holds
-        // sdl_window_mutex(), so the lock below also waits for it to finish publishing.
+
+
         SDL_RemoveEventWatch(sdl_live_resize_watch, this);
 
         auto lock = sdl_window_mutex().lock();
@@ -496,8 +496,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (live_resize_callback_) {
             SDL_AddEventWatch(sdl_live_resize_watch, this);
 #if defined(_WIN32)
-            // SDL's hook is process-wide, so every registered HWND shares this one dispatcher. It is
-            // installed on the event-owning thread, as SDL_SetWindowsMessageHook requires.
+
+
             if (auto native = native_window_handle_locked(); native &&
                 native->system == NativeWindowSystem::Win32 && native->window != nullptr) {
                 sdl_win32_window_registry().emplace(static_cast<HWND>(native->window), this);
@@ -524,8 +524,8 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     expected<void, WindowError> SDL3Window::set_clipboard_text(std::string_view text) noexcept {
         ZoneScopedN("SDL3Window::set_clipboard_text");
-        // SDL_SetClipboardText requires a NUL-terminated C string; `text` (a view) isn't
-        // guaranteed to be one, so it's copied into an owned buffer first.
+
+
         const std::string owned(text);
         if (!SDL_SetClipboardText(owned.c_str())) {
             return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_SetClipboardText failed."));
@@ -582,24 +582,24 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Invalid SDL3 window configuration."});
         }
 
-        // Explicit, not relying on SDL3's own default: low-latency/competitive-game mouse input
-        // (relative mode, engaged via set_relative_mouse_mode()/set_mouse_locked() below) must not
-        // have the OS pointer-acceleration curve applied, and a cursor warp must never synthesize a
-        // spurious motion event a game would have to filter back out. Both hints can be set anytime,
-        // before SDL_InitSubSystem included, and are idempotent to set repeatedly.
+
+
+
+
+
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_WARP_MOTION, "0");
-        // Without this, SDL defers composition (preedit) rendering entirely to the OS's native IME
-        // UI — on Windows that means a separate popup window anchored above/below the caret, not
-        // the inline-underlined-at-the-caret rendering UI::TextEdit.hpp's Detail::emit_composition()
-        // already implements. "composition" tells SDL/the platform backend this application will
-        // render SDL_EVENT_TEXT_EDITING itself (matching how the same composition looks on
-        // platforms whose native IME is inline, e.g. most Linux input methods), so the OS should not
-        // draw its own composition window on top of it. Deliberately does NOT also claim
-        // "candidates": this engine has no candidate-list widget of its own, so an IME's separate
-        // candidate picker (e.g. Pinyin homophone selection) still needs to render natively. Must be
-        // set before SDL_InitSubSystem() below, per this hint's own documented contract — unlike the
-        // two mouse hints above, this one cannot be set "anytime".
+
+
+
+
+
+
+
+
+
+
+
         SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
 
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
@@ -610,9 +610,9 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         SDL_WindowFlags flags = window_flags(config);
 #if defined(_WIN32)
-        // See apply_composition_window_style()'s own doc comment for why this style has to be set
-        // before the window is ever shown, and why that forces window creation itself hidden here
-        // whenever the caller actually asked for a visible window.
+
+
+
         const bool needs_composition_style = wants_composition_window_style(config);
         const bool force_hidden_for_composition_style =
             needs_composition_style && config.visible && !(flags & SDL_WINDOW_HIDDEN);
@@ -661,15 +661,15 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
-        // SDL3 does not deliver SDL_EVENT_TEXT_INPUT at all until text input is explicitly started
-        // for the window (mobile OSes use this to gate on-screen keyboard/IME popups) — without
-        // this, WindowTextInputEvent/Engine::TextInputEvent silently never fire, which is exactly
-        // what any text-editing UI (UI::text_input()/text_area()) needs to receive typed
-        // characters. Started unconditionally for the window's whole lifetime rather than only
-        // while some UI text field has focus: this engine has no cross-package channel from "a
-        // UI::TextEditState became focused" back to Platform::Windowing::Window, and every desktop
-        // platform's SDL3 backend treats this as a cheap no-op change of internal state (unlike
-        // mobile, there's no on-screen keyboard for it to summon).
+
+
+
+
+
+
+
+
+
         if (!SDL_StartTextInput(window)) [[unlikely]] {
             Foundation::log_error("SDL3 SDL_StartTextInput failed for window '{}': {}", config.title, SDL_GetError());
         }
@@ -677,10 +677,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         SDL3Window *raw_wrapper = nullptr;
         try {
             raw_wrapper = new SDL3Window(key, window);
-            // window_flags(config) above already applied config.mode's SDL-level effect to the window
-            // being created (SDL_WINDOW_BORDERLESS/SDL_WINDOW_FULLSCREEN) — this just makes
-            // fullscreen_mode() report it accurately from window creation onward, matching what
-            // set_fullscreen() does for every mode change after construction.
+
+
+
+
             raw_wrapper->fullscreen_mode_ = config.mode;
             sdl_window_registry().emplace(SDL_GetWindowID(window), raw_wrapper);
             auto wrapper = unique_ptr<SDL3Window>(raw_wrapper);
@@ -817,19 +817,19 @@ namespace SFT::Platform::Windowing::SDL3 {
         i32 queued_event_count = 0;
         constexpr i32 max_events_per_pump = 128;
         // Computed once per pump rather than per event -- see sdl_to_steady_offset_ns()'s doc comment.
-        // A pump batch spans at most a few hundred microseconds, so drift within one batch is
-        // negligible next to the nanosecond-timestamp resolution being converted.
+
+
         const i64 timestamp_offset_ns = sdl_to_steady_offset_ns();
 
-        // Deliberately do not hold sdl_window_mutex() across SDL_PollEvent. During Windows'
-        // interactive move/resize modal loop, sdl_live_resize_watch runs synchronously as SDL queues
-        // the pixel-size event and needs this lock to publish the latest extent. Holding it here
-        // would make the watch skip that update, leaving the application to redraw only after the
-        // modal loop returns.
+
+
+
+
+
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
             auto lock = sdl_window_mutex().lock();
             ++event_count;
-            // Cheap per-event arithmetic (no syscall) against the once-per-pump offset above.
+
             const u64 event_timestamp_ns = sdl_event_timestamp_ns(event.common.timestamp, timestamp_offset_ns);
             if (event.type == SDL_EVENT_QUIT) [[unlikely]] {
                 for (auto &[registered_id, registered_window] : sdl_window_registry()) {
@@ -938,10 +938,10 @@ namespace SFT::Platform::Windowing::SDL3 {
                     ++queued_event_count;
                 }
             } else if (event.type == SDL_EVENT_TEXT_EDITING) {
-                // The IME composition/preedit update itself — see WindowTextEditingEvent's own doc
-                // comment for why an empty text field here means composition ended, and why this
-                // needs its own event kind rather than reusing TextInput (uncommitted composition
-                // text must never be treated as if the user actually typed it).
+
+
+
+
                 if (auto found = sdl_window_registry().find(event.edit.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::TextEditing};
                     window_event.timestamp_ns = event_timestamp_ns;
@@ -1205,8 +1205,8 @@ namespace SFT::Platform::Windowing::SDL3 {
             });
         }
 
-        // A genuine OS-level global query (not keyed to `window_` at all) on SDL drivers that
-        // support desktop-global pointer coordinates.
+
+
         f32 x = 0.0f;
         f32 y = 0.0f;
         SDL_GetGlobalMouseState(&x, &y);
@@ -1332,14 +1332,14 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         Foundation::log_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
-        // SDL3's own fullscreen API is boolean (SDL_SetWindowFullscreen) — Borderless and Exclusive
-        // both need the identical borderless, monitor-covering window treatment at the OS/window level;
-        // the actual distinction between them is entirely a swapchain-presentation concern
-        // (VK_EXT_full_screen_exclusive bypassing the compositor), not a window-chrome one, so there is
-        // deliberately no separate SDL call for Exclusive here. fullscreen_mode_ still records the
-        // *requested* mode precisely (not collapsed to a bool) so a graphics backend rebuilding this
-        // window's swapchain later can tell Exclusive apart from Borderless — see fullscreen_mode()'s
-        // own doc comment (Window.hpp) for why that distinction has to survive past this call.
+
+
+
+
+
+
+
+
         auto result = sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed),
                                       WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
         if (result) {
@@ -1399,9 +1399,9 @@ namespace SFT::Platform::Windowing::SDL3 {
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
-        // Skip the churn entirely on the overwhelmingly common case (nothing changed since last
-        // call) — a caller driving this off per-frame hover state, as UI::Context::desired_cursor()
-        // is meant to be, would otherwise recreate a native cursor object every single frame.
+
+
+
         if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
             return {};
         }
@@ -1493,12 +1493,12 @@ namespace SFT::Platform::Windowing::SDL3 {
             effect.enabled,
             effect.color_argb,
             static_cast<i32>(effect.linux_blur_protocol));
-        // native_window_handle_locked(), not native_window_handle(): this lock is already held
-        // above, and sdl_window_mutex() is non-recursive — see its own doc comment.
+
+
         auto handle = native_window_handle_locked();
         if (!handle) [[unlikely]] {
-            // SDL temporarily has no wl_surface while a Wayland window is hidden. Preserve the
-            // requested state locally so disabling while hidden prevents show() from reapplying blur.
+
+
             if (effect.kind == WindowEffectKind::Blur && native_effect_handle_ &&
                 native_effect_handle_->system == NativeWindowSystem::Wayland) {
                 if (effect.enabled) {
@@ -1513,8 +1513,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
         if (effect.kind == WindowEffectKind::Blur) {
-            // Keep the display/surface available for teardown even when protocol discovery later says
-            // blur is unsupported; a hidden destructor otherwise cannot query SDL's null wl_surface.
+
+
             native_effect_handle_ = *handle;
         }
         WindowEffectResult result = enable_native_window_effect(*handle, effect);

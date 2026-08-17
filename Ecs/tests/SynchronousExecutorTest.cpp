@@ -43,10 +43,10 @@ namespace {
         return condition;
     }
 
-    // The point of ExecutorPolicy::Synchronous is that it must never touch Async::Scheduler's
-    // process-global state. This test deliberately never calls Async::Scheduler::initialize()
-    // anywhere, so if Schedule::run() silently starts it (the bug this policy exists to prevent),
-    // is_running() below would observe it.
+
+
+
+
     bool synchronous_schedule_starts_no_worker_threads() {
         ComponentRegistry registry;
         World world{registry};
@@ -57,7 +57,7 @@ namespace {
         for (std::uint32_t row = 0; row < row_count; ++row) {
             (void)world.spawn(Position{.id = row});
         }
-        // A second entity carrying Doomed exercises the Commands/command-buffer dispatch path.
+
         (void)world.spawn(Position{.id = row_count}, Doomed{});
 
         Schedule schedule{ScheduleConfig{.executor = ExecutorPolicy::Synchronous}};
@@ -84,8 +84,8 @@ namespace {
         return passed;
     }
 
-    // The Async default path must keep working unchanged for existing callers (this repo already has
-    // no callers passing ScheduleConfig::executor explicitly outside tests).
+
+
     bool async_schedule_still_starts_scheduler() {
         ComponentRegistry registry;
         World world{registry};

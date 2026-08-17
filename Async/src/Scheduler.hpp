@@ -15,19 +15,19 @@ namespace SFT::Async {
 
     struct SchedulerConfig {
         u32 worker_count = 0;
-        // Low-latency workers briefly spin/yield before sleeping so short task bursts avoid a full
-        // kernel wakeup round trip. Keep defaults conservative; games can tune explicitly at startup.
+        /// Low-latency workers briefly spin/yield before sleeping so short task bursts avoid a full
+        /// kernel wakeup round trip. Keep defaults conservative; games can tune explicitly at startup.
         u32 idle_spin_iterations = 256;
         u32 idle_yield_iterations = 64;
         u32 idle_sleep_microseconds = 100;
         bool notify_all_on_enqueue = false;
     };
 
-    // A task's placement preference, not a placement guarantee: workers are still free to steal any
-    // task off any deque regardless of weight (see SchedulerImpl.cpp's enqueue()/try_take_task()) — a
-    // `Heavy` task that lands on a busy fast core can still be picked up by whichever worker goes idle
-    // first. `Light` (the default) is byte-for-byte today's existing behavior for every call site that
-    // doesn't pass this explicitly.
+    /// A task's placement preference, not a placement guarantee: workers are still free to steal any
+    /// task off any deque regardless of weight (see SchedulerImpl.cpp's enqueue()/try_take_task()) — a
+    /// `Heavy` task that lands on a busy fast core can still be picked up by whichever worker goes idle
+    /// first. `Light` (the default) is byte-for-byte today's existing behavior for every call site that
+    /// doesn't pass this explicitly.
     enum class TaskWeight {
         Light,
         Heavy,

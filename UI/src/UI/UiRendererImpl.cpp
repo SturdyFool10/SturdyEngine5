@@ -30,7 +30,6 @@ namespace SFT::UI {
         custom_element_pipeline_ = std::move(other.custom_element_pipeline_);
         surface_frame_resources_ = std::move(other.surface_frame_resources_);
         color_format_ = other.color_format_;
-        backend_type_ = other.backend_type_;
         generation_.store(other.generation_.load(std::memory_order_acquire), std::memory_order_release);
         enable_shader_disk_cache_ = other.enable_shader_disk_cache_;
         white_texture_ = other.white_texture_;
@@ -57,7 +56,6 @@ namespace SFT::UI {
         renderer.quad_pipeline_ = std::move(*quad_pipeline);
         renderer.color_format_ = color_format;
         renderer.enable_shader_disk_cache_ = enable_shader_disk_cache;
-        renderer.backend_type_ = device.backend_type();
 
         renderer.generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),
                                    std::memory_order_release);
@@ -67,11 +65,11 @@ namespace SFT::UI {
 
     namespace {
 
-        // One draw item, spanning all three underlying kinds, carrying just enough to (a) sort
-        // everything into one global paint order and (b) find its way back to the actual data
-        // afterward. `index`/`count` are into FrameSnapshot's own arrays — for Text, `count` glyphs
-        // starting at `index` (one run == one original Clay TEXT command, see PaintKey's own doc
-        // comment on why every glyph in a run shares one PaintKey).
+
+
+
+
+
         struct PaintEntry {
             PaintKey paint;
             enum class Kind : u8 { Quad, Text, Custom } kind = Kind::Quad;
@@ -89,14 +87,14 @@ namespace SFT::UI {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
         if (!ready_) {
-            // Mirrors draw()'s own "not found" case below, not an error: the caller-side generation
-            // check (WorkbenchUi::build_overlay_hooks(), for instance) is a best-effort pre-check
-            // that reads generation() without holding operation_mutex_, so it can lose a race against
-            // a concurrent destroy() that has already cleared ready_ by the time this call acquires
-            // the lock — exactly the "backend reconstruction intentionally drops frames assembled
-            // against the old device" scenario draw() documents. There is correctly no prepared UI
-            // work in that case, so behave like draw() and return the empty-but-successful result
-            // rather than surfacing it as a hard failure.
+
+
+
+
+
+
+
+
             return {};
         }
 
@@ -130,10 +128,10 @@ namespace SFT::UI {
         frame_resources.custom_draws.clear();
         frame_resources.custom_group_ids.clear();
         if (!white_texture_) {
-            // Renderer::ensure_default_white_texture() is private (Renderer's own material-fallback
-            // internal, not part of its public surface) — UiRenderer creates its own 1x1 white
-            // texture the same way any other texture-owning consumer would, through the public
-            // create_texture() path, and caches the resulting handle for the pipeline's lifetime.
+
+
+
+
             const std::array<std::byte, 4> white{std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}};
             auto white_handle = texture_resolver->create_texture(1, 1, RHI::Format::RGBA8Unorm,
                                                                   span<const std::byte>{white.data(), white.size()},
@@ -152,9 +150,9 @@ namespace SFT::UI {
                                                 "UiRenderer::prepare: the default white texture is no longer valid.");
         }
 
-        // Merge every draw item from the snapshot into one global paint order (see PaintKey's own
-        // doc comment, Style.hpp, and this class's own doc comment) — sorted by (z, paint_index),
-        // never reordering items that share both.
+
+
+
         vector<PaintEntry> entries;
         entries.reserve(snapshot.quads_.size() + snapshot.custom_draws_.size() + 8);
         for (usize i = 0; i < snapshot.quads_.size(); ++i) {
@@ -178,12 +176,12 @@ namespace SFT::UI {
         std::sort(entries.begin(), entries.end(),
                  [](const PaintEntry &a, const PaintEntry &b) noexcept { return a.paint < b.paint; });
 
-        // Split the sorted merge back into per-kind arrays, each carrying a `group id` that
-        // increments every time the *kind* changes along the sorted sequence — the extra batching
-        // key UiQuadPipeline::prepare()/Renderer::TextPipeline::prepare() need so their own
-        // (texture/format-tile, scissor) merging never bridges a gap that used to hold a
-        // different-kind item (see their own doc comments). draw() below walks all three back out
-        // in lockstep by ascending group id.
+
+
+
+
+
+
         vector<UiQuadInstance> quad_instances;
         vector<RHI::TextureViewHandle> quad_texture_views;
         vector<RHI::Rect2D> quad_scissors;
@@ -295,16 +293,16 @@ namespace SFT::UI {
             surface_frame_resources_, surface, &SurfaceFrameResources::surface);
         if (surface_resources == surface_frame_resources_.end() ||
             frame_resource_index >= surface_resources->frames.size()) {
-            // A backend reconstruction intentionally drops frames assembled against the old device.
-            // Their overlay draw hook may still execute after the replacement renderer is installed,
-            // but there is correctly no prepared UI work for that new generation/slot. Drawing an
-            // empty overlay is the valid result; malformed resources that do exist still fail below.
+
+
+
+
             return {};
         }
         FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
 
-        // Walk quad/text/custom batches back out in ascending paint-order-group lockstep. Each
-        // pipeline sets its batch's scissor internally, so only pipeline switches need coordinating.
+
+
         usize quad_cursor = 0;
         usize text_cursor = 0;
         usize custom_cursor = 0;
@@ -325,7 +323,7 @@ namespace SFT::UI {
             while (quad_cursor < frame_resources.quad_batches.size() &&
                    frame_resources.quad_batches[quad_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = quad_pipeline_.draw(
-                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size, backend_type_);
+                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
@@ -343,7 +341,7 @@ namespace SFT::UI {
             while (custom_cursor < frame_resources.custom_draws.size() &&
                    frame_resources.custom_group_ids[custom_cursor] == next_group) {
                 if (Core::RendererResult drawn = custom_element_pipeline_.draw(
-                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size, backend_type_);
+                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size);
                     !drawn) {
                     return drawn;
                 }
@@ -368,21 +366,21 @@ namespace SFT::UI {
         custom_element_pipeline_.destroy(device);
         text_pipeline_.destroy(device);
         ready_ = false;
-        // Bumping generation_ here (not just in create()) closes the race a caller like
-        // WorkbenchUi's "Reconstruct graphics" hits: a frame hook captured on another window's
-        // render thread before this destroy() snapshots the *old* generation, then executes after
-        // destroy() but before the matching create() runs. Without this, that stale hook's
-        // generation check (renderer->generation() != captured_generation) still passes — nothing
-        // has changed generation_ yet — so it falls through to prepare()/draw() against a destroyed
-        // instance instead of being caught as stale. A fresh value here (not reachable by any future
-        // create(), since both draw from the same monotonic counter) makes every previously-captured
-        // generation immediately stale the instant destroy() runs, not just after the next create().
-        // The release store (paired with generation()'s acquire load) is load-bearing, not just
-        // correct-by-convention: the hook's staleness check deliberately reads this without taking
-        // operation_mutex_ (the whole point is detecting staleness without blocking on a lock the
-        // in-flight destroy() call may be holding), so a plain relaxed/non-atomic write here could
-        // let that read observe a pre-destroy() value on another core even after this line has
-        // already executed on this one.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),
                           std::memory_order_release);
     }

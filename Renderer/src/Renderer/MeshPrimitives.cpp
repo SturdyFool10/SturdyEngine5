@@ -1,10 +1,10 @@
-// CPU-side geometry generation for Mesh's built-in primitive constructors. Every generator builds
-// its shape canonically along +Y (SolidWorks-style: the profile lives in the XZ plane, extruded or
-// revolved along Y) and, where an Axis parameter exists, a final basis-remap rotates that canonical
-// shape onto the requested axis. Winding is authored as CCW-outward / right-handed; grid- and
-// fan-based generators verify this per-triangle against an already-known-correct normal rather than
-// relying on hand-derived trig signs, so a sign slip degrades to "still convex, still correct" rather
-// than a silently inside-out mesh.
+
+
+
+
+
+
+
 #pragma region Imports
 #include <array>
 #include <cmath>
@@ -41,8 +41,8 @@ namespace SFT::Renderer {
             }
         }
 
-        // Reorders (i0,i1,i2) so the triangle's own geometric winding agrees with the already-known
-        // correct outward direction carried by the vertices themselves (their averaged normal).
+
+
         void emit_smooth_triangle(const vector<GeometryVertex> &verts, vector<u32> &idx, u32 i0, u32 i1, u32 i2) {
             const glm::vec3 face_normal =
                 glm::cross(verts[i1].position - verts[i0].position, verts[i2].position - verts[i0].position);
@@ -63,9 +63,9 @@ namespace SFT::Renderer {
             emit_smooth_triangle(verts, idx, i0, i2, i3);
         }
 
-        // Flat-shaded triangle for faceted convex shapes: computes its own face normal and flips
-        // winding if that normal doesn't point away from `shape_center`, so caller-supplied vertex
-        // order never has to be pre-verified by hand.
+
+
+
         void append_flat_triangle(vector<GeometryVertex> &verts, vector<u32> &idx, glm::vec3 a, glm::vec3 b,
                                    glm::vec3 c, glm::vec3 shape_center) {
             glm::vec3 normal = glm::cross(b - a, c - a);
@@ -85,15 +85,15 @@ namespace SFT::Renderer {
         }
 
         struct BoxFace {
-            int a, b, c; // axis indices with a x b = c (right-handed cyclic order)
+            int a, b, c;
             f32 sign;
         };
 
         void append_box(vector<GeometryVertex> &verts, vector<u32> &idx, glm::vec3 half) {
             constexpr BoxFace faces[6] = {
-                {0, 1, 2, 1.0f}, {0, 1, 2, -1.0f}, // +-X
-                {1, 2, 0, 1.0f}, {1, 2, 0, -1.0f}, // +-Y
-                {2, 0, 1, 1.0f}, {2, 0, 1, -1.0f}, // +-Z
+                {0, 1, 2, 1.0f}, {0, 1, 2, -1.0f},
+                {1, 2, 0, 1.0f}, {1, 2, 0, -1.0f},
+                {2, 0, 1, 1.0f}, {2, 0, 1, -1.0f},
             };
             constexpr glm::vec2 corner_uv[4] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
             constexpr glm::vec2 corner_sign[4] = {{-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}};
@@ -103,7 +103,7 @@ namespace SFT::Renderer {
                 normal[f.a] = f.sign;
                 const u32 base = static_cast<u32>(verts.size());
                 for (int k = 0; k < 4; ++k) {
-                    // Negative faces walk the corner list backwards, which flips winding to match -a.
+
                     const int order = f.sign > 0.0f ? k : (3 - k);
                     glm::vec3 p{};
                     p[f.a] = f.sign * half[f.a];
@@ -145,7 +145,7 @@ namespace SFT::Renderer {
             }
         }
 
-        // Shared builder for both cylinder (bottom_radius == top_radius) and cone (top_radius == 0).
+
         void append_frustum(vector<GeometryVertex> &verts, vector<u32> &idx, f32 bottom_radius, f32 top_radius,
                              f32 height, u32 radial_segments, bool capped, Axis axis) {
             radial_segments = radial_segments < 3 ? 3 : radial_segments;
@@ -164,9 +164,9 @@ namespace SFT::Renderer {
                     const f32 cos_phi = std::cos(phi);
                     const f32 sin_phi = std::sin(phi);
                     const glm::vec3 position(radius * cos_phi, y, radius * sin_phi);
-                    // Exact tangent-plane normal for a cone frustum: tilts away from pure-radial by
-                    // an amount proportional to the taper (delta_r), so a cone doesn't shade like a
-                    // cylinder with a pinched cap.
+
+
+
                     const glm::vec3 normal =
                         glm::normalize(glm::vec3(height * cos_phi, bottom_radius - top_radius, height * sin_phi));
                     verts.push_back(GeometryVertex{

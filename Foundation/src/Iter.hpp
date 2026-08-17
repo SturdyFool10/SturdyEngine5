@@ -18,30 +18,30 @@ using std::predicate;
 
 namespace SFT::Foundation {
 
-    // Anything `iter()` (below) can wrap — exactly `std::ranges::viewable_range`, the standard's own
-    // name for "usable with view adaptors" (covers an lvalue range, borrowed, and an rvalue one,
-    // owned by the result). Name a template parameter this way to accept "anything iterable" without
-    // repeating that constraint by hand — e.g. `template <Iterable R> void process(R &&range);`.
+    /// Anything `iter()` (below) can wrap — exactly `std::ranges::viewable_range`, the standard's own
+    /// name for "usable with view adaptors" (covers an lvalue range, borrowed, and an rvalue one,
+    /// owned by the result). Name a template parameter this way to accept "anything iterable" without
+    /// repeating that constraint by hand — e.g. `template <Iterable R> void process(R &&range);`.
     template <class R>
     concept Iterable = std::ranges::viewable_range<R>;
 
     namespace Detail {
 
-        // Two ranges are `Chainable` if `Iter::chain()` (below) can walk one after the other:
-        // both have to be `view`s with a fixed end (`common_range` — sentinel and iterator are the
-        // same type, true of virtually every container/view in practice), and their elements need a
-        // `common_reference_t` so dereferencing mid-chain always yields one consistent type
-        // regardless of which side the cursor is currently on.
+        /// Two ranges are `Chainable` if `Iter::chain()` (below) can walk one after the other:
+        /// both have to be `view`s with a fixed end (`common_range` — sentinel and iterator are the
+        /// same type, true of virtually every container/view in practice), and their elements need a
+        /// `common_reference_t` so dereferencing mid-chain always yields one consistent type
+        /// regardless of which side the cursor is currently on.
         template <class V1, class V2>
         concept Chainable = std::ranges::input_range<V1> && std::ranges::view<V1> && std::ranges::common_range<V1> &&
                              std::ranges::input_range<V2> && std::ranges::view<V2> && std::ranges::common_range<V2> &&
                              std::common_reference_with<std::ranges::range_reference_t<V1>, std::ranges::range_reference_t<V2>>;
 
-        // A single-pass cursor over "every element of `V1`, then every element of `V2`" — the
-        // iterator behind `ChainView` below. Deliberately input-only (`iterator_concept =
-        // input_iterator_tag`) rather than forward/bidirectional/random-access: `Iter` is already a
-        // consuming, single-pass, Rust-flavored wrapper (see its class docs), so a chained iterator
-        // doesn't need to support revisiting a position, only advancing through it once.
+        /// A single-pass cursor over "every element of `V1`, then every element of `V2`" — the
+        /// iterator behind `ChainView` below. Deliberately input-only (`iterator_concept =
+        /// input_iterator_tag`) rather than forward/bidirectional/random-access: `Iter` is already a
+        /// consuming, single-pass, Rust-flavored wrapper (see its class docs), so a chained iterator
+        /// doesn't need to support revisiting a position, only advancing through it once.
         template <class V1, class V2>
         class ChainIterator {
           public:
@@ -52,9 +52,9 @@ namespace SFT::Foundation {
 
             ChainIterator() = default;
 
-            // Constructing directly from `[it1, end1)`/`[it2, end2)` decides which side we start on:
-            // if `it1 == end1` already (the first range is empty, or this is being used to build the
-            // "end" sentinel with `it1 == end1` on purpose), we start in the second range immediately.
+            /// Constructing directly from `[it1, end1)`/`[it2, end2)` decides which side we start on:
+            /// if `it1 == end1` already (the first range is empty, or this is being used to build the
+            /// "end" sentinel with `it1 == end1` on purpose), we start in the second range immediately.
             ChainIterator(std::ranges::iterator_t<V1> it1, std::ranges::iterator_t<V1> end1,
                           std::ranges::iterator_t<V2> it2, std::ranges::iterator_t<V2> end2)
                 : it1_(std::move(it1)), end1_(std::move(end1)), it2_(std::move(it2)), end2_(std::move(end2)),
@@ -99,10 +99,10 @@ namespace SFT::Foundation {
             bool in_first_ = false;
         };
 
-        // The view behind `Iter::chain()`: `first`'s elements, then `second`'s. `begin()`/`end()` are
-        // both `ChainIterator`s (a `common_range`) — `end()` is built with `it == end` on both sides,
-        // which `ChainIterator`'s constructor already reads as "start in the second range", so it
-        // doubles as the finished/sentinel state with no special-casing needed.
+        /// The view behind `Iter::chain()`: `first`'s elements, then `second`'s. `begin()`/`end()` are
+        /// both `ChainIterator`s (a `common_range`) — `end()` is built with `it == end` on both sides,
+        /// which `ChainIterator`'s constructor already reads as "start in the second range", so it
+        /// doubles as the finished/sentinel state with no special-casing needed.
         template <class V1, class V2>
             requires Chainable<V1, V2>
         class ChainView : public std::ranges::view_interface<ChainView<V1, V2>> {
@@ -131,22 +131,22 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // A Rust-flavored, lazily-chained wrapper over any `std::ranges` range — `.map()`/`.filter()`/
-    // `.enumerate()`/`.zip()`/`.chain()`/`.take()`/`.skip()`/`.take_while()`/`.skip_while()`/`.rev()`
-    // build up an adaptor chain without touching a single element (each is a thin `std::views::*`
-    // call underneath, `.chain()` aside — see `Detail::ChainView` above, since `std::views::concat`
-    // doesn't exist before C++26); `.for_each()`/`.fold()`/`.sum()`/`.count()`/`.any()`/`.all()`/
-    // `.find()`/`.collect<Container>()` actually walk it. Get one via `iter()` below, not this
-    // constructor directly.
-    //
-    // `Iter<V>` is itself a `std::ranges::view` (derives from `view_interface`), so it can be handed
-    // to anything that takes a range — including back into `iter()`, `Sturdy.Async`'s `par_iter()`
-    // (see Async/ParIter.cppm), or a plain range-`for`.
-    //
-    // Every method below consumes `view_` (moves out of it) to build the next stage, matching Rust's
-    // `self`-by-value adaptor methods — chain them in one expression (`iter(v).map(f).filter(p)...`)
-    // the way you normally would; if you do keep an intermediate in a named variable, `std::move` it
-    // into the next call, since the original is left holding a moved-from view afterward.
+    /// A Rust-flavored, lazily-chained wrapper over any `std::ranges` range — `.map()`/`.filter()`/
+    /// `.enumerate()`/`.zip()`/`.chain()`/`.take()`/`.skip()`/`.take_while()`/`.skip_while()`/`.rev()`
+    /// build up an adaptor chain without touching a single element (each is a thin `std::views::*`
+    /// call underneath, `.chain()` aside — see `Detail::ChainView` above, since `std::views::concat`
+    /// doesn't exist before C++26); `.for_each()`/`.fold()`/`.sum()`/`.count()`/`.any()`/`.all()`/
+    /// `.find()`/`.collect<Container>()` actually walk it. Get one via `iter()` below, not this
+    /// constructor directly.
+    ///
+    /// `Iter<V>` is itself a `std::ranges::view` (derives from `view_interface`), so it can be handed
+    /// to anything that takes a range — including back into `iter()`, `Sturdy.Async`'s `par_iter()`
+    /// (see Async/ParIter.cppm), or a plain range-`for`.
+    ///
+    /// Every method below consumes `view_` (moves out of it) to build the next stage, matching Rust's
+    /// `self`-by-value adaptor methods — chain them in one expression (`iter(v).map(f).filter(p)...`)
+    /// the way you normally would; if you do keep an intermediate in a named variable, `std::move` it
+    /// into the next call, since the original is left holding a moved-from view afterward.
     template <std::ranges::view V>
     class Iter : public std::ranges::view_interface<Iter<V>> {
       public:
@@ -162,7 +162,7 @@ namespace SFT::Foundation {
             return std::ranges::end(view_);
         }
 
-        // --- Lazy adaptors -------------------------------------------------------------------
+
 
         template <class Fn>
             requires SyncWork<Fn &, std::ranges::range_reference_t<V>>
@@ -178,7 +178,7 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
-        // Pairs each element with its index: `(usize, T)`.
+        /// Pairs each element with its index: `(usize, T)`.
         [[nodiscard]] auto enumerate() {
             auto result = std::views::enumerate(std::move(view_));
             return Iter<decltype(result)>(std::move(result));
@@ -190,9 +190,9 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
-        // This iterator's elements, then `other`'s — see `Detail::ChainView` above for why this needs
-        // its own hand-rolled view rather than a one-line `std::views::*` call like the other
-        // adaptors here.
+        /// This iterator's elements, then `other`'s — see `Detail::ChainView` above for why this needs
+        /// its own hand-rolled view rather than a one-line `std::views::*` call like the other
+        /// adaptors here.
         template <Iterable R2>
             requires Detail::Chainable<V, std::views::all_t<R2>>
         [[nodiscard]] auto chain(R2 &&other) {
@@ -232,7 +232,7 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
-        // --- Terminal consumers ----------------------------------------------------------------
+
 
         template <class Fn>
             requires SyncWork<Fn &, std::ranges::range_reference_t<V>>
@@ -266,7 +266,7 @@ namespace SFT::Foundation {
             return std::ranges::all_of(view_, pred);
         }
 
-        // First element satisfying `pred`, or `nullopt` if none does.
+        /// First element satisfying `pred`, or `nullopt` if none does.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] optional<std::ranges::range_value_t<V>> find(Pred pred) {
@@ -277,8 +277,8 @@ namespace SFT::Foundation {
             return std::ranges::range_value_t<V>(*it);
         }
 
-        // `std::ranges::to<Container>()` under the hood — `Container` is a template-template
-        // parameter (defaults to `std::vector`) so the element type is deduced, not repeated.
+        /// `std::ranges::to<Container>()` under the hood — `Container` is a template-template
+        /// parameter (defaults to `std::vector`) so the element type is deduced, not repeated.
         template <template <class...> class Container = std::vector>
         [[nodiscard]] auto collect() {
             return std::ranges::to<Container>(std::move(view_));
@@ -288,12 +288,12 @@ namespace SFT::Foundation {
         V view_;
     };
 
-    // Wraps any range in an `Iter` — the general "turn this into an iterator" entry point, and the
-    // `Iterable` concept above is exactly its parameter constraint. A `std::ranges::range_adaptor_
-    // closure`, so it works both as an ordinary call, `iter(range)`, and piped, `range | iter` —
-    // the same two forms `std::views::all`/`std::views::common` support, and for the same reason:
-    // there's no extra argument to bind first (unlike, say, `std::views::transform(fn)`), so the one
-    // object serves as both the adaptor and its own closure.
+    /// Wraps any range in an `Iter` — the general "turn this into an iterator" entry point, and the
+    /// `Iterable` concept above is exactly its parameter constraint. A `std::ranges::range_adaptor_
+    /// closure`, so it works both as an ordinary call, `iter(range)`, and piped, `range | iter` —
+    /// the same two forms `std::views::all`/`std::views::common` support, and for the same reason:
+    /// there's no extra argument to bind first (unlike, say, `std::views::transform(fn)`), so the one
+    /// object serves as both the adaptor and its own closure.
     namespace Detail {
 
         struct IterFn : std::ranges::range_adaptor_closure<IterFn> {

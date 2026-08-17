@@ -39,13 +39,13 @@ namespace {
     }
     if (boundary >= 2 && static_cast<unsigned char>(bytes[boundary - 2]) == 0xC2 &&
         static_cast<unsigned char>(bytes[boundary - 1]) == 0x85) {
-        return boundary - 2; // NEL
+        return boundary - 2;
     }
     if (boundary >= 3 && static_cast<unsigned char>(bytes[boundary - 3]) == 0xE2 &&
         static_cast<unsigned char>(bytes[boundary - 2]) == 0x80 &&
         (static_cast<unsigned char>(bytes[boundary - 1]) == 0xA8 ||
          static_cast<unsigned char>(bytes[boundary - 1]) == 0xA9)) {
-        return boundary - 3; // LINE/PARAGRAPH SEPARATOR
+        return boundary - 3;
     }
     return boundary;
 }
@@ -196,8 +196,8 @@ TextExpected<TextLayout> layout_text(const FontStack &fonts, const ustr &text,
             }
 
             if (!chosen_shape) {
-                // The first normal opportunity is too wide. Walk extended grapheme boundaries so
-                // even an unspaced token can wrap without bisecting a combining/ZWJ sequence.
+
+
                 const auto first_grapheme_it = std::ranges::upper_bound(graphemes, line_start);
                 if (first_grapheme_it == graphemes.end()) {
                     return text_error(TextErrorCode::ShapingFailed,
@@ -218,7 +218,7 @@ TextExpected<TextLayout> layout_text(const FontStack &fonts, const ustr &text,
                         chosen_visible_end = boundary;
                         chosen_shape = std::move(*shaped);
                         if (options.max_width_em && chosen_shape->advance_em > *options.max_width_em + 0.0001f) {
-                            break; // one grapheme is intrinsically wider than the constraint
+                            break;
                         }
                     } else {
                         break;
@@ -255,8 +255,8 @@ TextExpected<TextLayout> layout_text(const FontStack &fonts, const ustr &text,
         if (TextResult appended = append_segment(paragraph_start, content_end, true, paragraph_soft_breaks); !appended) {
             return std::unexpected(appended.error());
         }
-        // The visible content excludes the paragraph separator, but the final logical line owns
-        // those source bytes so consecutive LaidOutLine ranges still partition the full input.
+
+
         layout.lines.back().byte_end = opportunity.byte_index;
         paragraph_start = opportunity.byte_index;
         paragraph_soft_breaks.clear();

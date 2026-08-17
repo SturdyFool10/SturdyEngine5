@@ -278,8 +278,6 @@ namespace SFT::Engine {
     void Camera::clear_jitter() noexcept { jitter_ndc_ = {0.0f, 0.0f}; }
     bool Camera::reverse_z() const noexcept { return reverse_z_; }
     void Camera::set_reverse_z(bool enabled) noexcept { reverse_z_ = enabled; }
-    bool Camera::flip_projection_y() const noexcept { return flip_projection_y_; }
-    void Camera::set_flip_projection_y(bool enabled) noexcept { flip_projection_y_ = enabled; }
 
     f32 Camera::focal_length_mm() const noexcept { return focal_length_mm_; }
     void Camera::set_focal_length_mm(f32 millimeters) noexcept {
@@ -350,9 +348,6 @@ namespace SFT::Engine {
         } else {
             projection = glm::perspectiveRH_ZO(vertical_fov_radians_, aspect_ratio_,
                                                projection_near, projection_far);
-        }
-        if (flip_projection_y_) {
-            projection[1][1] *= -1.0f;
         }
         projection[2][0] += lens_shift_.x + jitter_ndc_.x;
         projection[2][1] += lens_shift_.y + jitter_ndc_.y;

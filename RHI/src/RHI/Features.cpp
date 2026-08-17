@@ -1,3 +1,4 @@
+#include <RHI/src/RHI/Features.hpp>
 #include "Features.hpp"
 
 namespace SFT::RHI {
@@ -79,3 +80,13 @@ FeatureSet features_of(std::initializer_list<Feature> features) noexcept {
     }
 
 } // namespace SFT::RHI
+
+namespace SFT::RHI {
+
+    FeatureSet operator|(FeatureSet a, const FeatureSet &b) noexcept {
+        a |= b;
+        return a;
+    }
+
+} // namespace SFT::RHI
+

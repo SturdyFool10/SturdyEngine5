@@ -4,9 +4,7 @@
 //
 // Not wired to any C++ pipeline today (only referenced from doc-comment examples in
 // Core/Slang/ShaderSource.hpp etc.) — a minimal standalone example, not part of the main render
-// path. Left on the legacy sturdy_clip_position()/STURDY_CLIP_Y_SIGN mechanism (still fully
-// functional — see that macro's own doc comment) rather than migrated to a C++-supplied matrix/sign,
-// since there is no real pipeline/push-constant setup here to source one from.
+// path.
 import sturdy_common;
 
 struct VertexInput {
@@ -22,7 +20,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    output.position = sturdy_clip_position(float4(input.position, 0.0, 1.0));
+    output.position = float4(input.position, 0.0, 1.0);
     output.color = input.color;
     return output;
 }

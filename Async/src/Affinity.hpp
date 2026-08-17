@@ -37,13 +37,13 @@ namespace SFT::Async {
 
         [[nodiscard]] bool pin_to_core(u32 core_index) noexcept;
 
-        // Pins to whatever Async::ranked_physical_cores() (Topology.hpp) considers the single best
-        // physical core on this machine (highest CoreType, then largest L3/L2 — see that function's
-        // doc comment). False if topology info or pinning isn't available on this platform; the
-        // thread simply keeps running unpinned, same as any other pin_to_core() failure.
+        /// Pins to whatever Async::ranked_physical_cores() (Topology.hpp) considers the single best
+        /// physical core on this machine (highest CoreType, then largest L3/L2 — see that function's
+        /// doc comment). False if topology info or pinning isn't available on this platform; the
+        /// thread simply keeps running unpinned, same as any other pin_to_core() failure.
         [[nodiscard]] bool pin_to_fastest_core() noexcept;
 
-        [[nodiscard]] const std::string &name() const noexcept { return name_; }
+        [[nodiscard]] const std::string &name() const noexcept;
 
       private:
         void enqueue(std::unique_ptr<Detail::TaskBase> task) noexcept;

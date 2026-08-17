@@ -25,12 +25,12 @@ namespace SFT::D3D12 {
             case DXGI_STATUS_OCCLUDED:
             case DXGI_ERROR_WAS_STILL_DRAWING:
                 return rhi::RhiErrorCode::NotReady;
-            // The presentation surface itself is gone (window destroyed, output removed) — the
-            // swapchain must be rebuilt, which is exactly SurfaceLost's contract.
+
+
             case DXGI_ERROR_ACCESS_LOST:
                 return rhi::RhiErrorCode::SurfaceLost;
-            // Exclusive fullscreen ownership was revoked (alt-tab, another app took the output). A
-            // recoverable state transition, not a device failure — see RhiErrorCode's own comment.
+
+
             case DXGI_ERROR_NOT_CURRENTLY_AVAILABLE:
                 return rhi::RhiErrorCode::FullScreenExclusiveLost;
             default:
@@ -94,9 +94,9 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // The RHI's labels are ASCII `const char *`; SetName wants a wide string. Widened by hand
-        // rather than via MultiByteToWideChar because a debug label is by convention plain ASCII and
-        // this runs on resource-creation paths where a codepage conversion would be pure overhead.
+
+
+
         [[nodiscard]] std::vector<wchar_t> widen(const char *label) {
             std::vector<wchar_t> wide;
             for (const char *cursor = label; *cursor != '\0'; ++cursor) {

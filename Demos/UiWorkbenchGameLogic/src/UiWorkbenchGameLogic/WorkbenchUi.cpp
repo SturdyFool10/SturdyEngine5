@@ -1,3 +1,4 @@
+#include <Demos/UiWorkbenchGameLogic/src/UiWorkbenchGameLogic/WorkbenchUi.hpp>
 #include <UiWorkbenchGameLogic/WorkbenchUi.hpp>
 
 #include <Platform/Window/GLFW/GLFW.hpp>
@@ -31,14 +32,14 @@ namespace SFT::UiWorkbench {
             return color;
         }
 
-        // UI stays Platform-agnostic (see UI.hpp's own doc comment), so nothing below Engine ever
-        // translates UI::CursorIcon to Platform::Windowing::CursorIcon on its own — this is exactly
-        // that Engine-level glue, applied once per surface per frame further down in render().
-        // CursorIcon::Auto never actually reaches here (UI::Context::desired_cursor() always
-        // resolves to a concrete value, defaulting to Default — see its own doc comment,
-        // Context.hpp) but is still handled explicitly rather than left to fall through a switch's
-        // default, so a future CursorIcon addition on either side fails to compile here instead of
-        // silently mapping to the wrong glyph.
+
+
+
+
+
+
+
+
         [[nodiscard]] Platform::Windowing::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
             switch (icon) {
                 case UI::CursorIcon::Auto:
@@ -66,12 +67,12 @@ namespace SFT::UiWorkbench {
             return Platform::Windowing::CursorIcon::Default;
         }
 
-        // Top-left of the dock workspace within its own window's client area (below the brand/title
-        // bar built by hand at the top of build_frame(), inset from the side margins) — a fixed
-        // offset, not viewport-dependent (only the workspace's *size* scales with the window).
-        // handle_dock_events() needs this same constant to convert a DockTearOffRequest's
-        // workspace-local drop position into window-local, then global, screen coordinates when
-        // deciding whether a drag ended over another managed window instead of empty desktop.
+
+
+
+
+
+
         constexpr glm::vec2 kWorkspaceOrigin{18.0f, 58.0f};
 
         [[nodiscard]] UI::TextStyle text_style(UI::FontId font, UI::Color color = text_primary, u16 size = 14) {
@@ -95,8 +96,8 @@ namespace SFT::UiWorkbench {
             return std::string{buffer.data()};
         }
 
-        // Thresholds match a typical 60Hz-display expectation: comfortably above it is "good," a
-        // choppy-but-usable mid range, and anything below 30 calls out real frame drops.
+
+
         [[nodiscard]] UI::Color fps_color(f32 fps, UI::Color good, UI::Color mid, UI::Color bad) {
             if (fps >= 55.0f) {
                 return good;
@@ -220,10 +221,10 @@ namespace SFT::UiWorkbench {
                     .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                 });
                 {
-                    // Braced so this scope closes here — without it, ElementScope's RAII close
-                    // doesn't run until the end of the lambda, and draw_text() below ends up as a
-                    // *child* of this 10x10 dot instead of its sibling, collapsing the label's
-                    // wrapped lines on top of each other inside the dot's own tiny box.
+
+
+
+
                     auto dot = ctx.element(UI::ElementDecl{
                         .sizing = {UI::SizingAxis::fixed(10.0f), UI::SizingAxis::fixed(10.0f)},
                         .background_color = swatch,
@@ -255,19 +256,19 @@ namespace SFT::UiWorkbench {
         bool primary = false;
         std::vector<UI::SliderKey> slider_keys;
         std::vector<UI::ColorPickerKey> color_keys;
-        // Per-frame text-editing/IME input for the Text Lab widgets — Engine::UiTextInputState
-        // (Engine/EcsUi.hpp) rather than this Surface's own hand-rolled bookkeeping, so the
-        // EditKey-decoding/composition-bridging logic isn't duplicated per app. Used here as a
-        // plain per-Surface instance (not through the ECS resource/built-in system Engine also
-        // registers) for the same reason `pointer` above is this Surface's own PointerState rather
-        // than Engine::UiPointerState: this demo is multi-window-aware, and both of Engine's
-        // built-in versions are deliberately single-global, same simplification UiPointerState's
-        // own doc comment already makes.
+
+
+
+
+
+
+
+
         Engine::UiTextInputState text_input;
-        // One fade/drag state per panel content region — panel_content_region()'s own id is stable
-        // per panel regardless of which tab/split it's currently docked into, so these persist a
-        // panel's scrollbar feel (mid-fade, mid-drag) across reordering/resizing, only resetting if
-        // the panel tears off into a different Surface entirely.
+
+
+
+
         UI::ScrollAreaState controls_scroll{};
         UI::ScrollAreaState color_scroll{};
         UI::ScrollAreaState composition_scroll{};
@@ -275,25 +276,25 @@ namespace SFT::UiWorkbench {
         UI::ScrollAreaState docking_scroll{};
         UI::ScrollAreaState metrics_scroll{};
 
-        // Exponentially-smoothed instantaneous FPS (1/delta_seconds), updated once per build_frame()
-        // — negative means "no sample yet," so the header shows the very first frame's raw value
-        // instead of blending from zero.
+
+
+
         f32 fps_smoothed = -1.0f;
 
-        // This surface's last completed frame's CPU/GPU pass timing breakdown, refreshed once per
-        // render() call from Renderer::last_frame_timings() before build_frame() runs — same
-        // once-per-frame refresh pattern as fps_smoothed above, just sourced from the engine instead
-        // of computed locally. See build_metrics_panel() (the "Performance" tab) for its consumer.
+
+
+
+
         Renderer::FrameTimingSnapshot last_timing_snapshot{};
     };
 
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
-        // overlay_only() disables scene/post-processing so the UI writes directly to presentation.
-        // It leaves debug_overlay.enabled true (it's the CPU/GPU timing collection this
-        // workbench wants), but the burned-in on-screen text block it used to also draw is redundant
-        // with the "Performance" dock panel below (build_metrics_panel), which reads the same numbers
-        // via Renderer::last_frame_timings() — so only the text draw is turned off here.
+
+
+
+
+
         render_graph_.debug_overlay().draw_text = false;
     }
 
@@ -315,15 +316,15 @@ namespace SFT::UiWorkbench {
         }
         font_ = std::move(*loaded);
 
-        // CJK fallback: font_ (Maple Mono NF) has no Hiragana/Katakana/Kanji glyphs — without this,
-        // an IME composing Japanese text renders every character as a "tofu" missing-glyph box (see
-        // Text::FontStack::fallbacks' own doc comment for how a glyph's font gets picked once this
-        // is registered below). Subsetted from Google's Noto Sans Mono CJK JP (OFL-1.1, see
-        // Fonts/NOTO_CJK_LICENSE.txt) down to Latin/CJK-punctuation/Hiragana/Katakana/CJK Unified
-        // Ideographs/Halfwidth-Fullwidth Forms via:
-        //   pyftsubset NotoSansCJK-Regular.ttc --font-number=5 --unicodes="U+0000-00FF,U+2010-2027,
-        //     U+2030-205E,U+3000-303F,U+3040-309F,U+30A0-30FF,U+31F0-31FF,U+4E00-9FFF,U+FF00-FFEF,
-        //     U+FFFD" --layout-features='*' --output-file=NotoSansMonoCJK-JP-Subset.ttf
+
+
+
+
+
+
+
+
+
         const std::optional<std::string> cjk_font_bytes =
             Foundation::read_file_to_string("Fonts/NotoSansMonoCJK-JP-Subset.ttf");
         if (!cjk_font_bytes) {
@@ -357,9 +358,9 @@ namespace SFT::UiWorkbench {
                                                "\n"
                                                "Plain paragraphs render as body text."});
 
-        // Blur-type dropdown (Composition panel): only offer kinds this OS build actually reports as
-        // supported (see WindowEffectKind::Transparent's doc comment for why this query exists) —
-        // detected once, at startup, rather than hardcoding a per-platform list here.
+
+
+
         static constexpr std::array<Platform::Windowing::WindowEffectKind, 5> candidate_blur_kinds{
             Platform::Windowing::WindowEffectKind::Blur,
             Platform::Windowing::WindowEffectKind::Acrylic,
@@ -405,8 +406,8 @@ namespace SFT::UiWorkbench {
             context->destroy();
             return nullptr;
         }
-        // HDR UI is composited in linear light, then Renderer applies the surface's actual HDR
-        // transfer function once after all UI blending. Never blend individual UI fragments in PQ.
+
+
         auto hdr_renderer = UI::UiRenderer::create(*device, RHI::Format::RGBA16Float);
         if (!hdr_renderer) {
             Foundation::log_error("UiWorkbench: failed to create the HDR UI renderer for a window.");
@@ -424,7 +425,7 @@ namespace SFT::UiWorkbench {
             dock_style(font_id_),
             primary);
         const std::array<const Text::Font *, 1> font_fallbacks{&cjk_font_};
-        surface->context.register_font(font_id_, font_, /*emoji_fallback=*/nullptr, font_fallbacks);
+        surface->context.register_font(font_id_, font_,                    nullptr, font_fallbacks);
 
         Surface *result = surface.get();
         surfaces_.emplace(handle.window_id, std::move(surface));
@@ -543,8 +544,8 @@ namespace SFT::UiWorkbench {
                 for (const Engine::MouseWheelEvent &event : wheels.read()) {
                     if (Surface *surface = find_surface(event.window)) {
                         surface->pointer.position = {event.wheel.mouse_x, event.wheel.mouse_y};
-                        // Platform wheel X describes viewport motion; Clay's X delta describes
-                        // content motion, so horizontal input must be inverted at the UI boundary.
+
+
                         surface->pointer.scroll_delta += glm::vec2{-event.wheel.x, event.wheel.y};
                     }
                 }
@@ -562,16 +563,16 @@ namespace SFT::UiWorkbench {
                     if (surface == nullptr) {
                         continue;
                     }
-                    // EditKey decode (TextEditInput's contract: Ctrl+A/C/X/V arrive pre-resolved as
-                    // SelectAll/Copy/Cut/Paste, not as letters plus a modifier the widget would have
-                    // to interpret) plus Shift/Ctrl held-state tracking for the Text Lab widgets —
-                    // Engine::UiTextInputState::apply_key() (Engine/EcsUi.hpp) instead of
-                    // hand-rolling it here; it already no-ops on release/repeat the same way this
-                    // loop used to.
+
+
+
+
+
+
                     surface->text_input.apply_key(event);
 
-                    // Slider/color-picker key mapping below has its own held-state/pressed gating
-                    // needs, independent of UiTextInputState's job.
+
+
                     if (event.key_code == Engine::KeyboardKey::LeftShift ||
                         event.key_code == Engine::KeyboardKey::RightShift ||
                         event.key_code == Engine::KeyboardKey::LeftControl ||
@@ -676,10 +677,10 @@ namespace SFT::UiWorkbench {
             return std::nullopt;
         }
 
-        // A backend reconstruction deliberately destroys the old UI GPU resources. Do not submit a
-        // hook with a renderer that has not yet been recreated (for example, if the reconstruction
-        // completed between two managed-window frame tasks); rebuild it against the device currently
-        // owned by Engine and defer this frame if that cannot happen yet.
+
+
+
+
         if (!surface->sdr_renderer.ready() || !surface->hdr_renderer.ready()) {
             if (ui_renderer_rebuild_failed_) {
                 return std::nullopt;
@@ -707,19 +708,19 @@ namespace SFT::UiWorkbench {
             build_frame(engine, *surface, viewport, static_cast<f32>(frame.delta_seconds));
         handle_dock_events(engine, *surface, std::move(dock_events));
 
-        // The reconstruction above invalidates resources while this UI frame still contains
-        // work recorded for the previous device. Complete the UI transaction but do not pass
-        // that stale work to the renderer; the next frame builds it against the new backend.
+
+
+
         if (frames_to_skip_after_graphics_reconstruction_ != 0) {
             --frames_to_skip_after_graphics_reconstruction_;
             (void)surface->context.finish_frame();
             return std::nullopt;
         }
 
-        // Fire-and-forget through the same deferred WindowRequests queue spawn/close already use —
-        // GameLogic never holds a live Platform::Windowing::Window* (see WindowRequests.hpp's own
-        // doc comment). One frame of latency between a hover changing and the OS cursor actually
-        // updating is imperceptible, unlike the round-trip a spawn/close request needs.
+
+
+
+
         engine.window_requests().set_cursor_icon(surface->handle.window_id,
                                                  to_platform_cursor_icon(surface->context.desired_cursor()));
         auto snapshot = std::make_shared<UI::FrameSnapshot>(surface->context.finish_frame());
@@ -740,10 +741,10 @@ namespace SFT::UiWorkbench {
         f32 delta_seconds) {
         UI::PointerState framebuffer_pointer = surface.pointer;
         if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
-            // Layout and live-resize extents are physical framebuffer pixels. Use the matching
-            // snapshot field for pointer conversion: logical window size can remain stale while
-            // Windows is in its modal resize loop, which would otherwise make controls lag behind
-            // their freshly laid-out tab bounds.
+
+
+
+
             const glm::vec2 framebuffer_size{window->framebuffer_size};
             if (framebuffer_size.x > 0.0f && framebuffer_size.y > 0.0f) {
                 const glm::vec2 snapshot_to_framebuffer = viewport / framebuffer_size;
@@ -753,10 +754,10 @@ namespace SFT::UiWorkbench {
                 }
             }
         }
-        // Clay v0.14 chooses the outermost matching container for nested wheel targets. Route wheel
-        // input to the multiline editor explicitly when it is the hovered, scrollable descendant;
-        // consume only axes that actually moved so an editor at its boundary still lets the panel
-        // continue scrolling naturally.
+
+
+
+
         if (const std::optional<UI::ElementBounds> bounds =
                 surface.context.element_bounds(UString{"workbench-text-markdown"});
             bounds && framebuffer_pointer.position.x >= bounds->position.x &&
@@ -797,24 +798,24 @@ namespace SFT::UiWorkbench {
 
         if (delta_seconds > 0.0f) {
             const f32 instantaneous_fps = 1.0f / delta_seconds;
-            // Blend toward the instantaneous reading rather than snapping straight to it — a raw
-            // per-frame 1/delta reading jitters wildly frame to frame, which would make the counter
-            // itself unreadable.
+
+
+
             const f32 blend = std::min(1.0f, 6.0f * delta_seconds);
             surface.fps_smoothed =
                 surface.fps_smoothed < 0.0f ? instantaneous_fps : surface.fps_smoothed + (instantaneous_fps - surface.fps_smoothed) * blend;
         }
 
         {
-            // Full-viewport so it fills the margins around the dock workspace below (kWorkspaceOrigin
-            // insets the workspace by 18px/58px/14px on the left/top/right+bottom — DockWorkspaceStyle
-            // ::content_background paints the workspace's own interior with this same `canvas` color,
-            // but not those outer margins). Its own header content (brand/title/status pill) must stay
-            // pinned to a thin strip at the *top* — AlignY::Top, not Center — since Center would
-            // vertically center that content across the *entire* window height instead of a header-
-            // sized band, drifting it down into (and behind/in front of, depending on paint order) the
-            // workspace's own panels below y ~= 58, which is what made the status pill appear to
-            // "clip in and out" as whatever panel content sat underneath it changed.
+
+
+
+
+
+
+
+
+
             auto background = surface.context.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fixed(viewport.x), UI::SizingAxis::fixed(viewport.y)},
                 .padding = UI::Padding::symmetric(18, 12),
@@ -840,10 +841,10 @@ namespace SFT::UiWorkbench {
                 draw_text(surface.context, "composable controls · perceptual color · live docking", text_style(font_id_, text_secondary, 10));
             }
             {
-                // Braced so this closes here — otherwise status_pill() below nests inside this
-                // 1px-tall spacer instead of following it as a sibling, breaking the "empty grow
-                // spacer pushes the next sibling to the far edge" layout this is meant to produce
-                // (same ElementScope-lifetime mistake as dropdown_option()'s "dot" above).
+
+
+
+
                 auto spacer = surface.context.element(UI::ElementDecl{
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(1.0f)}});
                 (void)spacer;
@@ -863,9 +864,9 @@ namespace SFT::UiWorkbench {
             UI::Docking::DockRect{.origin = kWorkspaceOrigin, .size = workspace_size},
             delta_seconds);
 
-        // scroll_area() (ScrollArea.hpp) opens the panel's own clip container itself — decl already
-        // carries a stable id and .clip.vertical=true from panel_content_region(), so it's passed
-        // straight through rather than opened as a plain ctx.element() first.
+
+
+
         if (auto decl = surface.workspace.panel_content_region(UString{"controls"})) {
             (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.controls_scroll, delta_seconds, [&](UI::Context &ctx) {
                 build_controls_panel(surface, ctx, delta_seconds);
@@ -904,7 +905,7 @@ namespace SFT::UiWorkbench {
         return events;
     }
 
-    void WorkbenchUi::build_controls_panel(Surface &surface, UI::Context &ctx, f32 /*delta_seconds*/) {
+    void WorkbenchUi::build_controls_panel(Surface &surface, UI::Context &ctx, f32                  ) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
@@ -958,8 +959,8 @@ namespace SFT::UiWorkbench {
             .thumb_size = 22.0f,
             .tick_thickness = 1.0f,
             .tick_length = 10.0f,
-            // No focus-ring rectangle around the whole track — the demo's click-and-drag bars stay
-            // outline-free at every state, including focused.
+
+
             .focused_border = UI::BorderStyle{},
         };
         UI::SliderComposition composition{};
@@ -979,12 +980,12 @@ namespace SFT::UiWorkbench {
             }
             decl.sizing = {UI::SizingAxis::fixed(26.0f), UI::SizingAxis::fixed(26.0f)};
             decl.corner_radius = UI::CornerRadius::all(8.0f);
-            // composition.thumb.build below adds an 8x8 "core" dot as a plain (non-floating) child
-            // of this element — without centering it here, it inherits the default Left/Top child
-            // alignment and pins itself into the thumb's top-left corner instead of its middle.
+
+
+
             decl.child_alignment = {.x = UI::AlignX::Center, .y = UI::AlignY::Center};
             decl.background_color = part.visual.active ? accent_hot : text_primary;
-            // No ring around the thumb — keep it a plain filled circle with its accent core dot.
+
         };
         composition.thumb.build = [this](UI::Context &part_ctx,
                                          const UI::SliderPartContext &) {
@@ -1107,10 +1108,10 @@ namespace SFT::UiWorkbench {
         style.color_space_text = text_style(font_id_, text_primary, 13);
         style.color_space_text.wrap_mode = UI::TextWrapMode::None;
         style.color_space_dropdown.trigger = action_button_style();
-        // Same background as the closed trigger itself, not the panel-opacity-following color — an
-        // open dropdown list is a popover sitting on top of other content, not a static panel where
-        // seeing through to what's behind is the point; following the UI opacity slider left it
-        // unreadable whenever that slider was turned down (or the swapchain was transparent).
+
+
+
+
         style.color_space_dropdown.list_background = style.color_space_dropdown.trigger.idle;
         style.color_space_dropdown.option_hovered = UI::Color{0.16, 0.19, 0.28, 1.0};
         style.color_space_dropdown.corner_radius = UI::CornerRadius::all(10.0f);
@@ -1182,9 +1183,9 @@ namespace SFT::UiWorkbench {
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
             draw_text(ctx, "Typed Foundation value", text_style(font_id_, accent, 11));
-            // Exactly one line, in the *selected* space's own terms — this used to print two
-            // near-identical hardcoded-"sRGB" readouts (the raw color and its round-trip) no matter
-            // which space the dropdown had picked.
+
+
+
             const std::span<const UI::ColorPickerComponent> components =
                 UI::color_picker_components(selected_color_space_);
             const std::array<f64, 4> values = UI::color_picker_component_values(selected_color_value_);
@@ -1303,20 +1304,20 @@ namespace SFT::UiWorkbench {
                 requested.graphics_backend = adapter.api_support[selected_graphics_api_index_].adapter.backend;
                 requested.graphics_physical_device_id = adapter.physical_device_id;
 
-                // UiRenderer owns pipelines, atlases, and renderer texture handles outside the
-                // Renderer recovery registry. GPU completion must precede their destruction; draining
-                // only CPU render tasks does not make submitted descriptor sets/pipelines safe to free.
-                // Release them while their original RHI device still exists, then create replacement
-                // instances once the new backend is live.
+
+
+
+
+
                 engine.wait_idle();
                 if (RHI::RhiDevice *old_device = engine.rhi_device()) {
                     destroy_surface_renderers(*old_device);
                 }
-                // Every outcome below is mirrored to the log, not just to status_message_. When a
-                // reconstruction fails it usually takes the UI renderers with it, and a status string
-                // is only readable through the very UI that just stopped rendering — which turns a
-                // specific backend error into a blank window and a bare "UiRenderer was not created"
-                // once per 120 frames.
+
+
+
+
+
                 Foundation::log_info("UiWorkbench: reconstructing graphics on {} using {}...",
                                      adapter.name, RHI::backend_type_name(requested.graphics_backend));
                 if (auto rebuilt = apply_presentation_config(requested); rebuilt) {
@@ -1337,8 +1338,8 @@ namespace SFT::UiWorkbench {
                         Foundation::log_info("UiWorkbench: {}", status_message_);
                     }
                 } else {
-                    // A rejected reconfiguration leaves the old backend in place. Restore the UI
-                    // renderers that were deliberately released before making the attempt.
+
+
                     const std::string reconstruction_error = rebuilt.error().message;
                     if (RHI::RhiDevice *current_device = engine.rhi_device()) {
                         if (auto ui_restored = recreate_surface_renderers(*current_device); !ui_restored) {
@@ -1411,7 +1412,14 @@ namespace SFT::UiWorkbench {
                         .resizable = true,
                         .decorated = true,
                         .high_dpi = true,
-                        .transparent = true,
+
+
+
+
+
+
+
+                        .transparent = swapchain_transparent_,
                         .mode = Platform::Windowing::WindowMode::Windowed,
                         .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
                     };
@@ -1605,10 +1613,10 @@ namespace SFT::UiWorkbench {
             Engine::EngineConfig config = engine.config();
             config.features.presentation.transparent_composition = swapchain_transparent_;
             if (const auto applied = apply_presentation_config(config)) {
-                // Deliberately NOT calling set_transparent() here — see
-                // reconcile_legacy_window_transparency's own doc comment just below for why
-                // that decision has to wait until each window's RHI swapchain has actually
-                // been rebuilt, which apply_presentation_config only just requested.
+
+
+
+
                 status_message_ = swapchain_transparent_
                                       ? "Transparent swapchain enabled; adjust background opacity below."
                                       : "Opaque swapchain composition restored.";
@@ -1617,15 +1625,15 @@ namespace SFT::UiWorkbench {
                 status_message_ = "Transparency change rejected: " + applied.error().message;
             }
         });
-        // Reconciled every frame (not just on the toggle click above) because whether a given window's
-        // swapchain ends up using composition present isn't known until its RHI swapchain has actually
-        // been rebuilt — apply_presentation_config only marks it dirty for the renderer to rebuild on
-        // an upcoming frame. A window whose swapchain fell back to composition present must NOT also
-        // get the legacy WS_EX_LAYERED/DwmExtendFrameIntoClientArea effect: DirectComposition already
-        // owns that window's transparent compositing end to end, and layering the legacy mechanism on
-        // top leaves its now-otherwise-unused redirection surface's last frame visible as a frozen
-        // second layer underneath the live composition-present content — exactly the ghosting
-        // RHI::PresentationResolution::via_composition_present's own doc comment describes.
+
+
+
+
+
+
+
+
+
         if (Platform::Windowing::operating_system_may_support_window_effect(
                 Platform::Windowing::WindowEffectKind::Transparent)) {
             for (const auto &[window, other_surface] : surfaces_) {
@@ -1683,12 +1691,12 @@ namespace SFT::UiWorkbench {
 
         section_label(ctx, font_id_, "OS WINDOW COMPOSITION");
         {
-            // Off/Borderless/Exclusive, in Platform::Windowing::WindowMode's own declaration order —
-            // see selected_fullscreen_mode_index_'s own doc comment (WorkbenchUi.hpp) for why the
-            // dropdown index doubles as the enum's underlying value. Exclusive additionally needs a
-            // swapchain rebuild to actually acquire VK_EXT_full_screen_exclusive (Renderer::
-            // recreate_rhi_swapchain reads Window::fullscreen_mode() for this on its own schedule), so
-            // the effect can lag a frame or two behind the dropdown selection — normal, not a bug.
+
+
+
+
+
+
             const std::array fullscreen_options{
                 dropdown_option(font_id_, "Off", text_secondary),
                 dropdown_option(font_id_, "Borderless", accent),
@@ -1747,8 +1755,8 @@ namespace SFT::UiWorkbench {
 
             UI::DropdownStyle blur_style{};
             blur_style.trigger = action_button_style();
-            // Same background as the closed trigger — see the color-space dropdown's identical fix
-            // above for why the panel-opacity-following color made this unreadable.
+
+
             blur_style.list_background = blur_style.trigger.idle;
             blur_style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
             blur_style.corner_radius = UI::CornerRadius::all(11.0f);
@@ -1757,10 +1765,10 @@ namespace SFT::UiWorkbench {
             blur_style.arrow_color = accent;
             blur_style.arrow_font_id = font_id_;
 
-            // The dropdown only stages a choice locally; the "Blur enabled" switch below is what
-            // actually commits it (fires set_blur()) — except while already enabled, in which case
-            // changing the selection here re-applies immediately so switching type feels live rather
-            // than requiring an off/on cycle to pick up the new kind.
+
+
+
+
             const usize previous_blur_index = selected_blur_kind_index_;
             const UI::DropdownResult blur_dropdown_result = UI::dropdown(
                 ctx,
@@ -1801,7 +1809,7 @@ namespace SFT::UiWorkbench {
         };
         UI::DropdownStyle style{};
         style.trigger = action_button_style();
-        // Same background as the closed trigger — see the color-space dropdown's identical fix above.
+
         style.list_background = style.trigger.idle;
         style.option_hovered = UI::Color{0.17, 0.20, 0.29, 1.0};
         style.corner_radius = UI::CornerRadius::all(11.0f);
@@ -1954,9 +1962,9 @@ namespace SFT::UiWorkbench {
 
         section_label(ctx, font_id_, "MARKDOWN + LIVE PREVIEW");
         UI::TextEditStyle markdown_style = edit_style;
-        // In-editor markdown coloring via the TextEdit engine's own Highlighter hook (cached —
-        // reruns only when the buffer changes). Scalar-indexed on purpose; UString::substr is
-        // scalar-based, so multi-byte characters can't skew the span ranges.
+
+
+
         markdown_style.highlighter = [](const UString &text) {
             std::vector<UI::RichTextSpan> spans;
             const usize n = text.size();
@@ -2017,11 +2025,11 @@ namespace SFT::UiWorkbench {
                           markdown_input_scroll_state_,
                           UString{"# Write some markdown..."});
 
-        // At most one of these three fields is focused at a time (focus is exclusive — see
-        // TextEditState::focused_), so at most one has caret_bounds set; resolve whichever it is
-        // and hand it to Engine::forward_text_input_state() (Engine/EcsUi.hpp), which positions the
-        // IME candidate window near it (or, if none is focused, tells the OS to stop text input
-        // for this window entirely) instead of this function doing that OS-forwarding by hand.
+
+
+
+
+
         const auto resolve_focus = [&](const std::optional<UI::ElementBounds> &caret_bounds, const UString &widget_id,
                                        bool ime_enabled) -> std::optional<Engine::TextInputFocusInfo> {
             if (!caret_bounds) {
@@ -2055,9 +2063,9 @@ namespace SFT::UiWorkbench {
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
 
-            // Line-based renderer: headings, bullets, and inline **bold** / `code` runs. Bold has
-            // no second font face registered, so it renders as an emphasis color instead — same
-            // tradeoff RichTextSpan itself documents for the editor side.
+
+
+
             const auto render_inline = [&](const std::string &line, u16 font_size) {
                 auto row = ctx.element(UI::ElementDecl{
                     .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
@@ -2266,7 +2274,7 @@ namespace SFT::UiWorkbench {
         });
     }
 
-    void WorkbenchUi::build_metrics_panel(Surface &surface, UI::Context &ctx, f32 /*delta_seconds*/) {
+    void WorkbenchUi::build_metrics_panel(Surface &surface, UI::Context &ctx, f32                  ) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
@@ -2307,20 +2315,20 @@ namespace SFT::UiWorkbench {
 
     void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface, UI::Docking::DockWorkspaceEvents events) {
         for (const UI::Docking::DockTearOffRequest &request : events.tear_off_requests) {
-            // Before spawning a brand-new OS window, check whether the drag actually ended on top
-            // of another *existing* managed window (dragging a tab back from a torn-off window
-            // toward the primary one, or toward a third window) — if so, merge directly into it
-            // instead. DockWorkspace itself only knows "this crossed my own bounds," never about
-            // sibling windows (see its own top doc comment), so this cross-window geometry check has
-            // to happen here, the one layer that actually has every managed window's screen rect
-            // (Engine::WindowState).
+
+
+
+
+
+
+
             if (const Engine::WindowSnapshot *origin_window = engine.window_state().find(surface.handle.window_id)) {
-                // build_frame() lays out UI::Context in *framebuffer* pixels (viewport comes from
-                // Core::FrameInput::framebuffer_width/height), but WindowSnapshot::position/size are
-                // *logical* screen coordinates — the same distinction Window.hpp itself draws between
-                // size() and framebuffer_size(). On a HiDPI/fractional-scaling display those differ,
-                // so the physical-pixel drop position has to be rescaled into logical space before
-                // it can be compared against another window's logical screen rect.
+
+
+
+
+
+
                 const glm::vec2 physical_local = kWorkspaceOrigin + request.workspace_local_drop_position;
                 const glm::vec2 framebuffer_size{origin_window->framebuffer_size};
                 const glm::vec2 logical_size{origin_window->size};
@@ -2378,8 +2386,8 @@ namespace SFT::UiWorkbench {
         Surface &surface,
         std::shared_ptr<UI::FrameSnapshot> snapshot) {
         Renderer::UiOverlayHooks hooks{};
-        // HDR and transparent SDR both use the linear-float renderer. Renderer performs the final
-        // transfer-aware premultiplication/encoding after all UI blending in those modes.
+
+
         UI::UiRenderer *renderer = (hdr_enabled_ || swapchain_transparent_)
                                        ? &surface.hdr_renderer
                                        : &surface.sdr_renderer;
@@ -2432,3 +2440,12 @@ namespace SFT::UiWorkbench {
     }
 
 } // namespace SFT::UiWorkbench
+
+namespace SFT::UiWorkbench {
+
+    f64 WorkbenchUi::effective_background_opacity() const noexcept {
+        return swapchain_transparent_ ? ui_background_opacity_ : 1.0;
+    }
+
+} // namespace SFT::UiWorkbench
+

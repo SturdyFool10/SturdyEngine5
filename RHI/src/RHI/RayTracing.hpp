@@ -17,11 +17,11 @@ using std::span;
 
 namespace SFT::RHI {
 
-    // ─── Acceleration structures ─────────────────────────────────────────────────
-    //
-    // The descriptors below intentionally use GPU buffer handles + offsets rather than CPU pointers.
-    // That matches Vulkan/D3D12/Metal ray tracing: builds are GPU work, scratch memory is caller-owned,
-    // and explicit barriers make the result visible to trace/compaction/copy passes.
+
+
+
+
+
 
     enum class AccelerationStructureType : u32 {
         BottomLevel,
@@ -66,7 +66,7 @@ namespace SFT::RHI {
         u64 index_offset = 0;
         IndexFormat index_format = IndexFormat::Uint32;
 
-        // Optional 3x4 affine transform matrix buffer, tightly matching Vulkan/D3D12 build inputs.
+        /// Optional 3x4 affine transform matrix buffer, tightly matching Vulkan/D3D12 build inputs.
         BufferHandle transform_buffer{};
         u64 transform_offset = 0;
     };
@@ -77,8 +77,8 @@ namespace SFT::RHI {
         u64 stride = 0;
     };
 
-    // Portable binary TLAS instance record. Backends consume this 64-byte ABI directly; transform is a
-    // row-major 3x4 affine matrix. The packed words match the cross-API 24-bit-index/8-bit-mask shape.
+    /// Portable binary TLAS instance record. Backends consume this 64-byte ABI directly; transform is a
+    /// row-major 3x4 affine matrix. The packed words match the cross-API 24-bit-index/8-bit-mask shape.
     struct AccelerationStructureInstance {
         std::array<f32, 12> transform{
             1.0f, 0.0f, 0.0f, 0.0f,
@@ -89,12 +89,8 @@ namespace SFT::RHI {
         u32 shader_binding_table_offset_and_flags = 0;
         u64 acceleration_structure_device_address = 0;
 
-        void set_custom_index_and_mask(u32 custom_index, u8 mask) noexcept {
-            custom_index_and_mask = (custom_index & 0x00ffffffu) | (static_cast<u32>(mask) << 24u);
-        }
-        void set_shader_binding_table_offset_and_flags(u32 offset, u8 flags) noexcept {
-            shader_binding_table_offset_and_flags = (offset & 0x00ffffffu) | (static_cast<u32>(flags) << 24u);
-        }
+        void set_custom_index_and_mask(u32 custom_index, u8 mask) noexcept;
+        void set_shader_binding_table_offset_and_flags(u32 offset, u8 flags) noexcept;
     };
     static_assert(sizeof(AccelerationStructureInstance) == 64);
 
@@ -129,7 +125,7 @@ namespace SFT::RHI {
         AccelerationStructureType type = AccelerationStructureType::BottomLevel;
         AccelerationStructureBuildFlags flags = AccelerationStructureBuildFlags::PreferFastTrace;
         AccelerationStructureHandle dst{};
-        AccelerationStructureHandle src{}; // set for update/refit builds, otherwise null
+        AccelerationStructureHandle src{};
         BufferHandle scratch_buffer{};
         u64 scratch_offset = 0;
         span<const AccelerationStructureGeometryDesc> geometries;
@@ -149,12 +145,12 @@ namespace SFT::RHI {
         AccelerationStructureCopyMode mode = AccelerationStructureCopyMode::Clone;
     };
 
-    // ─── Ray tracing pipelines / shader binding tables ───────────────────────────
+
 
     enum class RayTracingShaderGroupType : u32 {
-        General,              // raygen, miss, or callable
-        TrianglesHitGroup,    // closest/any-hit for triangle geometry
-        ProceduralHitGroup,   // closest/any-hit/intersection for AABB/procedural geometry
+        General,
+        TrianglesHitGroup,
+        ProceduralHitGroup,
     };
 
     struct RayTracingShaderGroupDesc {

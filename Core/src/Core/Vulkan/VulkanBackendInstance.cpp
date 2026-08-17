@@ -1,5 +1,5 @@
-// VulkanBackend instance bring-up: volk initialization, VkInstance creation, and the
-// validation-layer debug messenger callback (Debug builds only).
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -30,7 +30,7 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
-        // Referenced by address in createVulkanInstance()'s debug messenger create info.
+
         VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
             VkDebugUtilsMessageSeverityFlagBitsEXT severity,
             VkDebugUtilsMessageTypeFlagsEXT type,
@@ -63,9 +63,9 @@ namespace SFT::Core::Vulkan {
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
         }
-        // Volk dispatch is process-global. It remains loaded for the process lifetime so destroying
-        // one runtime-switchable backend cannot invalidate global dispatch used by later Vulkan
-        // inventory or backend instances.
+
+
+
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -90,10 +90,10 @@ namespace SFT::Core::Vulkan {
         }
         vector<const char *> requestedLayers{};
 
-        // MoltenVK (and other non-conformant "portability" implementations) are hidden from
-        // vkEnumeratePhysicalDevices unless the instance opts in via VK_KHR_portability_enumeration
-        // plus VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR. Conformant loaders (Windows/Linux)
-        // never advertise this extension, so it's only requested when actually present.
+
+
+
+
         u32 supported_instance_ext_count = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &supported_instance_ext_count, nullptr);
         vector<VkExtensionProperties> supported_instance_exts(supported_instance_ext_count);
@@ -124,10 +124,10 @@ namespace SFT::Core::Vulkan {
         add_supported_extension("VK_KHR_wayland_surface");
 #endif
 
-        // Enable HDR/wide-gamut colorspace support opportunistically even when the initial swapchain
-        // is SDR. Instance extensions cannot be enabled later without replacing the entire Vulkan
-        // instance/device. Renderer-managed resources are replayable across that replacement, but keeping
-        // this lightweight extension ready still makes a later HDR toggle a cheaper swapchain-only operation.
+
+
+
+
         hdr_swapchain_colorspace_enabled_ =
             add_supported_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
         if (static_cast<bool>(init.features.presentation.hdr_enabled) &&
@@ -137,14 +137,14 @@ namespace SFT::Core::Vulkan {
                                                  VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
         }
 
-        // Instance-level dependency of VK_EXT_full_screen_exclusive (checked opportunistically at
-        // device-creation time, VulkanBackendDevice.cpp) — enabled here whenever the loader reports it
-        // regardless of whether exclusive fullscreen ends up used, for the same "instance extensions
-        // can't be added later without replacing the whole instance" reason hdr_swapchain_colorspace
-        // above is enabled unconditionally too.
+
+
+
+
+
         surface_capabilities2_enabled_ = add_supported_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
-        // Required instance dependency of VK_KHR_swapchain_maintenance1. Device feature
-        // negotiation must not enable the device extension unless this was enabled successfully.
+
+
         surface_maintenance1_enabled_ = add_supported_extension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
 
 #if defined(DEBUG) || defined(_DEBUG)

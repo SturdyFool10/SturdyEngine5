@@ -100,10 +100,10 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
             if (vmaMapMemory(allocator_, allocation_, &mapped) != VK_SUCCESS)
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaMapMemory failed.");
             std::memcpy(static_cast<std::byte *>(mapped) + offset, data, bytes);
-            // HOST_ACCESS_SEQUENTIAL_WRITE only asks VMA to *prefer* a coherent memory type - it
-            // is not guaranteed (observed non-coherent on RADV), so the write is not guaranteed
-            // visible to the GPU until flushed. vmaFlushAllocation is a no-op on truly coherent
-            // memory, so this is always safe to call.
+
+
+
+
             if (vmaFlushAllocation(allocator_, allocation_, offset, bytes) != VK_SUCCESS) {
                 vmaUnmapMemory(allocator_, allocation_);
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "vmaFlushAllocation failed.");

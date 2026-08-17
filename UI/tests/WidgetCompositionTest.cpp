@@ -152,7 +152,7 @@ namespace {
         assert(result.value == 50.0);
         (void)context.finish_frame();
         assert(track_builds == 1);
-        assert(marker_builds == 4); // one explicit plus 0, 50, 100 generated
+        assert(marker_builds == 4);
         assert(generated_markers == 3);
         assert(marker_labels == marker_builds);
         assert(labels == 1);
@@ -322,7 +322,7 @@ namespace {
         assert(header_builds == 1 && footer_builds == 1);
         assert(option_builds == 3 && disabled_options == 1 && selected_options == 1);
         assert(indicator_builds == 1);
-        assert(legacy_builds == 4); // selected trigger plus three rows
+        assert(legacy_builds == 4);
 
         const auto enabled_bounds = context.element_bounds(dropdown_part_id(id, DropdownVisualPart::Option, 2));
         const auto disabled_bounds = context.element_bounds(dropdown_part_id(id, DropdownVisualPart::Option, 1));
@@ -390,8 +390,8 @@ int main() {
     color_picker_parts_can_be_replaced_hidden_and_labeled();
     dropdown_composition_reports_states_and_blocks_disabled_options();
     dropdown_empty_slot_builds();
-    // See WidgetTest.cpp's own main() for why this line exists: a silent-on-success test main
-    // makes a .zed/tasks.json "Run" task look like it didn't do anything.
+
+
     std::printf("UIWidgetCompositionTest: all checks passed.\n");
     return 0;
 }

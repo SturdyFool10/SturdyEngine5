@@ -31,9 +31,9 @@ namespace SFT::Renderer {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
-        // Same GeometryVertex input layout as RendererMaterial.cpp's/RendererGpuCulling.cpp's own
-        // (internal-linkage, TU-local) copies — duplicated rather than shared for the same reason
-        // those two don't share one either (a fixed 5-attribute layout unlikely to drift).
+
+
+
         constexpr array<RHI::VertexAttribute, 5> history_geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -179,9 +179,9 @@ namespace SFT::Renderer {
         for (RHI::Format color_format : color_formats) {
             color_targets.push_back(RHI::ColorTargetState{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All});
         }
-        // In the conventional 1x path the Z prepass populated this same depth target, so the
-        // history-aware G-buffer pipeline can use Equal/no-write. SRAA instead writes its visibility
-        // prepass into a separate MSAA depth image; its 1x G-buffer must establish ordinary depth.
+
+
+
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = standard_depth_test
@@ -253,10 +253,10 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create object history bind group"));
         }
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp). This particular
-        // caller (render_frame_rhi) only ever calls this once, before the render graph is built, so
-        // it isn't currently reachable concurrently — locked anyway so that invariant isn't silently
-        // required of every future caller.
+
+
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         return *bind_group;
     }

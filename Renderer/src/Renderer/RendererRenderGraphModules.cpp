@@ -295,8 +295,8 @@ namespace SFT::Renderer {
             }
         }
 
-        // Keep the legacy linear list operational for direct Renderer clients. Engine lowers its modern
-        // graph exclusively through CustomGraphProgram, so these effects simply extend the selected output.
+
+
         for (usize effect_index = 0; effect_index < submission.render_graph.custom_post_processes.size(); ++effect_index) {
             if (submission.render_graph.custom_post_processes[effect_index].stage != stage) {
                 continue;

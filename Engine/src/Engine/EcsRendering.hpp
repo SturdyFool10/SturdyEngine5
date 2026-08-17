@@ -16,8 +16,8 @@ namespace SFT::Engine {
 
     class AssetManager;
 
-    // Native game-facing render components. They contain opaque assets rather than GPU/RHI handles,
-    // so they remain cheap archetype data and are safe to inspect on Async workers.
+    /// Native game-facing render components. They contain opaque assets rather than GPU/RHI handles,
+    /// so they remain cheap archetype data and are safe to inspect on Async workers.
     struct WorldTransform {
         glm::mat4 value{1.0f};
     };
@@ -29,35 +29,35 @@ namespace SFT::Engine {
         bool visible = true;
     };
 
-    // Source compatibility for early native consumers; both names describe the same high-level,
-    // asset-backed component and neither exposes a GPU handle.
+    /// Source compatibility for early native consumers; both names describe the same high-level,
+    /// asset-backed component and neither exposes a GPU handle.
     using MeshRenderer = ModelRenderer;
 
-    // An always-on debug marker (e.g. a small icosphere) at a light's position — visually distinct
-    // from ModelRenderer because it's drawn through a separate, single-color-target forward pass
-    // (Shaders/geometry_color.slang) rather than the deferred G-buffer pipeline, so it needs its own
-    // component to avoid being submitted into the wrong renderable list.
+    /// An always-on debug marker (e.g. a small icosphere) at a light's position — visually distinct
+    /// from ModelRenderer because it's drawn through a separate, single-color-target forward pass
+    /// (Shaders/geometry_color.slang) rather than the deferred G-buffer pipeline, so it needs its own
+    /// component to avoid being submitted into the wrong renderable list.
     struct LightGizmoRenderer {
         Asset model{};
         bool visible = true;
     };
 
-    // CPU-only extraction target bound to the ECS World. A WriteResource<RenderFrameRequests>
-    // system can request draws without receiving Engine, Renderer, RHI, or render-thread-affined
-    // state. Schedule serializes mutable-resource chunks, then Engine publishes the completed
-    // buffer as an immutable snapshot for the render thread.
+    /// CPU-only extraction target bound to the ECS World. A WriteResource<RenderFrameRequests>
+    /// system can request draws without receiving Engine, Renderer, RHI, or render-thread-affined
+    /// state. Schedule serializes mutable-resource chunks, then Engine publishes the completed
+    /// buffer as an immutable snapshot for the render thread.
     class RenderFrameRequests {
       public:
         using RenderableList = std::vector<SFT::Renderer::SceneRenderable>;
 
-        explicit RenderFrameRequests(AssetManager &assets) noexcept : assets_(&assets) {}
+        explicit RenderFrameRequests(AssetManager &assets) noexcept;
 
         void begin_frame();
         void submit(Ecs::Entity entity, const WorldTransform &transform, const ModelRenderer &renderer) noexcept;
         [[nodiscard]] std::shared_ptr<const RenderableList> finish_frame() const noexcept;
 
-        // Gizmos: same shape as the main renderable list above, but a separate list entirely (see
-        // LightGizmoRenderer's doc comment on why) — never pooled, since this list is always tiny.
+        /// Gizmos: same shape as the main renderable list above, but a separate list entirely (see
+        /// LightGizmoRenderer's doc comment on why) — never pooled, since this list is always tiny.
         void submit_gizmo(Ecs::Entity entity, const WorldTransform &transform, const LightGizmoRenderer &renderer) noexcept;
         [[nodiscard]] std::shared_ptr<const RenderableList> finish_gizmo_frame() const noexcept;
 
@@ -69,9 +69,9 @@ namespace SFT::Engine {
         AssetManager *assets_ = nullptr;
     };
 
-    // Native game-facing light components. Position/direction are never stored here — they're
-    // derived each frame from the entity's WorldTransform (translation, and local -Y rotated into
-    // world space for direction), mirroring how ModelRenderer holds no world matrix of its own.
+    /// Native game-facing light components. Position/direction are never stored here — they're
+    /// derived each frame from the entity's WorldTransform (translation, and local -Y rotated into
+    /// world space for direction), mirroring how ModelRenderer holds no world matrix of its own.
     struct DirectionalLightRenderer {
         glm::vec3 radiance{4.0f, 3.75f, 3.35f};
         f32 angular_radius_degrees = 0.27f;
@@ -94,9 +94,9 @@ namespace SFT::Engine {
         bool casts_shadows = true;
     };
 
-    // CPU-only light extraction target, structurally mirroring RenderFrameRequests. Unlike
-    // renderables, light lists are always small (a handful of entities), so this skips
-    // RenderFrameRequests' buffer-reuse pool and just allocates a fresh snapshot per frame.
+    /// CPU-only light extraction target, structurally mirroring RenderFrameRequests. Unlike
+    /// renderables, light lists are always small (a handful of entities), so this skips
+    /// RenderFrameRequests' buffer-reuse pool and just allocates a fresh snapshot per frame.
     class LightFrameRequests {
       public:
         struct ExtractedLights {
@@ -121,23 +121,23 @@ namespace SFT::Engine {
         f32 exposure = 1.0f;
     };
 
-    // Consumer-owned per-view policy. Engine supplies no camera, lighting, or labeling
-    // behavior of its own; Runtime/game/editor code provides these when requesting a frame.
+    /// Consumer-owned per-view policy. Engine supplies no camera, lighting, or labeling
+    /// behavior of its own; Runtime/game/editor code provides these when requesting a frame.
     struct RenderFrameParameters {
         Camera camera{};
         SceneLighting lighting{};
         RenderGraph render_graph{};
-        // Optional final-pass overlay hook (Renderer::UiOverlayHooks) — the seam Sturdy.UI's
-        // UiRenderer plugs into. Empty (skipped) unless a consumer sets it; see Scene.hpp's own
-        // doc comment for the two-phase prepare()/draw() contract.
+        /// Optional final-pass overlay hook (Renderer::UiOverlayHooks) — the seam Sturdy.UI's
+        /// UiRenderer plugs into. Empty (skipped) unless a consumer sets it; see Scene.hpp's own
+        /// doc comment for the two-phase prepare()/draw() contract.
         SFT::Renderer::UiOverlayHooks ui_overlay;
         UString debug_label;
     };
 
-    // Fully owned CPU snapshot. Application builds this before queuing the frame, so ECS may start
-    // preparing later frames while the dedicated render thread consumes this one. `surface` remains
-    // populated even when RenderGraph's Present selects an offscreen target: Renderer still uses the
-    // surface to select and retire the correct frame-in-flight ring.
+    /// Fully owned CPU snapshot. Application builds this before queuing the frame, so ECS may start
+    /// preparing later frames while the dedicated render thread consumes this one. `surface` remains
+    /// populated even when RenderGraph's Present selects an offscreen target: Renderer still uses the
+    /// surface to select and retire the correct frame-in-flight ring.
     struct PreparedRenderFrame {
         Core::RenderSurfaceHandle surface{};
         Core::FrameInput frame{};

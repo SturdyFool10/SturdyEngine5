@@ -141,7 +141,7 @@ namespace SFT::UI {
             return unexpected(custom_element_error(
                 "UI custom element shader '" + shader.shader_path +
                 "' push-constant struct is smaller than UiElementConstants — it must start with "
-                "position/size/viewportSize/clipYSign."));
+                "position/size/viewportSize/two reserved floats."));
         }
         resource.push_constant_size = push_ranges.front().size;
 
@@ -199,8 +199,7 @@ namespace SFT::UI {
     }
 
     Core::RendererResult UiCustomElementPipeline::draw(RHI::RenderPassEncoder &pass, RHI::Format color_format,
-                                                        span<const CustomDraw> draws, glm::vec2 viewport_size,
-                                                        RHI::BackendType backend) {
+                                                        span<const CustomDraw> draws, glm::vec2 viewport_size) {
         for (const CustomDraw &draw : draws) {
             if (draw.shader == nullptr) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -214,8 +213,7 @@ namespace SFT::UI {
             }
 
             const UiElementConstants element_constants{
-                .position = draw.position, .size = draw.size, .viewport_size = viewport_size,
-                .clip_y_sign = RHI::gpu_clip_y_sign(backend)};
+                .position = draw.position, .size = draw.size, .viewport_size = viewport_size};
             const usize total_size = sizeof(UiElementConstants) + draw.shader->push_constants.size();
             if (total_size != cached->push_constant_size) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,

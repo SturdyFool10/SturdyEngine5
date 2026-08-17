@@ -134,15 +134,7 @@ namespace SFT::Core::Vulkan {
             VkFormat format,
             VkExtent2D extent,
             VkImageUsageFlags extra_usage = VK_IMAGE_USAGE_SAMPLED_BIT,
-            VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) noexcept {
-            return create(device, allocator, VulkanAttachmentImageDesc{
-                .format = format,
-                .extent = {.width = extent.width, .height = extent.height, .depth = 1},
-                .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | extra_usage,
-                .aspects = default_aspect_for_format(format),
-                .samples = samples,
-            });
-        }
+            VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) noexcept;
 
         [[nodiscard]] const VulkanImage &image() const noexcept;
         [[nodiscard]] const VulkanImageView &view() const noexcept;
@@ -155,8 +147,8 @@ namespace SFT::Core::Vulkan {
         VulkanAttachmentRef ref_{};
     };
 
-    // Lightweight pass target description: references attachment views but does not own them. A render
-    // graph can build one per pass for G-buffer, lighting, bloom down/up-sample, tonemap, or present.
+    /// Lightweight pass target description: references attachment views but does not own them. A render
+    /// graph can build one per pass for G-buffer, lighting, bloom down/up-sample, tonemap, or present.
     class VulkanRenderTarget {
       public:
         VulkanRenderTarget() = default;

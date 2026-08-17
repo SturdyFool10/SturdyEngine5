@@ -15,8 +15,8 @@ namespace SFT::Engine {
         Released,
     };
 
-    // Every translated platform event, preserved losslessly for consumers that need an event kind not
-    // covered by one of the typed convenience streams below.
+    /// Every translated platform event, preserved losslessly for consumers that need an event kind not
+    /// covered by one of the typed convenience streams below.
     struct WindowEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowEvent event{};
@@ -30,13 +30,13 @@ namespace SFT::Engine {
         KeyboardKey key_code = KeyboardKey::Unknown;
         ButtonAction action = ButtonAction::Pressed;
         bool repeat = false;
-        // Monotonic capture time (steady_clock epoch, ns) inherited from the originating
-        // Platform::Windowing::WindowEvent -- see that struct's doc comment for how each backend
-        // populates it.
+        /// Monotonic capture time (steady_clock epoch, ns) inherited from the originating
+        /// Platform::Windowing::WindowEvent -- see that struct's doc comment for how each backend
+        /// populates it.
         u64 timestamp_ns = 0;
 
-        [[nodiscard]] bool pressed() const noexcept { return action == ButtonAction::Pressed; }
-        [[nodiscard]] bool released() const noexcept { return action == ButtonAction::Released; }
+        [[nodiscard]] bool pressed() const noexcept;
+        [[nodiscard]] bool released() const noexcept;
     };
 
     struct TextInputEvent {
@@ -45,8 +45,8 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
-    // IME composition/preedit update — see Platform::Windowing::WindowTextEditingEvent's own doc
-    // comment, in particular that an empty `text.utf8` means composition just ended.
+    /// IME composition/preedit update — see Platform::Windowing::WindowTextEditingEvent's own doc
+    /// comment, in particular that an empty `text.utf8` means composition just ended.
     struct TextEditingEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowTextEditingEvent text{};
@@ -80,27 +80,16 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
-    // Ordinary resource populated by Application's platform pump. It deliberately is not Events<T>:
-    // Schedule::run() clears event resources before producer systems execute, so this inbox survives
-    // until the built-in producer system publishes its contents into the typed event streams.
+    /// Ordinary resource populated by Application's platform pump. It deliberately is not Events<T>:
+    /// Schedule::run() clears event resources before producer systems execute, so this inbox survives
+    /// until the built-in producer system publishes its contents into the typed event streams.
     class PlatformEventInbox {
       public:
-        void push(Platform::Windowing::WindowId window, Platform::Windowing::WindowEvent event) {
-            pending_.push_back(WindowEvent{.window = window, .event = std::move(event)});
-        }
+        void push(Platform::Windowing::WindowId window, Platform::Windowing::WindowEvent event);
 
-        [[nodiscard]] std::vector<WindowEvent> drain() noexcept {
-            std::vector<WindowEvent> result;
-            result.swap(pending_);
-            // Preserve this tick's high-water mark for pending_ rather than leaving it at the
-            // zero capacity a default-constructed vector swaps in -- a sustained high-polling-rate
-            // mouse would otherwise force a reallocation-from-empty cascade on every single tick's
-            // worth of push() calls (WindowManager::pump() has the same fix, same reasoning).
-            pending_.reserve(result.capacity());
-            return result;
-        }
+        [[nodiscard]] std::vector<WindowEvent> drain() noexcept;
 
-        [[nodiscard]] bool empty() const noexcept { return pending_.empty(); }
+        [[nodiscard]] bool empty() const noexcept;
 
       private:
         std::vector<WindowEvent> pending_;

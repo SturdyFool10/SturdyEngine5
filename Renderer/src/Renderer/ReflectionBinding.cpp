@@ -105,9 +105,9 @@ namespace {
             return a.set < b.set;
         });
 
-        // SPIR-V bindings are already globally unique within a set and remain unchanged. DXIL has
-        // independent b/t/u/s namespaces, so equal numeric registers across different descriptor
-        // classes are legal; only then assign dense public IDs while retaining the native register.
+
+
+
         for (usize begin = 0; begin < descriptors.size();) {
             const u32 set = descriptors[begin].set;
             usize end = begin + 1;
@@ -226,9 +226,9 @@ void collect_uniform_leaves(const slang::ShaderTypeReflection &type,
                     collect_uniform_leaves(*field.type, child, base_offset + field.offset, out);
                 }
             }
-            // Arrays of numerics and other kinds are intentionally not flattened here — the material
-            // model targets named scalar/vector/matrix parameters. Extend when an array-of-uniforms
-            // material parameter is actually needed.
+
+
+
         }
 
 } // namespace SFT::Renderer::detail

@@ -272,7 +272,7 @@ void VulkanSwapchain::set_render_finished_semaphores(vector<VulkanSemaphore> sem
 
 void VulkanSwapchain::destroy() noexcept {
             ZoneScopedN("VulkanSwapchain::destroy");
-            // Views reference images, so tear them down before their images/swapchain.
+
             image_views_.clear();
             depth_image_view_.destroy();
             depth_image_.destroy();

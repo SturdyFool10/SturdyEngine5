@@ -17,28 +17,28 @@ namespace SFT::Runtime {
         bool threshold_view = false;
     };
 
-    // Written by a keyboard system, consumed (and cleared) in request_render_frame — the same split
-    // BloomKeyboardControls/BloomTuningState uses. Demonstrates Engine::query_hdr_capabilities()
-    // (per-surface, so a multi-window app gets an independently correct answer per window/display —
-    // this demo has one window, but the API call it exercises is not window-count-specific) and the
-    // Engine::apply_runtime_settings() runtime HDR on/off + HDR10<->scRGB toggle path, both real
-    // presses, not simulated.
+    /// Written by a keyboard system, consumed (and cleared) in request_render_frame — the same split
+    /// BloomKeyboardControls/BloomTuningState uses. Demonstrates Engine::query_hdr_capabilities()
+    /// (per-surface, so a multi-window app gets an independently correct answer per window/display —
+    /// this demo has one window, but the API call it exercises is not window-count-specific) and the
+    /// Engine::apply_runtime_settings() runtime HDR on/off + HDR10<->scRGB toggle path, both real
+    /// presses, not simulated.
     struct HdrToggleState {
         bool toggle_requested = false;
         bool cycle_color_space_requested = false;
         bool refresh_metadata_requested = false;
     };
 
-    // Consumer-defined event: registered and consumed through the exact same ECS API as Engine's
-    // built-in keyboard/window/mouse events.
+    /// Consumer-defined event: registered and consumed through the exact same ECS API as Engine's
+    /// built-in keyboard/window/mouse events.
     struct BloomThresholdChanged {
         f32 threshold = 1.25f;
         bool threshold_view = false;
     };
 
-    // Live-tunable spectral path tracing knobs, same split as Bloom*Controls/*TuningState above:
-    // Keyboard*Controls holds the step sizes, *TuningState holds the current value a keyboard system
-    // mutates directly, request_render_frame() applies it into render_graph_.scene() every frame.
+    /// Live-tunable spectral path tracing knobs, same split as Bloom*Controls/*TuningState above:
+    /// Keyboard*Controls holds the step sizes, *TuningState holds the current value a keyboard system
+    /// mutates directly, request_render_frame() applies it into render_graph_.scene() every frame.
     struct SpectralPathTracingKeyboardControls {
         u32 sample_step = 1;
         u32 bounce_step = 1;
@@ -54,12 +54,12 @@ namespace SFT::Runtime {
         u32 max_bounces = 4;
     };
 
-    // WASD+QE held-key state and accumulated right-drag mouse-look delta, written by an
-    // update_schedule event system and consumed (with the actual per-frame movement math) in
-    // request_render_frame — the same split configure_event_systems()/request_render_frame() already
-    // uses for BloomKeyboardControls/BloomTuningState, since request_render_frame is the only place
-    // with real per-frame delta time (Core::FrameInput::delta_seconds; ECS systems have no dt
-    // resource today).
+    /// WASD+QE held-key state and accumulated right-drag mouse-look delta, written by an
+    /// update_schedule event system and consumed (with the actual per-frame movement math) in
+    /// request_render_frame — the same split configure_event_systems()/request_render_frame() already
+    /// uses for BloomKeyboardControls/BloomTuningState, since request_render_frame is the only place
+    /// with real per-frame delta time (Core::FrameInput::delta_seconds; ECS systems have no dt
+    /// resource today).
     struct FlyCameraState {
         bool move_forward = false;
         bool move_backward = false;
@@ -67,17 +67,17 @@ namespace SFT::Runtime {
         bool move_right = false;
         bool move_up = false;
         bool move_down = false;
-        // Accumulated since the last time request_render_frame consumed it (right mouse button held).
+        /// Accumulated since the last time request_render_frame consumed it (right mouse button held).
         f32 look_delta_x = 0.0f;
         f32 look_delta_y = 0.0f;
-        // Absolute orientation, tracked separately from Camera's quaternion to avoid the roll drift
-        // that composing incremental yaw_pitch_roll() rotations frame-over-frame would accumulate.
+        /// Absolute orientation, tracked separately from Camera's quaternion to avoid the roll drift
+        /// that composing incremental yaw_pitch_roll() rotations frame-over-frame would accumulate.
         f32 yaw_degrees = 0.0f;
         f32 pitch_degrees = 0.0f;
     };
 
-    // Host-independent demo/game session. Runtime and a future Editor can construct the same type;
-    // neither window creation nor process/title policy lives here.
+    /// Host-independent demo/game session. Runtime and a future Editor can construct the same type;
+    /// neither window creation nor process/title policy lives here.
     class RuntimeDemoGameLogic final : public Engine::GameLogic {
       public:
         RuntimeDemoGameLogic();
@@ -94,10 +94,10 @@ namespace SFT::Runtime {
         void configure_render_extraction(Engine::Engine &engine);
         void configure_event_systems(Engine::Engine &engine);
         void spawn_demo_entities(Engine::Engine &engine);
-        // Consumes HdrToggleState (set by the keyboard system in configure_event_systems), if any
-        // toggle was requested this frame — this is the one place with the Engine&/surface pair
-        // Engine::query_hdr_capabilities()/apply_runtime_settings() need, so the actual response to
-        // 'H'/'J' happens here rather than in the ECS system that only observed the key press.
+        /// Consumes HdrToggleState (set by the keyboard system in configure_event_systems), if any
+        /// toggle was requested this frame — this is the one place with the Engine&/surface pair
+        /// Engine::query_hdr_capabilities()/apply_runtime_settings() need, so the actual response to
+        /// 'H'/'J' happens here rather than in the ECS system that only observed the key press.
         void handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface);
 
         Engine::EngineConfig engine_config_{};

@@ -12,19 +12,19 @@ using std::unexpected;
 
 namespace SFT::Text {
 
-    // The Text package's own error taxonomy — deliberately separate from RHI::RhiError/
-    // Core::GraphicsBackendError so this stays a standalone, GPU-independent contract. Mirrors the
-    // same `expected`-based, exception-free shape used everywhere else in the engine
-    // (see RHI/Error.cppm).
+    /// The Text package's own error taxonomy — deliberately separate from RHI::RhiError/
+    /// Core::GraphicsBackendError so this stays a standalone, GPU-independent contract. Mirrors the
+    /// same `expected`-based, exception-free shape used everywhere else in the engine
+    /// (see RHI/Error.cppm).
     enum class TextErrorCode {
-        // A caller-supplied argument was structurally invalid (empty font data, an out-of-range
-        // glyph id, ...) — a caller-side bug rather than a runtime condition.
+        /// A caller-supplied argument was structurally invalid (empty font data, an out-of-range
+        /// glyph id, ...) — a caller-side bug rather than a runtime condition.
         InvalidArgument,
-        // Font data could not be parsed into a usable HarfBuzz face/font.
+        /// Font data could not be parsed into a usable HarfBuzz face/font.
         LoadFailed,
-        // HarfBuzz shaping did not produce a usable glyph run.
+        /// HarfBuzz shaping did not produce a usable glyph run.
         ShapingFailed,
-        // Outline extraction (hb-draw) or SDF/MSDF generation (msdfgen) failed for a glyph.
+        /// Outline extraction (hb-draw) or SDF/MSDF generation (msdfgen) failed for a glyph.
         RasterizationFailed,
     };
 
@@ -33,7 +33,7 @@ namespace SFT::Text {
         UString message;
     };
 
-    // `TextResult` — a fallible Text call with no value; `TextExpected<T>` — one that yields a `T`.
+    /// `TextResult` — a fallible Text call with no value; `TextExpected<T>` — one that yields a `T`.
     using TextResult = expected<void, TextError>;
 
     template <typename Value>

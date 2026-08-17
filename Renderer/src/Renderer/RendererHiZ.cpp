@@ -34,8 +34,8 @@ namespace SFT::Renderer {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
-        // Halves extent to the next mip level, floored at 1x1 — same shape as
-        // ensure_frame_bloom_targets' level_extent stepping (RendererLifecycle.cpp).
+
+
         [[nodiscard]] Core::Extent2D next_mip_extent(Core::Extent2D extent) noexcept {
             return glm::max(extent / 2u, Core::Extent2D{1u, 1u});
         }
@@ -64,10 +64,10 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "reduceMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-        // Disk-cached (ShaderVariantCache, same mechanism Material.hpp uses) rather than a bare
-        // ShaderCompiler::compile() call: this only ever runs once per process (guarded by `ready`
-        // above), so the win isn't in-memory reuse — it's skipping a from-source Slang recompile on
-        // every single process launch.
+
+
+
+
         slang::ShaderVariantCache shader_cache{
             slang::ShaderSource::from_file("Shaders/hiz_build.slang", "hiz_build"),
             options,
@@ -164,11 +164,11 @@ namespace SFT::Renderer {
         if (Core::is_zero(depth_extent)) {
             return unexpected(hiz_error("Cannot build a Hi-Z pyramid for a zero-sized depth extent."));
         }
-        // The reduction shader always halves its source (see hiz_build.slang's header comment) —
-        // including mip 0, which reduces the *real*, full-resolution depth texture. So the pyramid's
-        // own base level (its texture's mip 0, which Vulkan/RHI always treats as that texture's full
-        // declared extent — what HiZPyramidTargets::extent stores and what gpu_instance_cull.slang's
-        // hiZExtent indexes into) must itself be half of depth_extent, not depth_extent itself.
+
+
+
+
+
         const Core::Extent2D base_extent = next_mip_extent(depth_extent);
         const bool matches = pyramid.extent == base_extent &&
             pyramid.texture && !pyramid.mip_views.empty() && pyramid.full_view;
@@ -235,9 +235,9 @@ namespace SFT::Renderer {
         }
         pyramid.full_view = *full_view;
 
-        // Freshly (re)created: no valid content yet, and its layout is whatever texture creation
-        // leaves it in (not the ShaderReadOnly this frame's import would otherwise assume) — see
-        // record_hiz_build's import_texture call and HiZPyramidTargets::has_valid_data's doc comment.
+
+
+
         pyramid.has_valid_data = false;
         return {};
     }
@@ -277,10 +277,10 @@ namespace SFT::Renderer {
             pipeline = guard->pipeline;
         }
 
-        // Every level (including level 0, whose source is the real depth texture, not a pyramid mip)
-        // halves its source extent — see hiz_build.slang's header comment. source_extent starts at
-        // the real depth extent and walks down the same chain ensure_hiz_pyramid already sized the
-        // pyramid's own mips to match.
+
+
+
+
         Core::Extent2D source_extent = depth_extent;
         for (u32 level = 0; level < pyramid.mip_levels; ++level) {
             const Core::Extent2D destination_extent = next_mip_extent(source_extent);
@@ -293,12 +293,12 @@ namespace SFT::Renderer {
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = pyramid_texture,
                     .view = destination_view,
-                    // Without this, RenderGraph::transition_texture (RenderGraph.cpp) defaults to
-                    // "all mips" and marks every level of the pyramid ColorAttachmentOptimal even
-                    // though only this one mip's view was actually bound/transitioned — the next
-                    // level's read of *this* mip as a sampled texture would then see a matching
-                    // cached state and skip its own transition barrier entirely, leaving the real
-                    // GPU-side layout wrong (caught by the validation layer against a real device).
+
+
+
+
+
+
                     .subresources = RHI::TextureSubresourceRange{.base_mip_level = level, .mip_level_count = 1},
                     .load_op = RHI::LoadOp::DontCare,
                     .store_op = RHI::StoreOp::Store,
@@ -323,11 +323,11 @@ namespace SFT::Renderer {
                         .label = "hiz build bind group",
                     });
                     if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create hiz build bind group"));
-                    // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this
-                    // callback can run concurrently with another pass's push_back into the same shared
-                    // vector (this is in fact exactly what was happening: Hi-Z build has no dependency
-                    // on shadow lighting/bloom's inputs, so RenderGraph::execute_parallel legitimately
-                    // schedules them into the same level).
+
+
+
+
+
                     { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
                     RHI::RenderPassEncoder &pass = context.render_pass();

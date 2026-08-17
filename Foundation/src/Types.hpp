@@ -23,31 +23,31 @@ using std::uint8_t;
 
 namespace SFT::Foundation {
 
-    // Fixed-width scalar aliases used everywhere in the engine — short, explicit, and size-guaranteed
-    // (the `static_assert`s below enforce the sizes, and `f32`/`f64` are required to be IEEE-754).
-    // Prefer these over `int`/`unsigned`/`float` so widths never drift across platforms. Also exported
-    // unqualified into the `SFT` namespace at the bottom of this file for terse use engine-wide.
-    using i8 = int8_t;   // signed 8-bit
-    using i16 = int16_t; // signed 16-bit
-    using i32 = int32_t; // signed 32-bit
-    using i64 = int64_t; // signed 64-bit
+    /// Fixed-width scalar aliases used everywhere in the engine — short, explicit, and size-guaranteed
+    /// (the `static_assert`s below enforce the sizes, and `f32`/`f64` are required to be IEEE-754).
+    /// Prefer these over `int`/`unsigned`/`float` so widths never drift across platforms. Also exported
+    /// unqualified into the `SFT` namespace at the bottom of this file for terse use engine-wide.
+    using i8 = int8_t;
+    using i16 = int16_t;
+    using i32 = int32_t;
+    using i64 = int64_t;
 
-    using u8 = uint8_t;   // unsigned 8-bit
-    using u16 = uint16_t; // unsigned 16-bit
-    using u32 = uint32_t; // unsigned 32-bit
-    using u64 = uint64_t; // unsigned 64-bit
+    using u8 = uint8_t;
+    using u16 = uint16_t;
+    using u32 = uint32_t;
+    using u64 = uint64_t;
 
-    using f32 = float;  // 32-bit IEEE-754
-    using f64 = double; // 64-bit IEEE-754
+    using f32 = float;
+    using f64 = double;
 
-    using byte = std::byte;   // raw byte
-    using usize = size_t;     // unsigned size / index type
-    using isize = ptrdiff_t;  // signed size / pointer-difference type
+    using byte = std::byte;
+    using usize = size_t;
+    using isize = ptrdiff_t;
 
-    // A **guaranteed 1-byte boolean**. `bool`'s size is implementation-defined, which makes it unsafe in
-    // GPU-facing structs and serialized layouts; `b8` is exactly one byte (`static_assert`ed), trivially
-    // copyable, and standard-layout, so it can sit in a struct shared with a shader. Converts to/from
-    // `bool` implicitly enough to use like one: `b8 flag = true; if (flag) ...`.
+    /// A **guaranteed 1-byte boolean**. `bool`'s size is implementation-defined, which makes it unsafe in
+    /// GPU-facing structs and serialized layouts; `b8` is exactly one byte (`static_assert`ed), trivially
+    /// copyable, and standard-layout, so it can sit in a struct shared with a shader. Converts to/from
+    /// `bool` implicitly enough to use like one: `b8 flag = true; if (flag) ...`.
     class b8 {
       public:
         constexpr b8() noexcept = default;
@@ -88,31 +88,10 @@ namespace SFT::Foundation {
     static_assert(is_trivially_copyable_v<b8>);
     static_assert(is_standard_layout_v<b8>);
 
-    // Runtime re-check of every scalar-size / IEEE-754 / `b8`-layout invariant (the same ones the
-    // `static_assert`s above enforce at compile time). Runs automatically once in debug builds via the
-    // `Detail::type_assumptions_checked` initializer; also callable directly.
-    inline void assert_type_assumptions() noexcept {
-        assert(sizeof(i8) == 1);
-        assert(sizeof(i16) == 2);
-        assert(sizeof(i32) == 4);
-        assert(sizeof(i64) == 8);
-
-        assert(sizeof(u8) == 1);
-        assert(sizeof(u16) == 2);
-        assert(sizeof(u32) == 4);
-        assert(sizeof(u64) == 8);
-
-        assert(sizeof(f32) == 4);
-        assert(sizeof(f64) == 8);
-
-        assert(sizeof(byte) == 1);
-        assert(sizeof(b8) == 1);
-
-        assert(numeric_limits<f32>::is_iec559);
-        assert(numeric_limits<f64>::is_iec559);
-        assert(is_trivially_copyable_v<b8>);
-        assert(is_standard_layout_v<b8>);
-    }
+    /// Runtime re-check of every scalar-size / IEEE-754 / `b8`-layout invariant (the same ones the
+    /// `static_assert`s above enforce at compile time). Runs automatically once in debug builds via the
+    /// `Detail::type_assumptions_checked` initializer; also callable directly.
+    void assert_type_assumptions() noexcept;
 
     namespace Detail {
 
@@ -125,9 +104,9 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // User-defined literal suffixes are exported globally below, so importing `Sturdy.Foundation` makes
-    // `200_u8`, `0xFF_u32`, `16_usize`, and `2.5_f64` available without a `using namespace` directive.
-    // `SFT::Foundation::Literals` remains as a compatibility namespace that aliases the same operators.
+
+
+
 
 } // namespace SFT::Foundation
 

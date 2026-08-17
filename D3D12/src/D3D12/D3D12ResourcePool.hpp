@@ -11,22 +11,22 @@
 
 namespace SFT::D3D12 {
 
-    // Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
-    // move-only D3D12 record that backs it. One instance per resource kind in D3D12Device. Handles are
-    // minted from a monotonically increasing counter and never reused; there is no generation check
-    // because the RHI documents destroying a resource still referenced by in-flight work as caller
-    // error, not something the pool needs to catch.
-    //
-    // Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
-    // concurrently — each call's critical section is a single map operation, never cross-pool, so one
-    // mutex per pool instance is sufficient. `Async::Mutex<T>` rather than a bare std::mutex + map so
-    // the map is simply unreachable without holding the lock. find()'s returned pointer is only valid
-    // while some lock on this pool is held (or under trusted single-threaded use) — the same contract
-    // a bare mutex + map would have given, enforced by construction instead of by convention.
-    //
-    // Deliberately a near-copy of Core::Vulkan::VulkanRhiResourcePool rather than a shared base: the
-    // two backends are independent implementations of the same contract, and a common pool type would
-    // have to live in the RHI, which must not grow backend-implementation machinery.
+    /// Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
+    /// move-only D3D12 record that backs it. One instance per resource kind in D3D12Device. Handles are
+    /// minted from a monotonically increasing counter and never reused; there is no generation check
+    /// because the RHI documents destroying a resource still referenced by in-flight work as caller
+    /// error, not something the pool needs to catch.
+    ///
+    /// Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
+    /// concurrently — each call's critical section is a single map operation, never cross-pool, so one
+    /// mutex per pool instance is sufficient. `Async::Mutex<T>` rather than a bare std::mutex + map so
+    /// the map is simply unreachable without holding the lock. find()'s returned pointer is only valid
+    /// while some lock on this pool is held (or under trusted single-threaded use) — the same contract
+    /// a bare mutex + map would have given, enforced by construction instead of by convention.
+    ///
+    /// Deliberately a near-copy of Core::Vulkan::VulkanRhiResourcePool rather than a shared base: the
+    /// two backends are independent implementations of the same contract, and a common pool type would
+    /// have to live in the RHI, which must not grow backend-implementation machinery.
     template <typename HandleT, typename Stored>
     class D3D12ResourcePool {
       public:
@@ -49,10 +49,10 @@ namespace SFT::D3D12 {
             return it != storage->end() ? &it->second : nullptr;
         }
 
-        // Removes `handle`'s record and hands it back to the caller instead of destroying it in place.
-        // Needed wherever teardown has to run outside the pool's lock — releasing a descriptor range
-        // reaches back into the device's descriptor allocators, and doing that while still holding a
-        // resource pool's lock is the one lock-ordering hazard this design can produce.
+        /// Removes `handle`'s record and hands it back to the caller instead of destroying it in place.
+        /// Needed wherever teardown has to run outside the pool's lock — releasing a descriptor range
+        /// reaches back into the device's descriptor allocators, and doing that while still holding a
+        /// resource pool's lock is the one lock-ordering hazard this design can produce.
         [[nodiscard]] std::optional<Stored> extract(HandleT handle) noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
@@ -69,8 +69,8 @@ namespace SFT::D3D12 {
             storage->erase(handle.value);
         }
 
-        // Applies `fn` to every live record. Used only by teardown paths that must release resources
-        // in a specific order before the D3D12 device itself goes away.
+        /// Applies `fn` to every live record. Used only by teardown paths that must release resources
+        /// in a specific order before the D3D12 device itself goes away.
         template <typename Fn>
         void for_each(Fn &&fn) {
             auto storage = storage_.lock();

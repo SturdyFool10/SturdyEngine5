@@ -1,3 +1,4 @@
+#include <Core/src/Core/Vulkan/VulkanPhysicalDevice.hpp>
 #include "VulkanPhysicalDevice.hpp"
 
 #include <tracy/Tracy.hpp>
@@ -273,3 +274,32 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
         }
 
 } // namespace SFT::Core::Vulkan
+
+namespace SFT::Core::Vulkan {
+
+    f64 VulkanPhysicalDevice::score() const noexcept {
+        const auto &lim = properties_.limits;
+        f64 s = (lim.maxFramebufferWidth / 1000.0) * (lim.maxFramebufferHeight / 1000.0);
+        s += lim.maxPushConstantsSize / 16.0;
+        switch (properties_.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                s *= 1.0;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                s *= 0.3;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                s *= 0.2;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                s *= 0.2;
+                break;
+            default:
+                s *= 0.1;
+                break;
+        }
+        return s;
+    }
+
+} // namespace SFT::Core::Vulkan
+

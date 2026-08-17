@@ -89,8 +89,8 @@ namespace SFT::Engine {
 
     } // namespace
 
-    // The API-selection switch point now lives inside SFT::Renderer::Renderer. Engine owns the
-    // high-level renderer, not the raw graphics backend.
+
+
     Engine::Engine() {
         ecs_world_.bind_resource(platform_event_inbox_);
         ecs_world_.bind_resource(window_events_);
@@ -112,12 +112,12 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
 
-        // One-time reserve for the two streams a high-polling-rate mouse hits hardest -- every
-        // MouseMoved event lands in both the lossless window_events_ stream and the typed
-        // mouse_move_events_ stream. Events<T>::clear() (World::bind_resource's automatic per-tick
-        // reset) never releases capacity, so this reservation holds for the process's lifetime
-        // rather than needing to be repeated. 256 comfortably covers the ~133-events/60Hz-frame
-        // figure documented in WindowManagerPolicy::coalesce_mouse_motion's own comment.
+
+
+
+
+
+
         window_events_.reserve(256);
         mouse_move_events_.reserve(256);
 
@@ -187,9 +187,9 @@ namespace SFT::Engine {
                 }
             });
 
-        // Keeps UiPointerState current for every ECS app, the same way FlyCameraState-style
-        // consumers already fold MouseMoveEvent/MouseButtonEvent themselves — this is the built-in
-        // version so UI consumers don't each have to duplicate it (see EcsUi.hpp).
+
+
+
         update_schedule_.add_system(
             [](Ecs::WriteResource<UiPointerState> pointer,
                Ecs::EventReader<MouseMoveEvent> mouse_move,
@@ -205,17 +205,17 @@ namespace SFT::Engine {
                     }
                 }
                 for (const MouseWheelEvent &event : mouse_wheel.read()) {
-                    // SDL and GLFW define positive X as scrolling the viewport right, while Clay's
-                    // positive X moves content right. Convert at the UI boundary; raw InputState
-                    // wheel deltas retain the platform convention.
+
+
+
                     pointer->add_scroll_delta({-event.wheel.x, event.wheel.y});
                 }
             });
 
-        // Keeps UiTextInputState current for every ECS app — same "built-in so consumers don't each
-        // duplicate it" role as the UiPointerState system above, covering EditKey decoding and
-        // typed-text/IME-composition bridging for UI::text_input()/UI::text_area() instead of
-        // pointer state. See EcsUi.hpp's own doc comment on UiTextInputState.
+
+
+
+
         update_schedule_.add_system(
             [](Ecs::WriteResource<UiTextInputState> text_input,
                Ecs::EventReader<KeyboardEvent> keyboard,
@@ -232,10 +232,10 @@ namespace SFT::Engine {
                 }
             });
 
-        // Keeps InputState current for every ECS app (plans/ecs-engine-subsystem-access.md's Phase
-        // 2) — the built-in "fold this tick's typed event streams into persistent, queryable state"
-        // system, same shape as the UiPointerState one above but covering the full keyboard/mouse
-        // surface rather than just pointer position/left-click/scroll.
+
+
+
+
         update_schedule_.add_system(
             [](Ecs::WriteResource<InputState> input,
                Ecs::EventReader<KeyboardEvent> keyboard,
@@ -267,10 +267,10 @@ namespace SFT::Engine {
     }
 
     Engine::~Engine() {
-        // ui_context_ owns raw GPU objects (a UI::UiRenderer) Engine itself created — wait_idle()
-        // first for the same reason Application's own shutdown path needs it (drained CPU-side
-        // frame tasks only confirm submission, not GPU completion; see async-submission-model.md),
-        // regardless of whether the embedding Application already did this.
+
+
+
+
         if (initialized_) {
             wait_idle();
             if (RHI::RhiDevice *device = rhi_device()) {
@@ -312,9 +312,9 @@ namespace SFT::Engine {
         }
 #endif
 
-        // Reflect every shader on disk before the graphics backend exists, so the rest of startup
-        // can see entry points, bindings, and parameter layouts without having generated any
-        // target bytecode yet.
+
+
+
         shaders_ = Core::Slang::discover_shaders(
             config.shaders_directory,
             shader_compiler_,
@@ -340,8 +340,8 @@ namespace SFT::Engine {
         renderer_info.app_name = config.app_name;
         renderer_info.window = &window;
         renderer_info.wsi_extensions = std::move(wsi_extensions);
-        // Hand the backend the shaders we reflected above; it owns compiling them to its native
-        // format. shaders_ outlives this call, so the non-owning span stays valid.
+
+
         renderer_info.uncompiled_shaders = shaders_;
         renderer_info.enable_shader_disk_cache = config.enable_shader_disk_cache;
 
@@ -423,6 +423,10 @@ namespace SFT::Engine {
         return renderer_.set_presentation_settings(surface, settings);
     }
 
+    Core::PresentationSettings Engine::presentation_settings(Core::RenderSurfaceHandle surface) const noexcept {
+        return renderer_.presentation_settings(surface);
+    }
+
     RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Engine::query_hdr_capabilities(
         Core::RenderSurfaceHandle surface) const {
         return renderer_.query_hdr_capabilities(surface);
@@ -451,21 +455,21 @@ namespace SFT::Engine {
 
         const bool hdr_enabled_changed =
             static_cast<bool>(old_presentation.hdr_enabled) != static_cast<bool>(new_presentation.hdr_enabled);
-        // Color-space mode only matters while HDR is (or is becoming) enabled. The backend enables
-        // its optional HDR extensions during initial startup, so both enabling HDR and switching its
-        // encoding are swapchain-only changes.
+
+
+
         const bool hdr_color_space_changed = static_cast<bool>(new_presentation.hdr_enabled) &&
                                              old_presentation.hdr_color_space != new_presentation.hdr_color_space;
         const bool hdr_changed = hdr_enabled_changed || hdr_color_space_changed;
         const RHI::RhiDevice *active_rhi = renderer_.rhi_device();
-        // Vulkan instance/device extensions are immutable. The Vulkan backend enables the lightweight
-        // HDR colorspace/metadata extensions opportunistically during initial SDR startup, so an HDR
-        // mode change never needs to destroy GPU-only meshes/textures just to rebuild the instance. If
-        // the colorspace extension is genuinely unsupported, reject the toggle while the existing SDR
-        // scene remains intact instead of attempting a destructive rebuild that cannot make it
-        // supported. Other backends (e.g. D3D12) negotiate HDR color space per-swapchain via
-        // SetColorSpace1 at swapchain-recreation time and have no equivalent immutable-extension gate,
-        // so this check only applies to Vulkan.
+
+
+
+
+
+
+
+
         const bool hdr_colorspace_enabled = active_rhi != nullptr &&
                                             (active_rhi->backend_type() != RHI::BackendType::Vulkan ||
                                              active_rhi->is_extension_enabled(RHI::ExtensionId{"vulkan", "VK_EXT_swapchain_colorspace", 1}));

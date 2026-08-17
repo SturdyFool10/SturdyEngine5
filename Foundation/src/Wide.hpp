@@ -21,11 +21,11 @@ using std::strong_ordering;
 
 namespace SFT::Foundation {
 
-    // Extended-precision value types used by the engine's generic numeric code. The integer types are
-    // fixed-width, wrapping, constexpr-friendly arithmetic types; the floating types are expansion
-    // floats (`f128` = double-double, `f256` = quad-double) built from IEEE `f64` limbs. They are meant
-    // for deterministic high-precision constants, tooling, and math paths that need more precision than
-    // native `double`, not as drop-in replacements for hardware IEEE binary128.
+
+
+
+
+
 
 #if !defined(__SIZEOF_INT128__)
 #error "SturdyEngine's wide integer types require a compiler with __int128 (GCC/Clang)."
@@ -35,15 +35,15 @@ namespace SFT::Foundation {
 #error "SturdyEngine's f128/f256 require IEEE FP semantics; -ffast-math/-Ofast breaks them."
 #endif
 
-    // Native 128-bit integers supplied by GCC/Clang. They are re-exported with engine aliases so the
-    // rest of the codebase does not name compiler extension types directly.
+    /// Native 128-bit integers supplied by GCC/Clang. They are re-exported with engine aliases so the
+    /// rest of the codebase does not name compiler extension types directly.
     using i128 = __int128;
     using u128 = unsigned __int128;
 
-    // Unsigned 256-bit integer represented as two 128-bit limbs (`hi:lo`). Arithmetic intentionally
-    // wraps modulo 2^256, matching built-in unsigned integer behavior. Division by zero returns zero
-    // quotient/remainder through `divmod()` rather than throwing or trapping, keeping the type usable in
-    // `constexpr` and `noexcept` generic code.
+    /// Unsigned 256-bit integer represented as two 128-bit limbs (`hi:lo`). Arithmetic intentionally
+    /// wraps modulo 2^256, matching built-in unsigned integer behavior. Division by zero returns zero
+    /// quotient/remainder through `divmod()` rather than throwing or trapping, keeping the type usable in
+    /// `constexpr` and `noexcept` generic code.
     class u256 {
       public:
         u128 lo{};
@@ -206,8 +206,8 @@ namespace SFT::Foundation {
         }
     };
 
-    // Signed 256-bit integer stored as two's-complement bits. Arithmetic and bit operations reuse the
-    // underlying `u256` representation, so overflow wraps just like fixed-width machine integers.
+    /// Signed 256-bit integer stored as two's-complement bits. Arithmetic and bit operations reuse the
+    /// underlying `u256` representation, so overflow wraps just like fixed-width machine integers.
     class i256 {
       public:
         u256 bits{};
@@ -370,9 +370,9 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // Double-double floating point: the value is the unevaluated sum `hi + lo`, where each limb is an
-    // IEEE `f64`. Operations use error-free transforms and renormalization to keep roughly 106 bits of
-    // precision while remaining usable in constant evaluation.
+    /// Double-double floating point: the value is the unevaluated sum `hi + lo`, where each limb is an
+    /// IEEE `f64`. Operations use error-free transforms and renormalization to keep roughly 106 bits of
+    /// precision while remaining usable in constant evaluation.
     class f128 {
       public:
         f64 hi{};
@@ -523,10 +523,10 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // Quad-double floating point: four ordered `f64` limbs representing a high-precision expansion.
-    // Operations keep roughly 212 bits of precision. The type supports infinities/NaNs through the lead
-    // limb, but it is not an IEEE interchange format; `numeric_limits` in `WideTraits.cppm` documents
-    // the supported range and precision.
+    /// Quad-double floating point: four ordered `f64` limbs representing a high-precision expansion.
+    /// Operations keep roughly 212 bits of precision. The type supports infinities/NaNs through the lead
+    /// limb, but it is not an IEEE interchange format; `numeric_limits` in `WideTraits.cppm` documents
+    /// the supported range and precision.
     class f256 {
       public:
         f64 x[4]{};
@@ -849,10 +849,10 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    // Wide numeric literals parse the token text directly so values larger than built-in literal ranges
-    // can still be written naturally. Integer literals accept decimal, binary (`0b`), octal (`0`),
-    // hexadecimal (`0x`), and digit separators; wide-float literals accept decimal notation with `e`/`E`
-    // exponents and hexadecimal notation with `p`/`P` exponents.
+
+
+
+
 
 } // namespace SFT::Foundation
 

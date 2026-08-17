@@ -52,9 +52,9 @@ namespace SFT::Foundation::Cpu {
         }
 
         [[nodiscard]] u32 read_x2apic_id() noexcept {
-            // Same leaf-preference order as CpuTopology.cpp's read_x2apic_id() -- duplicated rather than
-            // shared across translation units, matching this module's existing per-file convention (see
-            // e.g. read_leaf above, independently defined in CpuId.cpp/CpuTopology.cpp too).
+
+
+
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
             read_leaf(0, 0, eax, ebx, ecx, edx);
             const unsigned int max_leaf = eax;
@@ -70,13 +70,13 @@ namespace SFT::Foundation::Cpu {
             return ebx >> 24;
         }
 
-        // Number of low bits of `x2apic_id` that identify the SMT sibling within one physical core.
-        // Same leaf-preference order as read_x2apic_id() above (0x1f, then 0xb) so the shift width
-        // always matches whichever leaf actually produced the id it's applied to. Subleaf 0 of either
-        // leaf is defined by Intel's SDM / AMD's APM to always be the SMT level (ECX[15:8] == 1) when
-        // the leaf exists at all; EAX[4:0] is the shift width. Returns 0 (no grouping -- every logical
-        // core reports as its own physical core) when neither leaf is present, which is the safe
-        // fallback rather than guessing: some older/virtualized CPUs expose no topology leaf at all.
+
+
+
+
+
+
+
         [[nodiscard]] u32 read_smt_shift_width() noexcept {
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
             read_leaf(0, 0, eax, ebx, ecx, edx);
@@ -98,9 +98,9 @@ namespace SFT::Foundation::Cpu {
         }
 
         [[nodiscard]] CoreType read_core_type() noexcept {
-            // Duplicated from CpuTopology.cpp's read_core_type() (anonymous-namespace, not shared across
-            // TUs) -- GenuineIntel-only leaf 0x1A decode, see that file's header comment for why every
-            // other vendor (including hybrid AMD designs) reports Unknown here.
+
+
+
             if (!Cpu::features().hybrid || Cpu::features().vendor_view() != "GenuineIntel") {
                 return CoreType::Unknown;
             }
@@ -108,21 +108,21 @@ namespace SFT::Foundation::Cpu {
             read_leaf(0x1a, 0, eax, ebx, ecx, edx);
             const unsigned int core_type = eax >> 24;
             if (core_type == 0x20) {
-                return CoreType::Efficiency; // Intel Atom-derived core
+                return CoreType::Efficiency;
             }
             if (core_type == 0x40) {
-                return CoreType::Performance; // Intel Core-derived core
+                return CoreType::Performance;
             }
             return CoreType::Unknown;
         }
 
-        // Every bit this module knows a name for, across leaf 1 (EDX/ECX), leaf 7 subleaf 0
-        // (EBX/ECX/EDX), and extended leaf 0x80000001 (ECX/EDX). Bit positions cross-checked against
-        // the Linux kernel's arch/x86/include/asm/cpufeatures.h (the authoritative, battle-tested
-        // mapping) rather than trusting hand-recalled SDM tables or compiler cpuid.h macros -- the
-        // latter's bit_PKU/bit_UMIP pairing in this toolchain's own <cpuid.h> turned out to disagree
-        // with the kernel source on which bit is which, which is exactly the kind of transcription
-        // error this cross-check exists to catch.
+
+
+
+
+
+
+
         void decode_extensions(std::vector<bool> &ext) noexcept {
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
             read_leaf(0, 0, eax, ebx, ecx, edx);
@@ -131,7 +131,7 @@ namespace SFT::Foundation::Cpu {
             if (max_leaf >= 1) {
                 read_leaf(1, 0, eax, ebx, ecx, edx);
 
-                // EDX
+
                 set_bit(ext, Extension::X86_FPU, has_bit(edx, 0));
                 set_bit(ext, Extension::X86_VME, has_bit(edx, 1));
                 set_bit(ext, Extension::X86_DE, has_bit(edx, 2));
@@ -162,7 +162,7 @@ namespace SFT::Foundation::Cpu {
                 set_bit(ext, Extension::X86_TM, has_bit(edx, 29));
                 set_bit(ext, Extension::X86_PBE, has_bit(edx, 31));
 
-                // ECX
+
                 set_bit(ext, Extension::X86_SSE3, has_bit(ecx, 0));
                 set_bit(ext, Extension::X86_PCLMULQDQ, has_bit(ecx, 1));
                 set_bit(ext, Extension::X86_DTES64, has_bit(ecx, 2));
@@ -198,7 +198,7 @@ namespace SFT::Foundation::Cpu {
             if (max_leaf >= 7) {
                 read_leaf(7, 0, eax, ebx, ecx, edx);
 
-                // EBX
+
                 set_bit(ext, Extension::X86_FSGSBASE, has_bit(ebx, 0));
                 set_bit(ext, Extension::X86_TSC_ADJUST, has_bit(ebx, 1));
                 set_bit(ext, Extension::X86_SGX, has_bit(ebx, 2));
@@ -227,7 +227,7 @@ namespace SFT::Foundation::Cpu {
                 set_bit(ext, Extension::X86_AVX512BW, has_bit(ebx, 30));
                 set_bit(ext, Extension::X86_AVX512VL, has_bit(ebx, 31));
 
-                // ECX
+
                 set_bit(ext, Extension::X86_PREFETCHWT1, has_bit(ecx, 0));
                 set_bit(ext, Extension::X86_AVX512VBMI, has_bit(ecx, 1));
                 set_bit(ext, Extension::X86_UMIP, has_bit(ecx, 2));
@@ -250,7 +250,7 @@ namespace SFT::Foundation::Cpu {
                 set_bit(ext, Extension::X86_SGX_LC, has_bit(ecx, 30));
                 set_bit(ext, Extension::X86_PKS, has_bit(ecx, 31));
 
-                // EDX
+
                 set_bit(ext, Extension::X86_AVX512_4VNNIW, has_bit(edx, 2));
                 set_bit(ext, Extension::X86_AVX512_4FMAPS, has_bit(edx, 3));
                 set_bit(ext, Extension::X86_FSRM, has_bit(edx, 4));
@@ -277,7 +277,7 @@ namespace SFT::Foundation::Cpu {
             if (max_ext_leaf >= 0x80000001) {
                 read_leaf(0x80000001, 0, eax, ebx, ecx, edx);
 
-                // ECX
+
                 set_bit(ext, Extension::X86_LAHF_LM, has_bit(ecx, 0));
                 set_bit(ext, Extension::X86_CMP_LEGACY, has_bit(ecx, 1));
                 set_bit(ext, Extension::X86_SVM, has_bit(ecx, 2));
@@ -305,7 +305,7 @@ namespace SFT::Foundation::Cpu {
                 set_bit(ext, Extension::X86_PCX_L2I, has_bit(ecx, 28));
                 set_bit(ext, Extension::X86_MONITORX, has_bit(ecx, 29));
 
-                // EDX
+
                 set_bit(ext, Extension::X86_SYSCALL, has_bit(edx, 11));
                 set_bit(ext, Extension::X86_NX, has_bit(edx, 20));
                 set_bit(ext, Extension::X86_MMXEXT, has_bit(edx, 22));
@@ -325,16 +325,16 @@ namespace SFT::Foundation::Cpu {
             usize l3 = 0;
         };
 
-        // Leaf 4 (Intel-style deterministic cache parameters) and AMD's leaf 0x8000001D share the exact
-        // same EAX/EBX/ECX field layout by design (AMD modeled 0x8000001D on Intel's leaf 4 for this
-        // reason) -- one decoder handles both, selected by `cache_leaf`. Iterates subleaves until a
-        // cache-type-0 entry ends the list (4-6 entries is typical: L1D, L1I, L2, L3, occasionally more).
+
+
+
+
         [[nodiscard]] CacheSizes decode_cache_leaves(unsigned int cache_leaf) noexcept {
             CacheSizes sizes{};
             for (unsigned int subleaf = 0; subleaf < 16; ++subleaf) {
                 unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
                 read_leaf(cache_leaf, subleaf, eax, ebx, ecx, edx);
-                const unsigned int cache_type = eax & 0x1fu; // 0=null, 1=data, 2=instruction, 3=unified
+                const unsigned int cache_type = eax & 0x1fu;
                 if (cache_type == 0) {
                     break;
                 }
@@ -352,7 +352,7 @@ namespace SFT::Foundation::Cpu {
                 } else if (level == 2) {
                     sizes.l2 = size_bytes;
                 } else if (level == 3) {
-                    sizes.l3 = size_bytes; // the X3D signal -- differs per core on multi-CCD parts
+                    sizes.l3 = size_bytes;
                 }
             }
             return sizes;
@@ -398,10 +398,10 @@ namespace SFT::Foundation::Cpu {
             return cores;
         }
 
-        // RAII: restores this thread's original affinity mask on scope exit, however the enumeration
-        // loop below returns (including early on an empty core list). Linux only -- see the per-platform
-        // pin_current_thread()/enumerate_cores() overloads for why Windows/macOS/other need their own
-        // shapes here rather than sharing this type.
+
+
+
+
         class ScopedAffinityRestore {
           public:
             ScopedAffinityRestore() noexcept {
@@ -438,13 +438,13 @@ namespace SFT::Foundation::Cpu {
             return cores;
         }
 
-        // Mach's thread-affinity-tag API is a scheduling *hint*, not a hard pin (same caveat already
-        // documented for DedicatedThread::pin_to_core in Async/src/AffinityImpl.cpp) -- there is also no
-        // Mach API to query a thread's *current* affinity tag, so unlike Linux there is nothing to save.
-        // The destructor just releases the hint (THREAD_AFFINITY_TAG_NULL) rather than restoring a prior
-        // value. Per-core detection built this way on macOS/x86 is therefore best-effort and unverified
-        // (see CoreMap.hpp's header comment); on Apple Silicon there's no per-core signal to read anyway
-        // (no `cpuid`), so this path only ever matters for x86 Macs.
+
+
+
+
+
+
+
         class ScopedAffinityRestore {
           public:
             ~ScopedAffinityRestore() noexcept {
@@ -466,11 +466,11 @@ namespace SFT::Foundation::Cpu {
 
     #elif !defined(_WIN32)
 
-        // FreeBSD (and anything else): not implemented yet -- FreeBSD's cpuset_t API lives under
-        // <pthread_np.h>/<sys/cpuset.h> and differs enough from Linux's that it needs its own verified
-        // implementation rather than a guess, same stance already taken for
-        // DedicatedThread::pin_to_core in Async/src/AffinityImpl.cpp. Every core reports whatever the
-        // unpinned calling thread's cpuid happens to answer -- honestly degraded, not fabricated.
+
+
+
+
+
         [[nodiscard]] std::vector<u32> enumerate_cores() noexcept {
             std::vector<u32> cores;
             const unsigned int count = std::thread::hardware_concurrency();
@@ -482,16 +482,16 @@ namespace SFT::Foundation::Cpu {
 
         class ScopedAffinityRestore {};
 
-        bool pin_current_thread(u32 /*core_index*/) noexcept { return false; }
+        bool pin_current_thread(u32               ) noexcept { return false; }
 
     #endif // platform dispatch (Windows handled inline in build_cores() below -- see its own comment)
 
         [[nodiscard]] std::vector<CoreCapabilities> build_cores() noexcept {
     #if defined(_WIN32)
-            // Windows has no "get current affinity mask" query -- SetThreadAffinityMask conveniently
-            // *returns* the previous mask as a side effect of the first successful call, which is the
-            // only way to recover it, so this platform can't share the RAII-around-a-separate-get-call
-            // shape the other platforms use above.
+
+
+
+
             std::vector<u32> logical_cores;
             DWORD_PTR process_mask = 0, system_mask = 0;
             if (GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask)) {
@@ -548,12 +548,12 @@ namespace SFT::Foundation::Cpu {
     #endif
         }
 
-#else // !STURDY_CPU_X86
+#else
 
-        // Arm64/RISC-V/other: no per-core divergence is knowable here -- there is no per-core HWCAP
-        // query on Linux, and no `cpuid`-equivalent instruction on either architecture at all (see
-        // Extensions.hpp's header comment). Every core gets the single process-wide `Cpu::features()`
-        // result; cache sizes are left at 0 rather than guessed.
+
+
+
+
         [[nodiscard]] CoreCapabilities uniform_capabilities() noexcept {
             CoreCapabilities caps{};
             caps.extensions.assign(static_cast<usize>(Extension::Count), false);
@@ -578,7 +578,7 @@ namespace SFT::Foundation::Cpu {
 
     CoreMap::CoreMap() : cores_(build_cores()) {
         if (cores_.empty()) {
-            cores_.push_back(CoreCapabilities{}); // core_count() >= 1 is a documented invariant
+            cores_.push_back(CoreCapabilities{});
         }
 
         type_of_core_.resize(cores_.size());
@@ -608,12 +608,12 @@ namespace SFT::Foundation::Cpu {
                       return a.first < b.first;
                   });
 
-        // Physical-core grouping: only meaningful on x86, where `x2apic_id` is a genuine per-core
-        // topology identity (see CoreCapabilities' field comment). The non-x86 fallback path
-        // (uniform_capabilities() above) leaves x2apic_id at its default 0 for every core -- shifting
-        // and grouping that would collapse every logical core into one bogus physical core, so it's
-        // skipped there in favor of the identity mapping (every logical core is its own physical core),
-        // which is also the correct assumption for platforms with no SMT concept exposed here anyway.
+
+
+
+
+
+
         physical_core_of_logical_.resize(cores_.size());
 #if defined(STURDY_CPU_X86)
         const u32 smt_shift = read_smt_shift_width();
@@ -622,8 +622,8 @@ namespace SFT::Foundation::Cpu {
         for (usize i = 0; i < cores_.size(); ++i) {
             physical_id_of_core.emplace_back(cores_[i].x2apic_id >> smt_shift, i);
         }
-        // Default pair ordering (physical id, then logical index) rather than a first-only comparator:
-        // keeps sibling order within a group deterministic (lowest logical index first) run to run.
+
+
         std::sort(physical_id_of_core.begin(), physical_id_of_core.end());
         u32 last_physical_id = 0;
         bool have_last = false;
@@ -664,3 +664,35 @@ namespace SFT::Foundation::Cpu {
     }
 
 } // namespace SFT::Foundation::Cpu
+
+namespace SFT::Foundation::Cpu {
+
+    bool CoreCapabilities::has(Extension extension) const noexcept {
+        const auto index = static_cast<usize>(extension);
+        return index < extensions.size() && extensions[index];
+    }
+
+    usize CoreMap::core_count() const noexcept { return cores_.size(); }
+
+    const CoreCapabilities &CoreMap::core(usize logical_index) const noexcept { return cores_.at(logical_index); }
+
+    usize CoreMap::distinct_type_count() const noexcept { return cores_of_type_.size(); }
+
+    bool CoreMap::is_hybrid() const noexcept { return distinct_type_count() > 1; }
+
+    usize CoreMap::type_index_of_core(usize logical_index) const noexcept { return type_of_core_.at(logical_index); }
+
+    const std::vector<usize> &CoreMap::core_indices_of_type(usize type_index) const noexcept {
+        return cores_of_type_.at(type_index);
+    }
+
+    usize CoreMap::physical_core_count() const noexcept { return logical_cores_of_physical_core_.size(); }
+
+    usize CoreMap::physical_core_of(usize logical_index) const noexcept { return physical_core_of_logical_.at(logical_index); }
+
+    const std::vector<usize> &CoreMap::logical_cores_of_physical_core(usize physical_index) const noexcept {
+        return logical_cores_of_physical_core_.at(physical_index);
+    }
+
+} // namespace SFT::Foundation::Cpu
+

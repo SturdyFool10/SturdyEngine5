@@ -1,12 +1,13 @@
+#include <Core/src/Core/Slang/ShaderVariant.hpp>
 #include "ShaderVariant.hpp"
 
 namespace SFT::Core::Slang {
 
 namespace {
 
-    // File-kind sources only carry a path; ShaderCache's key needs the actual text (mirrors the read
-    // load_shader_module() itself does in ShaderImpl.cpp) — both to hash it and, on a disk-cache
-    // miss, so the key is ready without re-reading the file a second time.
+
+
+
     [[nodiscard]] string resolve_source_text(const ShaderSource &source) {
         if (source.kind == ShaderSourceKind::File) {
             if (auto loaded = Foundation::read_file_to_string(source.path)) {
@@ -21,8 +22,8 @@ namespace {
         const ShaderSource &source,
         const std::filesystem::path &cache_directory,
         u64 cache_key) noexcept {
-        // In-memory and embedded sources have no meaningful filesystem timestamp. Their content is
-        // already part of the cache key, so keep the existing hash-only validation for those cases.
+
+
         return source.kind != ShaderSourceKind::File ||
                shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
     }
@@ -169,17 +170,17 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                         if (complete) {
                             vector<ShaderBytecode> bytecode;
                             bytecode.reserve(entry_point_count * requested_artifacts.size());
-                            // Shader::entry_point_code() indexes row-major by entry point then target.
+
                             for (usize entry_point_index = 0; entry_point_index < entry_point_count; ++entry_point_index) {
                                 for (const ShaderCacheTargetArtifact *artifact : requested_artifacts) {
                                     bytecode.push_back(artifact->bytecode[entry_point_index]);
                                 }
                             }
-                            // Multi-target D3D12 requests put SPIR-V first solely to retain portable
-                            // push-constant semantics, but descriptor registers must come from DXIL's
-                            // class-local b/t/u/s layout. The DXIL artifact stores that composite
-                            // reflection; selecting the first (SPIR-V) artifact would map s0 as the
-                            // SPIR-V descriptor binding and produce an incompatible root signature.
+
+
+
+
+
                             const ShaderCacheTargetArtifact *reflection_artifact = requested_artifacts.front();
                             if (const auto dxil = std::ranges::find_if(
                                     requested_artifacts,
@@ -205,9 +206,9 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
             }
 
             if (enable_disk_cache_) {
-                // Keep one independently selectable artifact per requested output target. A later
-                // backend switch merges its DXIL/SPIR-V artifact into this same source/variant record
-                // rather than evicting an already-cached API's reflection or bytecode.
+
+
+
                 ShaderCacheEntry entry =
                     disk_cache_is_fresh_for_source(source_, disk_cache_directory_, disk_cache_key)
                         ? load_shader_cache_entry(disk_cache_directory_, disk_cache_key).value_or(ShaderCacheEntry{})
@@ -241,9 +242,9 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                     if (existing == entry.artifacts.end()) {
                         entry.artifacts.push_back(std::move(artifact));
                     } else if (options.targets.size() == 1) {
-                        // A single-target compile owns target-native reflection. Multi-target DX12
-                        // compilation currently exposes one composite reflection; never let it replace
-                        // a native SPIR-V artifact populated by an earlier Vulkan compile.
+
+
+
                         *existing = std::move(artifact);
                     }
                 }
@@ -259,3 +260,20 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
 [[nodiscard]] ShaderExpected<Shader> ShaderVariantCache::get_or_compile_base() { return get_or_compile(ShaderVariantKey{}); }
 
 } // namespace SFT::Core::Slang
+
+namespace SFT::Core::Slang {
+
+    bool operator==(const ShaderVariantKey &a, const ShaderVariantKey &b) noexcept {
+        if (a.defines_.size() != b.defines_.size()) {
+            return false;
+        }
+        for (usize i = 0; i < a.defines_.size(); ++i) {
+            if (a.defines_[i].name != b.defines_[i].name || a.defines_[i].value != b.defines_[i].value) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+} // namespace SFT::Core::Slang
+

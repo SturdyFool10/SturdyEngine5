@@ -32,9 +32,9 @@ using SFT::Core::RendererResult;
 
 namespace SFT::Core::Vulkan {
 
-    // Owns a VkBuffer. When created through VMA, the matching VmaAllocation is owned here too —
-    // otherwise memory is intentionally not managed here; bind it via
-    // VulkanDevice::bind_buffer_memory or through VMA instead.
+    /// Owns a VkBuffer. When created through VMA, the matching VmaAllocation is owned here too —
+    /// otherwise memory is intentionally not managed here; bind it via
+    /// VulkanDevice::bind_buffer_memory or through VMA instead.
     class VulkanBuffer {
       public:
         VulkanBuffer() = default;
@@ -66,23 +66,23 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] VkDeviceSize size() const noexcept;
         [[nodiscard]] VkBufferUsageFlags usage() const noexcept;
 
-        // Maps, memcpy's `bytes` from `data` at `offset`, then unmaps. Only valid for a VMA-backed
-        // buffer created with a host-visible `VmaAllocationCreateInfo` (e.g. a staging buffer) —
-        // there is no allocation to map otherwise.
+        /// Maps, memcpy's `bytes` from `data` at `offset`, then unmaps. Only valid for a VMA-backed
+        /// buffer created with a host-visible `VmaAllocationCreateInfo` (e.g. a staging buffer) —
+        /// there is no allocation to map otherwise.
         [[nodiscard]] RendererResult upload(const void *data, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept;
 
-        // Symmetric readback: maps, copies `bytes` out into `dst` at `offset`, then unmaps. Only valid
-        // for a host-visible VMA allocation (a HostReadback buffer the GPU copied results into).
+        /// Symmetric readback: maps, copies `bytes` out into `dst` at `offset`, then unmaps. Only valid
+        /// for a host-visible VMA allocation (a HostReadback buffer the GPU copied results into).
         [[nodiscard]] RendererResult download(void *dst, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept;
 
-        // Persistent map/unmap for direct CPU access — the backing of the RHI's map_buffer. VMA
-        // reference-counts nested maps, so pair each map() with an unmap(). The pointer is valid for
-        // the whole allocation; the caller offsets into it. Only valid for a host-visible allocation.
+        /// Persistent map/unmap for direct CPU access — the backing of the RHI's map_buffer. VMA
+        /// reference-counts nested maps, so pair each map() with an unmap(). The pointer is valid for
+        /// the whole allocation; the caller offsets into it. Only valid for a host-visible allocation.
         [[nodiscard]] RendererExpected<void *> map() noexcept;
         void unmap() noexcept;
 
-        // Flush/invalidate a mapped range for non-coherent host memory (no-op cost on coherent memory,
-        // which VMA reports; call around non-coherent readback/upload to make writes visible).
+        /// Flush/invalidate a mapped range for non-coherent host memory (no-op cost on coherent memory,
+        /// which VMA reports; call around non-coherent readback/upload to make writes visible).
         [[nodiscard]] RendererResult flush(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept;
         [[nodiscard]] RendererResult invalidate(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept;
 
@@ -93,7 +93,7 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset = 0) noexcept;
 
-        // Requires VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT.
+        /// Requires VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT.
         [[nodiscard]] VkDeviceAddress device_address() const noexcept;
 
         void destroy() noexcept;
@@ -107,11 +107,11 @@ namespace SFT::Core::Vulkan {
         VkBufferUsageFlags usage_ = 0;
     };
 
-    // ─── VulkanBufferView ─────────────────────────────────────────────────────────
 
-    // Owns a VkBufferView — the typed window over a buffer range that a uniform/storage *texel* buffer
-    // binding reads through (the buffer must carry the matching UNIFORM/STORAGE_TEXEL_BUFFER usage). The
-    // buffer must outlive the view.
+
+    /// Owns a VkBufferView — the typed window over a buffer range that a uniform/storage *texel* buffer
+    /// binding reads through (the buffer must carry the matching UNIFORM/STORAGE_TEXEL_BUFFER usage). The
+    /// buffer must outlive the view.
     class VulkanBufferView {
       public:
         VulkanBufferView() = default;

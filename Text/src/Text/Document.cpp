@@ -1,3 +1,4 @@
+#include <Text/src/Text/Document.hpp>
 #include "Document.hpp"
 
 #include <algorithm>
@@ -19,13 +20,13 @@ constexpr usize leaf_piece_capacity = 32;
 constexpr usize branch_fanout = 32;
 constexpr usize piece_target_bytes = 16 * 1024;
 
-// Inline, allocation-free storage for a node's children/pieces. A Node already costs exactly one
-// allocation via make_shared; before this, its pieces/children vector added an unavoidable second
-// heap allocation (and a pointer chase) to every single node in the tree. Capacity is fixed at
-// construction and never exceeded — level_from_nodes()/level_from_pieces() below already guarantee
-// that before a node is built — so this trades a little always-reserved space (an empty leaf still
-// carries a full branch_fanout-sized, unused `children` array, and vice versa) for zero allocation
-// per node, the same tradeoff Zed's SumTree makes with ArrayVec for its own internal nodes.
+
+
+
+
+
+
+
 template <typename T, usize N>
 class FixedVector {
   public:
@@ -56,9 +57,9 @@ struct Piece {
 
 [[nodiscard]] bool continuation(unsigned char byte) noexcept { return (byte & 0xc0u) == 0x80u; }
 
-// Strict UTF-8 decoder used by the document itself. Unlike UString it permits U+0000: source
-// documents are byte-exact UTF-8 files, and an embedded NUL is valid Unicode even if many C APIs
-// choose not to accept it.
+
+
+
 [[nodiscard]] bool decode(const char *bytes, usize available, char32_t &scalar, usize &width) noexcept {
     if (available == 0) return false;
     const auto b0 = static_cast<unsigned char>(bytes[0]);
@@ -125,12 +126,12 @@ struct Piece {
     const bool rhs_has_line_break = rhs.newlines != 0;
     const bool lhs_has_line_break = lhs.newlines != 0;
 
-    // Longest-line dimension: the "boundary line" formed by gluing lhs's trailing partial line to
-    // rhs's leading partial line is a real line, and can be longer than any line fully inside either
-    // operand — this has to be checked on every join, not assumed away, or a longest-line query
-    // silently misses whichever line happens to straddle a leaf boundary (the common case for any
-    // file with tree depth > 1). `longest_line` is stored relative to the start of its own summary,
-    // so folding rhs's candidate up requires shifting it by lhs's own line count first.
+
+
+
+
+
+
     usize longest_line = lhs.longest_line;
     usize longest_line_scalars = lhs.longest_line_scalars;
     const usize boundary_scalars = lhs.last_line_scalars + rhs.first_line_scalars;
@@ -189,8 +190,8 @@ struct Node {
     TextSummary summary{};
     FixedVector<shared_ptr<const Node>, branch_fanout> children;
     FixedVector<Piece, leaf_piece_capacity> pieces;
-    // 1 for a leaf, 1 + child height otherwise. Cached rather than walked because concat()'s spine
-    // descent below reads it at every level of every join.
+
+
     usize height = 1;
     [[nodiscard]] bool leaf() const noexcept { return children.empty(); }
 };
@@ -200,11 +201,11 @@ struct DocumentState {
     Revision revision{};
     shared_ptr<const DocumentState> parent;
     ChangeSet changes_from_parent{};
-    // Undo-grouping metadata (see EditKind's own doc comment in Document.hpp). `kind_from_parent` is
-    // whatever the caller passed to apply(); `continues_previous_group` records whether *this*
-    // transition was actually folded into the same burst as its parent (same kind, and spatially
-    // adjacent per can_coalesce() below) — undo()/redo() walk consecutive `continues_previous_group
-    // == true` states as one user-facing step.
+
+
+
+
+
     EditKind kind_from_parent = EditKind::Standalone;
     bool continues_previous_group = false;
 };
@@ -228,9 +229,9 @@ using Detail::Node;
     return node;
 }
 
-// Collapses an arbitrary-length, uniform-height node list into one balanced subtree, adding as many
-// levels as needed. Used for whole-document construction, where there is no existing tree to stay
-// path-local against.
+
+
+
 [[nodiscard]] shared_ptr<const Node> build_level(vector<shared_ptr<const Node>> level) {
     if (level.empty()) return make_leaf({});
     while (level.size() > 1) {
@@ -258,12 +259,12 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     for (const auto &child : node->children) collect_pieces(child, out);
 }
 
-// Regroups a node/piece list produced by exactly one concat or split seam — which by construction
-// never exceeds twice one level's capacity — into the 1 or 2 same-height siblings that fit, never
-// collapsing further into a taller single tree. Returning siblings instead of over-collapsing is
-// what keeps concat()'s spine descent below path-local: the caller splices these back in as a
-// same-height replacement for the one child it recursed into, so every other child at that level,
-// and every subtree beneath it, is reused by pointer rather than revisited.
+
+
+
+
+
+
 [[nodiscard]] vector<shared_ptr<const Node>> level_from_nodes(vector<shared_ptr<const Node>> children) {
     if (children.empty()) return {};
     if (children.size() <= branch_fanout) return {make_branch(std::move(children))};
@@ -305,10 +306,10 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     return level_from_nodes(std::move(head));
 }
 
-// The one join primitive every edit below is built from. It descends only the rightmost spine of
-// the taller tree (or the leftmost spine of the taller `right`) until the heights match, so it
-// allocates O(log n) nodes and reuses every subtree hanging off that spine by pointer — this is the
-// classic persistent-B-tree/rope join (as in Zed's SumTree or Xi's Rope), not a merge-and-rebuild.
+
+
+
+
 [[nodiscard]] shared_ptr<const Node> concat(const shared_ptr<const Node> &left, const shared_ptr<const Node> &right) {
     if (left->summary.bytes == 0) return right;
     if (right->summary.bytes == 0) return left;
@@ -324,12 +325,12 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
 
 struct TreeSplit { shared_ptr<const Node> left; shared_ptr<const Node> right; };
 
-// Splits one persistent subtree into two at a byte offset. Along the root-to-offset path this
-// allocates one new node per level (O(log n) total); every sibling not on that path, and every
-// subtree beneath it, is shared by pointer with `node` and with whichever of left/right it ends up
-// under. Combined with concat() above, `apply()` implements each edit as split + drop + concat
-// instead of ever flattening or rebuilding the whole tree — cost and allocation count are bounded by
-// tree depth, not by document size.
+
+
+
+
+
+
 [[nodiscard]] TreeSplit split(const shared_ptr<const Node> &node, usize offset) {
     if (offset == 0) return {make_leaf({}), node};
     if (offset == node->summary.bytes) return {node, make_leaf({})};
@@ -353,7 +354,7 @@ struct TreeSplit { shared_ptr<const Node> left; shared_ptr<const Node> right; };
             }
             cursor += piece.length;
         }
-        return {node, make_leaf({})}; // unreachable: offset is bounds-checked above
+        return {node, make_leaf({})};
     }
     usize cursor = 0;
     for (usize i = 0; i < node->children.size(); ++i) {
@@ -371,7 +372,7 @@ struct TreeSplit { shared_ptr<const Node> left; shared_ptr<const Node> right; };
         }
         cursor += child->summary.bytes;
     }
-    return {node, make_leaf({})}; // unreachable: offset is bounds-checked above
+    return {node, make_leaf({})};
 }
 
 void collect_range(const shared_ptr<const Node> &node, usize &skip, usize &remaining, TextSlice &slice) {
@@ -441,9 +442,9 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
     return summarize(bytes);
 }
 
-// Finds the byte offset immediately after the requested LF, using subtree summaries to skip whole
-// regions. Only the one containing piece is scanned, so line lookup stays O(log N + chunk work)
-// even for files with millions of lines.
+
+
+
 [[nodiscard]] optional<usize> newline_end_offset(const shared_ptr<const Node> &node, usize newline_index,
                                                  usize prefix_bytes = 0) {
     if (newline_index >= node->summary.newlines) return nullopt;
@@ -470,8 +471,8 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
     return nullopt;
 }
 
-// Descends to the requested logical line and scans only from that line's start through its target
-// scalar/UTF-16 column. It intentionally does not allocate or flatten a whole logical line.
+
+
 [[nodiscard]] optional<usize> line_column_to_offset(const shared_ptr<const Node> &root, usize line, usize column,
                                                     bool utf16) {
     const usize line_count = root->summary.newlines + 1;
@@ -488,7 +489,7 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
             char32_t scalar{}; usize width{};
             if (!decode(chunk.bytes.data() + i, chunk.bytes.size() - i, scalar, width)) return nullopt;
             units += utf16 && scalar > 0xffff ? 2 : 1;
-            if (units > column) return nullopt; // do not permit the middle of a surrogate pair
+            if (units > column) return nullopt;
             i += width;
             consumed += width;
         }
@@ -496,9 +497,9 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
     return units == column ? optional<usize>{start + consumed} : nullopt;
 }
 
-// Reads the raw byte at an absolute offset without requiring `offset` itself to be a valid UTF-8
-// scalar boundary — unlike slice()/visit() (which reject a range whose ends aren't already
-// boundaries), this is exactly what clip_offset() needs to find a boundary in the first place.
+
+
+
 [[nodiscard]] optional<unsigned char> raw_byte_at(const shared_ptr<const Node> &node, usize offset) {
     if (offset >= node->summary.bytes) return nullopt;
     if (!node->leaf()) {
@@ -523,8 +524,8 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
            (!end->piece || boundary(string_view{end->piece->storage->data() + end->piece->start, end->piece->length}, end->local_byte));
 }
 
-// --- Word/bracket/search helpers. These all deliberately stay lexical (no tokenizer, no language
-// grammar) — the "no LSP" boundary applies here too, not just at the top of the API surface.
+
+
 
 [[nodiscard]] CharClass classify(char32_t scalar) noexcept {
     if (scalar == U' ' || scalar == U'\t' || scalar == U'\n' || scalar == U'\r' || scalar == U'\f' || scalar == U'\v') return CharClass::Whitespace;
@@ -564,11 +565,11 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
 }
 [[nodiscard]] bool is_open_bracket(char c) noexcept { return c == '(' || c == '[' || c == '{'; }
 
-// A single-splice transaction continues the burst its parent state ended with when it is the same
-// EditKind and lands exactly where that burst left off: a pure insert picking up right after the
-// previous insert (Typing), or a pure deletion eating the character(s) right before where the
-// previous deletion stopped (Deletion/Backspace). Anything else — a different kind, a jump, a
-// selection replace — starts a fresh undo step, same as passing EditKind::Standalone.
+
+
+
+
+
 [[nodiscard]] bool can_coalesce(const Detail::DocumentState &previous, EditKind kind, const Splice &edit) noexcept {
     if (kind == EditKind::Standalone) return false;
     if (previous.kind_from_parent != kind) return false;
@@ -580,12 +581,12 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
     return edit.replacement.empty() && edit.range.start.value != edit.range.end.value && edit.range.end.value == last.new_range.start.value;
 }
 
-// Folds a whole coalesced burst (each member already checked by can_coalesce() to be a single pure
-// insert growing rightward, or a single pure deletion growing leftward) into the one Change that
-// transforms the state before the burst directly into the state after it. This can't be done with a
-// generic multi-edit compose — it only holds because can_coalesce() restricts the burst shape enough
-// that every member's old_range is already expressed in a coordinate space nothing else in the burst
-// ever shifts.
+
+
+
+
+
+
 [[nodiscard]] Change compose_group_change(const vector<shared_ptr<const Detail::DocumentState>> &oldest_to_newest) {
     if (oldest_to_newest.size() == 1) return oldest_to_newest.front()->changes_from_parent.changes.front();
     const EditKind kind = oldest_to_newest.front()->kind_from_parent;
@@ -667,13 +668,13 @@ optional<Utf16Point> DocumentSnapshot::offset_to_utf16(ByteOffset offset) const 
 
 optional<ByteOffset> DocumentSnapshot::point_to_offset(TextPoint point) const {
     if (!state_) return nullopt;
-    const auto offset = line_column_to_offset(state_->root, point.line, point.scalar_column, /*utf16=*/false);
+    const auto offset = line_column_to_offset(state_->root, point.line, point.scalar_column,           false);
     return offset ? optional<ByteOffset>{ByteOffset{*offset}} : nullopt;
 }
 
 optional<ByteOffset> DocumentSnapshot::utf16_to_offset(Utf16Point point) const {
     if (!state_) return nullopt;
-    const auto offset = line_column_to_offset(state_->root, point.line, point.code_unit_column, /*utf16=*/true);
+    const auto offset = line_column_to_offset(state_->root, point.line, point.code_unit_column,           true);
     return offset ? optional<ByteOffset>{ByteOffset{*offset}} : nullopt;
 }
 
@@ -684,11 +685,11 @@ optional<Anchor> DocumentSnapshot::anchor_at(ByteOffset offset, AnchorBias bias)
 
 optional<ByteOffset> DocumentSnapshot::resolve(const Anchor &anchor) const {
     if (!state_ || !anchor.valid_) return nullopt;
-    // Collect the chain of transitions from this snapshot back to the anchor's own revision, then
-    // replay them oldest-to-newest: each ChangeSet's old_range/new_range only mean anything in that
-    // one hop's own before/after coordinate space, so they have to be applied in the order they
-    // actually happened — the reverse of the order walking ->parent visits them in. A single-hop
-    // resolve (by far the common case) is unaffected either way.
+
+
+
+
+
     vector<const ChangeSet *> hops;
     const Detail::DocumentState *cursor = state_.get();
     while (cursor != nullptr && cursor->revision != anchor.revision_) {
@@ -748,8 +749,8 @@ optional<TextRange> DocumentSnapshot::word_range_at(ByteOffset offset) const {
     auto here = next_scalar_at(*this, offset);
     CharClass run_class = here ? classify(here->scalar) : CharClass::Whitespace;
     if (run_class == CharClass::Whitespace) {
-        // Double-clicking just past a word (or at end of line/document) should still select that
-        // word — the same convention every editor's double-click uses.
+
+
         const auto before = previous_scalar_at(*this, offset);
         if (!before || classify(before->scalar) == CharClass::Whitespace) return TextRange{offset, offset};
         run_class = classify(before->scalar);
@@ -900,7 +901,7 @@ optional<TextRange> DocumentSnapshot::find(string_view pattern, ByteOffset from,
     } else {
         const usize end = std::min(from.value, size);
         usize skip = 0, remaining = end;
-        visit_range(state_->root, skip, remaining, scan); // keeps the *last* match seen, i.e. nearest to `from`
+        visit_range(state_->root, skip, remaining, scan);
     }
     return found;
 }
@@ -910,11 +911,11 @@ vector<TextRange> DocumentSnapshot::find_all(string_view pattern, bool case_sens
     if (!state_ || pattern.empty()) return results;
     string carry;
     usize base = 0;
-    // The lowest absolute position a *new* match is allowed to start at. Needed because `carry`
-    // reuses bytes from the previous chunk verbatim regardless of whether a match already consumed
-    // them — without this, a match ending right at a piece boundary inside a repetitive run (e.g.
-    // "aaa" against "...aaaaa" split exactly between two 'a's) would let the next callback discover
-    // a second, overlapping match starting inside the one already reported.
+
+
+
+
+
     usize next_allowed = 0;
     usize skip = 0, remaining = byte_size();
     visit_range(state_->root, skip, remaining, [&](string_view chunk) {
@@ -928,7 +929,7 @@ vector<TextRange> DocumentSnapshot::find_all(string_view pattern, bool case_sens
             for (usize p = 0; p < pattern.size() && matches; ++p) matches = fold_char(window[i + p], case_sensitive) == fold_char(pattern[p], case_sensitive);
             if (matches) {
                 results.push_back(TextRange{{absolute}, {absolute + pattern.size()}});
-                next_allowed = absolute + pattern.size(); // collect non-overlapping matches, left to right
+                next_allowed = absolute + pattern.size();
                 i += pattern.size();
             } else {
                 ++i;
@@ -954,9 +955,9 @@ IndentStyle DocumentSnapshot::detect_indent_style() const {
     }
     if (tab_lines > space_run_lengths.size()) return IndentStyle{.kind = IndentKind::Tabs, .width = 4};
     if (space_run_lengths.empty()) return IndentStyle{};
-    // The smallest nonzero indent run seen is a reasonable guess at the unit width (e.g. lines
-    // indented by 2/4/6 spaces imply a 2-space unit) — the same "smallest common step" heuristic
-    // most editors use, deliberately not anything language-specific.
+
+
+
     const usize width = std::clamp<usize>(*std::ranges::min_element(space_run_lengths), 1, 8);
     return IndentStyle{.kind = IndentKind::Spaces, .width = width};
 }
@@ -1006,11 +1007,11 @@ expected<ApplyResult, DocumentError> Document::apply(const EditTransaction &tran
     for (const Splice &edit : edits) inserted_slab.append(edit.replacement);
     auto insert_storage = make_shared<const string>(std::move(inserted_slab));
 
-    // Path-local tree surgery: `remainder` is whatever of the original tree hasn't been consumed
-    // yet, and each iteration peels its unedited prefix off with one split, drops the edited range
-    // with a second split, and appends both the prefix and any inserted text onto `result` with
-    // concat(). Every subtree not adjacent to an edit boundary is never visited — cost is O(edits *
-    // log n) node allocations, not O(document size), however large the untouched regions are.
+
+
+
+
+
     shared_ptr<const Node> result = make_leaf({});
     shared_ptr<const Node> remainder = state_->root;
     usize slab_cursor = 0;
@@ -1053,9 +1054,9 @@ expected<ApplyResult, DocumentError> Document::apply(const EditTransaction &tran
 
 optional<ApplyResult> Document::undo() {
     if (!state_ || !state_->parent) return nullopt;
-    // Pop every consecutive state whose own edit continued the burst its parent ended with, so a
-    // whole Typing/Deletion group undoes in one call — see EditKind's doc comment in Document.hpp.
-    // `popped` accumulates newest-first (the order states are visited walking up via ->parent).
+
+
+
     vector<shared_ptr<const Detail::DocumentState>> popped;
     shared_ptr<Detail::DocumentState> cursor = state_;
     while (cursor && cursor->parent) {
@@ -1087,8 +1088,8 @@ optional<ApplyResult> Document::undo() {
 
 optional<ApplyResult> Document::redo() {
     if (redo_.empty() || redo_.back()->parent.get() != state_.get()) return nullopt;
-    // Symmetric to undo()'s grouping: keep replaying while the *next* queued state continues the
-    // group the one just replayed belongs to, so one redo() restores a whole burst too.
+
+
     vector<shared_ptr<const Detail::DocumentState>> restored;
     do {
         shared_ptr<Detail::DocumentState> next = redo_.back();
@@ -1156,3 +1157,44 @@ optional<TextRange> Document::translate(TextRange range, const ChangeSet &change
 }
 
 } // namespace SFT::Text
+
+namespace SFT::Text {
+
+    Revision Anchor::revision() const noexcept { return revision_; }
+
+    AnchorBias Anchor::bias() const noexcept { return bias_; }
+
+    bool Anchor::valid() const noexcept { return valid_; }
+
+    void EditTransaction::replace(TextRange range, string_view replacement) { splices_.push_back({range, replacement}); }
+
+    Revision EditTransaction::base_revision() const noexcept { return base_revision_; }
+
+    const vector<Splice> &EditTransaction::splices() const noexcept { return splices_; }
+
+    const vector<TextSlice::Chunk> &TextSlice::chunks() const noexcept { return chunks_; }
+
+    usize TextSlice::byte_size() const noexcept { return byte_size_; }
+
+    void TextSlice::append_chunk(string_view bytes, shared_ptr<const string> owner) {
+        chunks_.push_back({bytes});
+        owners_.push_back(std::move(owner));
+        byte_size_ += bytes.size();
+    }
+
+} // namespace SFT::Text
+
+
+namespace SFT::Text {
+
+    EditTransaction::EditTransaction(Revision base_revision) : base_revision_(base_revision) {}
+
+} // namespace SFT::Text
+
+
+namespace SFT::Text {
+
+    DocumentSnapshot::DocumentSnapshot(shared_ptr<const Detail::DocumentState> state) : state_(std::move(state)) {}
+
+} // namespace SFT::Text
+

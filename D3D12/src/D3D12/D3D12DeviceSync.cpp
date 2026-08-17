@@ -1,14 +1,14 @@
-// Semaphores, fences, and queue submission.
-//
-// The RHI's timeline semaphore maps onto ID3D12Fence with no emulation whatsoever — both are a
-// monotonically increasing u64 that a queue or the host can signal and either can wait on. The host
-// *fence* is the one primitive D3D12 lacks: there is no binary fence, so FenceRecord models one as a
-// monotonic fence plus the value that currently counts as "signaled" (see D3D12Device.hpp).
-//
-// One D3D12 rule shapes submit() and is worth stating: waits and signals are queue operations issued
-// *around* ExecuteCommandLists, not part of it. Vulkan's VkSubmitInfo carries them in one call;
-// D3D12 needs Wait(), then ExecuteCommandLists(), then Signal(), in that order, on the same queue.
-// The ordering is what makes the wait apply to the submitted work rather than to whatever came next.
+
+
+
+
+
+
+
+
+
+
+
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -25,8 +25,8 @@ namespace SFT::D3D12 {
 
     namespace {
 
-        // Nanoseconds -> the millisecond granularity WaitForSingleObject takes, rounding up so a
-        // sub-millisecond timeout still waits rather than degenerating into a poll.
+
+
         [[nodiscard]] DWORD to_wait_milliseconds(u64 timeout_ns) noexcept {
             if (timeout_ns == rhi::wait_forever) {
                 return INFINITE;
@@ -102,7 +102,7 @@ namespace SFT::D3D12 {
         return {};
     }
 
-    // ─── Fences ──────────────────────────────────────────────────────────────────
+
 
     rhi::RhiExpected<rhi::FenceHandle> D3D12Device::create_fence(const rhi::FenceDesc &desc) {
         FenceRecord record{};
@@ -134,9 +134,9 @@ namespace SFT::D3D12 {
             return true;
         }
 
-        // Every fence's event is armed first, then all of them are waited on together, so `wait_all ==
-        // false` really is "whichever completes first" rather than a serial walk that would block on
-        // the first fence regardless.
+
+
+
         std::vector<HANDLE> events;
         events.reserve(fences.size());
         bool any_already_signaled = false;
@@ -151,10 +151,10 @@ namespace SFT::D3D12 {
                 continue;
             }
             if (record->wait_value == 0) {
-                // Nothing has been submitted with this fence, so nothing will ever signal it. Vulkan
-                // would block forever here; reporting the caller error is strictly more useful than
-                // hanging, and it cannot be confused with a timeout because a timeout returns `false`
-                // rather than an error.
+
+
+
+
                 return invalid_argument("wait_fences: the fence has not been armed by any submission "
                                         "(it was never passed to submit(), or has been reset since).");
             }
@@ -179,8 +179,8 @@ namespace SFT::D3D12 {
         const DWORD result = WaitForMultipleObjects(static_cast<DWORD>(events.size()), events.data(),
                                                     wait_all ? TRUE : FALSE, to_wait_milliseconds(timeout_ns));
         if (result == WAIT_TIMEOUT) {
-            // Not an error, and explicitly not permission to reclaim anything the fence protects — see
-            // RhiDevice::wait_fences()'s own doc comment on why this distinction has to survive.
+
+
             return false;
         }
         if (result == WAIT_FAILED) {
@@ -195,16 +195,16 @@ namespace SFT::D3D12 {
             if (record == nullptr) {
                 return invalid_argument("reset_fences: unknown fence handle.");
             }
-            // The underlying ID3D12Fence is monotonic and is deliberately *not* rewound — rewinding a
-            // fence another queue may still be waiting on is undefined. Resetting only clears the
-            // armed state; the next submission arms it with a fresh, higher value.
+
+
+
             record->wait_value = 0;
             record->signaled_without_gpu = false;
         }
         return {};
     }
 
-    // ─── Submission ──────────────────────────────────────────────────────────────
+
 
     rhi::RhiResult D3D12Device::submit(const rhi::SubmitDesc &desc) {
         ZoneScopedN("D3D12Device::submit");
@@ -216,17 +216,17 @@ namespace SFT::D3D12 {
             return operation_failed("submit: this device has no queue for the requested lane.");
         }
 
-        // Waits precede ExecuteCommandLists so they gate the work being submitted (see this file's
-        // header comment). A queue wait is a GPU-side wait: it returns immediately on the CPU.
+
+
         for (const rhi::QueueSemaphoreWait &wait : desc.waits) {
             const SemaphoreRecord *semaphore = semaphores_.find(wait.semaphore);
             if (semaphore == nullptr) {
                 return invalid_argument("submit: a wait names an unknown semaphore handle.");
             }
-            // `stages` is intentionally dropped: D3D12 queue waits are whole-queue scoped, with no
-            // stage-specific variant. QueueSemaphoreWait documents exactly this ("APIs without
-            // stage-specific waits ignore this and wait at queue scope"), and widening a wait is
-            // always safe — it can only reduce overlap, never admit a race.
+
+
+
+
             (void)wait.stages;
             if (const HRESULT hr = queue->Wait(semaphore->fence.Get(), wait.value); FAILED(hr)) {
                 return hresult_error(hr, "submit (Wait)");
@@ -255,7 +255,7 @@ namespace SFT::D3D12 {
             if (semaphore == nullptr) {
                 return invalid_argument("submit: a signal names an unknown semaphore handle.");
             }
-            (void)signal.stages; // Same queue-scope reasoning as waits above.
+            (void)signal.stages;
             if (const HRESULT hr = queue->Signal(semaphore->fence.Get(), signal.value); FAILED(hr)) {
                 return hresult_error(hr, "submit (Signal)");
             }
@@ -273,10 +273,10 @@ namespace SFT::D3D12 {
             }
         }
 
-        // `presented_textures` needs no handling here. Under Vulkan it exists to drive the internal
-        // binary render-finished semaphore vkQueuePresentKHR must wait on; DXGI has no such object —
-        // Present() is ordered against the queue that owns the swapchain by the runtime itself, so
-        // declaring the intent is enough and there is nothing further to synchronize.
+
+
+
+
         (void)desc.presented_textures;
         (void)desc.flags;
         return {};

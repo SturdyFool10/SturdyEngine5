@@ -37,9 +37,9 @@ namespace SFT::Platform::Windowing::SDL3 {
                 case SDL_BUTTON_RIGHT: return MouseButton::Right;
                 case SDL_BUTTON_X1: return MouseButton::Extra1;
                 case SDL_BUTTON_X2: return MouseButton::Extra2;
-                // SDL reports anything past X1/X2 as a plain raw index with no further naming (a
-                // high-button-count gaming mouse) — MouseButton::Extra3.. is this engine's own
-                // numbering for that range, not an SDL one.
+
+
+
                 case 6: return MouseButton::Extra3;
                 case 7: return MouseButton::Extra4;
                 case 8: return MouseButton::Extra5;
@@ -133,9 +133,9 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         SDL3Window(ConstructorKey key, SDL_Window *window) noexcept;
 
-        // Shared body of native_window_handle(), callable from a caller that already holds
-        // sdl_window_mutex() (enable_window_effect()) without re-locking it — sdl_window_mutex() is
-        // a non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
+        /// Shared body of native_window_handle(), callable from a caller that already holds
+        /// sdl_window_mutex() (enable_window_effect()) without re-locking it — sdl_window_mutex() is
+        /// a non-recursive Async::Mutex, so a second lock() call from the same thread would deadlock.
         [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle_locked() const noexcept;
 
         SDL_Window *window_ = nullptr;
@@ -143,31 +143,31 @@ namespace SFT::Platform::Windowing::SDL3 {
         optional<WindowResize> pending_resize_;
         WindowExtent last_size_ = {};
         WindowExtent last_framebuffer_size_ = {};
-        // Updated by the selected Windows live-resize source under sdl_window_mutex(). Kept separate
-        // from last_framebuffer_size_, which is committed only when the ordinary event pump drains.
+        /// Updated by the selected Windows live-resize source under sdl_window_mutex(). Kept separate
+        /// from last_framebuffer_size_, which is committed only when the ordinary event pump drains.
         WindowExtent last_live_resize_extent_ = {};
 #if defined(_WIN32)
-        // True once this window has a Win32 message-hook registration. WM_SIZING then remains the
-        // sole live source: mixing its proposed client extent with SDL's sampled pixel extent causes
-        // alternating swapchain sizes during a drag.
+        /// True once this window has a Win32 message-hook registration. WM_SIZING then remains the
+        /// sole live source: mixing its proposed client extent with SDL's sampled pixel extent causes
+        /// alternating swapchain sizes during a drag.
         bool use_windows_sizing_hook_ = false;
 #endif
         atomic_bool close_requested_ = false;
         bool mouse_locked_ = false;
-        // Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see
-        // fullscreen_mode()'s own doc comment (Window.hpp) for why this has to survive past the call
-        // that set it.
+        /// Last mode accepted by set_fullscreen() (or WindowConfig::mode at construction) — see
+        /// fullscreen_mode()'s own doc comment (Window.hpp) for why this has to survive past the call
+        /// that set it.
         WindowMode fullscreen_mode_ = WindowMode::Windowed;
         std::function<void(WindowExtent)> live_resize_callback_;
         SDL_Cursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
-        // Wayland may destroy/recreate wl_surface across hide/show. Retain the requested blur state
-        // and last complete native handle so protocol objects can be released before hide, reapplied
-        // after show, and display-scoped state can still be torn down while the window is hidden.
+        /// Wayland may destroy/recreate wl_surface across hide/show. Retain the requested blur state
+        /// and last complete native handle so protocol objects can be released before hide, reapplied
+        /// after show, and display-scoped state can still be torn down while the window is hidden.
         optional<WindowEffect> active_blur_effect_;
         optional<NativeWindowHandle> native_effect_handle_;
-        // Cached compositor-preferred reference white. Invalidated when SDL reports a display/HDR
-        // transition or recreates the Wayland surface; querying it performs private-queue roundtrips.
+        /// Cached compositor-preferred reference white. Invalidated when SDL reports a display/HDR
+        /// transition or recreates the Wayland surface; querying it performs private-queue roundtrips.
         mutable bool wayland_reference_white_queried_ = false;
         mutable optional<f32> wayland_reference_white_nits_;
         mutable u64 wayland_reference_white_query_time_ns_ = 0;

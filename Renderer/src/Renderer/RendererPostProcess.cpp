@@ -31,11 +31,11 @@ using std::vector;
 namespace SFT::Renderer {
 
     namespace {
-        // Deliberately no alignas(16): every field is a plain 4-byte scalar (no vec3/array members —
-        // see Engine::PsychoVSettings's doc comment on why the gray-point vec3s are flattened into
-        // separate r/g/b scalars here), so this struct's natural size already matches what Slang's
-        // push_constant block reflects byte-for-byte. Forcing 16-byte alignment would pad the C++
-        // side to a size the shader's reflected push-constant range doesn't agree with.
+
+
+
+
+
         struct TonemapConstants {
             f32 exposure = 1.0f;
             f32 white_point = 1.0f;
@@ -43,9 +43,9 @@ namespace SFT::Renderer {
             u32 operation = 0;
 
             u32 hdr_output = 0;
-            // Only read when hdr_output != 0 — 0 = Hdr10St2084 (PQ-encode), 1 = ScrgbLinear (no
-            // curve). Must stay numerically in sync with fullscreen_tonemap.slang's own encoding and
-            // Core::HdrColorSpaceMode's enumerator order (Core/Renderer.hpp).
+
+
+
             u32 hdr_color_space = 0;
             f32 hdr_paper_white_nits = 203.0f;
             f32 hdr_peak_nits = 1000.0f;
@@ -153,7 +153,7 @@ namespace SFT::Renderer {
         }
         guard->fragment_module = *fragment_module;
 
-        // Bind-group + pipeline layouts, generated from the shader's (Texture2D + SamplerState) bindings.
+
         const slang::ShaderReflection &reflection = guard->shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
         for (const GeneratedBindGroupLayout &layout : generated) {
@@ -230,7 +230,7 @@ namespace SFT::Renderer {
         }
 
         const RHI::ColorTargetState color_target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
-        // No vertex buffers (fullscreen triangle from SV_VertexID) and no depth attachment.
+
         const RHI::RenderPipelineDesc desc{
             .layout = guard->pipeline_layout,
             .vertex = RHI::ShaderEntry{.module = guard->vertex_module, .entry_point = guard->vertex_entry_point.c_str(), .stage = RHI::ShaderStage::Vertex},
@@ -312,9 +312,9 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create tonemap bind group"));
         }
-        // Freed after the frame fence retires (this frame's FrameInFlight slot).
-        // See transient_bind_groups_lock_'s own doc comment (RendererModule.hpp) — this callback can
-        // run concurrently with another pass's push_back into the same shared vector.
+
+
+
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(*pipeline);

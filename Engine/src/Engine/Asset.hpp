@@ -30,9 +30,9 @@ namespace SFT::Engine {
         }
     }
 
-    // Opaque, cheap, generation-checked asset identity. It deliberately contains no renderer/RHI
-    // handle: consumers can store it in ECS components or native game objects without taking on GPU
-    // lifetime or synchronization responsibilities.
+    /// Opaque, cheap, generation-checked asset identity. It deliberately contains no renderer/RHI
+    /// handle: consumers can store it in ECS components or native game objects without taking on GPU
+    /// lifetime or synchronization responsibilities.
     class Asset {
       public:
         constexpr Asset() noexcept = default;

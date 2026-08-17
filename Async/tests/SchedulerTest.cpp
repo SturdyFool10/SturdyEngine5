@@ -97,10 +97,10 @@ namespace {
         return passed;
     }
 
-    // Behavioral smoke test for TaskWeight, not a placement/perf assertion: Heavy is a placement
-    // *seed* onto the best-ranked workers (see SchedulerImpl.cpp's enqueue()), still fully stealable,
-    // so this only confirms both weights complete correctly and don't deadlock or corrupt results --
-    // real placement can only be observed on an actually hybrid/X3D machine.
+
+
+
+
     bool heavy_and_light_tasks_complete() {
         constexpr std::uint32_t worker_count = 4;
         SFT::Async::Scheduler::initialize(worker_count);

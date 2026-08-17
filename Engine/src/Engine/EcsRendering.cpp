@@ -1,3 +1,4 @@
+#include <Engine/src/Engine/EcsRendering.hpp>
 #include "EcsRendering.hpp"
 #include "AssetManager.hpp"
 
@@ -8,9 +9,9 @@
 namespace SFT::Engine {
 
     namespace {
-        // Matches SpotLight/DirectionalLight's own default local-space direction ({0,-1,0}, "down")
-        // — an ECS light entity with an identity WorldTransform rotation shines straight down, same
-        // as the hand-authored default.
+
+
+
         [[nodiscard]] glm::vec3 world_direction(const WorldTransform &transform) noexcept {
             return glm::normalize(glm::mat3{transform.value} * glm::vec3{0.0f, -1.0f, 0.0f});
         }
@@ -100,7 +101,7 @@ namespace SFT::Engine {
             Ecs::Detail::contract_violation(
                 "LightFrameRequests::submit() requires Engine::prepare_render_frame() to begin extraction first.");
         }
-        // Only one sun is meaningful to the renderer; the last entity submitted this frame wins.
+
         current_->sun = SFT::Renderer::DirectionalLight{
             .direction = world_direction(transform),
             .radiance = light.radiance,
@@ -151,3 +152,10 @@ namespace SFT::Engine {
     }
 
 } // namespace SFT::Engine
+
+namespace SFT::Engine {
+
+    RenderFrameRequests::RenderFrameRequests(AssetManager &assets) noexcept : assets_(&assets) {}
+
+} // namespace SFT::Engine
+

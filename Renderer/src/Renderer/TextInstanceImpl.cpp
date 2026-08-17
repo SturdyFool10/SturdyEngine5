@@ -81,20 +81,14 @@ namespace SFT::Renderer {
                    lhs.stem_darkening_px == rhs.stem_darkening_px;
         }
 
-        // Matches Shaders/text_sdf.slang's `TextViewConstants` push-constant struct byte-for-byte.
+
         struct TextViewConstantsGpu {
             glm::vec2 viewport_size{0.0f};
-            // Use an explicit storage-buffer base instead of relying on SV_InstanceID to include
-            // DrawArgs::first_instance. Shader-language backends disagree on whether that semantic
-            // is base-adjusted; the disagreement was masked while every run used one atlas image.
+
+
+
             u32 instance_index_base = 0;
             u32 padding = 0;
-            // +1 on Vulkan, -1 on D3D12/Metal/WebGpu — the clip-space Y reconciliation this shader
-            // now applies itself via a plain multiply (see Shaders/sturdy_common.slang's
-            // uiQuadClipPosition doc comment and RHI::gpu_clip_y_sign) instead of the legacy
-            // STURDY_CLIP_Y_SIGN macro/sturdy_clip_position() wrapper.
-            f32 clip_y_sign = 1.0f;
-            glm::vec3 _pad1{0.0f};
         };
 
     } // namespace
@@ -203,10 +197,10 @@ namespace SFT::Renderer {
             });
         }
 
-        // Derived from reflection rather than hand-written: `sizeof(TextViewConstantsGpu)` would
-        // otherwise need to be kept in sync by hand with text_sdf.slang's `TextViewConstants` by
-        // eye — see generate_push_constant_ranges' doc comment. Only vertexMain reads viewConstants
-        // (the fragment stage never touches it), hence Vertex here.
+
+
+
+
         const vector<RHI::PushConstantRange> push_constant_ranges = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
         if (push_constant_ranges.empty()) {
             pipeline.destroy(device);
@@ -249,8 +243,8 @@ namespace SFT::Renderer {
             .alpha = RHI::BlendComponent{.src_factor = RHI::BlendFactor::One, .dst_factor = RHI::BlendFactor::OneMinusSrcAlpha, .op = RHI::BlendOp::Add},
             .write_mask = RHI::ColorWriteMask::All,
         };
-        // No vertex buffers (glyph quads are vertex-pulled from SV_VertexID/SV_InstanceID) and no
-        // depth attachment — text composites straight over whatever's already in the target.
+
+
         const RHI::RenderPipelineDesc desc{
             .layout = pipeline.pipeline_layout_,
             .vertex = RHI::ShaderEntry{.module = pipeline.vertex_module_, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
@@ -268,7 +262,6 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(rhi_pipeline.error(), "create text pipeline"));
         }
         pipeline.pipeline_ = *rhi_pipeline;
-        pipeline.backend_type_ = device.backend_type();
 
         return pipeline;
     }
@@ -290,9 +283,9 @@ namespace SFT::Renderer {
             return {};
         }
 
-        // Only adjacent glyphs sharing an atlas tile, scissor rect, and paint group are batched.
-        // Sorting transparent glyphs by tile would change painter order when quads overlap, so
-        // correctness takes precedence over merging non-contiguous batches.
+
+
+
         usize i = 0;
         while (i < slots.size()) {
             usize j = i + 1;
@@ -329,8 +322,8 @@ namespace SFT::Renderer {
                 out_batches.clear();
                 return unexpected(graphics_error_from_rhi(replacement.error(), "create persistent text instance buffer"));
             }
-            // This resource slot's fence has retired before prepare() is called, so cached groups
-            // and the old buffer are no longer referenced by the GPU and can be replaced now.
+
+
             destroy_text_frame_resources(device, resources);
             resources.instance_buffer = *replacement;
             resources.instance_capacity_bytes = new_capacity;
@@ -362,8 +355,8 @@ namespace SFT::Renderer {
                        entry.atlas_view == atlas_view;
             });
             if (cached == resources.binding_cache.end()) {
-                // The only way the same logical tile acquires a different view is grow-only atlas
-                // replacement. Retire its obsolete descriptor objects now that this frame slot is safe.
+
+
                 for (auto it = resources.binding_cache.begin(); it != resources.binding_cache.end();) {
                     if (it->format == batch.format && it->tile_index == batch.tile_index) {
                         for (const TextDrawBatch::BoundGroup &group : it->bind_groups) {
@@ -459,7 +452,6 @@ namespace SFT::Renderer {
             const TextViewConstantsGpu constants{
                 .viewport_size = viewport_size,
                 .instance_index_base = batch.first_instance,
-                .clip_y_sign = RHI::gpu_clip_y_sign(backend_type_),
             };
             pass.set_push_constants(
                 RHI::ShaderStage::Vertex, 0,

@@ -35,8 +35,8 @@ namespace SFT::Engine {
         friend constexpr bool operator==(RenderGraphPassHandle, RenderGraphPassHandle) noexcept = default;
     };
 
-    // Semantic formats deliberately stop above RHI. Renderer resolves these to concrete backend-
-    // compatible formats when lowering the graph for a surface.
+    /// Semantic formats deliberately stop above RHI. Renderer resolves these to concrete backend-
+    /// compatible formats when lowering the graph for a surface.
     enum class RenderGraphTextureFormat : u8 {
         Inherit,
         SceneLinearHdr,
@@ -100,9 +100,9 @@ namespace SFT::Engine {
         Present,
     };
 
-    // Engine-owned, RHI-free fullscreen module description. Source identity and constants are copied
-    // into the immutable prepared-frame snapshot; Renderer owns compilation, reflection, descriptors,
-    // command recording, synchronization, and retirement.
+    /// Engine-owned, RHI-free fullscreen module description. Source identity and constants are copied
+    /// into the immutable prepared-frame snapshot; Renderer owns compilation, reflection, descriptors,
+    /// command recording, synchronization, and retirement.
     struct FullscreenEffectDescription {
         std::filesystem::path shader_path;
         std::string module_name;
@@ -122,10 +122,10 @@ namespace SFT::Engine {
 
     using RasterEffectDescription = FullscreenEffectDescription;
 
-    // One-input/one-output scene-linear HDR compute contract. The selected entry point must use
-    // [numthreads(8, 8, 1)] and expose only set 0 resources named sourceTexture (Texture2D<float4>),
-    // sourceSampler (SamplerState), and outputTexture (RWTexture2D<float4>). Dispatch rounds up to the
-    // render extent, so application shaders must bounds-check their dispatch-thread coordinates.
+    /// One-input/one-output scene-linear HDR compute contract. The selected entry point must use
+    /// [numthreads(8, 8, 1)] and expose only set 0 resources named sourceTexture (Texture2D<float4>),
+    /// sourceSampler (SamplerState), and outputTexture (RWTexture2D<float4>). Dispatch rounds up to the
+    /// render extent, so application shaders must bounds-check their dispatch-thread coordinates.
     struct ComputeEffectDescription {
         std::filesystem::path shader_path;
         std::string module_name;
@@ -143,8 +143,8 @@ namespace SFT::Engine {
         }
     };
 
-    // Exact same-format, same-extent, single-mip GPU texture copy. It performs no filtering, scaling,
-    // format conversion, persistence, or readback.
+    /// Exact same-format, same-extent, single-mip GPU texture copy. It performs no filtering, scaling,
+    /// format conversion, persistence, or readback.
     struct CopyDescription {
         UString label;
     };
@@ -157,7 +157,7 @@ namespace SFT::Engine {
         FullscreenEffectDescription fullscreen_effect{};
         ComputeEffectDescription compute_effect{};
         CopyDescription copy{};
-        // Present-only destination. Invalid means the frame's window surface.
+        /// Present-only destination. Invalid means the frame's window surface.
         RenderTargetHandle target{};
         UString label;
     };
@@ -214,7 +214,7 @@ namespace SFT::Engine {
 
         struct Present {
             RenderGraphTextureHandle input{};
-            // Invalid preserves standard on-screen presentation; a live handle selects an offscreen target.
+            /// Invalid preserves standard on-screen presentation; a live handle selects an offscreen target.
             RenderTargetHandle target{};
             [[nodiscard]] RenderGraphPassHandle build(RenderGraph &graph) const;
         };

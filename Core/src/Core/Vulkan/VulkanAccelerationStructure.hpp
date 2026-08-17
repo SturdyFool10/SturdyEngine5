@@ -18,12 +18,12 @@ using std::span;
 
 namespace SFT::Core::Vulkan {
 
-    // Owns a VkAccelerationStructureKHR (a BLAS or TLAS) — the ray tracing traversal object. The AS
-    // object is a *view* over caller-owned backing memory: you first size it with build_sizes(), create
-    // a VulkanBuffer of AccelerationStructure usage for the backing store, then create() the AS over a
-    // (buffer, offset, size) range. Builds are recorded as GPU work with caller-owned scratch (see
-    // VulkanCommandBuffer::build_acceleration_structures); this type owns only the AS handle, never the
-    // backing buffer or scratch — mirroring how Vulkan separates the structure from its memory.
+    /// Owns a VkAccelerationStructureKHR (a BLAS or TLAS) — the ray tracing traversal object. The AS
+    /// object is a *view* over caller-owned backing memory: you first size it with build_sizes(), create
+    /// a VulkanBuffer of AccelerationStructure usage for the backing store, then create() the AS over a
+    /// (buffer, offset, size) range. Builds are recorded as GPU work with caller-owned scratch (see
+    /// VulkanCommandBuffer::build_acceleration_structures); this type owns only the AS handle, never the
+    /// backing buffer or scratch — mirroring how Vulkan separates the structure from its memory.
     class VulkanAccelerationStructure {
       public:
         VulkanAccelerationStructure() = default;
@@ -35,8 +35,8 @@ namespace SFT::Core::Vulkan {
         VulkanAccelerationStructure(VulkanAccelerationStructure &&o) noexcept;
         VulkanAccelerationStructure &operator=(VulkanAccelerationStructure &&o) noexcept;
 
-        // Creates the AS over a range of a caller-owned backing buffer (which must carry
-        // VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR and outlive this object).
+        /// Creates the AS over a range of a caller-owned backing buffer (which must carry
+        /// VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR and outlive this object).
         [[nodiscard]] static RendererExpected<VulkanAccelerationStructure> create(
             VkDevice device,
             VkBuffer backing_buffer,
@@ -44,8 +44,8 @@ namespace SFT::Core::Vulkan {
             VkDeviceSize size,
             VkAccelerationStructureTypeKHR type) noexcept;
 
-        // Queries the backing-store and scratch sizes for a build before any memory is allocated —
-        // `max_primitive_counts` gives the primitive count per geometry in `build_info`.
+        /// Queries the backing-store and scratch sizes for a build before any memory is allocated —
+        /// `max_primitive_counts` gives the primitive count per geometry in `build_info`.
         [[nodiscard]] static VkAccelerationStructureBuildSizesInfoKHR build_sizes(
             VkDevice device,
             const VkAccelerationStructureBuildGeometryInfoKHR &build_info,
@@ -55,8 +55,8 @@ namespace SFT::Core::Vulkan {
         [[nodiscard]] bool is_valid() const noexcept;
         [[nodiscard]] VkAccelerationStructureTypeKHR type() const noexcept;
 
-        // The device address a TLAS instance record stores to reference a BLAS, and what the build
-        // geometry info uses as its `dstAccelerationStructure` address.
+        /// The device address a TLAS instance record stores to reference a BLAS, and what the build
+        /// geometry info uses as its `dstAccelerationStructure` address.
         [[nodiscard]] VkDeviceAddress device_address() const noexcept;
 
         void destroy() noexcept;

@@ -32,11 +32,11 @@ namespace SFT::Engine {
 
     Application::~Application() {
         shutdown_client();
-        // shutdown_client()'s drain_render_thread() already waited out every window's in-flight frames,
-        // so every render thread is idle here. Explicitly join+destroy them before engine_.reset() below
-        // — windows_ is declared before engine_ in Application.hpp, so relying on automatic member
-        // teardown order would destroy engine_ first while a (harmlessly idle, but still live) render
-        // thread object for each window still existed.
+
+
+
+
+
         for (auto &managed : windows_) {
             managed->render_thread.reset();
         }
@@ -58,8 +58,8 @@ namespace SFT::Engine {
             return;
         }
         client_shutdown_ = true;
-        // CPU-side submission completion does not imply GPU completion. GameLogic shutdown may
-        // release raw GPU resources, so both layers must be drained before invoking it.
+
+
         drain_render_thread();
         engine_->wait_idle();
         client_->on_shutdown(*engine_);
@@ -72,6 +72,21 @@ namespace SFT::Engine {
             }
         }
         return nullptr;
+    }
+
+    void Application::record_applied_effect(Platform::Windowing::WindowId id,
+                                            Platform::Windowing::WindowEffect effect) noexcept {
+        ManagedWindow *managed = find_managed_window(id);
+        if (managed == nullptr) {
+            return;
+        }
+        for (Platform::Windowing::WindowEffect &existing : managed->applied_effects) {
+            if (existing.kind == effect.kind) {
+                existing = effect;
+                return;
+            }
+        }
+        managed->applied_effects.push_back(effect);
     }
 
     void Application::report_frame_result(const Core::RendererResult &result) noexcept {
@@ -118,10 +133,10 @@ namespace SFT::Engine {
         }
 
         auto register_result = window_manager_.with_window(*id, [this, is_primary](Window &window) -> Core::RendererExpected<Core::RenderSurfaceHandle> {
-            // Window-backed surface creation queries native/window-library handles and framebuffer
-            // state from `window`, so keep registration on the window-owning caller path. Steady-state
-            // rendering still moves onto this window's own render_thread below when that backend policy
-            // is selected.
+
+
+
+
             if (is_primary) {
                 return engine_->initialize(window, client_->application_config().engine);
             }
@@ -167,20 +182,20 @@ namespace SFT::Engine {
         };
         managed->live_resize = make_shared<LiveResizeState>();
         managed->last_frame_time = std::chrono::high_resolution_clock::now();
-        // use_render_threading_ is false here for the very first (primary) call — the backend doesn't
-        // exist yet to query render_threading_capabilities() from, see initialize()'s own comment,
-        // which sets up the primary window's render_thread itself right after this returns. Every
-        // later call (secondary/tear-off windows) picks it up immediately.
+
+
+
+
         if (use_render_threading_) {
             managed->render_thread = make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(*id)));
         }
         ManagedWindow *managed_ptr = managed.get();
         windows_.push_back(std::move(managed));
 
-        // Windows can invoke the provider callback from its event-producing thread while its modal
-        // move/resize loop is active. It must not render or query Window there: publishing one packed
-        // extent is lock-free, lifetime-safe, and lets run() remain this application's only render
-        // coordinator.
+
+
+
+
         const shared_ptr<LiveResizeState> live_resize = managed_ptr->live_resize;
         window_manager_.with_window(*id, [live_resize](Window &window) -> bool {
             window.set_live_resize_callback([live_resize](WindowExtent extent) {
@@ -200,13 +215,13 @@ namespace SFT::Engine {
         }
         const Platform::Windowing::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
-        if (!spawn_managed_window(config, effective_factory, /*is_primary=*/false)) {
+        if (!spawn_managed_window(config, effective_factory,                false)) {
             return std::nullopt;
         }
-        // spawn_managed_window() always appends the newly registered window as the last entry of
-        // windows_ (see its own body) — windows_.back() is exactly the one just spawned, since the
-        // only other mutator of windows_ (run()'s own loop) is single-threaded and this call is
-        // always made from that same thread.
+
+
+
+
         return windows_.back()->surface;
     }
 
@@ -227,18 +242,28 @@ namespace SFT::Engine {
             return std::nullopt;
         }
 
+
+
+
+
+
+
+        const vector<Platform::Windowing::WindowEffect> effects_to_restore = old_managed->applied_effects;
+        const optional<Core::PresentationSettings> presentation_to_restore =
+            old_managed->surface ? optional{engine_->presentation_settings(*old_managed->surface)} : std::nullopt;
+
         const Platform::Windowing::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
-        // is_primary=false deliberately: that branch calls Engine::initialize(), the one-time
-        // bootstrap (device creation, shader discovery) that must never run a second time. The
-        // replacement window goes through the exact same non-bootstrap add_window() path every
-        // secondary/tear-off window already uses, then gets promoted below.
-        if (!spawn_managed_window(config, effective_factory, /*is_primary=*/false)) {
+
+
+
+
+        if (!spawn_managed_window(config, effective_factory,                false)) {
             return std::nullopt;
         }
 
-        // Same windows_.back()-is-the-one-just-spawned guarantee spawn_secondary_window() above
-        // already relies on.
+
+
         ManagedWindow *new_managed = windows_.back().get();
         new_managed->primary = true;
         old_managed->primary = false;
@@ -248,9 +273,30 @@ namespace SFT::Engine {
             return true;
         });
 
-        // Reuses request_close_window()'s own mechanism (just inlined here since it's a one-line
-        // flag flip) — run()'s closing loop drains old_managed's in-flight frames and destroys it
-        // exactly like any other window close, primary or not.
+
+
+
+
+        if (presentation_to_restore && new_managed->surface) {
+            if (Core::RendererResult applied =
+                    engine_->set_presentation_settings(*new_managed->surface, *presentation_to_restore);
+                !applied.has_value()) {
+                Foundation::log_warn(
+                    "Engine::Application::recreate_primary_window: failed to restore presentation "
+                    "settings on the replacement window: {}",
+                    applied.error().message);
+            }
+        }
+        for (const Platform::Windowing::WindowEffect &effect : effects_to_restore) {
+            window_manager_.post_to_window(new_managed->window_id, [effect](Platform::Windowing::Window &w) {
+                return w.set_effect(effect);
+            });
+        }
+        new_managed->applied_effects = effects_to_restore;
+
+
+
+
         old_managed->closing = true;
 
         return new_managed->surface;
@@ -296,17 +342,17 @@ namespace SFT::Engine {
                 continue;
             }
 
-            // Every state request below is posted rather than dispatched-and-waited-for. None of them
-            // has a result this loop consumes, and blocking on the window-owning thread here is exactly
-            // what used to freeze rendering for the whole of an interactive resize: that thread sits
-            // inside Windows' modal move/resize loop until the user releases the mouse, so one cursor
-            // request issued mid-drag stalled the entire application loop behind it. See
-            // WindowManager::post_to_window().
+
+
+
+
+
+
             if (auto *cursor = std::get_if<SetCursorIconRequest>(&request)) {
-                // A UI re-requests its hovered cursor every frame, so this is by far the highest-volume
-                // request kind. Collapse the unchanged repeats here rather than posting thousands of
-                // identical ops that the window thread would have to drain (in a burst, once a modal
-                // resize ends) to no visible effect.
+
+
+
+
                 ManagedWindow *managed = find_managed_window(cursor->window);
                 if (managed != nullptr && managed->applied_cursor_icon == cursor->icon) {
                     continue;
@@ -335,6 +381,8 @@ namespace SFT::Engine {
             }
 
             if (auto *transparent = std::get_if<SetTransparentRequest>(&request)) {
+                record_applied_effect(transparent->window,
+                                      Platform::Windowing::WindowEffect::transparent(transparent->transparent));
                 window_manager_.post_to_window(transparent->window, [enabled = transparent->transparent](Platform::Windowing::Window &w) {
                     return w.set_transparent(enabled);
                 });
@@ -342,6 +390,7 @@ namespace SFT::Engine {
             }
 
             if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
+                record_applied_effect(blur->window, Platform::Windowing::WindowEffect{blur->kind, blur->enabled});
                 window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](Platform::Windowing::Window &w) {
                     return w.set_effect(Platform::Windowing::WindowEffect{kind, enabled});
                 });
@@ -366,15 +415,15 @@ namespace SFT::Engine {
             ManagedWindow *target = find_managed_window(close.window);
             if (target != nullptr && !target->pending_close_completion) {
                 request_close_window(close.window);
-                // Completion is posted once this window is actually fully torn down (run()'s closing
-                // loop), not here — see pending_close_completion's own doc comment (Application.hpp)
-                // for why firing it this early raced a still-in-flight render thread.
+
+
+
                 target->pending_close_completion = close.id;
             } else if (target != nullptr) {
-                // Already closing from an earlier request (e.g. DockWindowCoordinator's own
-                // close_requests_ bookkeeping should prevent this, but stay correct regardless of the
-                // caller) — the window's fate is already sealed, so satisfy this request immediately
-                // rather than orphaning its id (only one pending_close_completion slot exists per window).
+
+
+
+
                 engine_->window_requests().complete(WindowRequestCompletion{
                     .id = close.id,
                     .kind = WindowRequestKind::Close,
@@ -403,9 +452,9 @@ namespace SFT::Engine {
         }
 
         if (managed.render_thread && coalesce_if_backpressured) {
-            // A live resize can generate many pixel-size events while a driver is still recreating
-            // the previous swapchain. Only one submitted frame can be useful: retain the newest
-            // unscheduled extent instead of queuing another obsolete swapchain recreation.
+
+
+
             while (!managed.in_flight_frames.empty() && managed.in_flight_frames.front().is_done()) {
                 report_frame_result(managed.in_flight_frames.front().wait());
                 managed.in_flight_frames.pop_front();
@@ -418,9 +467,9 @@ namespace SFT::Engine {
         const u64 packed_extent =
             (static_cast<u64>(extent.x) << 32U) | static_cast<u64>(extent.y);
         if (resized) {
-            // Do not use a bare dirty bit here. The render thread can still have an older live-resize
-            // task queued when SDL delivers the final committed extent; that older task must not steal
-            // the final notification and recreate at its stale captured size.
+
+
+
             managed.pending_resize_extent.store(packed_extent, std::memory_order_release);
         }
 
@@ -443,10 +492,10 @@ namespace SFT::Engine {
         };
         ++managed.frame_index;
 
-        // ECS extraction below is CPU-only and runs on this coordinating caller before dispatch. The
-        // lambda is the one seam where graphics calls happen: on the dedicated render thread, resize
-        // handling and engine_->render() both run there so all RHI/Vulkan calls for this window stay on
-        // a single owning thread (Vulkan objects here are not internally synchronized).
+
+
+
+
         const Core::RenderSurfaceHandle surface = *managed.surface;
         optional<RenderFrameParameters> frame_parameters =
             client_->request_render_frame(*engine_, surface, frame_input);
@@ -462,9 +511,9 @@ namespace SFT::Engine {
                             resized,
                             prepared_frame = std::move(prepared_frame)]() -> Core::RendererResult {
             if (resized) {
-                // Only this task may consume a notification for this exact extent. If a newer resize
-                // was accepted while this task waited in the render queue, leave that newer request
-                // intact for its corresponding task instead of resizing the surface backwards.
+
+
+
                 u64 expected_extent = packed_extent;
                 if (managed.pending_resize_extent.compare_exchange_strong(
                         expected_extent, 0, std::memory_order_acq_rel, std::memory_order_acquire)) {
@@ -475,10 +524,10 @@ namespace SFT::Engine {
         };
 
         if (managed.render_thread) {
-            // Bounded backpressure: never let this window's CPU submission get more than
-            // max_frames_in_flight_ frames ahead of the render thread, mirroring the fence-based
-            // backpressure already inside render_frame_rhi() for GPU-side frames-in-flight. Each window
-            // keeps its own ring since each has its own swapchain/frame-in-flight ring on the RHI side.
+
+
+
+
             while (managed.in_flight_frames.size() >= max_frames_in_flight_) {
                 report_frame_result(managed.in_flight_frames.front().wait());
                 managed.in_flight_frames.pop_front();
@@ -500,9 +549,9 @@ namespace SFT::Engine {
             }
 
             WindowSnapshot &snapshot = managed->window_snapshot;
-            // While Windows owns its modal resize loop, the channel still carries its last committed
-            // framebuffer size. The live-resize callback has a newer extent in window_snapshot, so do
-            // not overwrite it with that stale sample before UI/game systems consume WindowState.
+
+
+
             if (events.framebuffer_size && !managed->live_resize_active) {
                 snapshot.framebuffer_size = *events.framebuffer_size;
             }
@@ -560,13 +609,13 @@ namespace SFT::Engine {
         client_shutdown_ = false;
         engine_ = make_unique<Engine>();
 
-        // SDL3 is the built-in default. Optional providers are selected by an explicit factory
-        // reference in ApplicationConfig, preserving static dead-stripping when they are unselected.
+
+
         const ApplicationConfig &config = client_->application_config();
         if (!spawn_managed_window(
                 config.primary_window,
                 config.primary_window_factory,
-                /*is_primary=*/true)) {
+                               true)) {
             engine_.reset();
             Async::Scheduler::shutdown();
             return false;
@@ -597,15 +646,15 @@ namespace SFT::Engine {
         }
         client_initialized_ = true;
 
-        // Decide once whether windows get a real render thread each, only when the backend/platform
-        // combination actually recommends it (see RHI::choose_render_threading_mode) - Web and
-        // STURDY_RHI_FORCE_SINGLE_THREADED builds keep this false and every window falls back to the
-        // exact inline single-threaded behavior this engine had before render threading existed. This
-        // can only be decided after engine_->graphics_backend() exists, i.e. after the primary window's
-        // spawn_managed_window() call above already ran (chicken-and-egg: the backend doesn't exist
-        // until the primary surface is created) — every *later* spawn_managed_window() call reads
-        // use_render_threading_ directly, but the primary window's own render_thread has to be set up
-        // here explicitly since it missed that assignment.
+
+
+
+
+
+
+
+
+
         RHI::RenderThreadingCapabilities threading_caps{};
         if (Core::EngineBackend *backend = engine_->graphics_backend()) {
             threading_caps = backend->render_threading_capabilities();
@@ -621,9 +670,9 @@ namespace SFT::Engine {
             windows_.front()->render_thread =
                 make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(windows_.front()->window_id)));
         }
-        // engine_->capabilities().max_frames_in_flight is already >= 1 by construction — resolved
-        // exactly once, through Core::resolve_frames_in_flight, at backend initialization
-        // (Core/Vulkan/VulkanBackendDevice.cpp) — no local zero-guard needed here.
+
+
+
         max_frames_in_flight_ = engine_->capabilities().max_frames_in_flight;
 
         Async::Scheduler::initialize_low_latency();
@@ -647,9 +696,9 @@ namespace SFT::Engine {
         vector<ManagedWindowEvents> window_events;
 
         while (!windows_.empty()) {
-            // Run any work queued via Async::run_on_main_thread() before touching the window/renderer
-            // this tick, since that's exactly the kind of main-thread-affined state such jobs exist to
-            // touch safely.
+
+
+
             Async::pump_main_thread();
 
             if (auto pump = window_manager_.pump(window_events); !pump) {
@@ -671,22 +720,22 @@ namespace SFT::Engine {
                 }
             }
 
-            // SDL's Windows event watch publishes the current pixel extent even while its modal
-            // move/resize loop prevents the normal event pump from returning. Consume the newest one
-            // here, on the sole render-coordinating thread. A bounded queue keeps a slow driver from
-            // turning every intermediate size into an obsolete swapchain recreation.
-            //
-            // The retry cadence is intentionally display-like rather than event-like. Window systems
-            // can produce hundreds of size updates per second, while each Vulkan swapchain rebuild is
-            // a WSI transaction. At most one attempt per ~16 ms retains fluid feedback, lets the
-            // compositor scale the most recent image between attempts, and avoids serializing a drag
-            // behind redundant recreate requests.
+
+
+
+
+
+
+
+
+
+
             constexpr auto live_resize_submission_interval = std::chrono::milliseconds(16);
             constexpr auto live_resize_settle_interval = std::chrono::milliseconds(250);
-            // Backoff for an attempt the renderer declined because this window's previous present is
-            // still in the WSI. Short enough that the retry lands essentially as soon as the present
-            // completes, but long enough that the application loop isn't re-attempting (and re-logging)
-            // the same coalesced frame thousands of times a second while it waits.
+
+
+
+
             constexpr auto live_resize_retry_interval = std::chrono::milliseconds(1);
             const auto live_resize_now = high_resolution_clock::now();
             for (auto &managed_ptr : windows_) {
@@ -694,34 +743,34 @@ namespace SFT::Engine {
                 if (managed.live_resize) {
                     if (optional<WindowExtent> extent = managed.live_resize->consume()) {
                         managed.pending_live_resize = *extent;
-                        // Publish the same fresh physical extent to WindowState before update() and
-                        // request_render_frame(). This makes immediate-mode UI layout observe the
-                        // current tab bounds in the same tick as the render path, rather than slowly
-                        // catching up from SDL's last pre-modal framebuffer sample.
+
+
+
+
                         managed.window_snapshot.framebuffer_size = *extent;
-                        // The matching normal event is unavailable until SDL returns from the Windows
-                        // modal pump. Keep this state latched until that event arrives rather than
-                        // guessing based on elapsed time: users can pause mid-drag indefinitely.
+
+
+
                         managed.live_resize_active = true;
                     }
                 }
 
                 if (managed.pending_live_resize) {
-                    // Interactive resize is a presentation-only redraw. Reset the presentation-frame
-                    // timestamp so time spent in Windows' modal loop is neither fed into temporal
-                    // rendering nor reported as an engine frame hitch. Retain the newest extent after
-                    // submission: a render task can intentionally skip while its previous present is
-                    // still in the WSI, and the next cadence tick must retry it without waiting for a
-                    // new mouse-move message.
+
+
+
+
+
+
                     managed.last_frame_time = live_resize_now;
                     const bool extent_changed = !managed.submitted_live_resize ||
                         managed.submitted_live_resize->x != managed.pending_live_resize->x ||
                         managed.submitted_live_resize->y != managed.pending_live_resize->y;
-                    // A size this window has not tried to render yet goes out immediately, so the
-                    // first frame at each new extent is never held back by the cadence timer. Tracked
-                    // separately from submitted_live_resize (which only advances on an accepted frame)
-                    // precisely so a *declined* attempt doesn't re-qualify as "new" on the very next
-                    // iteration and spin the loop.
+
+
+
+
+
                     const bool unattempted = !managed.attempted_live_resize ||
                         managed.attempted_live_resize->x != managed.pending_live_resize->x ||
                         managed.attempted_live_resize->y != managed.pending_live_resize->y;
@@ -729,7 +778,7 @@ namespace SFT::Engine {
                         managed.attempted_live_resize = managed.pending_live_resize;
                         const bool submitted = render_managed_window(
                             managed, *managed.pending_live_resize, extent_changed,
-                            /*coalesce_if_backpressured=*/true);
+                                                          true);
                         if (submitted) {
                             managed.submitted_live_resize = managed.pending_live_resize;
                             managed.next_live_resize_submission =
@@ -746,16 +795,16 @@ namespace SFT::Engine {
                 }
             }
 
-            // Once SDL has returned from its modal pump, its regular resize event is authoritative
-            // again. Let the ordinary path issue one final frame and resume live Window queries.
+
+
             for (const ManagedWindowEvents &events : window_events) {
                 if (events.resized) {
                     if (ManagedWindow *managed = find_managed_window(events.window_id)) {
                         managed->pending_live_resize.reset();
-                        // Keep submitted_live_resize through the normal-render loop below. When the
-                        // final SDL framebuffer extent matches it, that loop can retain the already
-                        // recreated composition presenter instead of needlessly rebuilding it at the
-                        // same size (a one-frame flash on mouse release).
+
+
+
+
                         managed->attempted_live_resize.reset();
                         managed->live_resize_active = false;
                         managed->live_resize_nonblocking_until =
@@ -764,8 +813,8 @@ namespace SFT::Engine {
                 }
             }
 
-            // WindowState comes exclusively from the event-channel cache, so it remains safe to
-            // publish while the dedicated event thread is inside Windows' modal resize loop.
+
+
             sync_window_state(window_events);
 
             const auto tick_now = high_resolution_clock::now();
@@ -788,8 +837,8 @@ namespace SFT::Engine {
                     continue;
                 }
                 if (managed->live_resize_active) {
-                    // The channel still reports its last pre-modal framebuffer extent. Rendering it
-                    // would immediately undo the fresh extent consumed above and recreate again.
+
+
                     continue;
                 }
                 const bool in_live_resize_settle_interval =
@@ -798,10 +847,10 @@ namespace SFT::Engine {
                     managed->submitted_live_resize &&
                     managed->submitted_live_resize->x == events.framebuffer_size->x &&
                     managed->submitted_live_resize->y == events.framebuffer_size->y;
-                // The live path has already scheduled this exact extent. Re-marking it dirty here
-                // would turn the final SDL notification into a same-size composition-presenter
-                // rebuild, briefly detaching its visual and flashing on mouse release. A genuinely
-                // different final extent still takes the normal authoritative resize path.
+
+
+
+
                 const bool resize_requires_notification = events.resized && !final_extent_already_submitted;
                 (void)render_managed_window(
                     *managed, *events.framebuffer_size, resize_requires_notification,
@@ -838,14 +887,14 @@ namespace SFT::Engine {
                 }
 
                 if (managed.surface) {
-                    // Removing the last surface tears down the RHI device itself (not just that
-                    // window), so this is the actual point of no return for any GPU resource the
-                    // client owns — earlier than ~Application() when there's no explicit "shut
-                    // down now" moment otherwise. Every in-flight frame for every window has already
-                    // been confirmed drained above, but that only awaited each frame's CPU-side
-                    // submission task (the async submission model lets the CPU run frames_in_flight
-                    // ahead of the GPU) — an explicit wait_idle() is what actually guarantees the
-                    // GPU itself is done with everything client_->on_shutdown() is about to destroy.
+
+
+
+
+
+
+
+
                     if (windows_.size() == 1) {
                         shutdown_client();
                     }
@@ -861,10 +910,10 @@ namespace SFT::Engine {
 
                 const bool was_primary = managed.primary;
                 window_manager_.destroy_window(managed.window_id);
-                // Posted only now — surface removal (including this window's render thread's own
-                // remove_surface_task, confirmed done above) is fully complete, so a completion
-                // handler is safe to destroy any GPU resources tied to this window. See
-                // pending_close_completion's own doc comment (Application.hpp).
+
+
+
+
                 if (managed.pending_close_completion) {
                     engine_->window_requests().complete(WindowRequestCompletion{
                         .id = *managed.pending_close_completion,
@@ -882,12 +931,12 @@ namespace SFT::Engine {
 
             const auto now = high_resolution_clock::now();
             if (duration<f64>(now - last_memory_log).count() >= memory_log_interval_seconds) {
-                // Keep memory telemetry off the critical path: forced mimalloc collection can walk
-                // allocator state and purge pages, which is much too expensive for the render thread.
+
+
                 const auto usage = Foundation::Memory::heap_usage();
-                // mimalloc's peak_rss is only refreshed during allocator work and can read lower than the
-                // live RSS (producing a nonsensical peak < current), so track our own high-water mark
-                // from the post-collect samples instead.
+
+
+
                 peak_resident_bytes = std::max(peak_resident_bytes, usage.current_resident_bytes);
                 Foundation::log_info("Memory usage: resident={} peak_resident={} committed={} peak_committed={}",
                                      Foundation::Memory::format_bytes(usage.current_resident_bytes),
@@ -917,10 +966,10 @@ namespace SFT::Engine {
                             .frame_index = primary->frame_index,
                             .window_count = windows_.size(),
                         });
-                    // Posted, never waited on — the periodic title update is cosmetic, and blocking on
-                    // the window thread for it froze the loop for a whole interactive resize whenever
-                    // the interval happened to elapse mid-drag (that thread is inside an OS modal loop
-                    // until the drag ends). See WindowManager::post_to_window().
+
+
+
+
                     window_manager_.post_to_window(primary->window_id, [title](Window &w) -> bool {
                         if (auto result = w.set_title(title.c_str()); !result) {
                             Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{

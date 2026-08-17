@@ -1,5 +1,5 @@
-// VulkanBackend device bring-up: physical device selection and scoring, graphics queue
-// discovery, logical device creation with feature verification, and VMA initialization.
+
+
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -110,8 +110,8 @@ namespace SFT::Core::Vulkan {
         }
 
         for (const auto &candidate : *devices_result) {
-            // The engine logger is spdlog/{fmt}; UString/ustr now have fmt::formatter specializations, so
-            // they log directly with no .view()/.cpp_string_view() adaptation at the call site.
+
+
             Foundation::log_info("Found GPU: {} [{}] ({}) ID={} score={:.1f}",
                                  candidate.name(),
                                  candidate.vendor_name(),
@@ -139,7 +139,7 @@ namespace SFT::Core::Vulkan {
                              physicalDevice.driver_version_string(),
                              physicalDevice.api_version_string());
 
-        // make sure we support the swapchain format we plan to use
+
         auto surface_formats_result = this->physicalDevice.surface_formats(primary_surface);
         if (!surface_formats_result.has_value()) [[unlikely]] {
             return graphics_backend_error(surface_formats_result.error().code,
@@ -168,20 +168,20 @@ namespace SFT::Core::Vulkan {
         ZoneScopedN("VulkanBackend::createDevice");
         (void)init;
 
-        // Query which features the physical device actually supports.
-        // VK_KHR_present_mode_fifo_latest_ready has no accompanying queue/backend integration work
-        // beyond this — it's a pure presentation capability, so it's queried/enabled unconditionally
-        // here rather than needing its own opt-in path (see RHI::Feature::PresentModeFifoLatestReady's
-        // own doc comment, and the "Optional Core: enabled when present" handling below).
+
+
+
+
+
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
             .pNext = nullptr};
-        // Detection/enablement only for now -- RHI::Feature::SwapchainMaintenance gates whether
-        // VkSwapchainPresentFenceInfoEXT/vkReleaseSwapchainImagesEXT are *legal* to use, but nothing
-        // in this codebase calls them yet (present-fence-gated swapchain retirement, replacing the
-        // wait_idle() fallback in Renderer::maybe_flush_retired_swapchains, is tracked as follow-up
-        // work — see that function's own doc comment). Querying it now so
-        // RHI::RhiDevice::enabled_features() correctly reports availability regardless.
+
+
+
+
+
+
         VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR supportedSwapchainMaintenance1Features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
             .pNext = &supportedPresentModeFifoLatestReadyFeatures,
@@ -215,9 +215,9 @@ namespace SFT::Core::Vulkan {
                                           "Required Vulkan features missing: dynamicRendering, synchronization2, timelineSemaphore, and bufferDeviceAddress are all required.");
         }
 
-        // Slang emits SPV_KHR_shader_draw_parameters (gl_BaseVertex/gl_BaseInstance) for entry
-        // points reading SV_VertexID/SV_InstanceID, so this is required for our triangle shader
-        // even though it never reads a base value — without it validation rejects the module.
+
+
+
         if (not supportedFeatures11.shaderDrawParameters) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
                                           "Required Vulkan feature missing: shaderDrawParameters.");
@@ -228,7 +228,7 @@ namespace SFT::Core::Vulkan {
             RHI::Feature::Synchronization2,
             RHI::Feature::DynamicRendering,
             RHI::Feature::ShaderDrawParameters,
-            // Vulkan render bundles use core secondary command buffers and need no native feature bit.
+
             RHI::Feature::RenderBundles,
             RHI::Feature::BufferDeviceAddress,
         });
@@ -291,22 +291,22 @@ namespace SFT::Core::Vulkan {
             supported_rhi_features.set(RHI::Feature::SwapchainMaintenance);
         }
 #if defined(_WIN32)
-        // No VkPhysicalDeviceXXXFeatures struct to check for either of these — both extensions add
-        // structs/functions, not a VkBool32 feature bit, so extension support is the whole story.
-        // Named as plain literals (not the VK_KHR_EXTERNAL_..._WIN32_EXTENSION_NAME macros) because
-        // those live in vulkan_win32.h, gated behind VK_USE_PLATFORM_WIN32_KHR — not worth pulling
-        // windows.h into this cross-platform file just for two string constants; the real Win32
-        // interop work that does need those headers lives in VulkanRhiBridgeComposition.cpp.
+
+
+
+
+
+
         if (this->physicalDevice.supports_extension("VK_KHR_external_memory_win32")) {
             supported_rhi_features.set(RHI::Feature::ExternalMemory).set(RHI::Feature::ExternalMemoryWin32);
         }
         if (this->physicalDevice.supports_extension("VK_KHR_external_semaphore_win32")) {
             supported_rhi_features.set(RHI::Feature::ExternalSemaphore).set(RHI::Feature::ExternalSemaphoreWin32);
         }
-        // VK_EXT_full_screen_exclusive is entirely Win32-specific in the Vulkan headers (even its own
-        // extension-name macro lives in vulkan_win32.h, not vulkan_core.h) — same reason as the two
-        // extensions above for naming it as a plain literal instead of the macro, and requires its
-        // instance-level dependency (surface_capabilities2_enabled_, VulkanBackendInstance.cpp) too.
+
+
+
+
         if (surface_capabilities2_enabled_ &&
             this->physicalDevice.supports_extension("VK_EXT_full_screen_exclusive")) {
             supported_rhi_features.set(RHI::Feature::FullScreenExclusive);
@@ -322,8 +322,8 @@ namespace SFT::Core::Vulkan {
             VK_QUEUE_TRANSFER_BIT,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
         if (!probed_dedicated_transfer_family.has_value()) {
-            // Some GPUs expose a distinct async compute family that also supports transfer, but no pure
-            // DMA/copy family. It is still useful for RHI Transfer work because it is distinct from graphics.
+
+
             probed_dedicated_transfer_family = find_dedicated_queue_family(
                 this->physicalDevice,
                 VK_QUEUE_TRANSFER_BIT,
@@ -422,32 +422,32 @@ namespace SFT::Core::Vulkan {
         if (supports_video_encode_queue) {
             optional_rhi_features.set(RHI::Feature::VideoEncodeQueue);
         }
-        // Optional Core: enabled whenever the device reports it, never gated behind an app request
-        // — a lower-latency Fifo variant with no tradeoff for an app to weigh, unlike raytracing/
-        // async-compute/etc. above (all real capacity/power tradeoffs the app opts into deliberately).
+
+
+
         optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
-        // Vulkan render bundles are backed by core secondary command buffers; no native feature bit
-        // or extension must be enabled, so expose the already-working implementation opportunistically.
+
+
         optional_rhi_features.set(RHI::Feature::RenderBundles);
-        // Same reasoning as PresentModeFifoLatestReady immediately above: a pure capability with no
-        // tradeoff, enabled whenever the device reports it. Detection/enablement only for now — see
-        // the query-time struct's own doc comment above for what's not wired up yet.
+
+
+
         optional_rhi_features.set(RHI::Feature::SwapchainMaintenance);
 #if defined(_WIN32)
-        // Same opportunistic-enable reasoning again: enabling these extensions changes nothing about
-        // default rendering, so there's no tradeoff for an app to weigh. They back the composition-
-        // present fallback (VulkanRhiBridgeComposition.cpp) that keeps a transparent window working on
-        // Win32/Vulkan surfaces whose composite alpha only supports Opaque — see
-        // resolve_composite_alpha's own doc comment (VulkanRhiBridgeSwapchain.cpp) for when that path
-        // is actually needed.
+
+
+
+
+
+
         optional_rhi_features.set(RHI::Feature::ExternalMemory)
             .set(RHI::Feature::ExternalMemoryWin32)
             .set(RHI::Feature::ExternalSemaphore)
             .set(RHI::Feature::ExternalSemaphoreWin32);
-        // Same reasoning once more: enabling the extension by itself changes nothing — exclusive mode
-        // is only ever entered when a swapchain explicitly requests it
-        // (RHI::SwapchainDesc::request_full_screen_exclusive), which only happens when the window is
-        // actually in WindowMode::ExclusiveFullscreen.
+
+
+
+
         optional_rhi_features.set(RHI::Feature::FullScreenExclusive);
 #endif
 
@@ -468,11 +468,11 @@ namespace SFT::Core::Vulkan {
         capabilities_.raytracing = enabled_rhi_features.has(RHI::Feature::RayTracingPipeline) || enabled_rhi_features.has(RHI::Feature::RayQuery);
         capabilities_.mesh_shaders = enabled_rhi_features.has(RHI::Feature::MeshShader);
         capabilities_.bindless = enabled_rhi_features.has(RHI::Feature::BindlessResources);
-        // DEFAULT_FRAMES_IN_FLIGHT as the lower bound (not 1) preserves today's "0 means double-
-        // buffer" behavior exactly, while still routing through the one centralized picker every
-        // frames-in-flight-derived subsystem now consumes RendererCapabilities::max_frames_in_flight
-        // from (see resolve_frames_in_flight's doc comment, Core/Renderer.hpp). upper_bound is 0
-        // (unbounded) here — a real surface-derived upper bound isn't wired in yet.
+
+
+
+
+
         if (auto resolution = resolve_frames_in_flight(init.features.desired_frames_in_flight, DEFAULT_FRAMES_IN_FLIGHT, 0)) {
             capabilities_.max_frames_in_flight = resolution->resolved;
             TracyPlot("frames_in_flight.requested", static_cast<i64>(resolution->requested));
@@ -490,9 +490,9 @@ namespace SFT::Core::Vulkan {
                                      resolution->upper_bound);
             }
         } else {
-            // Unreachable today (upper_bound is always 0/unbounded here, so lower_bound can never
-            // exceed it) — kept as a real fallback rather than an assert so a future caller that does
-            // pass a real upper bound can't turn an invalid-range configuration error into UB.
+
+
+
             TracyMessageLC("invalid frames-in-flight bounds -- falling back to default", tracy::Color::Red);
             Foundation::log_warn("Frames in flight: {} -- falling back to default ({}).",
                                  resolution.error(),
@@ -514,7 +514,7 @@ namespace SFT::Core::Vulkan {
         const bool enable_full_screen_exclusive = enabled_rhi_features.has(RHI::Feature::FullScreenExclusive);
 #endif
 
-        // Build the enable chain — only request what we verified above.
+
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
             .pNext = nullptr,
@@ -561,12 +561,12 @@ namespace SFT::Core::Vulkan {
             .taskShader = enable_task_shader ? VK_TRUE : VK_FALSE,
             .meshShader = enable_mesh_shader ? VK_TRUE : VK_FALSE,
         };
-        // meshFeatures must stay chained here whenever *any* struct behind it in the chain
-        // (rayQueryFeatures / rayTracingPipelineFeatures / accelerationStructureFeatures /
-        // swapchainMaintenance1Features / presentModeFifoLatestReadyFeatures) is needed — dropping it
-        // based on enable_mesh_shader alone would silently disconnect all of those from the enable
-        // chain too whenever mesh shading itself is off. Every bool that conditionally advances
-        // feature_chain_tail above must be listed here.
+
+
+
+
+
+
         VkPhysicalDeviceVulkan14Features features14{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
@@ -599,16 +599,16 @@ namespace SFT::Core::Vulkan {
             .shaderDrawParameters = VK_TRUE,
         };
         VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features11};
-        // Anisotropic filtering: enable whenever the device supports it, so the RHI sampler path can
-        // honor SamplerDesc::max_anisotropy (clamped to the device limit at create_sampler time).
-        // Near-universal on real GPUs; guarded because portability-subset implementations may lack it.
+
+
+
         if (supportedFeatures.features.samplerAnisotropy) {
             features.features.samplerAnisotropy = VK_TRUE;
         }
-        // BC1-7 texture compression: core Vulkan 1.0 feature (not a vendor extension), enabled
-        // whenever supported — near-universal on desktop GPUs. Lets Engine::AssetManager upload
-        // Format::BC7Unorm/etc. textures (see RHI::DeviceLimits::supports_bc_texture_compression,
-        // populated from this same query in VulkanRhiBridgeCore.cpp).
+
+
+
+
         if (supportedFeatures.features.textureCompressionBC) {
             features.features.textureCompressionBC = VK_TRUE;
         }
@@ -616,8 +616,8 @@ namespace SFT::Core::Vulkan {
             features.features.imageCubeArray = VK_TRUE;
         }
 
-        // Discover queue families. Graphics was already verified by discoverGraphicsQueue;
-        // present may share the same index — VulkanDevice::create() deduplicates automatically.
+
+
         auto gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         auto present_family = this->physicalDevice.find_present_queue_family(primary_surface);
         optional<u32> compute_family = enabled_rhi_features.has(RHI::Feature::AsyncCompute)
@@ -636,13 +636,13 @@ namespace SFT::Core::Vulkan {
                                                 ? probed_video_encode_family
                                                 : optional<u32>{};
         if (compute_family.has_value() && transfer_family.has_value() && *compute_family == *transfer_family) {
-            // VulkanDevice wraps queue handles with per-wrapper mutexes. If transfer aliases the compute
-            // queue family, request/retrieve it once and let the RHI bridge map Transfer to computeQueue.
+
+
             transfer_family.reset();
         }
 
-        // Extensions: swapchain (required for presentation) + calibrated timestamps
-        // (Vulkan 1.4 core, needed for anchoring GPU timer to wall clock).
+
+
         hdr_metadata_enabled_ = false;
         vector<const char *> extensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -665,9 +665,9 @@ namespace SFT::Core::Vulkan {
             extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
         }
         if (enable_swapchain_maintenance1) {
-            // The feature struct in the device pNext chain is only valid when its owning extension
-            // is enabled too. This also makes the RHI feature report truthful for the future
-            // present-fence retirement path.
+
+
+
             extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
         }
 #if defined(_WIN32)
@@ -690,26 +690,26 @@ namespace SFT::Core::Vulkan {
         if (video_encode_family.has_value()) {
             extensions.push_back(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME);
         }
-        // HDR metadata is optional, but enable it up front whenever available. Device extensions are
-        // immutable after creation; pre-enabling this avoids replacing the device—and invalidating
-        // GPU-only scene assets—when an SDR application later switches its swapchain to HDR.
+
+
+
         if (this->physicalDevice.supports_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME)) {
             extensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
             hdr_metadata_enabled_ = true;
         }
 
-        // The Vulkan spec requires enabling VK_KHR_portability_subset on any device that
-        // advertises it — MoltenVK and other non-conformant implementations use it to report
-        // which core features they can't fully provide. Omitting it despite support is invalid.
+
+
+
         if (this->physicalDevice.supports_extension(PORTABILITY_SUBSET_EXTENSION_NAME)) {
             extensions.push_back(PORTABILITY_SUBSET_EXTENSION_NAME);
         }
 
-        // A second queue from the graphics family is the best portable latency win available when
-        // the driver exposes one: vkQueuePresentKHR can block in the WSI, but it then blocks only the
-        // presentation queue while graphics submissions keep flowing on queue 0. A separate family is
-        // deliberately not selected here because that needs explicit swapchain-image ownership transfer;
-        // the existing graphics queue remains the safe fallback in that topology.
+
+
+
+
+
         const u32 graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family);
         const u32 present_queue_index = gfx_family.has_value() && present_family.has_value() &&
                                                 *gfx_family == *present_family && graphics_queue_count > 1
@@ -746,8 +746,8 @@ namespace SFT::Core::Vulkan {
             "Logical device created on: {}",
             this->physicalDevice.name());
 
-        // VulkanDevice::create() already retrieved the graphics queue since gfx_family was
-        // passed in desc above — pull it out rather than querying vkGetDeviceQueue again.
+
+
         auto &device_graphics_queue = this->logicalDevice.graphics_queue();
         if (!device_graphics_queue.has_value()) [[unlikely]] {
             Foundation::log_error("Failed to produce a VkQueue for graphics!");
