@@ -178,13 +178,17 @@ namespace SFT::D3D12 {
         rasterizer.CullMode = to_d3d12(desc.rasterization.cull_mode);
         // Inverted on purpose — do not "fix" this to the obvious 1:1 mapping.
         //
-        // The RHI's Vulkan-style clip space is reconciled on D3D12 by negating clip-space Y in the
-        // shader (see RHI::Viewport and sturdy_clip_position in sturdy_common.slang). That negation
-        // is a mirror, and it reverses how the D3D12 rasterizer classifies a triangle's winding —
-        // measured, not assumed: the same triangle that Vulkan reports as clockwise is only drawn
-        // here when FrontCounterClockwise is TRUE. Passing front_face through unchanged silently
-        // culls exactly the faces that should be visible, which looks like correct geometry with
-        // random pieces missing.
+        // The RHI's Vulkan-style clip space is reconciled on D3D12 by negating clip-space Y. For the
+        // main render path (gbuffer/forward geometry, UI) that negation is now baked into C++-side
+        // matrices/constants before they ever reach a shader (RHI::gpu_clip_flip /
+        // RHI::gpu_clip_y_sign, see Renderer::render_frame and Renderer::prepare_scene_gpu_data);
+        // shadow-pass and spectral-path-tracer shaders still do it themselves via
+        // sturdy_clip_position() in sturdy_common.slang (pending a follow-up migration). Either way,
+        // the effective clip-space Y negation is the same mirror, and it reverses how the D3D12
+        // rasterizer classifies a triangle's winding — measured, not assumed: the same triangle that
+        // Vulkan reports as clockwise is only drawn here when FrontCounterClockwise is TRUE. Passing
+        // front_face through unchanged silently culls exactly the faces that should be visible, which
+        // looks like correct geometry with random pieces missing.
         rasterizer.FrontCounterClockwise =
             desc.rasterization.front_face == rhi::FrontFace::Clockwise ? TRUE : FALSE;
         rasterizer.DepthBias = static_cast<INT>(desc.rasterization.depth_bias_constant);

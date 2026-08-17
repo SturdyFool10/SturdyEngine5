@@ -19,27 +19,35 @@
 // Clay type either.
 namespace SFT::UI {
 
-    // Every custom-element shader's single push-constant struct must begin with exactly these three
+    // Every custom-element shader's single push-constant struct must begin with exactly these five
     // fields, in this order and byte layout (see Shaders/sturdy_common.slang's uiQuadClipPosition(),
-    // which a custom shader's own vertexMain calls with these three fields) —
+    // which a custom shader's own vertexMain calls with these five fields) —
     // UiCustomElementPipeline writes them, then appends CustomShaderRef::push_constants right after.
+    // Deliberately a clean 32 bytes (two full 16-byte cbuffer registers, explicitly padded rather
+    // than left to Slang's implicit next-16-byte-boundary rounding — see CustomShaderRef's own doc
+    // comment) so a trailing float4 field in a concrete shader always starts immediately at byte 32
+    // with no extra gap to account for on the C++ packing side.
     struct UiElementConstants {
         glm::vec2 position{0.0f}; // pixel-space top-left, Y down (Clay's convention)
         glm::vec2 size{0.0f}; // pixel-space width/height
         glm::vec2 viewport_size{0.0f};
+        // +1 on Vulkan, -1 on D3D12/Metal/WebGpu (RHI::gpu_clip_y_sign) — see uiQuadClipPosition's
+        // own doc comment for why this replaced the legacy sturdy_clip_position() macro wrapper.
+        f32 clip_y_sign = 1.0f;
+        f32 _pad = 0.0f;
     };
 
     // A Slang shader an app supplies for one Context::custom_element() call — the shader-driven-
     // styling seam Clay's CUSTOM render command exists for. Both entry points must live in
     // `shader_path`'s own file (same convention Renderer::CustomPostProcessEffect already uses):
     // `vertexMain` MUST build its quad via Shaders/sturdy_common.slang's uiQuadClipPosition()/
-    // uiQuadCorner(), given a `[[push_constant]] ConstantBuffer<T>` whose first three fields match
+    // uiQuadCorner(), given a `[[push_constant]] ConstantBuffer<T>` whose first four fields match
     // UiElementConstants exactly (see its own doc comment).
     //
     // uiQuadClipPosition() is not just a convenience: it applies the engine's clip-space ABI (see
-    // RHI::Viewport), which reconciles Vulkan's NDC with D3D12's. A vertexMain that writes
-    // SV_Position directly renders correctly on Vulkan and vertically mirrored on D3D12. If a custom
-    // shader must compute clip space itself, pass the result through sturdy_clip_position().
+    // RHI::Viewport), which reconciles Vulkan's NDC with D3D12's, via a plain multiply against
+    // clip_y_sign above (C++-supplied, not a shader-compile-time macro). A vertexMain that writes
+    // SV_Position directly renders correctly on Vulkan and vertically mirrored on D3D12.
     //
     // v1 scope: push-constant parameters only, no texture/buffer bindings — a shader that declares
     // one fails at UiRenderer::prepare() time with a clear error rather than silently drawing wrong.
@@ -55,13 +63,14 @@ namespace SFT::UI {
         // prepare()/draw() validates this and fails loudly on a mismatch rather than drawing wrong).
         //
         // Gotcha: Slang packs push-constant structs HLSL-cbuffer-style — a float4 (or anything with
-        // 16-byte alignment) is pushed to the next 16-byte boundary rather than packed tightly right
-        // after UiElementConstants' 24 bytes, and the whole struct is padded up to a multiple of 16.
+        // 16-byte alignment) is pushed to the next 16-byte boundary. UiElementConstants' 32-byte
+        // prefix (see its own doc comment) is deliberately already a multiple of 16, so a shader's
+        // first trailing float4 field lands immediately at byte 32 with no implicit gap to account
+        // for — unlike the legacy 24-byte (three-vec2) prefix, which needed an explicit 8-byte gap.
         // Compute the real layout from what the shader actually reflects (log
         // Renderer::generate_push_constant_ranges()'s range while iterating, or just note the size
         // UiRenderer's error message reports) rather than assuming your C++ struct's natural
-        // sizeof/alignof matches (e.g. a trailing float4 lands at byte 32, not 24, once the 24-byte
-        // UiElementConstants prefix is accounted for).
+        // sizeof/alignof matches.
         std::vector<std::byte> push_constants;
     };
 

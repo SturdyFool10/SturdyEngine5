@@ -286,7 +286,8 @@ namespace SFT::UI {
     }
 
     Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
-                                          Core::RenderSurfaceHandle surface, u32 frame_resource_index) {
+                                          Core::RenderSurfaceHandle surface, u32 frame_resource_index,
+                                          RHI::BackendType backend) {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
         auto surface_resources = std::ranges::find(
@@ -323,7 +324,7 @@ namespace SFT::UI {
             while (quad_cursor < frame_resources.quad_batches.size() &&
                    frame_resources.quad_batches[quad_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = quad_pipeline_.draw(
-                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size);
+                        pass, span<const UiQuadDrawBatch>{&frame_resources.quad_batches[quad_cursor], 1}, viewport_size, backend);
                     !drawn) {
                     return drawn;
                 }
@@ -332,7 +333,7 @@ namespace SFT::UI {
             while (text_cursor < frame_resources.text_batches.size() &&
                    frame_resources.text_batches[text_cursor].paint_group == next_group) {
                 if (Core::RendererResult drawn = text_pipeline_.draw(
-                        pass, span<const Renderer::TextDrawBatch>{&frame_resources.text_batches[text_cursor], 1}, viewport_size);
+                        pass, span<const Renderer::TextDrawBatch>{&frame_resources.text_batches[text_cursor], 1}, viewport_size, backend);
                     !drawn) {
                     return drawn;
                 }
@@ -341,7 +342,7 @@ namespace SFT::UI {
             while (custom_cursor < frame_resources.custom_draws.size() &&
                    frame_resources.custom_group_ids[custom_cursor] == next_group) {
                 if (Core::RendererResult drawn = custom_element_pipeline_.draw(
-                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size);
+                        pass, color_format_, span<const CustomDraw>{&frame_resources.custom_draws[custom_cursor], 1}, viewport_size, backend);
                     !drawn) {
                     return drawn;
                 }

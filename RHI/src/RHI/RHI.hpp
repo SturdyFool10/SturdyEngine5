@@ -67,6 +67,7 @@
 #include "Swapchain.hpp"
 #include "HdrDisplay.hpp"
 #include "Device.hpp"
+#include "ClipSpace.hpp"
 #include "Adapter.hpp"
 #include "Backend.hpp"
 #include "Inventory.hpp"

@@ -497,17 +497,15 @@ namespace SFT::UI {
             };
         }
 
-        // Builds a custom_element() push-constant payload: an 8-byte gap (Slang pads a
-        // [[push_constant]] struct's first trailing float4 field to the next 16-byte boundary,
-        // which lands 8 bytes after UiElementConstants' 24-byte prefix, not immediately after it —
-        // see CustomElement.hpp's own doc comment) followed by each vec4 packed contiguously. Every
-        // Shaders/ui_color_picker_*.slang shader below declares its extra fields as plain float4s
-        // for exactly this reason, so this one packer covers all three.
+        // Builds a custom_element() push-constant payload: each vec4 packed contiguously, starting
+        // immediately at byte 32 — UiElementConstants' prefix is a clean 32 bytes (two full 16-byte
+        // cbuffer registers, see its own doc comment), so unlike the legacy 24-byte prefix this needs
+        // no manual gap before the first trailing float4 field. Every Shaders/ui_color_picker_*.slang
+        // shader below declares its extra fields as plain float4s, so this one packer covers all of
+        // them.
         [[nodiscard]] inline vector<std::byte> pack_gradient_shader_params(initializer_list<glm::vec4> vec4_fields) {
             vector<f32> words;
-            words.reserve(2 + vec4_fields.size() * 4);
-            words.push_back(0.0f);
-            words.push_back(0.0f);
+            words.reserve(vec4_fields.size() * 4);
             for (const glm::vec4 &field : vec4_fields) {
                 words.push_back(field.x);
                 words.push_back(field.y);

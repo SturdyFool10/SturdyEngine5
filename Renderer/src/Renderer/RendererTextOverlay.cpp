@@ -433,7 +433,7 @@ namespace SFT::Renderer {
             return {};
         }
 
-        return guard->pipeline.draw(pass, batches, viewport_size_px);
+        return guard->pipeline.draw(pass, batches, viewport_size_px, device->backend_type());
     }
 
     void Renderer::destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept {

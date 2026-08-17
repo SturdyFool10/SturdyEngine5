@@ -44,7 +44,8 @@ namespace SFT::UI {
         // doesn't batch. Every shader referenced must have already been prepared this frame via
         // prepare() above (same `color_format`, which is what the shader cache is keyed by).
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, RHI::Format color_format,
-                                                 span<const CustomDraw> draws, glm::vec2 viewport_size);
+                                                 span<const CustomDraw> draws, glm::vec2 viewport_size,
+                                                 RHI::BackendType backend);
 
         void destroy(RHI::RhiDevice &device) noexcept;
 

@@ -196,20 +196,25 @@ namespace SFT::RHI {
     //   * D3D12   — native NDC is +Y up. D3D12 exposes no legal API-level way to invert it: viewport,
     //               rasterizer and pipeline state all lack the knob, and D3D12_VIEWPORT::Height is
     //               documented as non-negative, so a negative-height viewport is out of spec even
-    //               though hardware accepts it. The reconciliation is therefore a shader-side
-    //               negation, applied by sturdy_clip_position() in Shaders/sturdy_common.slang. The
-    //               sign is injected as STURDY_CLIP_Y_SIGN by the shader compiler (Core::Slang) from
-    //               the target format, so no call site or shader author can forget it. Depth needs
-    //               no adjustment (D3D12 is already [0, 1]).
+    //               though hardware accepts it. The reconciliation is a Y negation applied before a
+    //               shader ever sees the result: for the main render path (gbuffer/forward geometry,
+    //               UI) it's baked into C++-side matrices/constants (RHI::gpu_clip_flip /
+    //               RHI::gpu_clip_y_sign — see ClipSpace.hpp, Renderer::render_frame,
+    //               Renderer::prepare_scene_gpu_data); shadow-pass and spectral-path-tracer shaders
+    //               still apply it themselves via sturdy_clip_position()/STURDY_CLIP_Y_SIGN in
+    //               Shaders/sturdy_common.slang (legacy, pending a follow-up migration — see that
+    //               macro's own doc comment). Depth needs no adjustment (D3D12 is already [0, 1]).
     //
     // Consequences worth knowing:
     //   * Viewports and scissor rects are never translated on any backend — only clip space differs.
     //   * FrontFace IS inverted by the D3D12 backend: negating clip Y is a mirror, so it reverses
     //     the rasterizer's winding classification. See FrontFace in Pipeline.hpp. Get this wrong and
     //     geometry lands in the right place with the wrong half of it culled away.
-    //   * Every vertex-stage entry point MUST emit SV_Position through sturdy_clip_position() (or a
-    //     shared helper that already does, like fullscreenTrianglePosition/uiQuadClipPosition).
-    //     A shader that writes SV_Position directly renders vertically mirrored on D3D12.
+    //   * Every vertex-stage entry point MUST end up emitting an already-Y-reconciled SV_Position —
+    //     either by consuming a C++-supplied, already-flipped matrix/sign (RHI::gpu_clip_flip /
+    //     RHI::gpu_clip_y_sign, the main-path mechanism) or, on shadow/path-tracing shaders only, via
+    //     sturdy_clip_position(). A shader that writes SV_Position directly from an unflipped
+    //     matrix/NDC computation renders vertically mirrored on D3D12.
     //
     // Do NOT compensate for any of this in matrix code — projection matrices are built once, for
     // Vulkan's convention, and are correct on every backend.

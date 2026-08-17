@@ -4,10 +4,10 @@
 // pixel analytically. Smooth at any size, and one draw call instead of up to 1024.
 //
 // UI::Context::custom_element()'s contract (CustomElement.hpp): the push-constant struct must
-// start with UiElementConstants' three fields exactly, then whatever this shader needs. Slang packs
-// push-constant structs HLSL-cbuffer-style — a float4 field is pushed to the next 16-byte boundary,
-// which lands 8 bytes after UiElementConstants' 24-byte prefix, not immediately after it (see
-// CustomElement.hpp's own doc comment). Two trailing float4s here: `params` (x = hue in degrees,
+// start with UiElementConstants' five fields exactly, then whatever this shader needs.
+// UiElementConstants' prefix is a clean 32 bytes (see its own doc comment), so the first trailing
+// float4 field below starts immediately at byte 32 with no gap to account for. Two trailing
+// float4s here: `params` (x = hue in degrees,
 // y = opacity, z/w unused) and `cornerRadius` (topLeft, topRight, bottomLeft, bottomRight, matching
 // Style.hpp's CornerRadius field order) — the surrounding element's own border can be rounded
 // (UI::ColorPickerComposition::saturation_value.alter_decl), and a plain custom_element() draw is
@@ -20,6 +20,8 @@ struct SvPlaneConstants {
     float2 position;
     float2 size;
     float2 viewportSize;
+    float clipYSign;
+    float _pad0;
     float4 params;
     float4 cornerRadius;
 };
@@ -34,7 +36,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     VertexOutput output;
-    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize);
+    output.position = uiQuadClipPosition(vertexId, constants.position, constants.size, constants.viewportSize, constants.clipYSign);
     output.localPixelPos = uiQuadCorner(vertexId) * constants.size;
     return output;
 }

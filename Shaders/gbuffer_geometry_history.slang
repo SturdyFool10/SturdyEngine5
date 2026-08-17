@@ -85,7 +85,10 @@ VertexOutput vertexMainWithHistory(VertexInput input) {
 
     VertexOutput output;
     float4 worldPosition = mul(float4(input.position, 1.0), object.model);
-    output.position = sturdy_clip_position(mul(worldPosition, view.viewProjection));
+    // view.viewProjection (SceneViewGpuData, prepare_scene_gpu_data) already has the D3D12
+    // clip-space Y flip baked in on the C++ side (RHI::gpu_clip_flip) — a plain mul(), no
+    // sturdy_clip_position() wrapper needed here.
+    output.position = mul(worldPosition, view.viewProjection);
     output.worldNormal = normalize(mul(input.normal, (float3x3)object.model));
     output.uv = input.uv;
     output.color = input.color;

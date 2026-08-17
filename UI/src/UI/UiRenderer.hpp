@@ -74,7 +74,8 @@ namespace SFT::UI {
         // Each pipeline sets its own scissor per batch; the caller should not rely on scissor (or
         // bound-pipeline) state surviving this call.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
-                                                 Core::RenderSurfaceHandle surface, u32 frame_resource_index);
+                                                 Core::RenderSurfaceHandle surface, u32 frame_resource_index,
+                                                 RHI::BackendType backend);
 
         void destroy(RHI::RhiDevice &device) noexcept;
         [[nodiscard]] bool ready() const noexcept { return ready_; }

@@ -6,6 +6,7 @@
 #endif
 #include <algorithm>
 #include <cstring>
+#include <glm/vec3.hpp>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -63,6 +64,9 @@ namespace SFT::UI {
             glm::vec2 viewport_size{0.0f};
             u32 instance_index_base = 0;
             u32 padding = 0;
+            // See Shaders/ui_quad.slang's UiViewConstants::clipYSign doc comment.
+            f32 clip_y_sign = 1.0f;
+            glm::vec3 _pad1{0.0f};
         };
 
         [[nodiscard]] Core::GraphicsBackendError ui_quad_error(string message) {
@@ -354,7 +358,8 @@ namespace SFT::UI {
         return {};
     }
 
-    Core::RendererResult UiQuadPipeline::draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches, glm::vec2 viewport_size) {
+    Core::RendererResult UiQuadPipeline::draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,
+                                              glm::vec2 viewport_size, RHI::BackendType backend) {
         if (batches.empty()) {
             return {};
         }
@@ -378,7 +383,11 @@ namespace SFT::UI {
                 pass.set_bind_group(group.set, group.handle);
             }
 
-            const UiViewConstantsGpu constants{.viewport_size = viewport_size, .instance_index_base = batch.first_instance};
+            const UiViewConstantsGpu constants{
+                .viewport_size = viewport_size,
+                .instance_index_base = batch.first_instance,
+                .clip_y_sign = RHI::gpu_clip_y_sign(backend),
+            };
             pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
                                     span<const std::byte>{reinterpret_cast<const std::byte *>(&constants), sizeof(constants)});
 
